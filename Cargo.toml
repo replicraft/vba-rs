@@ -24,6 +24,7 @@ vba-lexer = { path = "crates/language/vba-lexer" }
 vba-profile = { path = "crates/foundation/vba-profile" }
 vba-project = { path = "crates/model/vba-project" }
 vba-source = { path = "crates/foundation/vba-source" }
+vba-syntax = { path = "crates/language/vba-syntax" }
 vba-value = { path = "crates/runtime/vba-value" }
 
 # Error handling
@@ -39,5 +40,6 @@ clap = { version = "4", features = ["derive"] }
 
 # Testing
 assert_cmd = "2"
-proptest = "1"
+expect-test = "1.5"
+proptest = "1.12"
 tempfile = "3"

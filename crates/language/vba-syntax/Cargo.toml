@@ -1,0 +1,20 @@
+[package]
+name = "vba-syntax"
+description = "Lossless concrete syntax tree and error-tolerant parser for VBA (MS-VBAL sections 4 and 5)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-diagnostics.workspace = true
+vba-lexer.workspace = true
+vba-profile.workspace = true
+vba-source.workspace = true
+
+[dev-dependencies]
+expect-test.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true
