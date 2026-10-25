@@ -763,6 +763,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-ffi"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "thiserror",
+ "vba-core",
+ "vba-profile",
+ "vba-value",
+]
+
+[[package]]
 name = "vba-format"
 version = "0.1.0"
 dependencies = [
@@ -824,6 +835,17 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "vba-core",
+]
+
+[[package]]
+name = "vba-winapi"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "thiserror",
+ "vba-ffi",
+ "vba-profile",
+ "vba-value",
 ]
 
 [[package]]

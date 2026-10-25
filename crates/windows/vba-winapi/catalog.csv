@@ -1,0 +1,47 @@
+dll,symbol,variants,family,signature,strategy,status,tests,last_error,notes
+kernel32,GetTickCount,-,time,=> Long,native-shim,IMPLEMENTED,3,none,DWORD wraps at 2^32; clock injected
+kernel32,GetTickCount64,-,time,=> LongLong,native-shim,IMPLEMENTED,2,none,LongLong needs a 64-bit target
+kernel32,QueryPerformanceCounter,-,time,ByRef LongLong => Long,native-shim,IMPLEMENTED,3,none,Always TRUE; counter from injected clock at 10 MHz in tests
+kernel32,QueryPerformanceFrequency,-,time,ByRef LongLong => Long,native-shim,IMPLEMENTED,2,none,Frequency from injected clock
+kernel32,Sleep,-,time,ByVal Long => Sub,native-shim,IMPLEMENTED,3,none,Injectable; INFINITE refused as Unsupported
+kernel32,lstrlen,AW,string,ByVal LongPtr => Long,native-shim,IMPLEMENTED,7,none,NULL gives 0
+kernel32,lstrcpy,AW,string,ByVal LongPtr;ByVal LongPtr => LongPtr,native-shim,IMPLEMENTED,6,none,NULL gives NULL; overflow is an emulated fault not corruption
+kernel32,lstrcat,AW,string,ByVal LongPtr;ByVal LongPtr => LongPtr,native-shim,IMPLEMENTED,5,none,NULL gives NULL; overflow is an emulated fault
+kernel32,lstrcmp,AW,string,ByVal LongPtr;ByVal LongPtr => Long,native-shim,IMPLEMENTED,9,none,Exact only for ASCII letters and digits (en-US word sort); else Unsupported
+kernel32,lstrcmpi,AW,string,ByVal LongPtr;ByVal LongPtr => Long,native-shim,IMPLEMENTED,5,none,Exact only for ASCII letters and digits; else Unsupported
+user32,CharUpper,AW,string,ByVal LongPtr => LongPtr,native-shim,IMPLEMENTED,9,none,High word zero = single character; Rust simple case mapping
+user32,CharLower,AW,string,ByVal LongPtr => LongPtr,native-shim,IMPLEMENTED,6,none,High word zero = single character; Rust simple case mapping
+kernel32,MultiByteToWideChar,-,codepage,ByVal Long;ByVal Long;ByVal LongPtr;ByVal Long;ByVal LongPtr;ByVal Long => Long,native-shim,IMPLEMENTED,12,sets 87/122/1113,Code pages 1252 20127 28591 65001 and ACP only; others Unsupported
+kernel32,WideCharToMultiByte,-,codepage,ByVal Long;ByVal Long;ByVal LongPtr;ByVal Long;ByVal LongPtr;ByVal Long;ByVal LongPtr;ByVal LongPtr => Long,native-shim,IMPLEMENTED,12,sets 87/122/1113,Best-fit tables not reproduced: needs WC_NO_BEST_FIT_CHARS else Unsupported
+kernel32,GetLastError,-,error,=> Long,native-shim,IMPLEMENTED,2,reads emulated slot,Per logical thread; never the host's value
+kernel32,SetLastError,-,error,ByVal Long => Sub,native-shim,IMPLEMENTED,2,writes emulated slot,Per logical thread
+kernel32,GetVersion,-,system,=> Long,native-shim,IMPLEMENTED,2,none,Value from the call context not the host OS
+kernel32,GetVersionEx,A,system,ByRef OSVERSIONINFO => Long,native-shim,IMPLEMENTED,4,sets 87 for bad size,Size 148 or 156; GetVersionExW not implemented
+advapi32,GetUserName,A,system,ByVal LongPtr;ByRef Long => Long,native-shim,IMPLEMENTED,3,sets 122,Host-injected identity; GetUserNameW not implemented
+kernel32,GetComputerName,A,system,ByVal LongPtr;ByRef Long => Long,native-shim,IMPLEMENTED,3,sets 111,Host-injected identity; GetComputerNameW not implemented
+kernel32,RtlMoveMemory,-,memory,ByVal LongPtr;ByVal LongPtr;ByVal LongPtr => Sub,native-shim,IMPLEMENTED,4,none,Reached via Alias; bounds-checked in the emulated address space
+kernel32,RtlFillMemory,-,memory,ByVal LongPtr;ByVal LongPtr;ByVal Byte => Sub,native-shim,IMPLEMENTED,3,none,Argument order is destination length fill
+kernel32,RtlZeroMemory,-,memory,ByVal LongPtr;ByVal LongPtr => Sub,native-shim,IMPLEMENTED,3,none,Bounds-checked
+kernel32,CopyMemory,-,memory,ByVal LongPtr;ByVal LongPtr;ByVal LongPtr => Sub,unsupported,NOT IMPLEMENTED,0,n/a,SDK macro and not an export; use Alias "RtlMoveMemory"
+kernel32,FillMemory,-,memory,ByVal LongPtr;ByVal LongPtr;ByVal Byte => Sub,unsupported,NOT IMPLEMENTED,0,n/a,SDK macro and not an export; use Alias "RtlFillMemory"
+kernel32,ZeroMemory,-,memory,ByVal LongPtr;ByVal LongPtr => Sub,unsupported,NOT IMPLEMENTED,0,n/a,SDK macro and not an export; use Alias "RtlZeroMemory"
+kernel32,Beep,-,system,ByVal Long;ByVal Long => Long,unsupported,NOT IMPLEMENTED,0,sets on failure,Audible side effect cannot be emulated; a silent no-op would be a fake success
+kernel32,GetVersionEx,W,system,ByRef OSVERSIONINFO => Long,native-shim,NOT IMPLEMENTED,0,sets 87 for bad size,Needs a wide layout; not yet written
+advapi32,GetUserName,W,system,ByVal LongPtr;ByRef Long => Long,native-shim,NOT IMPLEMENTED,0,sets 122,Not yet written
+kernel32,GetComputerName,W,system,ByVal LongPtr;ByRef Long => Long,native-shim,NOT IMPLEMENTED,0,sets 111,Not yet written
+kernel32,GetModuleHandle,AW,loader,ByVal String => LongPtr,unsupported,NOT IMPLEMENTED,0,sets on failure,Would expose host module handles
+kernel32,LoadLibrary,AW,loader,ByVal String => LongPtr,unsupported,NOT IMPLEMENTED,0,sets on failure,Never loads arbitrary libraries
+kernel32,GetProcAddress,-,loader,ByVal LongPtr;ByVal String => LongPtr,unsupported,NOT IMPLEMENTED,0,sets on failure,Needs a native loader
+kernel32,CreateFile,AW,file,many parameters => LongPtr,wine-fallback,NOT IMPLEMENTED,0,sets on failure,Host file access needs a permission model
+kernel32,GetTempPath,AW,file,ByVal Long;ByVal String => Long,wine-fallback,NOT IMPLEMENTED,0,sets on failure,Depends on environment emulation
+kernel32,GetSystemTime,-,time,ByRef SYSTEMTIME => Sub,native-shim,NOT IMPLEMENTED,0,none,Needs an injected wall clock
+kernel32,GetLocalTime,-,time,ByRef SYSTEMTIME => Sub,native-shim,NOT IMPLEMENTED,0,none,Needs an injected wall clock and time zone
+kernel32,GetCurrentProcessId,-,process,=> Long,native-shim,NOT IMPLEMENTED,0,none,Needs an injected process identity
+kernel32,OutputDebugString,AW,debug,ByVal String => Sub,native-shim,NOT IMPLEMENTED,0,none,Needs a debug output sink
+user32,MessageBox,AW,ui,ByVal LongPtr;ByVal String;ByVal String;ByVal Long => Long,unsupported,NOT IMPLEMENTED,0,sets on failure,Requires a UI host
+user32,FindWindow,AW,ui,ByVal String;ByVal String => LongPtr,wine-fallback,NOT IMPLEMENTED,0,sets on failure,Requires a window system
+user32,GetWindowText,AW,ui,ByVal LongPtr;ByVal String;ByVal Long => Long,wine-fallback,NOT IMPLEMENTED,0,sets on failure,Requires a window system
+user32,SendMessage,AW,ui,ByVal LongPtr;ByVal Long;ByVal LongPtr;ByVal LongPtr => LongPtr,wine-fallback,NOT IMPLEMENTED,0,sets on failure,Requires a window system
+user32,GetSystemMetrics,-,ui,ByVal Long => Long,wine-fallback,NOT IMPLEMENTED,0,none,Needs an injected display model
+shell32,ShellExecute,AW,shell,many parameters => LongPtr,unsupported,NOT IMPLEMENTED,0,sets on failure,Launches host programs
+advapi32,RegOpenKeyEx,AW,registry,many parameters => Long,wine-fallback,NOT IMPLEMENTED,0,returns error code,Needs a registry emulation

@@ -1,0 +1,19 @@
+[package]
+name = "vba-winapi"
+description = "Win32 behavior catalog, provider framework and portable native shims for VBA Declare statements"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-ffi.workspace = true
+vba-profile.workspace = true
+vba-value.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
