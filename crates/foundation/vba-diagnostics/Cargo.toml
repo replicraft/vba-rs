@@ -1,0 +1,13 @@
+[package]
+name = "vba-diagnostics"
+description = "Diagnostic types, deterministic ordering and plain rendering for vba-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-source.workspace = true
+
+[lints]
+workspace = true
