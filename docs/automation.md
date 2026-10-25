@@ -54,6 +54,7 @@ flags, EXCEPINFO, HRESULT) and MS-VBAL §5 call semantics. Everything marked
 
 ## Not implemented / unverified
 
+* `vbObjectError + 0x154` and `+ 0x1F3` coincide with the COM class-registration HRESULTs and map to 429.
 * The HRESULT table beyond the codes named in the task (438, 13, 448 etc.) follows commonly observed VBA behaviour and has not been checked against a real VBA host.
 * No real COM: no `IUnknown`, `ITypeInfo`/type libraries, `IDispatchEx`, apartments or marshalling. `member_info` is the only type information.
 * Without `member_info`, argument splitting to a default member, the `Let`-through-default rule and ByVal handling are not applied (all arguments are assumed ByRef).

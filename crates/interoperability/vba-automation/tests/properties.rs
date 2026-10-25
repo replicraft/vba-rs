@@ -87,6 +87,9 @@ proptest! {
 
     #[test]
     fn vb_object_error_roundtrip(n in 0i32..=0xFFFF) {
+        // vbObjectError + 0x154 and + 0x1F3 are the COM class-registration
+        // HRESULTs, which VBA reports as 429; that collision is inherent.
+        prop_assume!(n != 0x154 && n != 0x1F3);
         let num = hresult::VB_OBJECT_ERROR + n;
         prop_assert_eq!(hresult_to_number(number_to_hresult(num)), num);
     }
