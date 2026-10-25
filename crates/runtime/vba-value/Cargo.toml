@@ -1,0 +1,13 @@
+[package]
+name = "vba-value"
+description = "Exact VBA value system: strings, scalars, Variant, arrays, coercions and operators"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -22,6 +22,7 @@ vba-format = { path = "crates/formats/vba-format" }
 vba-lexer = { path = "crates/language/vba-lexer" }
 vba-profile = { path = "crates/foundation/vba-profile" }
 vba-source = { path = "crates/foundation/vba-source" }
+vba-value = { path = "crates/runtime/vba-value" }
 
 # Error handling
 thiserror = "2"
