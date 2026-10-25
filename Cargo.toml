@@ -21,6 +21,7 @@ vba-ast = { path = "crates/language/vba-ast" }
 vba-automation = { path = "crates/interoperability/vba-automation" }
 vba-core = { path = "crates/foundation/vba-core" }
 vba-diagnostics = { path = "crates/foundation/vba-diagnostics" }
+vba-ffi = { path = "crates/interoperability/vba-ffi" }
 vba-format = { path = "crates/formats/vba-format" }
 vba-host = { path = "crates/hosts/vba-host" }
 vba-lexer = { path = "crates/language/vba-lexer" }
@@ -29,6 +30,7 @@ vba-project = { path = "crates/model/vba-project" }
 vba-source = { path = "crates/foundation/vba-source" }
 vba-syntax = { path = "crates/language/vba-syntax" }
 vba-value = { path = "crates/runtime/vba-value" }
+vba-winapi = { path = "crates/windows/vba-winapi" }
 
 # Error handling
 thiserror = "2"

@@ -1,0 +1,25 @@
+[package]
+name = "vba-ffi"
+description = "VBA Declare ABI layer: validated signatures, marshaling plans, emulated memory, handles and last-error"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# Reserves the dynamic native call stage. Off by default; even when enabled the
+# stage requires a host-issued `NativePermission` and currently reports
+# `NativeCallUnavailable` (see docs/ffi.md).
+native-call = []
+
+[dependencies]
+vba-core.workspace = true
+vba-profile.workspace = true
+vba-value.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
