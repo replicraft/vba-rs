@@ -1,0 +1,5 @@
+/target/
+__pycache__/
+.codesight/
+.DS_Store
+/.cache/
