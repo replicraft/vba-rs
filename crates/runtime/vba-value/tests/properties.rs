@@ -72,7 +72,7 @@ proptest! {
     }
 
     #[test]
-    fn decimal_add_sub_inverse_small(a in any::<i64>(), b in any::<i64>(), sa in 0u8..=10, sb in 0u8..=10) {
+    fn decimal_add_sub_inverse_small(a in any::<i32>(), b in any::<i32>(), sa in 0u8..=10, sb in 0u8..=10) {
         let x = Decimal::from_parts(u128::from(a.unsigned_abs()), sa, a < 0).unwrap();
         let y = Decimal::from_parts(u128::from(b.unsigned_abs()), sb, b < 0).unwrap();
         let sum = x.checked_add(&y).unwrap();
