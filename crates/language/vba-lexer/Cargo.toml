@@ -1,0 +1,18 @@
+[package]
+name = "vba-lexer"
+description = "Lossless hand-written lexer for VBA source (MS-VBAL section 3)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-diagnostics.workspace = true
+vba-profile.workspace = true
+vba-source.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
