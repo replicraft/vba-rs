@@ -10,8 +10,8 @@
 //! value of the fractional part, so `-1.25` is 1899-12-29 06:00 (not 18:00).
 //! This is documented OLE automation behavior.
 
-use crate::error::{VbaError, VbaResult};
 use std::fmt;
+use vba_core::{VbaError, VbaResult};
 
 /// Smallest valid serial (0100-01-01).
 pub const MIN_SERIAL: f64 = -657_434.0;

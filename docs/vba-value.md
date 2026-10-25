@@ -15,7 +15,7 @@ covered by explicit tests but remain unverified against Office.
 
 | Area | Module | Notes |
 | --- | --- | --- |
-| Errors | `error` | `VbaError` (number + standard description), constants for 5, 6, 7, 9, 10, 11, 13, 94. |
+| Errors | re-exported from `vba-core` | `VbaError` (number + standard description), constants for 5, 6, 7, 9, 10, 11, 13, 94. |
 | Strings | `string` | `VbaString` is a `Vec<u16>`; unpaired surrogates survive every operation; `Len` counts code units; strict/lossy conversion to Rust text; Binary and Text comparison. |
 | Currency | `currency` | Scaled `i64` (/10000), exact add/sub, mul/div rounded half to even, overflow error 6, division by zero error 11. |
 | Decimal | `decimal` | Own implementation: 96-bit mantissa, sign, scale 0..=28, 256-bit intermediates. See rules below. |

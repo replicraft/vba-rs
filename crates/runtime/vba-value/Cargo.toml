@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[dependencies]
+vba-core.workspace = true
+
 [dev-dependencies]
 proptest.workspace = true
 

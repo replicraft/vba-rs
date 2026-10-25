@@ -18,9 +18,9 @@
 //! (`1.0` equals `1.00`).
 
 use crate::currency::{Currency, SCALE as CURRENCY_SCALE};
-use crate::error::{VbaError, VbaResult};
 use std::cmp::Ordering;
 use std::fmt;
+use vba_core::{VbaError, VbaResult};
 
 /// 2^96: the exclusive upper bound of the mantissa.
 const LIMIT: u128 = 1u128 << 96;

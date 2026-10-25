@@ -8,8 +8,8 @@
 //! writes are coerced to the element type.
 
 use crate::convert::convert_to;
-use crate::error::{VbaError, VbaResult};
 use crate::variant::{VarType, Variant};
+use vba_core::{VbaError, VbaResult};
 
 /// Maximum number of dimensions (an OLE `SAFEARRAY` limit of VBA).
 pub const MAX_DIMENSIONS: usize = 60;

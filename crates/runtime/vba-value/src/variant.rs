@@ -7,8 +7,8 @@ use crate::array::VbaArray;
 use crate::currency::Currency;
 use crate::date::Date;
 use crate::decimal::Decimal;
-use crate::error::VbaError;
 use crate::string::VbaString;
+use vba_core::VbaError;
 
 /// `VT_ARRAY` flag added to the element type by `VarType` for arrays.
 pub const VT_ARRAY: i32 = 0x2000;

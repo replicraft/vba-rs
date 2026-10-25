@@ -743,6 +743,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-core"
+version = "0.1.0"
+
+[[package]]
 name = "vba-diagnostics"
 version = "0.1.0"
 dependencies = [
@@ -799,6 +803,7 @@ name = "vba-value"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "vba-core",
 ]
 
 [[package]]

@@ -37,12 +37,12 @@
 
 use crate::currency::Currency;
 use crate::decimal::Decimal;
-use crate::error::{VbaError, VbaResult};
 use crate::string::{CompareMode, VbaString};
 use crate::text::{self, Numeric};
 use crate::variant::Variant;
 use crate::{Date, convert};
 use std::cmp::Ordering;
+use vba_core::{VbaError, VbaResult};
 
 /// How integer overflow is handled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

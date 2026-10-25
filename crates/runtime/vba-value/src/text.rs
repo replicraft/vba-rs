@@ -11,8 +11,8 @@
 
 use crate::date::Date;
 use crate::decimal::Decimal;
-use crate::error::{VbaError, VbaResult};
 use crate::string::VbaString;
+use vba_core::{VbaError, VbaResult};
 
 /// Formats a double as `CStr` does: up to 15 significant digits, shortest
 /// form, scientific (`1E+15`, `1.5E-05`) when the decimal exponent is below -4

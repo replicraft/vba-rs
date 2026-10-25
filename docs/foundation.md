@@ -1,8 +1,14 @@
 # Foundation crates
 
 `crates/foundation/` holds the small, dependency-light crates every other
-component builds on: `vba-source`, `vba-diagnostics` and `vba-profile`. There is
-deliberately no catch-all core crate.
+component builds on: `vba-core`, `vba-source`, `vba-diagnostics` and `vba-profile`.
+
+## vba-core
+
+Holds only types that several unrelated layers need. Currently that is
+`VbaError` (a VBA run-time error number with its standard description) and the
+`VbaResult` alias, re-exported by `vba-value`. It has no dependencies and must
+stay small: anything with a clear owner crate belongs there instead.
 
 ## vba-source
 

@@ -7,8 +7,8 @@
 //! documented banker's rounding of VBA conversions, but the exact tie rule of
 //! the native `Currency` multiply is documented behavior, not spec text.
 
-use crate::error::{VbaError, VbaResult};
 use std::fmt;
+use vba_core::{VbaError, VbaResult};
 
 /// Number of units per whole currency unit.
 pub const SCALE: i64 = 10_000;

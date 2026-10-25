@@ -20,10 +20,10 @@
 use crate::currency::Currency;
 use crate::date::Date;
 use crate::decimal::Decimal;
-use crate::error::{VbaError, VbaResult};
 use crate::string::VbaString;
 use crate::text::{self, Numeric};
 use crate::variant::{VarType, Variant};
+use vba_core::{VbaError, VbaResult};
 
 /// A source value reduced to a numeric form.
 enum Num {
