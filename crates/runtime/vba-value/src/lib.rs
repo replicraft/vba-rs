@@ -5,8 +5,12 @@
 //! an OLE automation `f64`), and `Variant` carries every subtype. This crate
 //! depends on no other vba-rs crate and no host.
 
+pub mod currency;
+pub mod decimal;
 pub mod error;
 pub mod string;
 
+pub use currency::Currency;
+pub use decimal::Decimal;
 pub use error::{VbaError, VbaResult};
 pub use string::{CompareMode, VbaString};
