@@ -1,0 +1,13 @@
+[package]
+name = "vba-project"
+description = "In-memory domain model of a VBA project, independent of any storage format"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true
