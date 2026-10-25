@@ -4,4 +4,4 @@
 
 pub mod compression;
 
-pub use compression::{DecompressError, decompress};
+pub use compression::{DecompressError, compress, decompress};
