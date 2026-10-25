@@ -731,6 +731,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-automation"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "vba-core",
+ "vba-value",
+]
+
+[[package]]
 name = "vba-cli"
 version = "0.1.0"
 dependencies = [
@@ -763,6 +772,17 @@ dependencies = [
  "thiserror",
  "uuid",
  "vba-project",
+]
+
+[[package]]
+name = "vba-host"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "vba-automation",
+ "vba-core",
+ "vba-profile",
+ "vba-value",
 ]
 
 [[package]]

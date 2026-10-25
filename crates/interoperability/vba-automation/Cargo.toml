@@ -1,0 +1,17 @@
+[package]
+name = "vba-automation"
+description = "Portable, COM-free model of OLE Automation as seen from VBA: dispatch, invoke, errors, lifetimes, events and call resolution"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-core.workspace = true
+vba-value.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

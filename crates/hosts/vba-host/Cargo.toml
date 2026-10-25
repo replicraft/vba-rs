@@ -1,0 +1,19 @@
+[package]
+name = "vba-host"
+description = "Host contract for embedding vba-rs: globals, object creation, permissions, limits, UI and events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-automation.workspace = true
+vba-core.workspace = true
+vba-profile.workspace = true
+vba-value.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -18,9 +18,11 @@ all = { level = "warn", priority = -1 }
 # Internal crates
 [workspace.dependencies]
 vba-ast = { path = "crates/language/vba-ast" }
+vba-automation = { path = "crates/interoperability/vba-automation" }
 vba-core = { path = "crates/foundation/vba-core" }
 vba-diagnostics = { path = "crates/foundation/vba-diagnostics" }
 vba-format = { path = "crates/formats/vba-format" }
+vba-host = { path = "crates/hosts/vba-host" }
 vba-lexer = { path = "crates/language/vba-lexer" }
 vba-profile = { path = "crates/foundation/vba-profile" }
 vba-project = { path = "crates/model/vba-project" }
