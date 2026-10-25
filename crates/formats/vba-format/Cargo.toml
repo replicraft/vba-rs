@@ -7,7 +7,14 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+vba-project.workspace = true
+cfb.workspace = true
+uuid.workspace = true
+encoding_rs.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true
