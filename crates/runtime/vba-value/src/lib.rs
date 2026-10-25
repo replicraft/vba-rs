@@ -11,6 +11,7 @@ pub mod currency;
 pub mod date;
 pub mod decimal;
 pub mod error;
+pub mod ops;
 pub mod string;
 pub mod text;
 pub mod variant;
