@@ -1,0 +1,37 @@
+# vba-host
+
+The contract an embedder implements to run VBA with vba-rs. Crate:
+`crates/hosts/vba-host`. Depends on `vba-automation`, `vba-profile`,
+`vba-value`, `vba-core`. It knows no host application (no Office, Access or
+embedding-application types).
+
+## Implemented
+
+| Area | Item | Notes |
+| --- | --- | --- |
+| Metadata | `HostMetadata` | Name, version, and a `vba_profile::Profile` (language generation, host application seen by `#If`, OS, bitness). |
+| Contract | `Host` trait | Accessors (`metadata`, `policy`, `budget`/`limits`, `objects`, `ui`, `events`, `references`) and hooks (`lookup_global`, `create_object_hook`, `get_object_hook`, `declare_hook`, `idle`). |
+| Entry points | provided `Host` methods | `resolve_global`, `create_object`, `get_object`, `call_declare`, `do_events`, `check`. They enforce the policy before any hook, so a hook cannot be reached without a grant. |
+| Globals | `lookup_global` | `Application`, intrinsic host globals and objects exported by project references are all resolved by the embedder; names are case-insensitive in the provided hosts. Object results carry a caller-owned reference. |
+| References | `ProjectReference` | Name, GUID, version; metadata only. |
+| `CreateObject` / `GetObject` | `create_object`, `get_object` | ComCreate for the ProgID/class, Network additionally for a remote server, FileRead for a path; neither argument is error 5. |
+| `Declare` | `DeclareRequest`, `call_declare` | Opaque to this crate; requires NativeDeclare for `library!procedure`. |
+| Permissions | `Capability`, `Policy` | FileRead, FileWrite, ProcessSpawn, Network, ComCreate, NativeDeclare, UiAutomation. Deny by default. Grants are unrestricted or prefix-scoped (case-insensitive; `..` segments never match a scoped grant). Denial is error 70 "Permission denied", detail in `Err.Source`. |
+| Limits | `ResourceLimits`, `Budget` | Plain data: step (fuel), memory and call-depth limits. `Budget` meters them; exhaustion maps to errors 18 (steps), 7 (memory), 28 (call depth). |
+| Safe points | `do_events` / `idle` | Charges one step, runs the idle hook (which may cancel by returning an error), returns 0. |
+| UI | `UiHooks`, `HeadlessUi` | `MsgBox`/`InputBox` as an optional trait; the headless default fails with error 70 and a description naming the missing UI. It never fabricates an answer. |
+| Events | `EventDispatch`, `EventRouter` | Source/event names are opaque strings, case-insensitive; handlers run in registration order; ByRef arguments written back; no handler is not an error. |
+| Hosts | `HeadlessHost` | Grants nothing, creates nothing (429), gets nothing (432), no `Declare` (48), UI fails; configurable globals, metadata, policy, limits, references. |
+| Hosts | `ScriptedHost` | Configurable: factories per ProgID, named objects for `GetObject`, `Declare` implementations, queued MsgBox/InputBox answers (error 5 when exhausted), idle cancellation (error 18), hook-call log. |
+
+Error choices that have no exact VBA analogue: the headless UI uses 70; an
+exhausted step budget uses 18 ("User interrupt occurred"). They are
+documented decisions, not claims about real VBA behaviour.
+
+## Not implemented
+
+* The interpreter does not call these hooks yet; `vba-host` defines the contract only.
+* File and process operations themselves are not provided, only the capability checks for them. Path canonicalisation (symlinks, `.`, drive aliases) is left to the embedder; the policy compares text prefixes.
+* No network, process or UI-automation hooks beyond the capability names.
+* `MsgBox` help-file and context arguments, `InputBox` position and `DoEvents` form counts are not modelled.
+* Threading: hosts are single-threaded (`Cell`/`RefCell`); no `Send`/`Sync`.
