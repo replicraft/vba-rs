@@ -137,31 +137,27 @@ pub trait Vfs {
 /// root), a drive letter is lower-cased. The result is absolute.
 pub fn normalize(cwd: &str, path: &str) -> String {
     let path = path.replace('\\', "/");
-    let (drive, rest, absolute) = split_drive(&path);
     let cwd = cwd.replace('\\', "/");
+    let (drive, rest, absolute) = split_drive(&path);
     let (cwd_drive, cwd_rest, _) = split_drive(&cwd);
+    // `x:rel` (a drive without a root) is relative to the one working
+    // directory; a path without a drive keeps the working directory's drive.
+    let relative = !absolute;
+    let drive = drive.or(cwd_drive);
     let mut segs: Vec<&str> = Vec::new();
-    let drive = match (drive, absolute) {
-        (Some(d), _) => Some(d),
-        (None, true) => cwd_drive,
-        (None, false) => {
-            segs.extend(cwd_rest.split('/').filter(|s| !s.is_empty() && *s != "."));
-            cwd_drive
-        }
-    };
-    if drive.is_some() && !absolute && split_drive(&path).0.is_some() {
-        // `c:rel` is relative to the current directory of that drive; there
-        // is only one current directory, so it is relative to it.
-        segs.clear();
-        segs.extend(cwd_rest.split('/').filter(|s| !s.is_empty()));
-    }
-    for s in rest.split('/') {
-        match s {
-            "" | "." => {}
-            ".." => {
-                segs.pop();
+    let parts = relative
+        .then_some(cwd_rest)
+        .into_iter()
+        .chain(std::iter::once(rest));
+    for part in parts {
+        for s in part.split('/') {
+            match s {
+                "" | "." => {}
+                ".." => {
+                    segs.pop();
+                }
+                s => segs.push(s),
             }
-            s => segs.push(s),
         }
     }
     let mut out = String::new();
@@ -257,6 +253,13 @@ mod tests {
         assert_eq!(normalize("c:/data", "x.txt"), "c:/data/x.txt");
         assert_eq!(normalize("c:/data", "/x.txt"), "c:/x.txt");
         assert_eq!(normalize("/", "D:"), "d:/");
+        // A drive-relative path (`a:x`) is resolved against the one working
+        // directory.
+        assert_eq!(normalize("/w", "d:x"), "d:/w/x");
+        assert_eq!(normalize("..", ":"), "/:");
+        // A drive-relative path (`a:x`) is resolved against the one working
+        // directory; dots in the working directory are ignored.
+        assert_eq!(normalize(".", "A::"), "a:/:");
     }
 
     #[test]

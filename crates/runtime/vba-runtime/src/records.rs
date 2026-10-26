@@ -259,11 +259,19 @@ fn decode_scalar(vt: VarType, r: &mut Reader<'_>) -> Result<Variant, FsError> {
                     | VarType::Currency
                     | VarType::Date),
                 ) => decode_scalar(t, r)?,
-                _ => {
+                Some(
+                    VarType::Object
+                    | VarType::DataObject
+                    | VarType::Error
+                    | VarType::Decimal
+                    | VarType::UserDefinedType,
+                ) => {
                     return Err(FsError::Unsupported(format!(
-                        "Get of a Variant tagged {code}"
+                        "Get of a Variant tagged {code} (object, error, decimal or user-defined type)"
                     )));
                 }
+                // Not a valid Variant tag: the file is not what was written.
+                _ => return Err(FsError::Vba(321)),
             }
         }
         VarType::Decimal => return Err(FsError::Unsupported("Get of a Decimal".into())),

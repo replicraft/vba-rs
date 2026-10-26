@@ -118,6 +118,24 @@ fn memory_and_size_limits_apply_to_open_files() {
 }
 
 #[test]
+fn open_files_are_charged_to_the_memory_budget_and_released_on_close() {
+    let fs = SharedFs::with(&[("big.txt", "0123456789")]);
+    let h = host(all_files());
+    let mut s = Session::builder()
+        .host(h.clone())
+        .vfs(fs)
+        .build_sources(&[std_module(
+            "Public Sub Hold()\nOpen \"big.txt\" For Input As #1\nEnd Sub\nPublic Sub Release()\nClose #1\nEnd Sub\n",
+        )])
+        .unwrap();
+    s.trust();
+    s.run_procedure("Hold", vec![]).unwrap();
+    assert_eq!(h.budget().memory_used(), 10);
+    s.run_procedure("Release", vec![]).unwrap();
+    assert_eq!(h.budget().memory_used(), 0);
+}
+
+#[test]
 fn the_real_file_system_is_scoped_by_the_same_policy() {
     let dir = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(dir.path()).unwrap();
