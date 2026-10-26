@@ -1,0 +1,1 @@
+Derived from Microsoft Win32 metadata (MIT). See THIRD-PARTY-NOTICES.md at the repository root.
