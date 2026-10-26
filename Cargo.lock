@@ -919,8 +919,19 @@ dependencies = [
  "clap",
  "tempfile",
  "thiserror",
+ "vba-ast",
+ "vba-diagnostics",
  "vba-format",
+ "vba-host",
+ "vba-lexer",
+ "vba-profile",
  "vba-project",
+ "vba-runtime",
+ "vba-sema",
+ "vba-source",
+ "vba-syntax",
+ "vba-value",
+ "vba-vm",
 ]
 
 [[package]]

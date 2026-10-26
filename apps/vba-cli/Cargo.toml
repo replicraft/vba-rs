@@ -13,8 +13,19 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 thiserror.workspace = true
+vba-ast.workspace = true
+vba-diagnostics.workspace = true
 vba-format.workspace = true
+vba-host.workspace = true
+vba-lexer.workspace = true
+vba-profile.workspace = true
 vba-project.workspace = true
+vba-runtime.workspace = true
+vba-sema.workspace = true
+vba-source.workspace = true
+vba-syntax.workspace = true
+vba-value.workspace = true
+vba-vm.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true
