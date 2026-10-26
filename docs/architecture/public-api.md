@@ -39,18 +39,19 @@ project with preservation.
 
 | Item | What it is |
 | --- | --- |
-| `Project` | modules plus the metadata and preserved bytes of a `vbaProject.bin`; `from_source`, `from_bytes`, `from_streams`, `open`, `add_module`, `add_source_file`, `set_module_source`, `to_bytes`, `to_streams`, `version`, `analyze`; `model()` exposes `vba_project::VbaProject` |
+| `Project` | modules plus the metadata and preserved bytes of a `vbaProject.bin`; `from_source`, `from_modules`, `from_bytes`, `from_streams`, `open`, `add_module`, `add_source_file`, `set_module_source`, `to_bytes`, `to_streams`, `version`, `analyze`; `model()` exposes `vba_project::VbaProject` |
 | `Report` | the diagnostics of an analysis (`has_errors`, `errors`, `warnings`, `codes`, `rendered`) |
 | `Engine` | builder: `profile`, `policy`/`grant`/`grant_prefixes`, `limits`/`max_steps`/`max_memory`/`unlimited`, `vm_config`, `class`/`dispatch_class`, `global`/`dispatch_global`, `host_members`, `with_file`, `real_files`, `system_environment`, `command_line`, `cancel_token`, `session_builder`; then `analyze`, `load`, `load_with`, `run` |
-| `Instance` | one loaded session with its `Debug.Print` buffer. Running: `trust`, `run`, `call`, `raise_event`, `shutdown`. Instances: `create_object`, `default_instance`, `destroy_object`, `call_on`, `has_procedure`, `raise_event_on`, `get_member`, `set_member`, `release`, `deliver_pending_events`. State: `get_global`, `set_global`, `modules`, `list_public_members`, `modules_defining`, `last_error`. Lifecycle: `is_usable`, `reset_step_counter`, `reset`; plus `output`, `session()`, `from_session` |
+| `Instance` | one loaded session with its `Debug.Print` buffer. Running: `trust`, `run`, `call`, `raise_event`, `shutdown`. Instances: `create_object`, `default_instance`, `destroy_object`, `call_on`, `has_procedure`, `raise_event_on`, `get_member`, `set_member`, `release`, `deliver_pending_events`. State: `get_global`, `set_global`, `modules`, `list_public_members`, `modules_defining`, `last_error`. Lifecycle: `is_usable`, `reset_step_counter`, `reset`, `with_call_limits`, `cancel_token`; plus `output`, `session()`, `from_session` |
 | `Arg`, `CallTarget`, `CallResult` | arguments (`val`, `by_ref`, `missing`, `named`), the target of a call (`Project` or `Object`) and its result `{ value, status, byref, output }` |
+| `CallLimits` | `#[non_exhaustive]` per-scope allowances (`max_steps`, `max_memory`, `timeout`) for `Instance::with_call_limits` |
 | `EventOutcome` | `{ handled, status, byref, output }` of `raise_event_on` |
 | `HostContext` | the re-entrant handle a host member uses to call back into the running session (`HostContext::current(table)`) |
 | `Outcome` | `value`, `status` (`Completed`, `Ended`, `Stopped`) and the text printed by that call |
 | `ModuleSummary`, `ProcedureSummary`, `ParamSummary`, `VariableSummary`, `ProcKind` | project metadata for hosts that discover event handlers |
 | `ErrorReport`, `VbaErrorInfo`, `StackFrame` | the details of an unhandled or handled VBA error (number, description, source, help, `LastDllError`, module, procedure, line, call stack) |
 | `CancelToken` | `Send + Sync + Clone`; `cancel`, `reset`, `is_cancelled` |
-| `Error` | `#[non_exhaustive]`: `Format`, `Model`, `Source`, `Io`, `Run(vba::runtime::Error)`, `Poisoned`; `kind()` gives a stable short name |
+| `Error` | `#[non_exhaustive]`, `Send + Sync`: `Format`, `Model`, `Source`, `Io`, `Run(vba::runtime::Error)`, `Poisoned`; `kind()` gives a stable short name, `report()` and `error_info()` the VBA error details |
 | Re-exports | profiles (`Profile`, `default_profile`, `find_profile`), values (`Variant`, `Currency`, `Date`, `Decimal`, `VbaString`, `VbaArray`), host contract (`Host`, `Policy`, `Capability`, `ResourceLimits`, `HeadlessHost`, `ScriptedHost`), runtime (`Session`, `SessionBuilder`, `MemFs`, `RealFs`, `SystemHost`, `ShellHook`), project/format (`VbaProject`, `Module`, `ModuleKind`, `Reference`, `SysKind`, `ProjectVersion`, `ReferenceHint`, `ProjectStreams`, `ReadMode`, `ReadLimits`, `WriteOptions`, `WriteReport`, `StaleCache`), diagnostics (`Diagnostic`, `Severity`) |
 | `vba::automation` | the traits an embedder implements to expose host objects: `Dispatch`, `DispId`, `DispParams`, `InvokeFlags`, `MemberInfo`, `ParamInfo`, `ObjectTable`, `DispError`, `ErrInfo`, plus `testing::MemObject` |
 | `vba::runtime` | the whole `vba-runtime` crate, for its `Error` taxonomy and file-system types |
@@ -179,7 +180,7 @@ names:
 | `internal` | a broken invariant (a bug; please report) | no |
 | `format`, `model`, `source`, `io` | project reading, editing and writing | n/a |
 
-`Error` is `#[non_exhaustive]`; match with a wildcard arm.
+`Error`, `RunStatus`, `LimitKind` and `Capability` are `#[non_exhaustive]`; match with a wildcard arm.
 
 **Preservation.** `Project::from_bytes` keeps every byte the model does not
 interpret; `to_bytes` reproduces it. Supported edits are module source and

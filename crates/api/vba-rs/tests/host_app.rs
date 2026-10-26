@@ -31,7 +31,7 @@ impl Store {
 }
 
 fn no_transaction(what: &str) -> DispError {
-    DispError::raise(3034, format!("No transaction to {what}"), "DAO.Workspace")
+    DispError::raise(3034, format!("No transaction to {what}"), "Db.Workspace")
 }
 
 fn workspace(store: &Rc<Store>) -> MemObject {
@@ -42,7 +42,7 @@ fn workspace(store: &Rc<Store>) -> MemObject {
                 return Err(DispError::raise(
                     3035,
                     "Transaction already open",
-                    "DAO.Workspace",
+                    "Db.Workspace",
                 ));
             }
             *b.staged.borrow_mut() = Some(b.rows.borrow().clone());
@@ -75,7 +75,7 @@ fn table(store: &Rc<Store>) -> MemObject {
         store.clone(),
         store.clone(),
     );
-    let no_row = || DispError::raise(3021, "No current record.", "DAO.Recordset");
+    let no_row = || DispError::raise(3021, "No current record.", "Db.Recordset");
     MemObject::new("Recordset")
         .method(
             "AddRow",
@@ -117,7 +117,7 @@ fn table(store: &Rc<Store>) -> MemObject {
                     _ => Err(DispError::raise(
                         3265,
                         "Item not found in this collection.",
-                        "DAO.Fields",
+                        "Db.Fields",
                     )),
                 }
             },
@@ -243,7 +243,7 @@ End Function
     assert_eq!(out.value, Variant::Boolean(false));
     assert_eq!(
         out.output,
-        "3265|Item not found in this collection.|DAO.Fields\n"
+        "3265|Item not found in this collection.|Db.Fields\n"
     );
     assert_eq!(
         store.rows.borrow().len(),
@@ -270,7 +270,7 @@ fn an_unhandled_host_error_reaches_the_embedder_with_its_details() {
     let info = run.error_info().unwrap();
     assert_eq!(info.number, 3034);
     assert_eq!(info.description, "No transaction to commit");
-    assert_eq!(info.source, "DAO.Workspace");
+    assert_eq!(info.source, "Db.Workspace");
     assert_eq!(run.report().unwrap().frames[0].procedure, "Main");
 }
 
@@ -291,7 +291,7 @@ End Sub
     let out = run(&store, code, "Main", vec![]).unwrap();
     assert_eq!(
         out.output,
-        " 3034 DAO.Workspace\n 0 \n 513 Quantity must be positive\n"
+        " 3034 Db.Workspace\n 0 \n 513 Quantity must be positive\n"
     );
 }
 

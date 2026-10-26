@@ -518,6 +518,14 @@ embedding errors `NoSuchMember`, `AmbiguousMember`, `NotAccessible` and
   instance that serves many events eventually spends it: give each event its own
   allowance with `reset_step_counter()` (below). `Instance::reset_step_counter()` starts a fresh allowance (give each
   event handler its own), module state is kept.
+* **Per-call allowances.** `Instance::with_call_limits(CallLimits::new()
+  .max_steps(n).max_memory(bytes).timeout(d), |i| ..)` bounds the calls made
+  inside the closure without touching the instance's counters: the step and
+  memory allowances count from the start of the scope, the timeout is checked
+  every `CANCEL_POLL_INTERVAL` steps and at `DoEvents` (it ends the call with
+  `Cancelled`, the token is not set), and the instance stays usable afterwards.
+  A scope only narrows what the engine allows, and scopes nest.
+  `Instance::cancel_token()` returns the token the instance polls.
 * **Cancellation.** `Engine::cancel_token()` is `Send + Sync + Clone`. The
   session polls it before every call into it (including nested runs), at every
   `DoEvents`, and every `CANCEL_POLL_INTERVAL` (1024) interpreter steps, so a
@@ -655,6 +663,43 @@ host methods, in whatever order the program calls them. Therefore:
   and the other gaps listed in [vm.md](../runtime/vm.md) and
   [conformance.md](../tooling/conformance.md).
 
+## Phased integration
+
+A suggested order for an embedding application (a database application with
+forms, reports and a recordset-like data layer) that wraps vba-rs in a thin
+adapter crate behind a Cargo feature. Each phase is usable on its own and ends
+with something you can test. `crates/api/vba-rs/examples/embedded_table.rs`
+exercises phases 1 to 4 with an in-memory table, and
+`crates/api/vba-rs/tests/host_app.rs` pins the behavior.
+
+| Phase | Goal | Facade items | Done when |
+| --- | --- | --- | --- |
+| 1. Source and analysis | Module text comes from your storage; diagnostics are shown, nothing runs | `Project::from_modules`, `Project::from_streams`, `Engine::analyze`, `Report` | a broken module is reported and `Engine::load` refuses it (`Error::kind() == "load"`) |
+| 2. Run Public procedures | Call a procedure by name with `ByRef` arguments, read results and printed text | `Engine::load`, `Instance::trust`, `Instance::call`, `Arg::by_ref`, `CallResult::byref` | a `Function`/`Sub` round-trips values; nothing runs before `trust()` |
+| 3. Limits and cancellation | Every handler is bounded and can be stopped | `Instance::with_call_limits(CallLimits::new().max_steps(..).max_memory(..).timeout(..), ..)`, `Instance::cancel_token`, `Instance::is_usable` | a runaway loop ends with `limit` or `cancelled` and the instance serves the next call |
+| 4. Host objects | `Application`, `DoCmd`, `Workspace`, recordsets and collections as `Dispatch` objects; transactions are yours | `Engine::dispatch_global`, `Dispatch`, `DispError::raise`, `Error::error_info` | `On Error` handlers see your numbers, descriptions and sources in `Err`; `For Each` and `rs!Field` work |
+| 5. Forms, reports and events | `Me` is a host object; events carry `ByRef` results such as `Cancel` | `Instance::create_object(module, Some(me))`, `raise_event_on`, `EventOutcome`, `HostContext` | `BeforeUpdate` can cancel your update; a handler can call back into the form |
+| 6. Persistence of code | Edited module text goes back to your storage | `Project::set_module_source`, `to_streams`, `WriteReport::changed_streams` | an unedited project writes back byte-identical streams |
+
+Guidance for the adapter:
+
+* Keep the adapter free of VBA semantics: it translates your objects into
+  `Dispatch` implementations and your error type into `vba::Error` (and back with
+  `Error::error_info()`), nothing else. Database-specific behavior belongs in
+  the adapter, never in vba-rs.
+* Build one `Engine` per configuration and one `Instance` per open document;
+  instances are single-threaded, so give each its own thread or keep it on the
+  application's UI thread. Share only the `CancelToken`.
+* Put `with_call_limits` around every entry from the application (event
+  handler, button click, immediate-window command) rather than relying on the
+  engine-wide budget, which spans the whole life of the instance.
+* Match `vba::Error` and the `RunStatus`/`LimitKind` enums with a wildcard arm;
+  they are `#[non_exhaustive]` so new variants are not a breaking change.
+* Transactions: expose `BeginTrans`/`CommitTrans`/`Rollback` as host methods and
+  see section 11 for who owns what. A host error raised with
+  `DispError::raise(number, description, source)` is trappable and lands in
+  `Err.Number`, `Err.Description` and `Err.Source` unchanged.
+
 ## Reference for the pieces used above
 
 | Need | Item |
@@ -666,5 +711,6 @@ host methods, in whatever order the program calls them. Therefore:
 | Metadata | `modules`, `list_public_members`, `modules_defining`; `ModuleSummary`, `ProcedureSummary`, `ParamSummary`, `VariableSummary` |
 | Errors | `Error`, `runtime::Error::{report, error_info, stack, detail}`, `ErrorReport`, `VbaErrorInfo`, `StackFrame`, `Instance::last_error` |
 | Re-entrancy | `Dispatch::reentrant`, `HostContext::current`, `VmConfig::max_reentrancy_depth` |
-| Limits | `Engine::limits/max_steps/vm_config/cancel_token`, `Instance::is_usable/reset_step_counter/reset` |
+| Limits | `Engine::limits/max_steps/vm_config/cancel_token`, `Instance::is_usable/reset_step_counter/reset/with_call_limits/cancel_token`, `CallLimits` |
+| Source text | `Project::from_modules`, `add_module`, `set_module_source` |
 | Values | `Variant` constructors, `From`/`TryFrom`, `Display` |
