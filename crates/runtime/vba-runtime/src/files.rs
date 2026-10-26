@@ -643,7 +643,7 @@ impl FileSystem {
                     None => vba(67),
                 }
             }
-            "input" => {
+            "input" | "inputb" => {
                 // `Input(number, #file)`: **doc** Input or Binary files only;
                 // reading past the end is error 62.
                 let count = num(a, 0)?;

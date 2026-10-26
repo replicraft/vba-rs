@@ -403,6 +403,11 @@ pub fn runtime_function(name: &str) -> Option<LibMember> {
             vec![p("Number", Type::Long), p("FileNumber", Type::Integer)],
             Type::String,
         ),
+        "inputb" => LibMember::function(
+            "InputB",
+            vec![p("Number", Type::Long), p("FileNumber", Type::Integer)],
+            Type::String,
+        ),
         "fileattr" => LibMember::function(
             "FileAttr",
             vec![

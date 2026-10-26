@@ -44,6 +44,7 @@ file-io/fso_open_text_file_modes	safety	needs the `com-create` grant; needs the 
 file-io/fso_path_functions	safety	needs the `com-create` grant
 file-io/fso_scoped_grant	safety	needs the `com-create` grant; needs the `file-read=/ok` grant; needs the `file-write=/ok` grant
 file-io/getattr_setattr	safety	needs the `file-read` grant; needs the `file-write` grant
+file-io/input_dollar_and_inputb_forms	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/input_function	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/input_function_binary_and_modes	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/input_function_past_end	safety	needs the `file-read` grant; needs the `file-write` grant
@@ -53,14 +54,19 @@ file-io/len_of_user_defined_type	safety	Name ... As renames files
 file-io/lock_unlock	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/open_twice_same_number	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/output_truncates	safety	needs the `file-read` grant; needs the `file-write` grant
+file-io/print_file_number_255_large_double	safety	needs the `file-read` grant; needs the `file-write` grant
+file-io/print_file_number_then_double_type_char	safety	needs the `file-read` grant; needs the `file-write` grant
+file-io/print_file_number_variable_named_like_month	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/print_format_zones	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/print_input_line	safety	needs the `file-read` grant; needs the `file-write` grant
+file-io/print_semicolon_list_of_type_character_literals	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/random_access	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/read_past_end	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/reset_statement	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/width_statement	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/write_format	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/write_input	safety	needs the `file-read` grant; needs the `file-write` grant
+file-io/write_input_double_type_characters	safety	needs the `file-read` grant; needs the `file-write` grant
 host/appactivate_denied	safety	AppActivate drives the UI
 host/command_empty_by_default	safety	Command is machine specific
 host/createobject_denied	safety	CreateObject instantiates COM classes
@@ -92,6 +98,7 @@ host/step_limit_stops_loop	engine-only	expects the engine-specific outcome `limi
 host/unsupported_feature_is_not_success	safety	GetSetting reads the registry; SaveSetting writes the registry
 language/cc_const	untranslatable	no `Main` procedure in a standard module outside conditional compilation
 language/cc_if_else	untranslatable	no `Main` procedure in a standard module outside conditional compilation
+language/dollar_functions_of_the_runtime_resolve	safety	needs the `file-read` grant; needs the `file-write` grant
 procedures/entry_with_arguments	untranslatable	the entry procedure takes parameters
 procedures/recursion_depth_limit	engine-only	expects the engine-specific outcome `limit`
 spec-coerce/5_5_1_1_array_to_different_element_array_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
@@ -412,6 +419,13 @@ spec-lex/3_3_2_invalid_octal_200000_percent	engine-only	expects a compile error 
 spec-lex/3_3_2_invalid_octal_40000000000	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-lex/3_3_2_invalid_octal_huge_caret	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-lex/3_3_3_date_leap_day_invalid_in_non_leap_year	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-lex/3_3_3_date_yearless_default_clock_is_2000	engine-only	needs the engine clock fixed at a given date
+spec-lex/3_3_3_date_yearless_follows_clock_other_year	engine-only	needs the engine clock fixed at a given date
+spec-lex/3_3_3_date_yearless_in_const_and_arithmetic	engine-only	needs the engine clock fixed at a given date
+spec-lex/3_3_3_date_yearless_leap_day_in_leap_year	engine-only	needs the engine clock fixed at a given date
+spec-lex/3_3_3_date_yearless_leap_day_in_other_year_is_error	engine-only	needs the engine clock fixed at a given date
+spec-lex/3_3_3_date_yearless_uses_clock_year	engine-only	needs the engine clock fixed at a given date
+spec-lex/3_3_3_date_yearless_with_time	engine-only	needs the engine clock fixed at a given date
 spec-lex/3_3_3_invalid_date_feb_30	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-lex/3_3_3_invalid_date_no_legal_month	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-lex/3_3_3_invalid_date_two_month_names	engine-only	expects a compile error (needs a modal dialog in a real host)

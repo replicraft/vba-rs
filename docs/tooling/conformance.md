@@ -28,7 +28,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | partial | 163 |
 | unsupported | 6 |
 | not-started | 34 |
-| Conformance programs | 2069 |
+| Conformance programs | 2077 |
 | Programs that are known deviations (XFAIL) | 180 |
 
 ## Entries per category and status
@@ -73,8 +73,8 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Provenance | Entries |
 | --- | ---: |
 | oracle | 0 |
-| spec | 447 |
-| doc | 92 |
+| spec | 444 |
+| doc | 95 |
 | derived | 38 |
 | unverified | 97 |
 | (no program) | 34 |
@@ -92,10 +92,10 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | derived-math | 21 | 0 | 0 | 21 | 0 | 0 |
 | errors | 26 | 0 | 18 | 6 | 0 | 2 |
 | events | 7 | 0 | 6 | 0 | 1 | 0 |
-| file-io | 40 | 0 | 18 | 13 | 3 | 6 |
+| file-io | 47 | 0 | 19 | 19 | 3 | 6 |
 | financial | 12 | 0 | 0 | 2 | 10 | 0 |
 | host | 34 | 0 | 3 | 15 | 10 | 6 |
-| language | 17 | 0 | 6 | 3 | 0 | 8 |
+| language | 18 | 0 | 6 | 4 | 0 | 8 |
 | logic | 10 | 0 | 7 | 3 | 0 | 0 |
 | math | 37 | 0 | 24 | 4 | 2 | 7 |
 | operators | 65 | 0 | 59 | 0 | 5 | 1 |

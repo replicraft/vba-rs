@@ -50,6 +50,8 @@ pub struct Program {
     pub max_steps: Option<u64>,
     pub xfail: bool,
     pub has_raise: bool,
+    /// The program fixes the clock (`CLOCK:`).
+    pub has_clock: bool,
     pub modules: Vec<(String, Kind, String)>,
 }
 
@@ -111,6 +113,7 @@ pub fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
         max_steps: None,
         xfail: false,
         has_raise: false,
+        has_clock: false,
         modules: Vec::new(),
     };
     let mut current: (String, Kind, String) = ("Module1".into(), Kind::Standard, String::new());
@@ -151,6 +154,7 @@ pub fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
                 "ENTRY" => p.entry = value.to_owned(),
                 "ERROR" => p.error = Some(value.trim().to_owned()),
                 "RAISE" => p.has_raise = true,
+                "CLOCK" => p.has_clock = true,
                 "GRANT" => p.grants.push(value.trim().to_owned()),
                 "MAX_STEPS" => p.max_steps = value.trim().parse().ok(),
                 "XFAIL" => p.xfail = true,
@@ -451,6 +455,12 @@ pub fn classify(p: &Program) -> Result<Prepared, Vec<Refusal>> {
     }
     if p.max_steps.is_some() {
         why.push(refuse("engine-only", "tests the engine step budget"));
+    }
+    if p.has_clock {
+        why.push(refuse(
+            "engine-only",
+            "needs the engine clock fixed at a given date",
+        ));
     }
     if p.has_raise {
         why.push(refuse(

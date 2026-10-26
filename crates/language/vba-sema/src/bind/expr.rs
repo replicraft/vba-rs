@@ -450,8 +450,16 @@ impl Binder<'_, '_> {
         if let Some(r) = lookup_intrinsic(id) {
             return self.call_intrinsic(r, span, args);
         }
-        if id.suffix.is_none()
+        // The `$` forms of the run-time functions that return a String
+        // (`Command$`, `CurDir$`, `Dir$`, `Input$`, `InputB$`).
+        let dollar_rt = id.suffix == Some(TypeSuffix::String)
+            && matches!(
+                id.name.to_string_lossy().to_ascii_lowercase().as_str(),
+                "command" | "curdir" | "dir" | "input" | "inputb"
+            );
+        if (id.suffix.is_none() || dollar_rt)
             && let Some(g) = self.sema.provider.global(&id.name.to_string_lossy())
+            && (id.suffix.is_none() || matches!(g, LibGlobal::Function(_)))
         {
             return match g {
                 LibGlobal::Constant(v, t) => {
@@ -482,6 +490,8 @@ impl Binder<'_, '_> {
                     let bargs = self.match_args(&sig, args.unwrap_or(&[]), span);
                     let ty = if m.is_sub {
                         Type::Variant
+                    } else if dollar_rt {
+                        Type::String
                     } else {
                         m.ty.clone()
                     };
