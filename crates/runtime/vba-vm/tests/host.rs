@@ -429,6 +429,34 @@ fn memory_limit_is_charged_by_arrays() {
 }
 
 #[test]
+fn collection_growth_is_charged_to_the_memory_limit() {
+    let o = run_limited(
+        "Sub Main()\nDim c As New Collection, i As Long\nFor i = 1 To 100000\nc.Add i\nNext\nDebug.Print \"allocated\"\nEnd Sub\n",
+        ResourceLimits {
+            max_steps: Some(10_000_000),
+            max_memory_bytes: Some(100_000),
+            ..ResourceLimits::default()
+        },
+    );
+    assert_eq!(o.result, Err(VmError::Limit(LimitKind::Memory)));
+}
+
+/// Known gap, pinned so a change is noticed: strings are not charged to the
+/// memory budget, only limited in length one by one.
+#[test]
+fn strings_held_by_a_program_are_not_charged_to_the_memory_limit() {
+    let o = run_limited(
+        "Sub Main()\nDim a(1 To 8) As String, i As Long\nFor i = 1 To 8\na(i) = String$(1000000, \"x\")\nNext\nDebug.Print \"held\"\nEnd Sub\n",
+        ResourceLimits {
+            max_steps: Some(1_000_000),
+            max_memory_bytes: Some(100_000),
+            ..ResourceLimits::default()
+        },
+    );
+    assert_eq!(o.out, "held\n", "{:?}", o.result);
+}
+
+#[test]
 fn oversized_arrays_and_strings_are_refused() {
     let o = run(
         "Sub Main()\nOn Error Resume Next\nDim a() As Long\nReDim a(1 To 100000000)\nDebug.Print Err.Number\nEnd Sub\n",
