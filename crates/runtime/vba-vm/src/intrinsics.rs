@@ -68,6 +68,8 @@ const RAW_OBJECT_ARGS: &[&str] = &[
     "isdate",
     "isnumeric",
     "callbyname",
+    "setcheckvariant",
+    "setcheckobject",
 ];
 
 impl Vm {
@@ -408,10 +410,17 @@ impl Vm {
                 Variant::Empty
             }
             "midbstatement" => {
-                return Err(Fault::Unsupported(
-                    "the MidB statement (byte-wise replacement)".into(),
-                ));
+                self.exec_midb_statement(args, &a)?;
+                Variant::Empty
             }
+            "setcheckvariant" | "setcheckobject" => match a.into_iter().next().flatten() {
+                // MS-VBAL 5.5.2.2.2: a non-object value is Type mismatch into a
+                // Variant and Object required into a class or `Object`.
+                Some(v @ Variant::Object(_)) => v,
+                Some(Variant::Null) if lname == "setcheckobject" => Variant::Null,
+                _ if lname == "setcheckvariant" => return Err(VbaError::TYPE_MISMATCH.into()),
+                _ => return Err(VbaError::new(424).into()),
+            },
             "typename" => match a.first() {
                 Some(Some(Variant::Object(vba_value::ObjectRef::Handle(h)))) => {
                     Variant::from_text(&self.object_type_name(*h))
@@ -538,6 +547,47 @@ impl Vm {
             .min(units.len() - start0);
         units[start0..start0 + n].copy_from_slice(&value.as_units()[..n]);
         self.store(&loc, Variant::String(VbaString::from_units(units)))
+    }
+
+    /// The `MidB` statement: `Mid` on the bytes of the string (MS-VBAL 5.4.3.5).
+    fn exec_midb_statement(&mut self, args: &[CallArg], a: &[Option<Variant>]) -> VResult<()> {
+        let Some(CallArg::Ref(r)) = args.first() else {
+            return Err(Fault::Internal("MidB statement target".into()));
+        };
+        let loc = self.reg_loc(*r)?;
+        let target = self.load(&loc)?;
+        let t = convert::to_vba_string(&target)?;
+        let start = match a.get(1) {
+            Some(Some(v)) => convert::to_long(v)?,
+            _ => return Err(VbaError::new(449).into()),
+        };
+        let value = match a.get(3) {
+            Some(Some(v)) => convert::to_vba_string(v)?,
+            _ => return Err(VbaError::new(449).into()),
+        };
+        let len = match a.get(2) {
+            Some(Some(v)) => Some(convert::to_long(v)?),
+            _ => None,
+        };
+        if start < 1 || len.is_some_and(|l| l < 0) {
+            return Err(VbaError::INVALID_PROCEDURE_CALL.into());
+        }
+        let mut bytes = t.to_bytes_le();
+        let vb = value.to_bytes_le();
+        let start0 = start as usize - 1;
+        if start0 >= bytes.len() {
+            return Err(VbaError::INVALID_PROCEDURE_CALL.into());
+        }
+        let n = len
+            .map_or(vb.len(), |l| l as usize)
+            .min(vb.len())
+            .min(bytes.len() - start0);
+        bytes[start0..start0 + n].copy_from_slice(&vb[..n]);
+        // The string keeps its length, which is even, so the bytes always
+        // form whole code units.
+        let s = VbaString::from_bytes_le(&bytes)
+            .ok_or_else(|| Fault::Internal("MidB result is not whole code units".into()))?;
+        self.store(&loc, Variant::String(s))
     }
 
     // ---- For Each -------------------------------------------------------------------------

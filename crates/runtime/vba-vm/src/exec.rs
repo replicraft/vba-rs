@@ -970,12 +970,15 @@ impl Vm {
                     return Err(RtErr::standard(a).into());
                 }
                 let rv = self.exec_intrinsic(name, *dollar, args)?;
+                // The `Set` checks return their argument, which is already
+                // owned by whoever produced it.
+                let owns = !name.to_ascii_lowercase().starts_with("setcheck");
                 if let Some(r) = dst {
-                    if let RegVal::V(v) = &rv {
+                    if let (RegVal::V(v), true) = (&rv, owns) {
                         self.own(v);
                     }
                     self.set_reg(r, rv);
-                } else if let RegVal::V(v) = rv {
+                } else if let (RegVal::V(v), true) = (rv, owns) {
                     self.own(&v);
                 }
                 Ok(Flow::Next)

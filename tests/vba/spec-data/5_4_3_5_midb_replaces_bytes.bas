@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.3.5, stmt.mid
 ' SOURCE: spec ms-vbal 5.4.3.5 MidB works in bytes
-' XFAIL: unsupported the MidB statement
 ' EXPECT: Zbc
 ' EXPECT: aXc
 Public Sub Main()

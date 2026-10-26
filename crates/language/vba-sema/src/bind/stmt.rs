@@ -803,6 +803,29 @@ impl Binder<'_, '_> {
             );
             return None;
         }
+        // A Variant source is checked at run time before it is coerced
+        // (MS-VBAL 5.5.2.2.2): a non-object value is Type mismatch (13) into a
+        // Variant and Object required (424) into a class or `Object`.
+        let v = if v.ty.is_variant() {
+            let name = if pty.is_variant() {
+                "SetCheckVariant"
+            } else {
+                "SetCheckObject"
+            };
+            let sp = v.span;
+            self.call_expr(
+                sp,
+                Type::Variant,
+                CallTarget::Intrinsic {
+                    name: name.to_owned(),
+                    dollar: false,
+                },
+                None,
+                vec![BArg::Value(v)],
+            )
+        } else {
+            v
+        };
         let v = self.coerce(v, &pty, Ctx::Arg);
         if v.ty.is_error() {
             return None;
