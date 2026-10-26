@@ -1,0 +1,17 @@
+[package]
+name = "vba-wine"
+description = "Wine bridge for VBA Declare: wire protocol, helper server framework, session client and opt-in Provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-ffi.workspace = true
+vba-host.workspace = true
+vba-profile.workspace = true
+vba-winapi.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -247,6 +247,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6184e33543162437515c2e2b48714794e37845ec9851711914eec9d308f6ebe8"
 
 [[package]]
+name = "dissimilar"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeda16ab4059c5fd2a83f2b9c9e9c981327b18aa8e3b313f7e6563799d4f093e"
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -274,6 +280,16 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "expect-test"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63af43ff4431e848fb47472a920f14fa71c24de13255a5692e93d4e90302acb0"
+dependencies = [
+ "dissimilar",
+ "once_cell",
 ]
 
 [[package]]
@@ -731,6 +747,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-ast"
+version = "0.1.0"
+dependencies = [
+ "expect-test",
+ "proptest",
+ "vba-diagnostics",
+ "vba-lexer",
+ "vba-profile",
+ "vba-source",
+ "vba-syntax",
+]
+
+[[package]]
 name = "vba-automation"
 version = "0.1.0"
 dependencies = [
@@ -830,6 +859,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-syntax"
+version = "0.1.0"
+dependencies = [
+ "expect-test",
+ "proptest",
+ "vba-diagnostics",
+ "vba-lexer",
+ "vba-profile",
+ "vba-source",
+]
+
+[[package]]
 name = "vba-value"
 version = "0.1.0"
 dependencies = [
@@ -846,6 +887,27 @@ dependencies = [
  "vba-ffi",
  "vba-profile",
  "vba-value",
+]
+
+[[package]]
+name = "vba-wine"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "vba-ffi",
+ "vba-host",
+ "vba-profile",
+ "vba-winapi",
+]
+
+[[package]]
+name = "vba-wine-host"
+version = "0.1.0"
+dependencies = [
+ "vba-ffi",
+ "vba-host",
+ "vba-winapi",
+ "vba-wine",
 ]
 
 [[package]]

@@ -31,6 +31,7 @@ vba-source = { path = "crates/foundation/vba-source" }
 vba-syntax = { path = "crates/language/vba-syntax" }
 vba-value = { path = "crates/runtime/vba-value" }
 vba-winapi = { path = "crates/windows/vba-winapi" }
+vba-wine = { path = "crates/windows/vba-wine" }
 
 # Error handling
 thiserror = "2"
