@@ -49,14 +49,14 @@ program exists.
 | 6.1.1 Predefined enums | 16 | 16 | 0 | 0 | 16 |
 | 6.1.2.1-6.1.2.2 Colour and general constants | 2 | 2 | 0 | 0 | 3 |
 | 6.1.2.3 Conversion | 21 | 16 | 5 | 0 | 52 |
-| 6.1.2.4 DateTime | 19 | 13 | 6 | 0 | 34 |
+| 6.1.2.4 DateTime | 19 | 14 | 5 | 0 | 35 |
 | 6.1.2.5 FileSystem | 17 | 14 | 3 | 0 | 28 |
-| 6.1.2.6 Financial | 13 | 12 | 0 | 1 | 12 |
+| 6.1.2.6 Financial | 13 | 13 | 0 | 0 | 13 |
 | 6.1.2.7 Information | 13 | 11 | 1 | 1 | 22 |
 | 6.1.2.8 Interaction | 21 | 13 | 2 | 6 | 35 |
 | 6.1.2.9, 6.1.2.12 Key code and system colour constants | 2 | 2 | 0 | 0 | 4 |
 | 6.1.2.10 Math | 12 | 12 | 0 | 0 | 20 |
-| 6.1.2.11 Strings | 43 | 25 | 5 | 13 | 54 |
+| 6.1.2.11 Strings | 43 | 25 | 5 | 13 | 55 |
 | 6.1.3 Predefined classes | 14 | 9 | 2 | 3 | 22 |
 
 Entries marked not started are sections with no testable normative content or only host
@@ -64,8 +64,8 @@ behaviour (4.1 projects, 4.2.1 extensibility, 5.3.1.3 names, 5.4.2.11 Stop, 5.6.
 informative classifications, 5.6.2.3 and 5.6.16.8 implementation-defined limits, 5.6.13.2,
 `Command`, `CreateObject`, `GetObject`, `InputBox`, `AppActivate`, `SendKeys`, `IMEStatus`,
 `Load`/`Unload`) and the `$`/`B` variants of string functions that share their programs with
-the base function (the base entry covers them), plus `DDB` whose formula in the text does not
-match the documented function.
+the base function (the base entry covers them). `DDB` is covered by the documented formula
+(its formula in the text differs from the documented function).
 
 ## Defects found and fixed (revision 3.0 text)
 

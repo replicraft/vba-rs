@@ -65,12 +65,14 @@ against a real VBA host.
   `Unsupported` (real VBA substitutes an environment-dependent code); double
   byte pages (932, 936, 949, 950) give `lead*256+trail` from `Asc` and accept
   256..65535 in `Chr`.
-- `StrConv`: `vbSimplifiedChinese`, `vbTraditionalChinese` and
-  `vbLinguisticCasing` are `Unsupported`; `vbUnicode`/`vbFromUnicode` use
+- `StrConv`: `vbSimplifiedChinese` and `vbTraditionalChinese` are
+  `Unsupported` (`vbLinguisticCasing`, 1024, is accepted with `vbUpperCase` or
+  `vbLowerCase` and is the plain conversion for en-US, error 5 with any other
+  mode; the constants `vbLinguisticCasing`, `vbSimplifiedChinese` and
+  `vbTraditionalChinese` are not predefined names yet, use 1024, 256, 512); `vbUnicode`/`vbFromUnicode` use
   `encoding_rs` code pages only (874, 932, 936, 949, 950, 1250-1258, 10000,
   20866, 21866, ISO-8859-x, 65001); any other page, or a `LocaleID` outside the
   small built-in table (`textconv::lcid_code_page`), is `Unsupported`.
-- `Str` of a `Date`, `DDB` with a fractional period: `Unsupported`.
 - `TypeName` of objects and user-defined types, `IsMissing`: `VmRequired`.
 - Windows LCID collation: `Option Compare Text` uses the documented en-US
   approximation of `vba-value::collation` (case, width, kana type; accents
@@ -125,10 +127,11 @@ against a real VBA host.
   a descending range are error 93. The Microsoft Learn page confirms error 93 for
   an unterminated `[` and lists all its examples (asserted in `like::tests`);
   it only says a descending range `[Z-A]` "is not" valid, so error 93 for it
-  stays **unverified**. Known gap: in text mode the page says `[A-E]` also
-  matches `À`/`à` (accents sort next to their base letter) and that
-  ligature letters such as `æ` equal their two-letter expansion; neither is
-  reproduced.
+  stays **unverified**. In text mode (**doc**) an accented Latin letter sorts
+  right after its base letter, so `[A-E]` matches `À`/`à` but not `Ê`/`ê`
+  (Latin-1 Supplement and Latin Extended-A, `like::accent_base`). Known gap:
+  the page's statement that ligature letters such as `æ` equal their
+  two-letter expansion is not reproduced.
 
 ### Format family (**doc**)
 - Source checked: Microsoft Learn, "Format function (Visual Basic for
@@ -156,6 +159,10 @@ against a real VBA host.
   front. `0 # ?` placeholders, `.`, `,` (grouping between digits, scaling by
   1000 after the last digit), `%`, `E+ E- e+ e-`, `"text"`, `\c`, `_c`.
   `Format(5,"0.##")` is `"5."` (the point stays).
+- The en-US long date is `dddd, mmmm d, yyyy` (no leading zero on the day, as
+  on current Windows; **unverified** for older systems that used `dd`). A
+  format made only of an `AM/PM`, `am/pm`, `A/P`, `a/p` or `AMPM` designator
+  is a date format.
 - Named formats: `General Number`, `Currency`, `Fixed`, `Standard`,
   `Percent`, `Scientific`, `Yes/No`, `True/False`, `On/Off`; dates `General
   Date`, `Long/Medium/Short Date`, `Long/Medium/Short Time`. Their patterns
@@ -203,13 +210,21 @@ against a real VBA host.
 - `DateSerial` two-digit years: 0-29 are 2000-2029, 30-99 are 1930-1999;
   negative years 5. `TimeSerial` wraps into one day.
 - `IsDate("12")` is False (numeric strings are not dates).
+- `DateValue` and `IsDate` accept a date written without a year (`Dec 30`,
+  `30 Dec`, `12/30`; a month and a year, `Dec 2024`, is the first of the
+  month) and take the year from the host clock (**doc**: "uses the current
+  year"). `CDate` and the implicit string-to-date conversion have no clock and
+  keep failing with error 13 for these forms (known gap).
 
 ### Financial (**doc**, formulas shared with the Excel functions)
 - Sign convention and `Due` (0 end, non-zero beginning). `IRR` and `Rate` use
   Newton iteration with step damping, at most 20 tries, tolerance 1e-7
   (0.00001 percent); failure is 5. `IPmt` for beginning-of-period payments is
   0 in period 1 and uses the balance after the first payment afterwards (same
-  convention remembered from open-source reimplementations; **unverified**). Tests use the
+  convention remembered from open-source reimplementations; **unverified**).
+  `DDB` with a fractional period uses the book value
+  `max(salvage, cost * (1 - factor / life) ^ t)` at both ends of the period
+  (**unverified**; whole periods iterate the documented declining balance). Tests use the
   worked examples of the Excel documentation (`Pmt`, `FV`, `PV`, `NPer`,
   `Rate`, `IPmt`, `PPmt`, `NPV`, `IRR`, `MIRR`, `SLN`, `SYD`, `DDB`) with
   tolerances, and identities (`IPmt + PPmt = Pmt`, `NPer(Pmt) = n`).
@@ -222,7 +237,8 @@ against a real VBA host.
   number, `&H`/`&O` forms with 16-bit sign extension (`Val("&HFFFF")` = -1)
   unless a trailing `&` is present; beyond `Double` range 6 (**doc**).
 - `Str`: leading space for non-negative numbers, `.` always the decimal
-  separator.
+  separator; a `Date` is its string coercion without the sign space
+  (**spec** 6.1.2.3.1.20).
 
 ## Tests
 

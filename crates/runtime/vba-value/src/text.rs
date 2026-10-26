@@ -364,8 +364,7 @@ pub fn parse_date_in_year(s: &VbaString, current_year: Option<i32>) -> VbaResult
         }
         return Date::from_serial(secs as f64 / 86_400.0);
     }
-    let (y, m, d) =
-        parse_date_tokens(&date_tokens, current_year).ok_or(VbaError::TYPE_MISMATCH)?;
+    let (y, m, d) = parse_date_tokens(&date_tokens, current_year).ok_or(VbaError::TYPE_MISMATCH)?;
     let base = Date::from_ymd_hms(y, m, d, 0, 0, 0).map_err(|_| VbaError::TYPE_MISMATCH)?;
     let serial = base.serial();
     let frac = secs as f64 / 86_400.0;
@@ -433,7 +432,11 @@ fn parse_two_part_date(parts: &[&str], year: i32) -> Option<(i32, u32, u32)> {
     let num = |p: &str| parse_number_u32(p).map(|n| (n, p.len()));
     match named {
         [Some(m), None] | [None, Some(m)] => {
-            let other = if named[0].is_some() { parts[1] } else { parts[0] };
+            let other = if named[0].is_some() {
+                parts[1]
+            } else {
+                parts[0]
+            };
             let (n, len) = num(other)?;
             if len >= 3 {
                 Some((n as i32, m, 1))
@@ -578,14 +581,18 @@ mod tests {
 
     #[test]
     fn date_without_a_year() {
-        let in_year = |s: &str| parse_date_in_year(&VbaString::from(s), Some(2024)).map(Date::serial);
+        let in_year =
+            |s: &str| parse_date_in_year(&VbaString::from(s), Some(2024)).map(Date::serial);
         let full = |s: &str| date(s);
         assert_eq!(in_year("Dec 30"), full("12/30/2024"));
         assert_eq!(in_year("30 Dec"), full("12/30/2024"));
         assert_eq!(in_year("December 30,"), full("12/30/2024"));
         assert_eq!(in_year("12/30"), full("12/30/2024"));
         assert_eq!(in_year("Dec 2024"), full("12/1/2024"));
-        assert_eq!(in_year("Dec 30 6:00 PM"), Ok(full("12/30/2024").unwrap() + 0.75));
+        assert_eq!(
+            in_year("Dec 30 6:00 PM"),
+            Ok(full("12/30/2024").unwrap() + 0.75)
+        );
         assert_eq!(in_year("Feb 30"), Err(VbaError::TYPE_MISMATCH));
         assert_eq!(in_year("13/1"), Err(VbaError::TYPE_MISMATCH));
         assert_eq!(date("Dec 30"), Err(VbaError::TYPE_MISMATCH));
