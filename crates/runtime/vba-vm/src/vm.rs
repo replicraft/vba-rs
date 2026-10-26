@@ -85,6 +85,24 @@ pub struct Vm {
     pub(crate) push_done: bool,
     pub(crate) cascade: Option<crate::state::Cascade>,
     pub(crate) settings: vba_host::MemorySettings,
+    pub(crate) bind_stats: BindStats,
+}
+
+/// How member accesses on objects outside the VM were dispatched.
+///
+/// An access is *early* when the analysis resolved the receiver's static type
+/// to a library type, so the member id is known, and the object accepted that
+/// id; it is *by name* otherwise. A *fallback* is an early-bound access whose
+/// object did not accept the id (an object that does not provide the
+/// library's ids) and was therefore called by name.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BindStats {
+    /// Calls made by member id.
+    pub early: u64,
+    /// Calls made by name, including the fallbacks.
+    pub by_name: u64,
+    /// Early-bound calls that fell back to the name.
+    pub fallbacks: u64,
 }
 
 impl Vm {
@@ -130,6 +148,7 @@ impl Vm {
             push_request: None,
             push_done: false,
             settings: vba_host::MemorySettings::new(),
+            bind_stats: BindStats::default(),
             cascade: None,
         };
         vm.index_program();
@@ -369,6 +388,11 @@ impl Vm {
     /// `Debug` objects are not counted).
     pub fn live_objects(&self) -> usize {
         self.objects.len().saturating_sub(2)
+    }
+
+    /// How member accesses on objects outside the VM were dispatched so far.
+    pub fn bind_stats(&self) -> BindStats {
+        self.bind_stats
     }
 
     /// Number of live user-defined-type values.

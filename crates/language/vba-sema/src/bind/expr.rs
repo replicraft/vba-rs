@@ -1358,7 +1358,7 @@ impl Binder<'_, '_> {
                     );
                     return self.error_expr(span);
                 }
-                if m.kind == LibMemberKind::PropertyPut && self.target_span != Some(span) {
+                if m.kind == LibMemberKind::PropertyPut && self.target_span != Some(name.span) {
                     self.err(
                         codes::WRITE_ONLY_PROPERTY,
                         name.span,

@@ -68,8 +68,9 @@ pub(crate) struct Binder<'s, 'a> {
     /// Set while binding the argument of `Len`/`LenB`, the only functions
     /// that accept a user-defined type value as their `Variant` argument.
     pub udt_arg_ok: bool,
-    /// The span of the assignment target being bound, if any: a write-only
-    /// library property may be named there.
+    /// The span of the name of the member being assigned to, if an
+    /// assignment target is being bound: a write-only library property may
+    /// be named there.
     pub target_span: Option<Span>,
 }
 

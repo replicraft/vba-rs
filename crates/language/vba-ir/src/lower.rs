@@ -1171,6 +1171,7 @@ impl<'p> Builder<'p> {
                     },
                     args,
                     static_receiver: late.static_receiver.clone(),
+                    dispid: late.dispid,
                 });
             }
         }
@@ -1337,6 +1338,7 @@ impl<'p> Builder<'p> {
             },
             args,
             static_receiver: l.static_receiver.clone(),
+            dispid: l.dispid,
         });
         Ok(dst)
     }

@@ -513,6 +513,12 @@ pub enum InstKind {
         args: Vec<LateArg>,
         /// The receiver's library type when statically known.
         static_receiver: Option<LibraryType>,
+        /// The member id the library declares: the access is early-bound.
+        /// The arguments are then already in parameter order, converted to
+        /// the declared types, with declared defaults filled in, and none is
+        /// named. The run time invokes the member by id when the receiver
+        /// accepts the id, and looks the name up otherwise.
+        dispid: Option<i32>,
     },
     /// `New`.
     New {

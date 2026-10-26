@@ -481,10 +481,14 @@ impl Printer<'_> {
                 kind,
                 args,
                 static_receiver,
+                dispid,
             } => {
                 let d = dst.map_or(String::new(), |d| format!("r{} = ", d.0));
                 let m = match member {
-                    Member::Named(n) => format!(".{n}"),
+                    Member::Named(n) => match dispid {
+                        Some(id) => format!(".{n}#{id}"),
+                        None => format!(".{n}"),
+                    },
                     Member::Default => ".<default>".into(),
                 };
                 let k = match kind {

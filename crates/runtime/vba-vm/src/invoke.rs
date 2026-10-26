@@ -19,6 +19,16 @@ use crate::vm::Vm;
 
 type LateArgs = Vec<(Option<String>, BoundArg)>;
 
+/// What the analysis resolved for an access on a library type.
+#[derive(Clone, Copy)]
+pub(crate) struct EarlyBind<'a> {
+    /// The member id the library declares.
+    pub dispid: Option<i32>,
+    /// The declared scalar type of the result, which the result is
+    /// converted to.
+    pub result_ty: Option<&'a vba_sema::Type>,
+}
+
 impl Vm {
     fn late_args(&mut self, args: &[LateArg]) -> VResult<LateArgs> {
         let mut out = Vec::with_capacity(args.len());
@@ -51,6 +61,7 @@ impl Vm {
         member: &Member,
         kind: InvokeKind,
         args: &[LateArg],
+        early: EarlyBind<'_>,
     ) -> VResult<crate::exec::Flow> {
         let recv = self.invoke_receiver(receiver)?;
         if matches!(member, Member::Default)
@@ -66,12 +77,17 @@ impl Vm {
         let largs = self.late_args(args)?;
         self.push_request = Some(dst);
         self.push_done = false;
-        let result = self.invoke_value(recv, member, kind, largs, dst.is_some());
+        let result =
+            self.invoke_value_early(recv, member, kind, largs, dst.is_some(), early.dispid);
         self.push_request = None;
         let result = result?;
         if std::mem::take(&mut self.push_done) {
             return Ok(crate::exec::Flow::Pushed);
         }
+        let result = match early.result_ty {
+            Some(t) => self.convert_value(result, t)?,
+            None => result,
+        };
         match dst {
             Some(r) => {
                 self.own(&result);
@@ -121,7 +137,7 @@ impl Vm {
         self.val(op)
     }
 
-    /// Invokes a member on any receiver value.
+    /// Invokes a member on any receiver value, by name.
     pub(crate) fn invoke_value(
         &mut self,
         recv: Variant,
@@ -129,6 +145,20 @@ impl Vm {
         kind: InvokeKind,
         args: LateArgs,
         want_value: bool,
+    ) -> VResult<Variant> {
+        self.invoke_value_early(recv, member, kind, args, want_value, None)
+    }
+
+    /// Invokes a member on any receiver value; `dispid` is the member id
+    /// the library declares when the access is early-bound.
+    pub(crate) fn invoke_value_early(
+        &mut self,
+        recv: Variant,
+        member: &Member,
+        kind: InvokeKind,
+        args: LateArgs,
+        want_value: bool,
+        dispid: Option<i32>,
     ) -> VResult<Variant> {
         let push = self.push_request.take();
         match recv {
@@ -150,7 +180,7 @@ impl Vm {
             },
             Variant::Object(ObjectRef::Handle(h)) => match vm_id(h) {
                 Some(id) => self.invoke_vm_object(id, member, kind, args, push),
-                None => self.invoke_external(h, member, kind, args, want_value),
+                None => self.invoke_external(h, member, kind, args, want_value, dispid),
             },
             Variant::Object(ObjectRef::Nothing) | Variant::Empty => Err(VbaError::new(91).into()),
             _ => Err(VbaError::new(424).into()),
@@ -596,6 +626,7 @@ impl Vm {
         kind: InvokeKind,
         args: LateArgs,
         want_value: bool,
+        dispid: Option<i32>,
     ) -> VResult<Variant> {
         let host = self.host.clone();
         let table = host.objects();
@@ -640,8 +671,25 @@ impl Vm {
             _ => return Err(VbaError::new(450).into()),
         };
         let result = match member {
-            Member::Named(n) => call::invoke_member(table, h, n, &mut ca, &fin),
-            Member::Default => call::invoke_default(table, h, &mut ca, &fin),
+            Member::Named(n) => {
+                let early = dispid
+                    .and_then(|id| call::invoke_early(table, h, DispId(id), n, &mut ca, &fin));
+                match early {
+                    Some(r) => {
+                        self.bind_stats.early += 1;
+                        r
+                    }
+                    None => {
+                        self.bind_stats.by_name += 1;
+                        self.bind_stats.fallbacks += u64::from(dispid.is_some());
+                        call::invoke_member(table, h, n, &mut ca, &fin)
+                    }
+                }
+            }
+            Member::Default => {
+                self.bind_stats.by_name += 1;
+                call::invoke_default(table, h, &mut ca, &fin)
+            }
         };
         for (arg, loc) in ca.positional.iter().zip(&positional_locs) {
             if let (true, Some(l)) = (arg.by_ref, loc) {

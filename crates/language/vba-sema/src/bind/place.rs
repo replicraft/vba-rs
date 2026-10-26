@@ -61,7 +61,15 @@ impl Binder<'_, '_> {
         if let Some(r) = self.try_write_only_property(e, set) {
             return r;
         }
-        let saved = self.target_span.replace(e.span);
+        let name_span = match &e.kind {
+            ExprKind::Member { name, .. } => Some(name.span),
+            ExprKind::Call { callee, .. } => match &callee.kind {
+                ExprKind::Member { name, .. } => Some(name.span),
+                _ => None,
+            },
+            _ => None,
+        };
+        let saved = std::mem::replace(&mut self.target_span, name_span);
         let b = self.bind_expr(e);
         self.target_span = saved;
         if b.ty.is_error() {

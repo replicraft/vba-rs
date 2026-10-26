@@ -634,8 +634,26 @@ impl Vm {
                 member,
                 kind,
                 args,
+                dispid,
                 ..
-            } => return self.exec_invoke(*dst, receiver, member, *kind, args),
+            } => {
+                // An early-bound result has the declared type whatever the
+                // object returns.
+                let result_ty = dst
+                    .filter(|_| dispid.is_some())
+                    .map(|d| &func.regs[d.0 as usize])
+                    .filter(|t| {
+                        t.var_type().is_some()
+                            && !matches!(t, Type::Variant | Type::Any | Type::Error)
+                            && !t.is_object()
+                            && !t.is_record()
+                    });
+                let early = crate::invoke::EarlyBind {
+                    dispid: *dispid,
+                    result_ty,
+                };
+                return self.exec_invoke(*dst, receiver, member, *kind, args, early);
+            }
             InstKind::New { dst, target } => {
                 let v = self.create_new(target)?;
                 self.own(&v);

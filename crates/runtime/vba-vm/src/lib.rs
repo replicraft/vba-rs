@@ -55,4 +55,4 @@ pub use printfmt::{ZONE, format_print, format_print_width, print_value};
 pub use services::{
     IoReply, IoRequest, NoServices, PrintItem, RecordValue, ServiceError, Services, Shape,
 };
-pub use vm::{Arg, RunOutput, RunStatus, Vm};
+pub use vm::{Arg, BindStats, RunOutput, RunStatus, Vm};
