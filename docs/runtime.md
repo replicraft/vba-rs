@@ -22,6 +22,16 @@ session.run_procedure("Module1.Main", vec![])?;
   Errors are `Error::Load` with the rendered diagnostics; warnings are kept
   (`Session::warnings`). Project conditional-compilation constants and the
   project name (`Err.Source` default) come from the `VbaProject`.
+- **Compiled-only projects.** `build_project` first classifies the project
+  (`VbaProject::source_availability`). `CompiledOnly` projects are always
+  refused with `Error::CompiledOnly` naming the project and the modules
+  lacking source, before any analysis. `Mixed` projects are refused unless
+  the builder was given `allow_partial()`; then the modules without source are
+  left out of the program, source that refers to them fails to compile
+  (`Error::Load`), and `run_procedure` naming such a module, or a bare name
+  found nowhere (it might live in a missing module), returns
+  `Error::CompiledOnly`. P-code is never executed. See
+  [compiled-projects.md](compiled-projects.md).
 - **Trust gate.** A session never runs anything by itself, not even
   `Auto_Open`, `Workbook_Open` or `Class_Initialize` of default instances.
   `run_procedure`, `raise_event` and `shutdown` return `Error::NotTrusted` until
@@ -43,6 +53,7 @@ session.run_procedure("Module1.Main", vec![])?;
 | `Error` | Who is responsible |
 | --- | --- |
 | `Load` | the project does not compile (rendered diagnostics) |
+| `CompiledOnly { project, modules }` | the project (or the module a call needs) has no source text; compiled state is never run |
 | `NotTrusted`, `NoSuchProcedure`, `AmbiguousProcedure`, `NotCallable` | the embedder's request |
 | `Vba` | an unhandled error raised by the program or the language (with procedure, line, stack) |
 | `Host` | an unhandled error reported by a host hook or host object |
@@ -158,7 +169,14 @@ path prefix (an existing directory gets a trailing slash). The file system is
 the real one unless `--memfs`. Exit codes: 0 success (also `Stop`), 1 bad input
 or the project does not compile, 2 unhandled run-time error (VBA or host),
 3 permission denied, 4 resource limit or cancelled, 5 unsupported feature,
-bridge failure or internal error.
+bridge failure or internal error, 6 the project is compiled-only or a call
+needs a module without source (`Error::CompiledOnly`). `check` and `parse` of a
+project with any module lacking source also exit 6 (not 1: the input is
+well-formed but there is nothing to analyse); `run --allow-partial` accepts a
+mixed project (never a fully compiled-only one). `inspect` always succeeds on a
+readable project and prints `Source availability:` plus, per module, whether
+source is present, empty, compiled-only (with the cache size) or absent
+without a cache, and a note for ambiguous cases.
 
 ## Tests
 

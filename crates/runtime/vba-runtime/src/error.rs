@@ -64,6 +64,18 @@ impl fmt::Display for LoadError {
     }
 }
 
+fn compiled_only_message(project: &str, modules: &[String]) -> String {
+    format!(
+        "project {project:?} has no source for module(s) {}; compiled-only or stripped \
+         modules cannot be run (their compiled form is never executed)",
+        modules
+            .iter()
+            .map(|m| format!("{m:?}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
 /// Everything that can go wrong in a [`Session`](crate::Session).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
@@ -73,6 +85,15 @@ pub enum Error {
     /// `run_procedure` / `raise_event` before [`Session::trust`](crate::Session::trust).
     #[error("execution is not enabled for this session; the embedder must call `trust` first")]
     NotTrusted,
+    /// The project (or the module a call needs) has no source text: it is
+    /// compiled-only or stripped. Compiled state is never executed.
+    #[error("{}", compiled_only_message(.project, .modules))]
+    CompiledOnly {
+        /// The project name.
+        project: String,
+        /// The modules lacking source, in project order.
+        modules: Vec<String>,
+    },
     /// No procedure with that name.
     #[error("no procedure named `{0}`")]
     NoSuchProcedure(String),
@@ -113,6 +134,7 @@ impl Error {
     pub fn kind(&self) -> &'static str {
         match self {
             Error::Load(_) => "load",
+            Error::CompiledOnly { .. } => "compiled-only",
             Error::NotTrusted => "not-trusted",
             Error::NoSuchProcedure(_) => "no-such-procedure",
             Error::AmbiguousProcedure(_) => "ambiguous-procedure",

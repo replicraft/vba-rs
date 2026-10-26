@@ -47,6 +47,7 @@ pub struct SessionBuilder {
     shell: Box<dyn ShellHook>,
     command: String,
     config: VmConfig,
+    allow_partial: bool,
 }
 
 impl Default for SessionBuilder {
@@ -69,6 +70,7 @@ impl SessionBuilder {
             shell: Box::new(NoShell),
             command: String::new(),
             config: VmConfig::default(),
+            allow_partial: false,
         }
     }
 
@@ -128,12 +130,47 @@ impl SessionBuilder {
         self
     }
 
+    /// Lets [`build_project`](SessionBuilder::build_project) accept a
+    /// *mixed* project (some modules have no source). The modules without
+    /// source are left out of the program, and running a procedure that
+    /// cannot be found among the others (or naming such a module) is
+    /// [`Error::CompiledOnly`]. Code of the present modules that refers to a
+    /// missing module still fails to compile. A fully compiled-only project
+    /// is refused regardless.
+    #[must_use]
+    pub fn allow_partial(mut self) -> Self {
+        self.allow_partial = true;
+        self
+    }
+
     /// Loads a project.
+    ///
+    /// A project whose modules lack source text (compiled-only, stripped) is
+    /// refused with [`Error::CompiledOnly`] naming the modules, before any
+    /// analysis. A mixed project is accepted only after
+    /// [`allow_partial`](SessionBuilder::allow_partial).
     pub fn build_project(mut self, project: &VbaProject) -> Result<Session, Error> {
+        use vba_project::ProjectSourceAvailability as A;
+        let absent: Vec<String> = project
+            .modules_without_source()
+            .map(|m| m.name.clone())
+            .collect();
+        let refuse = match project.source_availability() {
+            A::FullSource => false,
+            A::Mixed => !self.allow_partial,
+            A::CompiledOnly => true,
+        };
+        if refuse {
+            return Err(Error::CompiledOnly {
+                project: project.name.clone(),
+                modules: absent,
+            });
+        }
         self.config.project_name = project.name.clone();
         let modules: Vec<SourceModule> = project
             .modules
             .iter()
+            .filter(|m| !m.source_availability().lacks_source())
             .map(|m| SourceModule {
                 name: m.name.clone(),
                 kind: m.kind,
@@ -145,7 +182,10 @@ impl SessionBuilder {
             constants: vba_sema::parse_project_constants(&project.constants),
             ..Options::default()
         };
-        self.build(&modules, &options)
+        let (project_name, absent_modules) = (project.name.clone(), absent);
+        let mut session = self.build(&modules, &options)?;
+        session.absent = Some((project_name, absent_modules));
+        Ok(session)
     }
 
     /// Loads source modules.
@@ -199,6 +239,7 @@ impl SessionBuilder {
             host: self.host,
             warnings,
             trusted: false,
+            absent: None,
         })
     }
 }
@@ -213,6 +254,8 @@ pub struct Session {
     host: Rc<dyn Host>,
     warnings: Vec<String>,
     trusted: bool,
+    /// Project name and modules left out because they have no source.
+    absent: Option<(String, Vec<String>)>,
 }
 
 impl Session {
@@ -285,8 +328,26 @@ impl Session {
         }
     }
 
+    /// The error for a call that needs a module that was left out.
+    fn compiled_only(&self) -> Option<Error> {
+        self.absent
+            .as_ref()
+            .filter(|(_, m)| !m.is_empty())
+            .map(|(project, modules)| Error::CompiledOnly {
+                project: project.clone(),
+                modules: modules.clone(),
+            })
+    }
+
     fn find(&self, name: &str) -> Result<vba_sema::ProcId, Error> {
         let p = &self.ir.program;
+        // A qualified name that names a module without source is an explicit
+        // error, not "no such procedure".
+        if let (Some((_, absent)), Some((m, _))) = (&self.absent, name.split_once('.'))
+            && absent.iter().any(|a| a.eq_ignore_ascii_case(m))
+        {
+            return Err(self.compiled_only().expect("absent is non-empty"));
+        }
         let callable =
             |id: vba_sema::ProcId| matches!(p.proc(id).kind, ProcKind::Sub | ProcKind::Function);
         let matches: Vec<vba_sema::ProcId> = if let Some((m, n)) = name.split_once('.') {
@@ -308,7 +369,10 @@ impl Session {
                 .collect()
         };
         match matches.as_slice() {
-            [] => Err(Error::NoSuchProcedure(name.to_owned())),
+            // The procedure may live in a module that was left out.
+            [] => Err(self
+                .compiled_only()
+                .unwrap_or_else(|| Error::NoSuchProcedure(name.to_owned()))),
             [one] => Ok(*one),
             _ => Err(Error::AmbiguousProcedure(name.to_owned())),
         }
