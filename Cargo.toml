@@ -25,9 +25,11 @@ vba-ffi = { path = "crates/interoperability/vba-ffi" }
 vba-format = { path = "crates/formats/vba-format" }
 vba-host = { path = "crates/hosts/vba-host" }
 vba-lexer = { path = "crates/language/vba-lexer" }
+vba-lsp-core = { path = "crates/tooling/vba-lsp-core" }
 vba-profile = { path = "crates/foundation/vba-profile" }
 vba-project = { path = "crates/model/vba-project" }
 vba-source = { path = "crates/foundation/vba-source" }
+vba-stdlib = { path = "crates/runtime/vba-stdlib" }
 vba-syntax = { path = "crates/language/vba-syntax" }
 vba-value = { path = "crates/runtime/vba-value" }
 vba-winapi = { path = "crates/windows/vba-winapi" }
@@ -43,6 +45,12 @@ uuid = "1"
 
 # Command-line interface
 clap = { version = "4", features = ["derive"] }
+
+# Language server protocol
+lsp-server = "0.10"
+lsp-types = "0.97"
+serde = "1"
+serde_json = "1"
 
 # Testing
 assert_cmd = "2"
