@@ -1082,6 +1082,10 @@ impl FileSystem {
                 let p = self.resolve(&p)?;
                 self.allow(Capability::FileWrite, &p)?;
                 self.stat_checked(&p)?;
+                // MS-VBAL 6.1.2.5.2.7: an open file's attributes cannot be set.
+                if self.buffers.contains_key(&p.to_ascii_lowercase()) {
+                    return vba(55);
+                }
                 self.vfs
                     .set_attributes(&p, (attrs & 0xFF) as u8)
                     .map_err(map_vfs)?;

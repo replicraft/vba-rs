@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.5.2.7, stmt.setattr
 ' SOURCE: spec ms-vbal 6.1.2.5.2.7 SetAttr sets attribute information; error on an open file
-' XFAIL: wrong not implemented: error when SetAttr names an open file
 ' EXPECT: readonly=True
 ' EXPECT: raised=True
 ' GRANT: file-read
