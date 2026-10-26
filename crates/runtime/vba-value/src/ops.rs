@@ -253,6 +253,9 @@ fn date_result(serial: f64, overflow: Overflow) -> VbaResult<Variant> {
 /// For `+` with two String (or String and Empty) operands this is
 /// concatenation.
 pub fn arith(op: ArithOp, l: &Variant, r: &Variant, overflow: Overflow) -> VbaResult<Variant> {
+    if let Some(v) = arith_fast(op, l, r) {
+        return Ok(v);
+    }
     check_class(l)?;
     check_class(r)?;
     if op == ArithOp::Add {
@@ -283,6 +286,48 @@ pub fn arith(op: ArithOp, l: &Variant, r: &Variant, overflow: Overflow) -> VbaRe
         }
         ArithOp::IntDiv | ArithOp::Mod => int_div_mod(op, a, b, overflow),
         ArithOp::Pow => power(a, b),
+    }
+}
+
+/// The common cases (`Long` with `Long`, `Double` with `Long` or `Double`)
+/// without the general operand normalisation. Returns `None` whenever the
+/// general path could produce a different result or an error (overflow,
+/// division by zero, non-finite results), so it is only ever a shortcut.
+#[inline]
+fn arith_fast(op: ArithOp, l: &Variant, r: &Variant) -> Option<Variant> {
+    match (l, r) {
+        (Variant::Long(a), Variant::Long(b)) => {
+            let (a, b) = (i64::from(*a), i64::from(*b));
+            let res = match op {
+                ArithOp::Add => a + b,
+                ArithOp::Sub => a - b,
+                ArithOp::Mul => a * b,
+                ArithOp::IntDiv if b != 0 => a / b,
+                ArithOp::Mod if b != 0 => a % b,
+                _ => return None,
+            };
+            i32::try_from(res).ok().map(Variant::Long)
+        }
+        (Variant::Double(_), Variant::Double(_) | Variant::Long(_))
+        | (Variant::Long(_), Variant::Double(_)) => {
+            let x = match l {
+                Variant::Double(d) => *d,
+                Variant::Long(i) => f64::from(*i),
+                _ => return None,
+            };
+            let y = match r {
+                Variant::Double(d) => *d,
+                Variant::Long(i) => f64::from(*i),
+                _ => return None,
+            };
+            let res = match op {
+                ArithOp::Add | ArithOp::Sub | ArithOp::Mul => float_op(op, x, y),
+                ArithOp::Div if y != 0.0 => x / y,
+                _ => return None,
+            };
+            res.is_finite().then_some(Variant::Double(res))
+        }
+        _ => None,
     }
 }
 
@@ -586,6 +631,14 @@ pub fn compare_values(
     r: &Variant,
     opts: CompareOptions,
 ) -> VbaResult<Option<Ordered>> {
+    // Shortcuts for the common numeric pairs; same results as the general path.
+    match (l, r) {
+        (Variant::Long(a), Variant::Long(b)) => return Ok(Some(a.cmp(b).into())),
+        (Variant::Double(a), Variant::Double(b)) => return Ok(Some(cmp_f64(*a, *b))),
+        (Variant::Long(a), Variant::Double(b)) => return Ok(Some(cmp_f64(f64::from(*a), *b))),
+        (Variant::Double(a), Variant::Long(b)) => return Ok(Some(cmp_f64(*a, f64::from(*b)))),
+        _ => {}
+    }
     check_class(l)?;
     check_class(r)?;
     if l.is_null() || r.is_null() {
