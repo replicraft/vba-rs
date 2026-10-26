@@ -362,7 +362,7 @@ impl Session {
             .collect()
     }
 
-    fn require_trust(&self) -> Result<(), Error> {
+    pub(crate) fn require_trust(&self) -> Result<(), Error> {
         if self.trusted {
             Ok(())
         } else {

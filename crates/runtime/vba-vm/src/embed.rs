@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use vba_automation::Dispatch;
 use vba_ir::{InvokeKind, Member};
-use vba_sema::{ModuleId, ProcId};
+use vba_sema::{GlobalId, ModuleId, ProcId};
 use vba_value::{ObjectRef, Variant};
 
 use crate::calls::BoundArg;
@@ -247,6 +247,29 @@ impl Vm {
     /// Whether the object is a live VM-owned instance.
     pub fn is_live_instance(&self, object: &ObjectRef) -> bool {
         self.live_object_id(object).is_ok()
+    }
+
+    /// Reads a module-level variable of a standard module. An object value
+    /// carries a reference the caller owns.
+    pub fn get_global(&mut self, g: GlobalId) -> Result<Variant, VmError> {
+        let v = self
+            .globals
+            .get(g.index())
+            .cloned()
+            .ok_or_else(|| VmError::Internal("no such module variable".into()))?;
+        self.retain_value(&v);
+        Ok(v)
+    }
+
+    /// Assigns a module-level variable of a standard module, converting the
+    /// value to the declared type as an assignment in VBA does.
+    pub fn set_global(&mut self, g: GlobalId, value: Variant) -> Result<(), VmError> {
+        self.last_site = None;
+        let ty = self.ir.program.global(g).ty.clone();
+        let r = self
+            .convert_value(value, &ty)
+            .and_then(|v| self.store(&Loc::Global(g.0), v));
+        r.map_err(|f| self.finish_fault(f))
     }
 
     /// Reads a public variable, property or parameterless member of an

@@ -77,7 +77,10 @@ fn compiled_only_message(project: &str, modules: &[String]) -> String {
 }
 
 /// Everything that can go wrong in a [`Session`](crate::Session).
+///
+/// Marked non-exhaustive: match with a wildcard arm.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// The project did not compile.
     #[error("{0}")]
@@ -103,6 +106,15 @@ pub enum Error {
     /// The procedure cannot be run by name (private, or in a class module).
     #[error("procedure `{0}` cannot be run by name: {1}")]
     NotCallable(String, &'static str),
+    /// No module-level variable, constant or member with that name.
+    #[error("no variable, constant or member named `{0}`")]
+    NoSuchMember(String),
+    /// A bare name that several modules declare.
+    #[error("name `{0}` is ambiguous; qualify it as Module.Name")]
+    AmbiguousMember(String),
+    /// The member exists but cannot be read or written this way.
+    #[error("`{0}` cannot be accessed: {1}")]
+    NotAccessible(String, &'static str),
     /// An unhandled error raised by the VBA program or the language.
     #[error("{0}")]
     Vba(Box<ErrorReport>),
@@ -139,6 +151,9 @@ impl Error {
             Error::NoSuchProcedure(_) => "no-such-procedure",
             Error::AmbiguousProcedure(_) => "ambiguous-procedure",
             Error::NotCallable(..) => "not-callable",
+            Error::NoSuchMember(_) => "no-such-member",
+            Error::AmbiguousMember(_) => "ambiguous-member",
+            Error::NotAccessible(..) => "not-accessible",
             Error::Vba(_) => "vba",
             Error::Host(_) => "host",
             Error::PermissionDenied(_) => "permission-denied",

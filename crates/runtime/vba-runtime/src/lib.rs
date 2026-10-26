@@ -38,6 +38,7 @@
 
 mod error;
 mod files;
+mod members;
 mod memfs;
 mod realfs;
 mod records;
@@ -48,6 +49,7 @@ mod vfs;
 
 pub use error::{Error, ErrorReport, FsError, LoadError};
 pub use files::{DEFAULT_MAX_FILE_BYTES, FileSystem, FsServices, ScriptFsAdapter, write_value};
+pub use members::{ModuleSummary, ParamSummary, ProcedureSummary, VariableSummary};
 pub use memfs::MemFs;
 pub use realfs::RealFs;
 pub use session::{ProcedureInfo, Session, SessionBuilder, Target};

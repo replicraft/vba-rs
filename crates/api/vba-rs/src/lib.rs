@@ -195,6 +195,7 @@ mod engine;
 mod host;
 mod objects;
 mod project;
+mod state;
 
 pub mod prelude;
 pub mod raw;
@@ -212,6 +213,7 @@ pub use vba_profile::{
 };
 
 // Project model and format.
+pub use vba_ast::ProcKind;
 pub use vba_format::{
     Limits as ReadLimits, ProjectStreams, ReadMode, StaleCache, WriteOptions, WriteReport,
 };
@@ -224,8 +226,8 @@ pub use vba_diagnostics::{Diagnostic, Severity};
 
 // Sessions and runtime.
 pub use vba_runtime::{
-    Error as RunError, ErrorReport, MemFs, NoShell, RealFs, Session, SessionBuilder, ShellHook,
-    StdShell, SystemHost, Vfs,
+    Error as RunError, ErrorReport, MemFs, ModuleSummary, NoShell, ParamSummary, ProcedureSummary,
+    RealFs, Session, SessionBuilder, ShellHook, StdShell, SystemHost, VariableSummary, Vfs,
 };
 pub use vba_vm::{BufferSink, DebugSink, LimitKind, RunStatus, VmConfig};
 

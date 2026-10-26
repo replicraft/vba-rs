@@ -132,6 +132,9 @@ fn exit_code(e: &Error) -> u8 {
         Error::PermissionDenied(_) => exit::DENIED,
         Error::Limit(_) | Error::Cancelled(_) => exit::LIMIT,
         Error::Bridge(_) | Error::Unsupported(_) | Error::Internal(_) => exit::UNSUPPORTED,
+        // Errors of embedding calls (variables by name) that a command line
+        // run does not make.
+        _ => exit::INPUT,
     }
 }
 
