@@ -36,6 +36,7 @@
 //! # }
 //! ```
 
+mod callbacks;
 mod calls;
 mod config;
 mod declare;

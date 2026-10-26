@@ -307,6 +307,7 @@ impl Vm {
                     .idle()
                     .map_err(|e| Fault::Cancelled(e.description))?;
                 self.drain_events()?;
+                self.pump_timers()?;
                 Variant::Integer(0)
             }
             "createobject" => {

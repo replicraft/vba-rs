@@ -740,10 +740,16 @@ impl Vm {
                     self.store(&loc, v)?;
                 }
             }
-            InstKind::AddressOf { .. } => {
-                return Err(Fault::Unsupported(
-                    "AddressOf (callbacks into VBA from native code)".into(),
-                ));
+            InstKind::AddressOf { dst, func } => {
+                let v = match func {
+                    vba_ir::FuncRef::Proc(p) => self.address_of(*p)?,
+                    vba_ir::FuncRef::Declare(_) => {
+                        return Err(Fault::Unsupported(
+                            "AddressOf a Declare (the analysis rejects it)".into(),
+                        ));
+                    }
+                };
+                self.set_val(*dst, v);
             }
             InstKind::TypeOfIs { dst, src, ty } => {
                 let v = self.val(src)?;

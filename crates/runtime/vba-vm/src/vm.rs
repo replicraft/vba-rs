@@ -225,6 +225,12 @@ impl Vm {
         self.err = ErrState::default();
         self.erl = 0;
         self.debug_col = 0;
+        // Every `AddressOf` token of the old session stops being valid and
+        // timers set with SetTimer are dropped.
+        self.declare.callbacks.invalidate_all();
+        if let Some(ctx) = self.declare.ctx.as_mut() {
+            ctx.timers.clear();
+        }
         let ir = self.ir.clone();
         self.objects.insert(
             ERR_ID,

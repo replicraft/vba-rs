@@ -25,10 +25,16 @@ use crate::vm::Vm;
 
 /// Cached `Declare` machinery of a VM.
 pub(crate) struct DeclareState {
-    registry: Option<Registry>,
-    ctx: Option<CallContext>,
+    registry: Option<Rc<Registry>>,
+    pub(crate) ctx: Option<CallContext>,
     cache: HashMap<u32, Rc<ValidatedDeclare>>,
+    /// The `AddressOf` tokens of the current session.
+    pub(crate) callbacks: vba_ffi::CallbackTable<vba_sema::ProcId>,
 }
+
+/// Keys the check value of callback tokens. A constant, so that runs are
+/// reproducible; it is not a secret (see `vba_ffi::callback`).
+const CALLBACK_KEY: u32 = 0x5EED_CB01;
 
 impl DeclareState {
     pub(crate) fn new() -> DeclareState {
@@ -36,6 +42,7 @@ impl DeclareState {
             registry: None,
             ctx: None,
             cache: HashMap::new(),
+            callbacks: vba_ffi::CallbackTable::new(CALLBACK_KEY),
         }
     }
 }
@@ -53,13 +60,13 @@ impl Vm {
     /// identity, reported Windows version, emulated memory). The default is
     /// the portable native shims with a manual clock at zero.
     pub fn set_native_bridge(&mut self, registry: Registry, ctx: CallContext) {
-        self.declare.registry = Some(registry);
+        self.declare.registry = Some(Rc::new(registry));
         self.declare.ctx = Some(ctx);
     }
 
     fn ensure_bridge(&mut self, target: Target) {
         if self.declare.registry.is_none() {
-            self.declare.registry = Some(Registry::with_native_shims());
+            self.declare.registry = Some(Rc::new(Registry::with_native_shims()));
         }
         if self.declare.ctx.is_none() {
             let identity = Identity::new("user", "COMPUTER").expect("valid identity");
@@ -477,10 +484,23 @@ impl Vm {
         let codepage = ctx.ansi_codepage;
         let mut prepared = PreparedCall::prepare(&decl, &mut ctx.memory, &avs, codepage)
             .map_err(|e| ffi_fault(&e))?;
-        let registry = self.declare.registry.as_ref().expect("registry");
-        let ret = match registry.call(ctx, &resolved, prepared.args()) {
-            Ok(r) => r,
-            Err(e) => {
+        let registry = self.declare.registry.clone().expect("registry");
+        // The shim may call back into VBA (an `AddressOf` token among the
+        // arguments): the context is lent to it through the callback host and
+        // is back in the VM when this returns.
+        let (called, fault) = self.with_callback_host(|ctx, host| {
+            registry.call_with_callbacks(ctx, &resolved, prepared.args(), Some(host))
+        })?;
+        let ctx = self.declare.ctx.as_mut().expect("context");
+        let ret = match (called, fault) {
+            // A callback ended abnormally (or was refused): the statement
+            // fails with that fault, whatever the shim made of it.
+            (_, Some(f)) => {
+                prepared.release(&mut ctx.memory);
+                return Err(f);
+            }
+            (Ok(r), None) => r,
+            (Err(e), None) => {
                 prepared.release(&mut ctx.memory);
                 return Err(match e {
                     WinApiError::Memory(m) => Fault::Err(

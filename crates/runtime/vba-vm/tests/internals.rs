@@ -46,16 +46,19 @@ fn objects_are_not_leaked_by_loops() {
 }
 
 #[test]
-fn address_of_is_an_explicit_unsupported_error() {
+fn address_of_alone_grants_nothing() {
+    // Taking the address yields an inert token; handing it to a Declare still
+    // needs the Declare's own grant (denied by default: error 70, and the
+    // procedure never runs).
     let o = run(
-        "Private Declare PtrSafe Function Cb Lib \"k\" (ByVal f As LongPtr) As Long\nFunction Target() As Long\nEnd Function\nSub Main()\nOn Error Resume Next\nDim n As Long\nn = Cb(AddressOf Target)\nDebug.Print \"trapped\"\nEnd Sub\n",
+        "Private Declare PtrSafe Function Cb Lib \"k\" (ByVal f As LongPtr) As Long\nFunction Target() As Long\nDebug.Print \"ran\"\nEnd Function\nSub Main()\nDim p As LongPtr\np = AddressOf Target\nDebug.Print p <> 0\nDim n As Long\nn = Cb(p)\nEnd Sub\n",
     );
     assert!(
-        matches!(o.result, Err(VmError::Unsupported(ref m)) if m.contains("AddressOf")),
+        matches!(o.result, Err(VmError::Runtime(ref e)) if e.error.number == 70),
         "{:?}",
         o.result
     );
-    assert_eq!(o.out, "", "unsupported features are not trappable");
+    assert_eq!(o.out, "True\n");
 }
 
 #[test]
