@@ -149,19 +149,17 @@ impl Lowerer<'_> {
             },
             NodeKind::FileNumberExpr => ExprKind::FileNumber(Box::new(self.expr_child(n, 0))),
             // `To end` without a start stands for `1 To end` (MS-VBAL 5.4.5.4).
-            NodeKind::RangeExpr if expr_nodes(n).len() == 1 => {
-                ExprKind::Range {
-                    lower: Box::new(Expr {
-                        span: Span::empty(span.start),
-                        kind: ExprKind::Literal(Literal::Integer {
-                            value: Some(1),
-                            radix: Radix::Decimal,
-                            suffix: None,
-                        }),
+            NodeKind::RangeExpr if expr_nodes(n).len() == 1 => ExprKind::Range {
+                lower: Box::new(Expr {
+                    span: Span::empty(span.start),
+                    kind: ExprKind::Literal(Literal::Integer {
+                        value: Some(1),
+                        radix: Radix::Decimal,
+                        suffix: None,
                     }),
-                    upper: Box::new(self.expr_child(n, 0)),
-                }
-            }
+                }),
+                upper: Box::new(self.expr_child(n, 0)),
+            },
             NodeKind::RangeExpr => ExprKind::Range {
                 lower: Box::new(self.expr_child(n, 0)),
                 upper: Box::new(self.expr_child(n, 1)),
