@@ -10,7 +10,7 @@ use crate::call::{Args, Ctx};
 use crate::error::{StdError, StdResult, WRONG_ARGUMENT_COUNT};
 use crate::{
     conversion as cv, datetime as dt, financial as fin, format as fm, info, interaction as ia,
-    math, strings as st,
+    math, misc, strings as st,
 };
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -1200,6 +1200,64 @@ static FUNCTIONS: &[FunctionInfo] = &[
         T::Variant,
         false,
         ia::f_switch
+    ),
+    // VBA.Information and friends (pure)
+    f!(
+        "Partition",
+        "Information",
+        &[
+            p("Number", T::Variant),
+            p("Start", T::Variant),
+            p("Stop", T::Variant),
+            p("Interval", T::Variant)
+        ],
+        T::Variant,
+        false,
+        misc::f_partition
+    ),
+    f!(
+        "RGB",
+        "Information",
+        &[
+            p("Red", T::Variant),
+            p("Green", T::Variant),
+            p("Blue", T::Variant)
+        ],
+        T::Long,
+        false,
+        misc::f_rgb
+    ),
+    f!(
+        "QBColor",
+        "Information",
+        &[p("Color", T::Integer)],
+        T::Long,
+        false,
+        misc::f_qb_color
+    ),
+    f!(
+        "IMEStatus",
+        "Information",
+        &[],
+        T::Integer,
+        false,
+        misc::f_ime_status
+    ),
+    f!(
+        "MacID",
+        "Information",
+        &[p("Constant", T::String)],
+        T::Variant,
+        false,
+        misc::f_mac_id
+    ),
+    f!(
+        "MacScript",
+        "Information",
+        &[p("Script", T::String)],
+        T::String,
+        false,
+        misc::f_mac_script
     ),
 ];
 

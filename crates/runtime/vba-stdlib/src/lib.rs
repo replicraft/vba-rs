@@ -23,6 +23,7 @@ pub mod info;
 pub mod interaction;
 pub mod like;
 pub mod math;
+pub mod misc;
 pub mod registry;
 pub mod strings;
 pub mod textconv;

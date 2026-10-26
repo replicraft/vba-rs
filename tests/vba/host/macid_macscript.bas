@@ -1,7 +1,6 @@
 ' INV: func.macid, func.macscript
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/macid-function
+' SOURCE: unverified the page documents MacID as Macintosh-only; error 5 on a non-Mac implementation is a decision, not documented
 ' ERROR: 5
-' XFAIL: unsupported Macintosh-only functions
 Public Sub Main()
     Debug.Print MacID("TEXT")
 End Sub

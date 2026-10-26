@@ -23,12 +23,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 303 |
+| implemented | 309 |
 | partial | 1 |
-| unsupported | 32 |
+| unsupported | 26 |
 | not-started | 0 |
 | Conformance programs | 661 |
-| Programs that are known deviations (XFAIL) | 25 |
+| Programs that are known deviations (XFAIL) | 18 |
 
 ## Entries per category and status
 
@@ -42,12 +42,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | function-string | 20 | 19 | 1 | 0 | 0 |
 | function-datetime | 20 | 20 | 0 | 0 | 0 |
 | function-financial | 13 | 13 | 0 | 0 | 0 |
-| function-information | 11 | 10 | 0 | 1 | 0 |
+| function-information | 11 | 11 | 0 | 0 | 0 |
 | function-array | 3 | 3 | 0 | 0 | 0 |
-| function-logic | 4 | 3 | 0 | 1 | 0 |
+| function-logic | 4 | 4 | 0 | 0 | 0 |
 | function-formatting | 4 | 4 | 0 | 0 | 0 |
 | function-file | 11 | 10 | 0 | 1 | 0 |
-| function-interaction | 19 | 11 | 0 | 8 | 0 |
+| function-interaction | 19 | 15 | 0 | 4 | 0 |
 | operator-arithmetic | 8 | 8 | 0 | 0 | 0 |
 | operator-concatenation | 1 | 1 | 0 | 0 | 0 |
 | operator-comparison | 8 | 8 | 0 | 0 | 0 |
@@ -63,9 +63,9 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Provenance | Entries |
 | --- | ---: |
 | spec | 0 |
-| doc | 157 |
+| doc | 154 |
 | derived | 69 |
-| unverified | 110 |
+| unverified | 113 |
 | (no program) | 0 |
 
 ## Programs per area and provenance
@@ -83,7 +83,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | events | 7 | 0 | 5 | 2 | 0 |
 | file-io | 30 | 0 | 27 | 2 | 1 |
 | financial | 12 | 0 | 2 | 10 | 0 |
-| host | 33 | 0 | 20 | 10 | 3 |
+| host | 33 | 0 | 18 | 10 | 5 |
 | language | 16 | 0 | 3 | 0 | 13 |
 | logic | 10 | 0 | 8 | 2 | 0 |
 | math | 37 | 0 | 8 | 16 | 13 |
@@ -108,17 +108,11 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.time` | statement | Time | unsupported | setting the system clock is not provided by the stdlib host |
 | `stmt.unload` | statement | Unload | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
 | `func.strconv` | function-string | StrConv | partial | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
-| `func.imestatus` | function-information | IMEStatus | unsupported | IME status needs a host IME |
-| `func.partition` | function-logic | Partition | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `func.fileattr` | function-file | FileAttr | unsupported | FileAttr is not defined ('Sub or Function not defined') |
 | `func.callbyname` | function-interaction | CallByName | unsupported | CallByName is not defined ('Sub or Function not defined') |
 | `func.getallsettings` | function-interaction | GetAllSettings | unsupported | the registry-backed settings statements have no host service; registry-backed settings have no host service |
 | `func.getsetting` | function-interaction | GetSetting | unsupported | the registry-backed settings statements have no host service |
 | `func.input` | function-interaction | Input | unsupported | the Input function is not defined ('Sub or Function not defined') |
-| `func.macid` | function-interaction | MacID | unsupported | Macintosh-only functions |
-| `func.macscript` | function-interaction | MacScript | unsupported | Macintosh-only functions |
-| `func.qbcolor` | function-interaction | QBColor | unsupported | QBColor is not defined ('Sub or Function not defined') |
-| `func.rgb` | function-interaction | RGB | unsupported | RGB is not defined ('Sub or Function not defined') |
 | `type.dictionary` | data-type | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.dictionary` | object | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.drive` | object | Drive | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
@@ -150,16 +144,9 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `host/appactivate_denied` | unsupported | AppActivate is not defined ('Sub or Function not defined') |
 | `host/deletesetting` | unsupported | the registry-backed settings statements have no host service |
 | `host/getallsettings` | unsupported | registry-backed settings have no host service |
-| `host/imestatus` | unsupported | IME status needs a host IME |
 | `host/load_unload_form` | unsupported | forms require a host that provides them |
-| `host/macid_macscript` | unsupported | Macintosh-only functions |
-| `host/qbcolor_function` | unsupported | QBColor is not defined ('Sub or Function not defined') |
-| `host/rgb_function` | unsupported | RGB is not defined ('Sub or Function not defined') |
 | `host/sendkeys_denied` | unsupported | SendKeys is not defined ('Sub or Function not defined'); with UiAutomation as the gating capability it should be error 70 |
 | `host/unsupported_feature_is_not_success` | unsupported | the registry-backed settings statements have no host service |
 | `language/addressof_without_native` | unsupported | AddressOf produces no callable native pointer without the Declare bridge |
 | `language/callbyname_function` | unsupported | CallByName is not defined ('Sub or Function not defined') |
-| `logic/partition_doc_ranges` | unsupported | Partition is not defined ('Sub or Function not defined') |
-| `logic/partition_interval_one` | unsupported | Partition is not defined ('Sub or Function not defined') |
-| `logic/partition_null` | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |

@@ -8,7 +8,6 @@
 ' EXPECT: 190:199
 ' EXPECT: 1000:1010
 ' EXPECT: 1011:
-' XFAIL: unsupported Partition is not defined ('Sub or Function not defined')
 Public Sub Main()
     Debug.Print Replace(Partition(-1, 0, 99, 5), " ", "")
     Debug.Print Replace(Partition(0, 0, 99, 5), " ", "")

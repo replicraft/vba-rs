@@ -46,6 +46,7 @@ against a real VBA host.
 | Math | `Abs Atn Cos Exp Log Rnd Randomize Round Sgn Sin Sqr Tan` | `Fix`/`Int` are listed under Conversion as in the type library. |
 | DateTime | `Date Time Now Timer DateAdd DateDiff DatePart DateSerial DateValue TimeSerial TimeValue Day Month Year Hour Minute Second Weekday WeekdayName MonthName` | `Date$`/`Time$` included. |
 | Information | `IsArray IsDate IsEmpty IsError IsNull IsNumeric IsObject TypeName VarType LBound UBound` | `IsMissing` is VM-only. |
+| Misc (`misc`) | `Partition RGB QBColor IMEStatus MacID MacScript` | `Partition` follows its Learn page (the leading blanks are **unverified**); `RGB` clamps above 255 (**doc**), a negative argument is error 5 (**unverified**); the `QBColor` palette values are the QuickBasic ones (**unverified**, the page lists only names); `IMEStatus` is 0 (`vbIMEModeNoControl`, the documented default); `MacID`/`MacScript` are Macintosh-only and raise error 5 here (a decision, **unverified**). |
 | Conversion | `CBool CByte CCur CDate CDbl CDec CInt CLng CLngLng CLngPtr CSng CStr CVar CVDate CVErr Error Fix Int Hex Oct Str Val` | `C*` delegate to `vba_value::convert`. |
 | Financial | `DDB FV IPmt IRR MIRR NPer NPV Pmt PPmt PV Rate SLN SYD` | |
 | Interaction | `Array Choose IIf Switch Environ` and the `PrintHelper` values for `Tab`/`Spc` | `Command`, UI and `CreateObject`-style functions are out of scope. |
