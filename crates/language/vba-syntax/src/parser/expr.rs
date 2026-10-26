@@ -68,9 +68,15 @@ impl Parser<'_> {
     fn parse_expr_inner(&mut self, min: u8) {
         let cp = self.cp();
         self.parse_prefix();
+        let mut chain = 0u32;
         while let Some(k) = self.cur() {
             let Some(bp) = binary_bp(k) else { break };
             if bp < min {
+                break;
+            }
+            chain += 1;
+            if chain > super::MAX_CHAIN {
+                self.chain_too_long();
                 break;
             }
             self.start_at(cp, NodeKind::BinaryExpr);
@@ -127,7 +133,18 @@ impl Parser<'_> {
     pub(crate) fn parse_postfix(&mut self, spaced_paren: bool) {
         let cp = self.cp();
         self.parse_primary();
+        let mut chain = 0u32;
         loop {
+            if matches!(
+                self.cur(),
+                Some(TokenKind::Dot | TokenKind::Bang | TokenKind::LParen)
+            ) {
+                chain += 1;
+                if chain > super::MAX_CHAIN {
+                    self.chain_too_long();
+                    break;
+                }
+            }
             match self.cur() {
                 Some(TokenKind::Dot) => {
                     self.start_at(cp, NodeKind::MemberExpr);

@@ -49,6 +49,14 @@ bitflags! {
 /// reported instead of risking stack exhaustion.
 pub(crate) const MAX_DEPTH: u32 = 200;
 
+/// Maximum number of operators, member accesses and call suffixes chained
+/// onto one operand (`a + b + c + ...`, `a.b.c...`, `f(1)(2)...`). The tree
+/// of such a chain is as deep as it is long and every later phase walks it
+/// recursively, so a longer chain is reported instead of risking stack
+/// exhaustion downstream. VBA itself cannot hold anything near this on a
+/// logical line.
+pub(crate) const MAX_CHAIN: u32 = 512;
+
 /// Parser configuration.
 #[derive(Debug, Clone, Default)]
 pub struct ParseOptions {
@@ -431,6 +439,16 @@ impl<'a> Parser<'a> {
     /// Nesting limit reached: report once and skip the rest of the line.
     pub(crate) fn too_deep(&mut self) {
         self.error(MISPLACED, "nested too deeply");
+        self.start(NodeKind::Error);
+        while !self.at_eos() {
+            self.bump();
+        }
+        self.finish();
+    }
+
+    /// Chain limit reached: report and skip the rest of the line.
+    pub(crate) fn chain_too_long(&mut self) {
+        self.error(MISPLACED, "expression is too long");
         self.start(NodeKind::Error);
         while !self.at_eos() {
             self.bump();

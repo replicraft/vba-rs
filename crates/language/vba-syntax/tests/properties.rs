@@ -332,6 +332,11 @@ fn hostile_nesting_is_reported_not_overflowed() {
             "Select Case a\nCase 1\n".repeat(n)
         ),
         format!("{}\n", "#If True Then\n".repeat(n)),
+        // Long chains are as deep as they are long.
+        format!("Sub T()\nx = 1{}\nEnd Sub\n", " + 1".repeat(n)),
+        format!("Sub T()\nx = \"a\"{}\nEnd Sub\n", " & \"a\"".repeat(n)),
+        format!("Sub T()\nx = a{}\nEnd Sub\n", ".b".repeat(n)),
+        format!("Sub T()\nx = f{}\nEnd Sub\n", "(1)".repeat(n)),
     ];
     for src in &cases {
         let p = parse(
@@ -342,5 +347,22 @@ fn hostile_nesting_is_reported_not_overflowed() {
         );
         assert_eq!(p.tree.text(), src.as_bytes());
         assert!(p.has_errors());
+    }
+}
+
+#[test]
+fn long_but_ordinary_chains_still_parse() {
+    let profile = find_profile("vba7.1-excel-win64").unwrap();
+    for src in [
+        format!("Sub T()\nx = 1{}\nEnd Sub\n", " + 1".repeat(400)),
+        format!("Sub T()\nx = a{}\nEnd Sub\n", ".b".repeat(400)),
+    ] {
+        let p = parse(
+            FileId(0),
+            src.as_bytes(),
+            profile,
+            &ParseOptions::tolerant(),
+        );
+        assert!(!p.has_errors(), "{:?}", p.diagnostics.first());
     }
 }
