@@ -542,6 +542,11 @@ fn cmp_f64(a: f64, b: f64) -> Ordered {
     a.partial_cmp(&b).map_or(Ordered::Unordered, Ordered::from)
 }
 
+/// Compares two numeric operands by the effective type of MS-VBAL 5.6.9.5:
+/// Decimal, then Currency compare in that type; integers compare exactly;
+/// everything else, Single included, compares as Double (a Single against a
+/// Double is not narrowed: VBA keeps `CSng(0.1) = 0.1` False). An
+/// operand that does not fit the effective type falls back to Double.
 fn cmp_val(a: Val, b: Val) -> VbaResult<Ordered> {
     use Val::{Cur, Dec, Int};
     Ok(match (a, b) {
@@ -549,15 +554,28 @@ fn cmp_val(a: Val, b: Val) -> VbaResult<Ordered> {
         (Cur(x), Cur(y)) => x.cmp(&y).into(),
         (Cur(x), Int(_, y)) => i128::from(x.scaled()).cmp(&(i128::from(y) * 10_000)).into(),
         (Int(_, x), Cur(y)) => (i128::from(x) * 10_000).cmp(&i128::from(y.scaled())).into(),
-        (Dec(_), _) | (_, Dec(_)) => {
-            let exact = |v: Val| matches!(v, Int(..) | Cur(_) | Dec(_));
-            if exact(a) && exact(b) {
-                a.to_decimal()?.cmp(&b.to_decimal()?).into()
-            } else {
-                cmp_f64(a.to_f64(), b.to_f64())
-            }
-        }
+        (Dec(_), _) | (_, Dec(_)) => match (a.to_decimal(), b.to_decimal()) {
+            (Ok(x), Ok(y)) => x.cmp(&y).into(),
+            _ => cmp_f64(a.to_f64(), b.to_f64()),
+        },
+        (Cur(_), _) | (_, Cur(_)) => match (a.to_currency(), b.to_currency()) {
+            (Ok(x), Ok(y)) => x.cmp(&y).into(),
+            _ => cmp_f64(a.to_f64(), b.to_f64()),
+        },
         _ => cmp_f64(a.to_f64(), b.to_f64()),
+    })
+}
+
+/// A String operand converted for comparison with `other`: exact for integral
+/// text against an integer, exact Decimal for fractional text against a
+/// Decimal or Currency, otherwise Double.
+fn string_val(s: &VbaString, other: Val) -> VbaResult<Val> {
+    Ok(match text::parse_numeric(s)? {
+        Numeric::Integer(i) if matches!(other, Val::Int(..)) => Val::Int(Kind::LongLong, i),
+        Numeric::Real {
+            decimal: Some(d), ..
+        } if matches!(other, Val::Dec(_) | Val::Cur(_)) => Val::Dec(d),
+        n => Val::Double(n.as_f64()),
     })
 }
 
@@ -617,7 +635,7 @@ pub fn compare_values(
                         let sb = crate::convert::to_boolean(&Variant::String(s.clone()))?;
                         return Ok(Some(flip(cmp_val(num, val_of(&Variant::Boolean(sb))?)?)));
                     }
-                    let sv = val_of(&Variant::String(s.clone()))?;
+                    let sv = string_val(s, num)?;
                     Ok(Some(flip(cmp_val(num, sv)?)))
                 }
             }

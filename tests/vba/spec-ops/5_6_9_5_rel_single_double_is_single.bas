@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.5, op.eq
 ' SOURCE: spec ms-vbal 5.6.9.5 relational Single vs Double has effective type Single
-' XFAIL: wrong not implemented: effective-type rules for comparisons involving Single/Currency/Decimal/LongLong and String
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: a Single compared with a Double (or with a numeric String) compares as Double, so CSng(0.1) = 0.1 is False
 ' EXPECT: True
 ' EXPECT: True
 ' EXPECT: True

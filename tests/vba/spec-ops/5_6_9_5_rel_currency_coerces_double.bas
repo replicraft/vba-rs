@@ -1,6 +1,5 @@
 ' INV: vbal.5.6.9.5, op.eq, op.lt
 ' SOURCE: spec ms-vbal 5.6.9.5 relational Currency effective type coerces the other operand to Currency
-' XFAIL: wrong not implemented: effective-type rules for comparisons involving Single/Currency/Decimal/LongLong and String
 ' EXPECT: True
 ' EXPECT: True
 ' EXPECT: True
