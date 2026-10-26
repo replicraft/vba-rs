@@ -598,6 +598,230 @@ fn debug_print_and_library_functions() {
 }
 
 #[test]
+fn remaining_verified_families() {
+    let mut t = Tables::default();
+    let x = t.name("x");
+    let sn = t.name("s");
+    let n = t.name("n");
+    let mut lines = vec![];
+    // Mix = Abs(-x) + Int(x / 2) + Sgn(0 - x)          (5 -> 5 + 2 - 1 = 6)
+    let mix = t.name("Mix");
+    lines.extend(function(
+        &mut t,
+        "Mix",
+        T_DOUBLE,
+        &[("x", T_LONG, true)],
+        vec![
+            Line::new()
+                .read(x)
+                .op(Opcode::NumNegate)
+                .op(Opcode::IntrinsicAbsoluteValue)
+                .read(x)
+                .i16(2)
+                .op(Opcode::NumDivide)
+                .op(Opcode::IntrinsicFloor)
+                .op(Opcode::NumAdd)
+                .i16(0)
+                .read(x)
+                .op(Opcode::NumSubtract)
+                .op(Opcode::IntrinsicSign)
+                .op(Opcode::NumAdd)
+                .write(mix),
+        ],
+    ));
+    // Pos2 = InStr(s, "b"); Pos4 = InStr(1, s, "b", 0)         ("abc" -> 2)
+    let p2 = t.name("Pos2");
+    lines.extend(function(
+        &mut t,
+        "Pos2",
+        T_LONG,
+        &[("s", T_STRING, true)],
+        vec![
+            Line::new()
+                .read(sn)
+                .text("b")
+                .op(Opcode::IntrinsicSearchA)
+                .write(p2),
+        ],
+    ));
+    let p4 = t.name("Pos4");
+    lines.extend(function(
+        &mut t,
+        "Pos4",
+        T_LONG,
+        &[("s", T_STRING, true)],
+        vec![
+            Line::new()
+                .i16(1)
+                .read(sn)
+                .text("b")
+                .i16(0)
+                .op(Opcode::IntrinsicSearchC)
+                .write(p4),
+        ],
+    ));
+    // Pat = s Like "a*"
+    let pat = t.name("Pat");
+    lines.extend(function(
+        &mut t,
+        "Pat",
+        T_BOOLEAN,
+        &[("s", T_STRING, true)],
+        vec![
+            Line::new()
+                .read(sn)
+                .text("a*")
+                .op(Opcode::ComparePattern)
+                .write(pat),
+        ],
+    ));
+    // K = 2.5# + 100000 and T = True
+    let k = t.name("K");
+    lines.extend(function(
+        &mut t,
+        "K",
+        T_DOUBLE,
+        &[],
+        vec![
+            Line::new()
+                .f64(2.5)
+                .i32(100_000)
+                .op(Opcode::NumAdd)
+                .write(k),
+        ],
+    ));
+    let tt = t.name("T");
+    lines.extend(function(
+        &mut t,
+        "T",
+        T_BOOLEAN,
+        &[],
+        vec![Line::new().opm(Opcode::ConstKeywordValue, 1).write(tt)],
+    ));
+    // FirstOver: For i = 1 To 100 : If i * i > n Then : FirstOver = i : Exit Function
+    //            End If : Next : FirstOver = -1
+    let i = t.name("i");
+    let vi = t.variable("i", Some(T_LONG));
+    let fo = t.name("FirstOver");
+    let for_var = |i: u16| {
+        Line::new()
+            .op(Opcode::ForVarExprOpen)
+            .read(i)
+            .op(Opcode::ForVarExprClose)
+    };
+    lines.extend(function(
+        &mut t,
+        "FirstOver",
+        T_LONG,
+        &[("n", T_LONG, true)],
+        vec![
+            Line::new()
+                .op(Opcode::DimMarker)
+                .rec(Opcode::VarDecl, 1, vi),
+            Line(for_var(i).0).i16(1).i16(100).op(Opcode::ForCounted),
+            Line::new()
+                .read(i)
+                .read(i)
+                .op(Opcode::NumMultiply)
+                .read(n)
+                .op(Opcode::CompareGreater)
+                .op(Opcode::IfBlockOpen),
+            Line::new().read(i).write(fo),
+            Line::new().op(Opcode::LeaveFunction),
+            Line::new().op(Opcode::BlockIfClose),
+            Line(for_var(i).0).op(Opcode::ForAdvanceNamed),
+            Line::new().i16(1).op(Opcode::NumNegate).write(fo),
+        ],
+    ));
+    // UntilLoop: Do Until i >= n : i = i + 1 : Loop        (n = 3 -> 3)
+    let vi2 = t.variable("i", Some(T_LONG));
+    let ul = t.name("UntilLoop");
+    lines.extend(function(
+        &mut t,
+        "UntilLoop",
+        T_LONG,
+        &[("n", T_LONG, true)],
+        vec![
+            Line::new()
+                .op(Opcode::DimMarker)
+                .rec(Opcode::VarDecl, 1, vi2),
+            Line::new()
+                .read(i)
+                .read(n)
+                .op(Opcode::CompareGreaterEqual)
+                .op(Opcode::DoOpenUntil),
+            Line::new().read(i).i16(1).op(Opcode::NumAdd).write(i),
+            Line::new().op(Opcode::DoClose),
+            Line::new().read(i).write(ul),
+        ],
+    ));
+    // WhileLoop: Do : i = i + 1 : Loop While i < n          (n = 5 -> 5, n = 0 -> 1)
+    let vi3 = t.variable("i", Some(T_LONG));
+    let wl = t.name("WhileLoop");
+    lines.extend(function(
+        &mut t,
+        "WhileLoop",
+        T_LONG,
+        &[("n", T_LONG, true)],
+        vec![
+            Line::new()
+                .op(Opcode::DimMarker)
+                .rec(Opcode::VarDecl, 1, vi3),
+            Line::new().op(Opcode::DoOpen),
+            Line::new().read(i).i16(1).op(Opcode::NumAdd).write(i),
+            Line::new()
+                .read(i)
+                .read(n)
+                .op(Opcode::CompareLess)
+                .op(Opcode::DoCloseWhile),
+            Line::new().read(i).write(wl),
+        ],
+    ));
+    // Sub Bump(ByRef v As Long) and a caller that uses the Call keyword.
+    let v = t.name("v");
+    let bump = t.function("Bump", None, &[("v", T_LONG, false)]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 5, bump));
+    lines.push(Line::new().read(v).i16(1).op(Opcode::NumAdd).write(v));
+    lines.push(Line::new().op(Opcode::ProcEndSub));
+    let y = t.name("y");
+    let vy = t.variable("y", Some(T_LONG));
+    let ub = t.name("UseCall");
+    let bn = t.name("Bump");
+    lines.extend(function(
+        &mut t,
+        "UseCall",
+        T_LONG,
+        &[("x", T_LONG, true)],
+        vec![
+            Line::new()
+                .op(Opcode::DimMarker)
+                .rec(Opcode::VarDecl, 1, vy),
+            Line::new().read(x).write(y),
+            // Call Bump(y)
+            Line::new()
+                .read(y)
+                .name_args(Opcode::InvokeSimple, 0, bn, 1),
+            Line::new().read(y).write(ub),
+        ],
+    ));
+    let lp = lower(&t, &lines);
+    assert_eq!(lp.lowered_count(), 11, "{:?}", lp.procedures);
+    assert_eq!(value(&lp, "Mix", &[l(5)]), Variant::Double(6.0));
+    assert_eq!(value(&lp, "Pos2", &[s("abc")]), l(2));
+    assert_eq!(value(&lp, "Pos4", &[s("abc")]), l(2));
+    assert_eq!(value(&lp, "Pat", &[s("abc")]), Variant::Boolean(true));
+    assert_eq!(value(&lp, "Pat", &[s("bca")]), Variant::Boolean(false));
+    assert_eq!(value(&lp, "K", &[]), Variant::Double(100_002.5));
+    assert_eq!(value(&lp, "T", &[]), Variant::Boolean(true));
+    assert_eq!(value(&lp, "FirstOver", &[l(10)]), l(4));
+    assert_eq!(value(&lp, "FirstOver", &[l(100_000)]), l(-1));
+    assert_eq!(value(&lp, "UntilLoop", &[l(3)]), l(3));
+    assert_eq!(value(&lp, "WhileLoop", &[l(5)]), l(5));
+    assert_eq!(value(&lp, "WhileLoop", &[l(0)]), l(1));
+    assert_eq!(value(&lp, "UseCall", &[l(9)]), l(10));
+}
+
+#[test]
 fn typed_integer_arithmetic_overflows_like_the_language() {
     let mut t = Tables::default();
     let a = t.name("a");
