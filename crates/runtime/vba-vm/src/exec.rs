@@ -490,9 +490,39 @@ impl Vm {
                         }
                         self.store(loc, Variant::String(VbaString::from_units(units)))
                     }
-                    _ => Err(Fault::Unsupported(
-                        "LSet/RSet between user-defined types".into(),
-                    )),
+                    (Variant::UserDefined(c), Variant::UserDefined(n)) => {
+                        // The source's value is copied into the target's
+                        // type. Types with the same sequence of member types
+                        // share a layout; others would need the byte image.
+                        let (cu, nu) = match (self.udts.get(&c.0), self.udts.get(&n.0)) {
+                            (Some(c), Some(n)) => (c.udt, n.udt),
+                            _ => return Err(Fault::Internal("dangling user-defined type".into())),
+                        };
+                        let ir = self.ir.clone();
+                        let same = cu == nu
+                            || (ir.program.udt_fields(cu).len() == ir.program.udt_fields(nu).len()
+                                && ir
+                                    .program
+                                    .udt_fields(cu)
+                                    .iter()
+                                    .zip(ir.program.udt_fields(nu))
+                                    .all(|(a, b)| a.ty == b.ty));
+                        if !same {
+                            return Err(Fault::Unsupported(
+                                "LSet/RSet between user-defined types with different member \
+                                 layouts"
+                                    .into(),
+                            ));
+                        }
+                        let copy = self.adopt(v)?;
+                        if let Variant::UserDefined(h) = &copy
+                            && let Some(u) = self.udts.get_mut(&h.0)
+                        {
+                            u.udt = cu;
+                        }
+                        self.store(loc, copy)
+                    }
+                    _ => Err(VbaError::TYPE_MISMATCH.into()),
                 }
             }
         }

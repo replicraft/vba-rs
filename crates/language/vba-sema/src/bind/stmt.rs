@@ -633,7 +633,14 @@ impl Binder<'_, '_> {
                 return None;
             }
             let v = if matches!(pty, Type::Udt(_) | Type::LibRecord(_)) {
-                self.coerce(v, &pty, Ctx::Let)
+                // `LSet` copies the value of a user-defined type into a
+                // variable of another one (MS-VBAL 5.4.3.6), so the source
+                // type need not equal the target's.
+                if matches!(v.ty, Type::Udt(_) | Type::LibRecord(_)) {
+                    v
+                } else {
+                    self.coerce(v, &pty, Ctx::Let)
+                }
             } else {
                 let v = self.rvalue(v);
                 self.coerce(v, &Type::String, Ctx::Let)
