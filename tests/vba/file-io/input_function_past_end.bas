@@ -3,7 +3,6 @@
 ' ERROR: 62
 ' GRANT: file-read
 ' GRANT: file-write
-' XFAIL: unsupported the Input function is not defined ('Sub or Function not defined')
 Public Sub Main()
     Open "/in.txt" For Output As #1
     Print #1, "ab";

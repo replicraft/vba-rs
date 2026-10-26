@@ -32,13 +32,15 @@ pub mod host;
 pub mod limits;
 pub mod metadata;
 pub mod scripted;
+pub mod settings;
 pub mod ui;
 
 pub use capability::{Capability, PermissionDenied, Policy};
 pub use events::{EventDispatch, EventRouter};
 pub use headless::HeadlessHost;
-pub use host::{DeclareRequest, Host, HostResult, ProjectReference};
+pub use host::{ClockPart, DeclareRequest, Host, HostResult, ProjectReference};
 pub use limits::{Budget, LimitExceeded, ResourceLimits};
 pub use metadata::HostMetadata;
 pub use scripted::ScriptedHost;
+pub use settings::{MemorySettings, SettingsStore};
 pub use ui::{HeadlessUi, InputBoxRequest, MsgBoxRequest, UiHooks};

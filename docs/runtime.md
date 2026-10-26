@@ -74,7 +74,7 @@ All file statements and functions (`Open`, `Close`, `Print #`, `Write #`,
 `Input #`, `Line Input #`, `Get`, `Put`, `Seek`, `Lock`, `Unlock`, `Width`,
 `Name`, `Kill`, `MkDir`, `RmDir`, `ChDir`, `ChDrive`, `CurDir`, `Dir`,
 `FileCopy`, `FileLen`, `FileDateTime`, `GetAttr`, `SetAttr`, `FreeFile`, `EOF`,
-`LOF`, `Loc`, `Seek()`) run against a `Vfs`:
+`LOF`, `Loc`, `Seek()`, `Input()`, `FileAttr()`, `Reset`) run against a `Vfs`:
 
 - `MemFs`: in memory, case-insensitive and case-preserving, drive roots and `/`,
   deterministic timestamps (2000-01-01 unless `set_time`).
@@ -128,8 +128,13 @@ the policy sees the normalized path.
 - `Lock`/`Unlock` validate the file number only; there is no other process to
   lock against.
 
-**Not implemented:** the `Reset` statement (the analysis does not bind it),
-shared/exclusive `Lock` conflicts between files, `ChDrive` to another drive
+- `Input(n, #f)` (**doc**) reads `n` characters (bytes, Windows-1252) from a file
+  opened for `Input` or `Binary` (error 54 otherwise, an assumption) and raises
+  error 62 when fewer remain. `FileAttr(f, 1)` returns the mode (Input 1, Output 2,
+  Random 4, Append 8, Binary 32); return type 2 is error 5 (**unverified** number).
+  `Reset` closes every open file and writes the buffers.
+
+**Not implemented:** shared/exclusive `Lock` conflicts between files, `ChDrive` to another drive
 (error 68), `Get`/`Put` of `Decimal` and of variants holding arrays or objects,
 UNC paths and `Open ... Lock` semantics beyond bookkeeping.
 

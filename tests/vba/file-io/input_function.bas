@@ -4,7 +4,6 @@
 ' EXPECT: def
 ' GRANT: file-read
 ' GRANT: file-write
-' XFAIL: unsupported the Input function is not defined ('Sub or Function not defined')
 Public Sub Main()
     Dim s As String
     Open "/in.txt" For Output As #1

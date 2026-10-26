@@ -6,7 +6,6 @@
 ' EXPECT:  32 
 ' GRANT: file-read
 ' GRANT: file-write
-' XFAIL: unsupported FileAttr is not defined ('Sub or Function not defined')
 Public Sub Main()
     Open "/fa.txt" For Output As #1
     Debug.Print FileAttr(1, 1)

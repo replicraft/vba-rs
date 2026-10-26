@@ -627,6 +627,41 @@ impl FileSystem {
                     None => vba(67),
                 }
             }
+            "input" => {
+                // `Input(number, #file)`: **doc** Input or Binary files only;
+                // reading past the end is error 62.
+                let count = num(a, 0)?;
+                let n = num(a, 1)?;
+                let f = self.file(n)?;
+                if !f.readable || !matches!(f.mode, OpenMode::Input | OpenMode::Binary) {
+                    return vba(54);
+                }
+                let count = usize::try_from(count).map_err(|_| FsError::Vba(5))?;
+                if f.data.len() - f.pos.min(f.data.len()) < count {
+                    return vba(62);
+                }
+                let text = decode_text(&f.data[f.pos..f.pos + count]);
+                f.pos += count;
+                Ok(Variant::String(text))
+            }
+            "fileattr" => {
+                // **doc**: return type 1 is the mode (Input 1, Output 2,
+                // Random 4, Append 8, Binary 32); type 2 (the OS handle) is
+                // an error on 32-bit systems, error 5 here (**unverified**).
+                let n = num(a, 0)?;
+                let kind = num(a, 1)?;
+                let f = self.file(n)?;
+                if kind != 1 {
+                    return vba(5);
+                }
+                Ok(Variant::Long(match f.mode {
+                    OpenMode::Input => 1,
+                    OpenMode::Output => 2,
+                    OpenMode::Random => 4,
+                    OpenMode::Append => 8,
+                    OpenMode::Binary => 32,
+                }))
+            }
             "eof" => {
                 let n = num(a, 0)?;
                 let f = self.file(n)?;

@@ -129,6 +129,11 @@ impl Vm {
                 Variant::Boolean(matches!(a.first(), Some(Some(v)) if is_missing_marker(v)))
             }
             "erl" => Variant::Long(self.erl as i32),
+            "reset" => {
+                // **doc**: closes every open file and writes the buffers.
+                self.services.reset();
+                Variant::Empty
+            }
             "beep" => Variant::Empty,
             "doevents" => {
                 self.host.budget().charge_step().map_err(Fault::from)?;

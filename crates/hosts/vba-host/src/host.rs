@@ -4,12 +4,22 @@ use crate::capability::{Capability, Policy};
 use crate::events::EventDispatch;
 use crate::limits::{Budget, ResourceLimits};
 use crate::metadata::HostMetadata;
+use crate::settings::SettingsStore;
 use crate::ui::UiHooks;
 use vba_automation::{Arg, ErrInfo, ObjectTable};
-use vba_value::{VarType, Variant};
+use vba_value::{Date, VarType, Variant};
 
 /// Result of a host operation; errors are the VBA `Err` contents.
 pub type HostResult<T> = Result<T, ErrInfo>;
+
+/// Which part of the system clock the `Date =` and `Time =` statements set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClockPart {
+    /// `Date = value`
+    Date,
+    /// `Time = value`
+    Time,
+}
 
 /// A project-level reference (`References` collection entry).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +88,43 @@ pub trait Host {
     /// Hook for a `Declare`d procedure; only called when NativeDeclare is
     /// granted for `library!procedure`.
     fn declare_hook(&self, req: &mut DeclareRequest) -> HostResult<Variant>;
+    /// The persistent store behind `SaveSetting` and friends. `None` (the
+    /// default) makes the interpreter use its own in-memory store.
+    fn settings(&self) -> Option<&dyn SettingsStore> {
+        None
+    }
+    /// Hook for the `Date =` / `Time =` statements. The default refuses with
+    /// error 70: a sandboxed program must not change the system clock.
+    fn set_clock_hook(&self, part: ClockPart, _value: Date) -> HostResult<()> {
+        Err(ErrInfo::new(
+            70,
+            format!(
+                "setting the system {} is not available",
+                match part {
+                    ClockPart::Date => "date",
+                    ClockPart::Time => "time",
+                }
+            ),
+        )
+        .with_source("vba-host: system clock is read-only"))
+    }
+    /// Hook for `SendKeys`; only called when [`Capability::UiAutomation`] is
+    /// granted. The default has no UI to drive and fails with error 70; the
+    /// interpreter never sends input on its own.
+    fn send_keys_hook(&self, _keys: &str, _wait: bool) -> HostResult<()> {
+        Err(
+            ErrInfo::new(70, "SendKeys is not available: the host has no UI to drive")
+                .with_source("vba-host: no UI automation provider"),
+        )
+    }
+    /// Hook for `AppActivate`; see [`Host::send_keys_hook`].
+    fn app_activate_hook(&self, _title: &str, _wait: bool) -> HostResult<()> {
+        Err(ErrInfo::new(
+            70,
+            "AppActivate is not available: the host has no UI to drive",
+        )
+        .with_source("vba-host: no UI automation provider"))
+    }
     /// Hook run at every idle safe point (`DoEvents`); an error aborts the
     /// run (for example a cancellation request).
     fn idle(&self) -> HostResult<()> {
@@ -131,6 +178,25 @@ pub trait Host {
             &format!("{}!{}", req.library, req.procedure),
         )?;
         self.declare_hook(req)
+    }
+
+    /// `Date = value` / `Time = value`: requires nothing from the policy
+    /// (changing the clock is not one of its capabilities) but is refused
+    /// by the default hook.
+    fn set_clock(&self, part: ClockPart, value: Date) -> HostResult<()> {
+        self.set_clock_hook(part, value)
+    }
+
+    /// `SendKeys`: requires [`Capability::UiAutomation`].
+    fn send_keys(&self, keys: &str, wait: bool) -> HostResult<()> {
+        self.check(Capability::UiAutomation, "SendKeys")?;
+        self.send_keys_hook(keys, wait)
+    }
+
+    /// `AppActivate`: requires [`Capability::UiAutomation`] for the title.
+    fn app_activate(&self, title: &str, wait: bool) -> HostResult<()> {
+        self.check(Capability::UiAutomation, title)?;
+        self.app_activate_hook(title, wait)
     }
 
     /// `DoEvents`: an idle safe point. Charges one step against the budget,

@@ -23,18 +23,18 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 309 |
+| implemented | 312 |
 | partial | 1 |
-| unsupported | 26 |
+| unsupported | 23 |
 | not-started | 0 |
-| Conformance programs | 661 |
-| Programs that are known deviations (XFAIL) | 18 |
+| Conformance programs | 662 |
+| Programs that are known deviations (XFAIL) | 14 |
 
 ## Entries per category and status
 
 | Category | Total | implemented | partial | unsupported | not-started |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| statement | 76 | 67 | 0 | 9 | 0 |
+| statement | 76 | 68 | 0 | 8 | 0 |
 | function-conversion | 8 | 8 | 0 | 0 | 0 |
 | function-math | 13 | 13 | 0 | 0 | 0 |
 | function-type-conversion | 13 | 13 | 0 | 0 | 0 |
@@ -46,8 +46,8 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | function-array | 3 | 3 | 0 | 0 | 0 |
 | function-logic | 4 | 4 | 0 | 0 | 0 |
 | function-formatting | 4 | 4 | 0 | 0 | 0 |
-| function-file | 11 | 10 | 0 | 1 | 0 |
-| function-interaction | 19 | 15 | 0 | 4 | 0 |
+| function-file | 11 | 11 | 0 | 0 | 0 |
+| function-interaction | 19 | 16 | 0 | 3 | 0 |
 | operator-arithmetic | 8 | 8 | 0 | 0 | 0 |
 | operator-concatenation | 1 | 1 | 0 | 0 | 0 |
 | operator-comparison | 8 | 8 | 0 | 0 | 0 |
@@ -63,9 +63,9 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Provenance | Entries |
 | --- | ---: |
 | spec | 0 |
-| doc | 154 |
+| doc | 153 |
 | derived | 69 |
-| unverified | 113 |
+| unverified | 114 |
 | (no program) | 0 |
 
 ## Programs per area and provenance
@@ -81,7 +81,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | derived-math | 21 | 0 | 21 | 0 | 0 |
 | errors | 26 | 0 | 17 | 0 | 9 |
 | events | 7 | 0 | 5 | 2 | 0 |
-| file-io | 30 | 0 | 27 | 2 | 1 |
+| file-io | 31 | 0 | 27 | 2 | 2 |
 | financial | 12 | 0 | 2 | 10 | 0 |
 | host | 33 | 0 | 18 | 10 | 5 |
 | language | 16 | 0 | 3 | 0 | 13 |
@@ -102,17 +102,14 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.date` | statement | Date | unsupported | setting the system clock is not provided by the stdlib host |
 | `stmt.deletesetting` | statement | DeleteSetting | unsupported | the registry-backed settings statements have no host service |
 | `stmt.load` | statement | Load | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
-| `stmt.reset` | statement | Reset | unsupported | the Reset statement is not bound by the analysis |
 | `stmt.savesetting` | statement | SaveSetting | unsupported | the registry-backed settings statements have no host service |
 | `stmt.sendkeys` | statement | SendKeys | unsupported | SendKeys is not defined ('Sub or Function not defined'); with UiAutomation as the gating capability it should be error 70 |
 | `stmt.time` | statement | Time | unsupported | setting the system clock is not provided by the stdlib host |
 | `stmt.unload` | statement | Unload | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
 | `func.strconv` | function-string | StrConv | partial | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
-| `func.fileattr` | function-file | FileAttr | unsupported | FileAttr is not defined ('Sub or Function not defined') |
 | `func.callbyname` | function-interaction | CallByName | unsupported | CallByName is not defined ('Sub or Function not defined') |
 | `func.getallsettings` | function-interaction | GetAllSettings | unsupported | the registry-backed settings statements have no host service; registry-backed settings have no host service |
 | `func.getsetting` | function-interaction | GetSetting | unsupported | the registry-backed settings statements have no host service |
-| `func.input` | function-interaction | Input | unsupported | the Input function is not defined ('Sub or Function not defined') |
 | `type.dictionary` | data-type | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.dictionary` | object | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.drive` | object | Drive | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
@@ -137,10 +134,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `collections/userform_not_provided` | unsupported | UserForm objects need a host that provides forms |
 | `datetime/date_statement` | unsupported | setting the system clock is not provided by the stdlib host |
 | `datetime/time_statement` | unsupported | setting the system clock is not provided by the stdlib host |
-| `file-io/fileattr_mode` | unsupported | FileAttr is not defined ('Sub or Function not defined') |
-| `file-io/input_function` | unsupported | the Input function is not defined ('Sub or Function not defined') |
-| `file-io/input_function_past_end` | unsupported | the Input function is not defined ('Sub or Function not defined') |
-| `file-io/reset_statement` | unsupported | the Reset statement is not bound by the analysis |
 | `host/appactivate_denied` | unsupported | AppActivate is not defined ('Sub or Function not defined') |
 | `host/deletesetting` | unsupported | the registry-backed settings statements have no host service |
 | `host/getallsettings` | unsupported | registry-backed settings have no host service |

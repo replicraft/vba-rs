@@ -316,3 +316,24 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn ui_automation_and_clock_are_refused_by_default() {
+    use vba_host::ClockPart;
+    let h = HeadlessHost::new();
+    assert_eq!(num(h.send_keys("abc", false)), 70);
+    assert_eq!(num(h.app_activate("Notepad", false)), 70);
+    // Granting the capability still does not send input: the default hook
+    // has no UI to drive.
+    let g = HeadlessHost::new().with_policy(Policy::deny_all().grant(Capability::UiAutomation));
+    let e = g.send_keys("abc", true).unwrap_err();
+    assert_eq!(e.number, 70);
+    assert!(e.description.contains("no UI"));
+    assert_eq!(num(g.app_activate("Notepad", true)), 70);
+    // The system clock is never set by default, whatever is granted.
+    let all = HeadlessHost::new().with_policy(Policy::allow_all());
+    let d = vba_value::Date::from_ymd_hms(2001, 2, 3, 0, 0, 0).unwrap();
+    assert_eq!(num(all.set_clock(ClockPart::Date, d)), 70);
+    assert_eq!(num(all.set_clock(ClockPart::Time, d)), 70);
+    assert!(all.settings().is_none());
+}

@@ -222,6 +222,20 @@ pub fn runtime_function(name: &str) -> Option<LibMember> {
         "lof" => LibMember::function("LOF", vec![p("FileNumber", Type::Integer)], Type::Long),
         "loc" => LibMember::function("Loc", vec![p("FileNumber", Type::Integer)], Type::Long),
         "seek" => LibMember::function("Seek", vec![p("FileNumber", Type::Integer)], Type::Long),
+        "input" => LibMember::function(
+            "Input",
+            vec![p("Number", Type::Long), p("FileNumber", Type::Integer)],
+            Type::String,
+        ),
+        "fileattr" => LibMember::function(
+            "FileAttr",
+            vec![
+                p("FileNumber", Type::Integer),
+                p("ReturnType", Type::Integer),
+            ],
+            Type::Long,
+        ),
+        "reset" => LibMember::sub("Reset", vec![]),
         "filelen" => LibMember::function("FileLen", vec![p("PathName", Type::String)], Type::Long),
         "filedatetime" => LibMember::function(
             "FileDateTime",
