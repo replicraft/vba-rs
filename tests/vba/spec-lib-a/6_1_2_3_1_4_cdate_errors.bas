@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.3.1.4, func.cdate
 ' SOURCE: spec ms-vbal 6.1.2.3.1.4 CDate error cases
-' XFAIL: wrong pending
 ' EXPECT: error=13
 ' EXPECT: above=6
 ' EXPECT: below=6

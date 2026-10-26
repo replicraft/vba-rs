@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.3.1.6, func.cdec
 ' SOURCE: spec ms-vbal 6.1.2.3.1.6 CDec coercion to Decimal
-' XFAIL: wrong pending
 ' EXPECT: type=Decimal
 ' EXPECT: int=7
 ' EXPECT: str=1.5

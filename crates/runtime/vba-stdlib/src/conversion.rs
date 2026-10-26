@@ -168,12 +168,19 @@ pub(crate) fn f_oct(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     Ok(text(radix_string(a.req(0)?, 8)?.as_str()))
 }
 pub(crate) fn f_str(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+    if let Variant::Error(e) = a.req(0)? {
+        return Ok(text(format!("Error {}", e.number()).as_str()));
+    }
     Ok(text(str_number(a.req(0)?)?))
 }
 pub(crate) fn f_val(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     Ok(Variant::Double(val(&a.string(0)?)?))
 }
 pub(crate) fn f_cverr(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+    // CVErr of an Error value is that value.
+    if let Variant::Error(_) = a.req(0)? {
+        return Ok(a.req(0)?.clone());
+    }
     let n = a.long(0)?;
     if !(0..=65535).contains(&n) {
         return Err(E5.into());
@@ -192,10 +199,26 @@ pub(crate) fn f_error(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     }))
 }
 
+/// MS-VBAL 6.1.2.3.1: the conversion functions treat an Error value as its
+/// error code (a `Date` or `Decimal` result from an Error is a Type mismatch).
+fn error_code_operand(v: &Variant, to: VarType) -> StdResult<Variant> {
+    let Variant::Error(e) = v else {
+        return Ok(v.clone());
+    };
+    Ok(match to {
+        VarType::Date | VarType::Decimal => return Err(VbaError::TYPE_MISMATCH.into()),
+        VarType::Variant | VarType::String => v.clone(),
+        _ => Variant::Long(e.number()),
+    })
+}
+
 macro_rules! cfn {
     ($name:ident, $ty:expr) => {
         pub(crate) fn $name(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
-            Ok(convert::convert_to(a.req(0)?, $ty)?)
+            Ok(convert::convert_to(
+                &error_code_operand(a.req(0)?, $ty)?,
+                $ty,
+            )?)
         }
     };
 }
@@ -213,7 +236,7 @@ cfn!(f_cstr, VarType::String);
 cfn!(f_cvar, VarType::Variant);
 
 pub(crate) fn f_clngptr(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
-    let v = convert::to_longlong(a.req(0)?)?;
+    let v = convert::to_longlong(&error_code_operand(a.req(0)?, VarType::LongLong)?)?;
     Ok(Variant::from_long_ptr(v, ctx.pointer_width)?)
 }
 

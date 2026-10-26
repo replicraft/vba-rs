@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.3.1.7, func.cint
 ' SOURCE: spec ms-vbal 6.1.2.3.1.7 CInt of an Error value whose code exceeds Integer range overflows
-' XFAIL: wrong pending
 ' EXPECT: err40000=6
 Public Sub Main()
     Dim v As Variant

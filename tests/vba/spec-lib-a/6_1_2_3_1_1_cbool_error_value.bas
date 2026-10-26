@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.3.1.1, func.cbool
 ' SOURCE: spec ms-vbal 6.1.2.3.1.1 CBool of an Error value converts its error code
-' XFAIL: wrong pending
 ' EXPECT: err0=False
 ' EXPECT: err5=True
 Public Sub Main()
