@@ -162,6 +162,67 @@ travels as bits in the low half. Returns are read from `rax` or `xmm0` by the
 declared return kind. This is only used when a float is involved; on a 32-bit
 helper floats remain `Unsupported`.
 
+## Reproducing the live tests (macOS, no Windows SDK)
+
+The Wine-gated tests need a Windows build of `vba-wine-host`. On a machine with
+neither the Microsoft SDK nor mingw, the files in
+`crates/windows/vba-wine/tests/support/` build one from Wine's own DLLs and run
+the tests with one command.
+
+**Prerequisites** (nothing is downloaded or installed by the scripts):
+
+* Wine with 64-bit PE DLLs, default location `/Applications/Wine Stable.app`
+  (override with `WINE_BIN`; `DLL_DIR` if its `lib/wine/x86_64-windows` is
+  elsewhere). The recipe was exercised with Wine Stable 10.0, an x86-64 build
+  running under Rosetta 2 on Apple Silicon.
+* Rust with the `x86_64-pc-windows-msvc` target (`rustup target add`); the
+  `rust-lld` that ships with the toolchain is the linker.
+* `llvm-dlltool` (LLVM, e.g. Homebrew `llvm`; set `DLLTOOL` if not on `PATH`),
+  `clang`, and `python3`.
+
+**What the build replaces.** rustc's `*-pc-windows-msvc` output expects the MSVC
+import libraries and C runtime, which are unavailable here:
+
+* `make-implibs.sh` runs `gen_implibs.py`, which reads the export tables of
+  Wine's PE DLLs (`kernel32`, `ntdll`, `userenv`, `ws2_32`, `dbghelp`, `msvcrt`,
+  `ucrtbase`) into `.def` files (forwarded exports included, the loader resolves
+  them) and `llvm-dlltool` turns them into import libraries. These stand in for
+  the SDK libraries; at run time the helper binds to Wine's real DLLs.
+* `startup.c`, compiled with `clang --target=x86_64-pc-windows-msvc`, supplies
+  what the CRT start-up object normally provides: the `mainCRTStartup` entry
+  point (calls `main`, then `ExitProcess`), the TLS directory (`_tls_used`,
+  `_tls_index` and the `.tls` bracketing markers, without which `std` thread
+  locals fault at start) and one `type_info` vftable symbol referenced by `std`.
+* The helper is built with `-C panic=abort`, `/nodefaultlib`, and `msvcrt.lib`
+  plus `ucrtbase.lib` linked explicitly.
+
+**One command.** `crates/windows/vba-wine/tests/support/run-tests.sh` (all
+outputs go to the gitignored `.cache/wine/`, or `WORK`):
+
+1. generates the import libraries and the start-up object (once);
+2. creates a dedicated Wine prefix (`WORK/prefix`) and replaces the symlinks
+   Wine makes to the user's real Desktop/Documents/etc. and `/Volumes` by empty
+   directories, removing drive letters other than `C:` (`Z:` -> `/` always
+   remains: Wine is not a sandbox);
+3. builds `vba-wine-host` for `x86_64-pc-windows-msvc` in a temporary target
+   directory (`CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0`), copies
+   `vba-wine-host.exe` to `WORK`, and deletes the target directory (set
+   `KEEP_TARGET=1` to keep it);
+4. runs `cargo test -p vba-wine --test wine_live` with `VBA_WINE` (the `wine`
+   binary), `VBA_WINE_HELPER` (the built `.exe`) and `VBA_WINE_PREFIX` (the
+   prefix) set. These three variables are the whole interface of the tests;
+   without them each test returns immediately.
+
+**Expected result:** `test result: ok. 8 passed` (about 10 s after the first,
+slower prefix creation).
+
+**Caveats.** Wine here runs under Rosetta 2, so this says nothing about real x86
+hardware or Windows. The toolchain recipe (generated import libraries, hand-made
+start-up object, `panic=abort`) is test-only: the resulting `.exe` is not a
+release build and is not meant to be distributed. A normal MSVC or mingw build
+of the helper is the supported route and works with the same environment
+variables.
+
 ## Relation to the in-process native stage
 
 `vba-ffi`'s `native-call` feature calls host libraries in-process and refuses
