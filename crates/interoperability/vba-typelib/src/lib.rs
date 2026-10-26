@@ -28,6 +28,7 @@ pub mod msft;
 pub mod pe;
 #[cfg(feature = "sema")]
 pub mod sema;
+pub mod sltg;
 
 use std::path::Path;
 
@@ -44,19 +45,40 @@ pub fn parse_msft(data: &[u8]) -> Result<TypeLib> {
     msft::parse(data, Limits::default())
 }
 
+/// Parses an SLTG type library with the default [`Limits`].
+///
+/// # Errors
+/// See [`sltg::parse`].
+pub fn parse_sltg(data: &[u8]) -> Result<TypeLib> {
+    sltg::parse(data, Limits::default())
+}
+
+/// Parses a raw type library of either format, chosen by its magic
+/// (`MSFT` or `SLTG`), with the default [`Limits`].
+///
+/// # Errors
+/// [`TypelibError::NotATypelib`] for any other magic, otherwise as
+/// [`parse_msft`] or [`parse_sltg`].
+pub fn parse_any(data: &[u8]) -> Result<TypeLib> {
+    match data.get(..4) {
+        Some(b"SLTG") => parse_sltg(data),
+        _ => parse_msft(data),
+    }
+}
+
 /// Loads a library from file contents: a raw typelib (`.tlb`, `.olb`) or a
 /// PE image, in which case the first `TYPELIB` resource is read.
 ///
 /// # Errors
-/// Format errors as in [`parse_msft`]; [`TypelibError::NoTypelibResource`]
+/// Format errors as in [`parse_any`]; [`TypelibError::NoTypelibResource`]
 /// when a PE image has no `TYPELIB` resource.
 pub fn load(data: &[u8]) -> Result<TypeLib> {
     if pe::looks_like_pe(data) {
         let res = pe::typelib_resources(data)?;
         let first = res.first().ok_or(TypelibError::NoTypelibResource)?;
-        parse_msft(first.data)
+        parse_any(first.data)
     } else {
-        parse_msft(data)
+        parse_any(data)
     }
 }
 
@@ -72,10 +94,10 @@ pub fn load_all(data: &[u8]) -> Result<Vec<(u16, TypeLib)>> {
             return Err(TypelibError::NoTypelibResource);
         }
         res.iter()
-            .map(|r| Ok((r.id.unwrap_or(0), parse_msft(r.data)?)))
+            .map(|r| Ok((r.id.unwrap_or(0), parse_any(r.data)?)))
             .collect()
     } else {
-        Ok(vec![(1, parse_msft(data)?)])
+        Ok(vec![(1, parse_any(data)?)])
     }
 }
 

@@ -6,7 +6,7 @@ pub enum TypelibError {
     /// The input is neither a typelib nor a PE file with a TYPELIB resource.
     #[error("not a type library: {0}")]
     NotATypelib(&'static str),
-    /// A recognised but unsupported typelib format (for example SLTG).
+    /// A recognised but unsupported typelib format (for example an unknown MSFT version).
     #[error("unsupported type library format: {0}")]
     UnsupportedFormat(&'static str),
     /// The PE file could not be parsed.

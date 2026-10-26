@@ -71,25 +71,25 @@ struct Reader<'a> {
     warnings: Vec<String>,
 }
 
-fn oob(what: &'static str, offset: usize) -> TypelibError {
+pub(crate) fn oob(what: &'static str, offset: usize) -> TypelibError {
     TypelibError::OutOfRange { what, offset }
 }
 
-fn u16_at(d: &[u8], what: &'static str, o: usize) -> Result<u16> {
+pub(crate) fn u16_at(d: &[u8], what: &'static str, o: usize) -> Result<u16> {
     d.get(o..o.wrapping_add(2))
         .filter(|_| o.checked_add(2).is_some())
         .map(|b| u16::from_le_bytes([b[0], b[1]]))
         .ok_or(oob(what, o))
 }
 
-fn u32_at(d: &[u8], what: &'static str, o: usize) -> Result<u32> {
+pub(crate) fn u32_at(d: &[u8], what: &'static str, o: usize) -> Result<u32> {
     d.get(o..o.wrapping_add(4))
         .filter(|_| o.checked_add(4).is_some())
         .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .ok_or(oob(what, o))
 }
 
-fn decode(bytes: &[u8]) -> String {
+pub(crate) fn decode(bytes: &[u8]) -> String {
     WINDOWS_1252
         .decode_without_bom_handling(bytes)
         .0
@@ -100,14 +100,14 @@ fn decode(bytes: &[u8]) -> String {
 ///
 /// # Errors
 /// [`TypelibError::NotATypelib`] when the magic is wrong,
-/// [`TypelibError::UnsupportedFormat`] for SLTG or unknown versions, and the
+/// [`TypelibError::UnsupportedFormat`] for SLTG data or unknown versions, and the
 /// structural errors when the data is truncated or inconsistent.
 pub fn parse(data: &[u8], limits: Limits) -> Result<TypeLib> {
     match data.get(..4) {
         Some(m) if m == MAGIC => {}
         Some(b"SLTG") => {
             return Err(TypelibError::UnsupportedFormat(
-                "SLTG type libraries are not supported",
+                "SLTG data given to the MSFT reader (use sltg::parse or parse_any)",
             ));
         }
         _ => return Err(TypelibError::NotATypelib("missing MSFT signature")),
