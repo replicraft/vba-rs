@@ -320,6 +320,7 @@ impl Lowerer<'_> {
             is_new: toks(n).iter().any(|t| is_kw(t, Keyword::New)),
             ty: self.type_ref_child(n),
             fixed_length: self.expr_opt(n, 0),
+            is_array: toks(n).iter().any(|t| t.kind() == TokenKind::LParen),
         }
     }
 

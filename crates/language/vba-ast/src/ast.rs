@@ -321,6 +321,9 @@ pub struct AsClause {
     pub ty: TypeRef,
     /// The length of a fixed-length string (`As String * 10`).
     pub fixed_length: Option<Expr>,
+    /// Whether the type is followed by `()`: the array result type of a
+    /// function (`Function F() As Long()`).
+    pub is_array: bool,
 }
 
 // ---- declarations -------------------------------------------------------------

@@ -651,7 +651,17 @@ impl Sema<'_> {
             let (ret, has_result) = match p.kind {
                 ProcKind::Function | ProcKind::PropertyGet => {
                     let t = match &p.return_type {
-                        Some(a) => self.resolve_as_clause(module, a, false),
+                        Some(a) => {
+                            let t = self.resolve_as_clause(module, a, false);
+                            if a.is_array && !t.is_error() {
+                                Type::Array {
+                                    elem: Box::new(t),
+                                    rank: None,
+                                }
+                            } else {
+                                t
+                            }
+                        }
                         None => match p.name.suffix {
                             Some(s) => self.suffix_type(s),
                             None => self.program.modules[module.index()]

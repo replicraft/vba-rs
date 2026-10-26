@@ -23,18 +23,18 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 295 |
-| partial | 9 |
+| implemented | 296 |
+| partial | 8 |
 | unsupported | 32 |
 | not-started | 0 |
-| Conformance programs | 656 |
-| Programs that are known deviations (XFAIL) | 30 |
+| Conformance programs | 657 |
+| Programs that are known deviations (XFAIL) | 29 |
 
 ## Entries per category and status
 
 | Category | Total | implemented | partial | unsupported | not-started |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| statement | 76 | 65 | 2 | 9 | 0 |
+| statement | 76 | 66 | 1 | 9 | 0 |
 | function-conversion | 8 | 8 | 0 | 0 | 0 |
 | function-math | 13 | 13 | 0 | 0 | 0 |
 | function-type-conversion | 13 | 13 | 0 | 0 | 0 |
@@ -88,7 +88,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | logic | 10 | 0 | 8 | 2 | 0 |
 | math | 37 | 0 | 8 | 16 | 13 |
 | operators | 65 | 0 | 22 | 41 | 2 |
-| procedures | 33 | 0 | 15 | 7 | 11 |
+| procedures | 34 | 0 | 15 | 8 | 11 |
 | statements | 88 | 0 | 78 | 8 | 2 |
 | strings | 69 | 0 | 36 | 17 | 16 |
 
@@ -101,7 +101,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.appactivate` | statement | AppActivate | unsupported | AppActivate is not defined ('Sub or Function not defined') |
 | `stmt.date` | statement | Date | unsupported | setting the system clock is not provided by the stdlib host |
 | `stmt.deletesetting` | statement | DeleteSetting | unsupported | the registry-backed settings statements have no host service |
-| `stmt.function` | statement | Function | partial | a Function declared 'As Long()' (array result) is rejected: 'cannot convert Long() to Long'; assigning to a member of the function-result variable (Mk.X = 1 inside Function Mk As P) is rejected with SEM025 |
 | `stmt.let` | statement | Let | partial | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
 | `stmt.load` | statement | Load | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
 | `stmt.reset` | statement | Reset | unsupported | the Reset statement is not bound by the analysis |
@@ -173,6 +172,5 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `logic/partition_doc_ranges` | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `logic/partition_interval_one` | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `logic/partition_null` | unsupported | Partition is not defined ('Sub or Function not defined') |
-| `procedures/function_returns_array` | unsupported | a Function declared 'As Long()' (array result) is rejected: 'cannot convert Long() to Long' |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
 | `strings/string_to_byte_array` | unsupported | assigning a String to a Byte() array (b = s) is rejected: 'cannot convert String to Byte()' |

@@ -2,7 +2,6 @@
 ' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
 ' EXPECT:  2  6 
 ' EXPECT:  5 
-' XFAIL: unsupported a Function declared 'As Long()' (array result) is rejected: 'cannot convert Long() to Long'
 Function Mk() As Long()
     Dim a(1 To 2) As Long
     a(1) = 5: a(2) = 6
