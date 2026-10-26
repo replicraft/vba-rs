@@ -20,6 +20,7 @@ mod names;
 mod opcode;
 mod project_stream;
 mod reader;
+mod recordmap;
 mod records;
 mod sections;
 
@@ -38,6 +39,7 @@ pub use module::{Span, TableLocations};
 pub use names::{CONFIRMED_BUILTINS, ME_WORD, Name, Resolver, builtin_name, name_suffix};
 pub use opcode::{Opcode, Shape};
 pub use project_stream::{IdentTable, ProjectCache, SIGNATURE, parse_identifiers, version_word};
+pub use recordmap::{RecordCoverage, RecordKind, RecordMap};
 pub use records::{
     ArgumentRecord, DeclarationRecord, FunctionRecord, IntrinsicType, OBJECT_ENTRY_SIZE,
     ObjectEntry, ProcKind, TypeId, TypeRef, UdtRecord, VariableRecord, argument_chain,
