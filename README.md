@@ -14,7 +14,7 @@ does not depend on Office or on any embedding application.
   behavior. See [docs/tooling/conformance.md](docs/tooling/conformance.md).
 * **Deny by default.** A program can compute and use `Debug.Print`. Files, processes, the
   network, object creation, native calls and UI automation each need an explicit grant from
-  the embedder (or `--grant` on the command line), optionally scoped to a path prefix.
+  the embedder (or `--grant` on the command line), optionally scoped (a directory, a program, a ProgID, `library!procedure`...).
 * **No automatic execution.** Opening, reading, analysing or converting a project never runs
   user code. Running is an explicit act, and imported code stays untrusted until the embedder
   trusts it.
@@ -93,7 +93,8 @@ vbars check --profile vba6-excel-win32 *.bas    # analyse under another profile
 vbars run Module1.bas                     # run Main; nothing but computation and Debug.Print
 vbars run --entry Module1.Report --arg 42 Module1.bas
 vbars run --grant file-read=/data --grant file-write=/tmp/out Module1.bas
-vbars run --memfs --max-steps 1000000 Module1.bas
+vbars run --memfs --max-steps 1000000 Module1.bas   # finite limits are the default
+vbars run --unlimited Trusted.bas          # opt out of the step and memory limits
 ```
 
 `run` exit codes: 0 success, 1 bad input or does not compile, 2 unhandled run-time error,

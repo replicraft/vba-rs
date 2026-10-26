@@ -29,10 +29,25 @@ to resource prefixes. Denial is error 70 and always happens before the effect.
   the clock and `Environ` are injected, not read from the machine
   (`clock_environment_and_command_are_injected`); `Shell` needs a grant and an installed
   launcher (`std_shell_starts_a_real_process_when_installed_and_granted`).
-* File grants match whole path segments: `/data` covers `/data` and `/data/x`, not
-  `/data-secret` (`file_prefix_grants_match_whole_path_segments`,
-  `a_directory_grant_without_a_trailing_slash_does_not_cover_a_sibling`). Grants for other
-  capabilities match the text prefix.
+* Scoped grants are matched per capability, never as a text prefix (`scope.rs` in
+  vba-host has the table). Files: whole path segments, `/data` covers `/data` and
+  `/data/x`, not `/data-secret` (`file_prefix_grants_match_whole_path_segments`,
+  `a_directory_grant_without_a_trailing_slash_does_not_cover_a_sibling`).
+  Processes: the program (first word of the command line, read by the same reader
+  the launcher uses) is the scope, the scope plus `.exe`, or below the scope as a
+  directory; `notepad` never admits `notepad-x.exe` or a later word
+  (`a_process_grant_names_the_program`, `a_program_grant_does_not_admit_other_programs`).
+  ProgIDs: exact, or `Namespace.*` / `Namespace.` for whole dot segments below
+  the namespace, `*` for all; a bare `Scripting` admits nothing but `Scripting`
+  (`a_progid_grant_is_exact_or_a_namespace`). Declares: `library!procedure` or
+  `library!*`, with the library normalised like the Win32 provider (directory
+  and `.dll` dropped, case folded, judged by the last `!`)
+  (`a_declare_grant_is_a_procedure_or_a_whole_library`). UI automation: the
+  action (`SendKeys`, `AppActivate`) or `AppActivate:title`
+  (`ui_automation_grants_name_actions`, `app_activate_is_checked_as_action_and_title`).
+  Network: a host, `host:port` or `*.domain` (`network_grants_name_hosts`). Any
+  other spelling matches nothing, and `vbars run --grant` rejects malformed
+  scopes (`malformed_scopes_are_reported_by_validation`).
 * Paths are normalised (`.`, `..`, backslashes, drive letters) before the policy sees them, so
   traversal and alternative spellings do not escape a grant
   (`prefix_grants_scope_access_and_ignore_traversal`,
@@ -48,8 +63,9 @@ to resource prefixes. Denial is error 70 and always happens before the effect.
 * A `Declare` is checked against `library!procedure` as written and as the provider will resolve
   it (`a_scoped_declare_grant_cannot_be_smuggled_into_another_library`). The Wine bridge
   re-checks every call (`provider_scoped_grant_limits_symbols`).
-* `Shell` through `StdShell` starts one program with arguments; shell syntax in the command line
-  has no effect outside Windows (`shell_syntax_is_not_interpreted`).
+* `Shell` through `StdShell` starts one program with arguments, directly on every
+  platform (no `sh -c`, no `cmd /C`); shell syntax in the command line has no
+  effect (`shell_syntax_is_not_interpreted`).
 * The only `unsafe` code is the `native-call` feature of vba-ffi and the Windows module of
   vba-wine-host; every other crate carries `unsafe_code = "forbid"`. Without the feature no
   library is loaded, and with it a host-issued `NativePermission` is still required
@@ -58,17 +74,60 @@ to resource prefixes. Denial is error 70 and always happens before the effect.
 ## Limits
 
 `ResourceLimits` bounds steps, memory and call depth; the VM bounds the length of one string and
-the size of one array. The defaults of `ResourceLimits` are unlimited steps and memory: an
-embedder that runs untrusted code must set them.
+the size of one array. `ResourceLimits::default()` and the lower-level crates are unlimited and
+leave the choice to the embedder. The facade's `Engine::new()` and `vbars run` start from
+`ResourceLimits::untrusted()`: 100 million steps (about half a minute of ordinary statements),
+256 MiB, 1000 nested calls, strings of at most 32 million UTF-16 units and arrays of at most
+16.7 million elements; `Engine::unlimited()` and `vbars run --unlimited` opt out
+(`engine_defaults_are_finite_and_unlimited_opts_out`).
 
-* Steps stop loops, trappable or not (`step_limit_stops_runaway_loops_and_is_not_trappable`).
-  Cancellation from another thread is observed only at `DoEvents`; a loop without it is stopped
-  by the step limit alone
-  (`cancellation_is_observed_only_at_do_events_and_the_step_limit_stops_the_rest`).
-* Memory is charged for arrays, collections and open files
-  (`memory_limit_is_charged_by_arrays`, `collection_growth_is_charged_to_the_memory_limit`,
+* **Memory.** One `MemoryMeter` per run is shared by every owner of data a program can grow.
+  Strings of 32 UTF-16 units or more and arrays register their capacity with the meter that is
+  current on the creating thread and credit it when dropped, wherever that happens; objects,
+  user-defined types, collection items, open files, `Scripting.Dictionary` entries, in-memory file
+  system entries, `Debug.Print` buffers, saved settings, emulated native memory and handles
+  charge explicitly and credit on release. Small strings are covered by the per-element charge of
+  the container that holds them. The count is conservative: it includes the temporary copies that
+  are alive (the interpreter copies values into registers), so a program needs a margin over its
+  logical size. A charge made by code that cannot fail (building a string) cannot be refused, so
+  the interpreter compares the meter with the limit before every instruction and ends the run with
+  the untrappable memory fault; the overshoot is what one instruction can build (a few strings of
+  at most `max_string_units`). Tests: `many_large_strings_in_an_array_hit_the_limit`,
+  `strings_added_to_a_collection_hit_the_limit`, `strings_in_a_variant_array_hit_the_limit`,
+  `strings_in_user_defined_type_fields_hit_the_limit`, `module_level_strings_hit_the_limit`,
+  `a_growing_string_hits_the_limit_before_the_string_limit`,
+  `many_arguments_cannot_multiply_one_string_inside_one_statement`,
+  `a_variant_array_is_charged_for_its_elements`, `the_memory_limit_is_not_trappable`,
+  `output_kept_by_a_buffer_sink_is_charged`, `saved_settings_are_charged`,
+  `memory_returns_when_values_are_dropped`, `a_released_array_and_collection_return_their_memory`
+  (vba-vm `memory.rs`); `files_kept_in_the_memory_file_system_are_charged`,
+  `dictionary_items_are_charged`, `the_memory_file_system_gives_memory_back_when_files_are_deleted`
+  (vba-runtime `memory.rs`); `emulated_memory_and_handles_are_charged_to_the_run_meter` (vba-ffi);
+  plus the older `memory_limit_is_charged_by_arrays`,
+  `collection_growth_is_charged_to_the_memory_limit`,
   `open_files_are_charged_to_the_memory_budget_and_released_on_close`,
-  `memory_and_size_limits_apply_to_open_files`).
+  `memory_and_size_limits_apply_to_open_files`,
+  `strings_held_by_a_program_are_charged_to_the_memory_limit`.
+* **Steps measure work, not only statements.** Every IR instruction is one step. Building data also
+  costs steps: every 1024 bytes charged to the meter (plus a fixed cost per allocation) is one
+  step, so copying a string or an array, concatenating or building many small arrays is paid for
+  in proportion. Built-ins that scan text without building it (`InStr`, `InStrRev`, `Replace`,
+  `Split`, `Join`, `Filter`, `StrComp`, `StrConv`, `Format`) charge the length of their text
+  arguments through `Ctx::charge` before they start, 64 UTF-16 units to a step, and searching is
+  linear-time whatever the pattern; `Like` reports its comparisons while it runs, so a pattern
+  designed to backtrack is cut off by the step limit. Tests (vba-vm `work.rs`):
+  `a_pathological_like_pattern_runs_into_the_step_limit`,
+  `like_costs_steps_in_proportion_to_the_work`, `instr_with_a_long_needle_is_linear_and_charged`,
+  `replace_split_and_join_on_large_strings_cost_steps`, `copying_large_strings_costs_steps`,
+  `copying_large_arrays_costs_steps`, `small_inputs_cost_next_to_nothing`;
+  `linear_search_agrees_with_the_plain_loop` and `a_long_needle_in_a_long_text_is_fast`
+  (vba-stdlib).
+* Steps stop loops, trappable or not (`step_limit_stops_runaway_loops_and_is_not_trappable`).
+* **Cancellation** is polled through `Host::poll_cancel` every 1024 steps, in loops and calls alike
+  and not only at `DoEvents`; with no token raised nothing changes
+  (`cancellation_is_observed_in_loops_without_do_events`,
+  `an_endless_loop_is_cancelled_from_another_thread`). A host that implements cancellation only
+  in `idle` is not polled; implement `poll_cancel` too.
 * Oversized results are refused before they are built: `String$`, `Space$`, `Replace`, `Join`,
   `Split` (`builders_fail_with_error_7_before_building_an_oversized_string`), concatenation
   (`oversized_arrays_and_strings_are_refused`), file reads (`the_real_file_system_reads_at_most_the_limit`)
@@ -79,7 +138,12 @@ embedder that runs untrusted code must set them.
   `recursion_through_events_is_bounded`, `recursion_through_class_initialize_is_bounded`,
   `long_ownership_chains_are_released_iteratively`,
   `long_chains_of_collections_are_released_iteratively`,
-  `user_defined_types_nested_absurdly_deep_are_a_limit_not_a_stack_overflow`).
+  `user_defined_types_nested_absurdly_deep_are_a_limit_not_a_stack_overflow`, arrays nested in
+  arrays `arrays_nested_absurdly_deep_are_a_limit_not_a_stack_overflow`).
+* Compile-time cost is linear in the size of a procedure for the shapes that were quadratic:
+  tens of thousands of labels (`tens_of_thousands_of_labels_lower_and_verify_in_linear_time`,
+  `doubling_the_labels_about_doubles_the_time`) and chains of nested user-defined types
+  (`a_chain_of_thousands_of_nested_types_is_analysed_in_linear_time`).
 
 ## Hostile input
 
@@ -101,23 +165,26 @@ error, never a panic.
 
 ## Not guaranteed
 
-* **Memory accounting is incomplete.** Strings, `Scripting.Dictionary` items and the contents of
-  an in-memory file system are not charged to `max_memory_bytes`. A program can hold gigabytes
-  of strings under a small limit (`strings_held_by_a_program_are_not_charged_to_the_memory_limit`). Use an operating-system limit (cgroup, `ulimit`, a separate
-  process) for hard containment.
-* **Steps are not CPU time.** One step can be a scan of a 32-million-unit string (`Like`, `InStr`,
-  `Replace`) or a deep copy of a nested array. The step limit bounds statements, not work.
-* **Cancellation** needs `DoEvents` (see above).
-* **Scoped grants for process spawn, COM creation and native declares compare text prefixes.**
-  A grant `notepad` also covers `notepad-evil.exe`. Grant exact names.
+* **Memory is bounded, not exact.** The accounting is conservative and the limit can be overshot by
+  what one instruction builds (see above). Allocations that the interpreter does not know about
+  (the embedder's own host objects, `Dispatch` implementations, a custom `DebugSink` or `Vfs`) are
+  not charged unless they use the meter. Use an operating-system limit (cgroup, `ulimit`, a
+  separate process) for hard containment of hostile code.
+* **Steps approximate CPU time.** One step is calibrated at roughly a microsecond of worst-case
+  work, not guaranteed: the cost of an allocation, a hash lookup or a collation compare varies by
+  machine and by string content (`Option Compare Text` folds through a table). A wall-clock
+  deadline needs the cancellation token.
 * **File grants are textual and case-insensitive.** On a case-sensitive file system `/data/`
   also admits `/DATA/`. The check and the use are two steps, so another process that swaps a
   link in between can defeat the symbolic-link resolution.
 * **Windows paths are untested here:** reserved device names, short names, alternate data
-  streams and `\\?\` prefixes are not handled specially.
+  streams and `\\?\` prefixes are not handled specially, and the Windows start of a process
+  (`CreateProcess` through `std::process::Command`) was not run here.
 * `CurDir` returns the host working directory of the real file system; `GetObject(path)` is
   checked against the path as written, not the resolved path.
-* Very long `ElseIf`/`Case` chains (hundreds of thousands of clauses) and some quadratic
-  compile-time shapes (tens of thousands of labels or user-defined types) cost stack or time.
+* Very long `ElseIf`/`Case` chains (hundreds of thousands of clauses) may cost native stack on a
+  2 MiB thread.
+* Native recursion remains in sema, IR lowering and the formatter for shapes not listed above;
+  run analysis of untrusted source on a thread with a large stack (for example 64 MiB).
 * The Wine helper executes native code of the library the embedder exports; it is not a sandbox.
 * `Session::vm()` gives an embedder the interpreter without the trust gate.

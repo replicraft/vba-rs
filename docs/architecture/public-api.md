@@ -38,7 +38,7 @@ project with preservation.
 | --- | --- |
 | `Project` | modules plus the metadata and preserved bytes of a `vbaProject.bin`; `from_source`, `from_bytes`, `from_streams`, `open`, `add_module`, `add_source_file`, `set_module_source`, `to_bytes`, `to_streams`, `version`, `analyze`; `model()` exposes `vba_project::VbaProject` |
 | `Report` | the diagnostics of an analysis (`has_errors`, `errors`, `warnings`, `codes`, `rendered`) |
-| `Engine` | builder: `profile`, `policy`/`grant`/`grant_prefixes`, `limits`/`max_steps`, `class`/`dispatch_class`, `global`/`dispatch_global`, `with_file`, `real_files`, `system_environment`, `command_line`, `cancel_token`, `session_builder`; then `analyze`, `load`, `run` |
+| `Engine` | builder: `profile`, `policy`/`grant`/`grant_prefixes`, `limits`/`max_steps`/`max_memory`/`unlimited`, `class`/`dispatch_class`, `global`/`dispatch_global`, `with_file`, `real_files`, `system_environment`, `command_line`, `cancel_token`, `session_builder`; then `analyze`, `load`, `run` |
 | `Instance` | one loaded session with its `Debug.Print` buffer: `trust`, `run`, `raise_event`, `output`, `shutdown`, `session()` |
 | `Outcome` | `value`, `status` (`Completed`, `Ended`, `Stopped`) and the text printed by that call |
 | `CancelToken` | `Send + Sync + Clone`; `cancel`, `reset`, `is_cancelled` |
@@ -118,8 +118,9 @@ The only cross-thread handle is `CancelToken`.
 
 **No ambient authority.** A program can reach nothing the embedder did not hand
 over. `Engine::new()` has a deny-all `Policy`: files (`FileRead`/`FileWrite`,
-with textual path-prefix scopes applied to the normalized, symlink-resolved
-path), `Shell` (`ProcessSpawn`), `CreateObject`/`GetObject` (`ComCreate`),
+with whole-segment path scopes applied to the normalized, symlink-resolved
+path; the other capabilities have their own scope forms, see
+`security-model.md`), `Shell` (`ProcessSpawn`), `CreateObject`/`GetObject` (`ComCreate`),
 `Declare` (`NativeDeclare`), network and UI automation are all refused with
 VBA error 70. The default file system is in memory; `real_files()` and
 `system_environment()` are explicit opt-ins, and the real clock and environment

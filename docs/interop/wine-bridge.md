@@ -20,8 +20,9 @@ Crates: `crates/windows/vba-wine` (client, protocol, helper dispatcher) and
   `PATH` is read only if the embedder calls `find_wine_in_env`.
 * **Capability mapping.** No capability was added to `vba-host`. The Wine
   bridge is `NativeDeclare`; each call re-checks
-  `policy.check(NativeDeclare, "library!symbol")`, so a prefix grant such as
-  `"kernel32!Get"` restricts it. `ProcessSpawn` is *not* implied or consulted:
+  `policy.check(NativeDeclare, "library!symbol")`, so a grant such as
+  `"kernel32!GetTickCount"` (one procedure) or `"kernel32!*"` (one library)
+  restricts it. `ProcessSpawn` is *not* implied or consulted:
   starting the helper is the embedder's act, outside VBA reach.
 * **Only registered exports are reachable**, with a fixed signature (`WineExport`).
   The helper itself cannot tell a harmless export from a dangerous one; it will

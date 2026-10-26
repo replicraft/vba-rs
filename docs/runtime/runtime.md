@@ -88,8 +88,8 @@ slashes, `.` and `..` are resolved lexically (`..` stops at the root), drive
 letters are lower-cased. `CurDir` returns that normalized form (`/dir`,
 `c:/dir`). `ChDir` changes only the virtual directory, never the process's.
 
-**Permissions** (`vba_host::Policy`, deny by default, textual prefixes on the
-normalized path): reading needs `FileRead` (`Open` for `Input`, `Binary`/
+**Permissions** (`vba_host::Policy`, deny by default, whole-path-segment scopes
+on the normalized path): reading needs `FileRead` (`Open` for `Input`, `Binary`/
 `Random` with read access, `Dir`, `ChDir`, `FileLen`, `GetAttr`, `FileDateTime`,
 `FileCopy` source); anything that creates, changes or deletes needs `FileWrite`
 (`Open` for `Output`/`Append`/write access, `Kill`, `MkDir`, `RmDir`, `Name`,
@@ -150,7 +150,11 @@ same policy checks and scoped grants as the file statements.
 
 - `Shell` needs the `ProcessSpawn` grant for the command line **and** a
   `ShellHook` in the builder; without one it is an `Unsupported` error even when
-  granted. `StdShell` (opt-in) starts `sh -c` / `cmd /C`, detached.
+  granted. `StdShell` (opt-in) splits the command line like a Windows command
+  line (white space separates, double quotes group) with the same reader the
+  permission check uses and starts the program directly, detached, on every
+  platform: no `sh -c` and no `cmd /C`, so shell syntax in the line has no
+  effect and a scoped `ProcessSpawn` grant names the program that runs.
 - `Command` returns the configured command line (empty by default).
 - `Environ`, `Now`, `Date`, `Timer` come from the injected
   `vba_stdlib::Host`: a fixed clock (2000-01-01) and an empty environment by
@@ -172,13 +176,22 @@ same policy checks and scoped grants as the file statements.
 | `fmt-check FILE` | losslessness of the syntax tree and whitespace findings; exit 1 on findings |
 | `profiles` | the language profiles |
 | `inspect FILE` | project/module listing (unchanged) |
-| `run FILE... [--entry P] [--arg V]... [--grant CAP[=PATH]]... [--profile ID] [--memfs] [--max-steps N] [--max-memory B] [--max-call-depth N] [--system-env] [--allow-shell] [--command T]` | runs a procedure |
+| `run FILE... [--entry P] [--arg V]... [--grant CAP[=PATH]]... [--profile ID] [--memfs] [--max-steps N] [--max-memory B] [--max-call-depth N] [--unlimited] [--system-env] [--allow-shell] [--command T]` | runs a procedure |
 
 `run` is an explicit opt-in and denies everything by default: with no
 `--grant` the program computes and prints (`Debug.Print` to standard output).
 Capabilities are `file-read`, `file-write`, `process-spawn`, `network`,
-`com-create`, `native-declare`, `ui-automation`; `=PATH` scopes a grant to a
-path prefix (an existing directory gets a trailing slash). The file system is
+`com-create`, `native-declare`, `ui-automation`; `=SCOPE` limits a grant, and
+what a scope is depends on the capability: a path for the file capabilities (an
+existing directory gets a trailing slash; matched by whole path segments), a
+program for `process-spawn` (`notepad` also covers `notepad.exe`, never
+`notepad-x.exe`), a ProgID or `Namespace.*` for `com-create`,
+`library!procedure` or `library!*` for `native-declare`, an action
+(`SendKeys`, `AppActivate`, `AppActivate:title`) for `ui-automation`, a host
+for `network`. Malformed scopes are rejected. The program runs with finite
+default limits (100000000 steps, 256 MiB, call depth 1000); `--max-steps`,
+`--max-memory` and `--max-call-depth` change them and `--unlimited` removes
+the step and memory limits. The file system is
 the real one unless `--memfs`. Exit codes: 0 success (also `Stop`), 1 bad input
 or the project does not compile, 2 unhandled run-time error (VBA or host),
 3 permission denied, 4 resource limit or cancelled, 5 unsupported feature,

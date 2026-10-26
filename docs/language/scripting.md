@@ -17,7 +17,7 @@ They are ordinary host objects in the object table, so late binding, default mem
 * File access goes through the `ScriptFs` trait. `vba-runtime` implements it over the session's
   `FileSystem` (`ScriptFsAdapter`), so a `FileSystemObject` sees the same virtual file system as
   `Open`, applies `FileRead` for reads/listings/`stat` and `FileWrite` for anything that creates,
-  changes or deletes, honours prefix-scoped grants (a grant for `/data` or `/data/` covers the
+  changes or deletes, honours path-scoped grants (a grant for `/data` or `/data/` covers the
   folder itself) and cannot reach a path the policy refuses. `..` segments are resolved before the
   check, so `/ok/../x` is checked as `/x`.
 * Early binding (`Dim d As New Scripting.Dictionary`) needs a type library and is not provided.
