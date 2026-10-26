@@ -15,6 +15,7 @@ mod preserved;
 mod project;
 mod reference;
 mod standalone;
+mod version;
 
 pub use availability::{PERFORMANCE_CACHE_KEY, ProjectSourceAvailability, SourceAvailability};
 pub use module::{Module, ModuleKind};
@@ -24,3 +25,4 @@ pub use project::{
 };
 pub use reference::Reference;
 pub use standalone::StandaloneError;
+pub use version::{ProjectVersion, ReferenceHint, VBA_PROJECT_STREAM_KEY};
