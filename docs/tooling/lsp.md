@@ -126,7 +126,7 @@ Rename:
 | --- | --- | --- | --- | --- |
 | Completion: keywords, in-scope symbols | `View::completions` | `textDocument/completion` | done | `tests/completion.rs` |
 | Completion: members of project types | `View::completions` | same, trigger `.` | done | `tests/project.rs` |
-| Completion: members of library and host types | `View::completions` + `Workspace::set_type_provider` | same | done for embedders; needs a type provider (see below) | `tests/library.rs` |
+| Completion: members of library and host types | `View::completions` + `Workspace::set_type_provider` | same | done; `vba-lsp` loads `vba.typeLibraries` (see below), embedders install a provider | `tests/library.rs` |
 | Hover: type and signature | `View::hover` | `textDocument/hover` | done; library members with a provider | `tests/navigation.rs`, `tests/project.rs`, `tests/library.rs` |
 | Signature help | `View::signature_help` | `textDocument/signatureHelp` | done for procedures, library functions and provider-described members | `tests/completion.rs`, `tests/library.rs` |
 | Go to definition | `Workspace::definition` | `textDocument/definition` | done, cross-module | `tests/project.rs`, `tests/navigation.rs` |
@@ -152,9 +152,13 @@ its declaration-style signature and owner, and calls to a member get signature
 help with the active parameter (including named arguments and `ParamArray`).
 The type of a member's result is followed, so `d.Item(1).` completes through
 the provider again. A provider that does not enumerate members yields hover
-and signature help but no member completion. The `vba-lsp` executable has no
-provider (nothing to load one from yet), so these features are available to
-embedders of `vba-lsp-core`.
+and signature help but no member completion.
+
+The `vba-lsp` executable builds its provider from the `vba.typeLibraries`
+setting (below): a `vba_typelib::sema::TypelibProvider` over every loaded
+library, which is `Send + Sync` and enumerates the members of interfaces,
+dispinterfaces and (through their default interface) coclasses. Embedders can
+use the same adapter with `Workspace::set_type_provider`.
 
 ## Features
 
@@ -215,7 +219,8 @@ Configuration, from `initializationOptions` or `workspace/configuration`
 { "vba": { "profile": "vba7.1-excel-win64", "encoding": "utf-8",
            "constants": { "DEBUGGING": 1 },
            "semantic": true, "projectName": "VBAProject",
-           "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" } } }
+           "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" },
+           "typeLibraries": ["C:/libs/scrrun.dll", "libs/Shapes.tlb"] } }
 ```
 
 `profile` is one of the `vba-profile` identifiers, `encoding` is `utf-8` or a
@@ -223,7 +228,8 @@ code page (`cp1252`, `932`), `constants` are project `#Const` values,
 `semantic` switches the project analysis on (default) or off, `projectName`
 is the project name for `Project.Module.Name`, and `moduleKinds` maps a URI,
 file name or `*.ext` pattern to `standard`, `class`, `document` or
-`designer`. Absent
+`designer`. `typeLibraries` is a list of
+file paths (see below). Absent
 settings take defaults; invalid entries are reported with `window/logMessage`
 and ignored. A change of `encoding` applies to documents opened afterwards.
 
@@ -234,14 +240,41 @@ and unsupported semantic requests get `RequestFailed` (-32803) with the
 reason; requests after `shutdown` get `InvalidRequest` (-32600). `exit`
 returns code 0 after `shutdown`, 1 otherwise.
 
+### Type libraries (`vba.typeLibraries`)
+
+Each path is read as a raw type library (`.tlb`, `.olb`; MSFT or SLTG, chosen
+by the file's magic) or as a PE image (`.dll`, `.ocx`, `.exe`), whose
+`TYPELIB` resources are all loaded. Relative paths are relative to the
+server's working directory. The libraries are combined into one provider
+installed in the workspace; library types then resolve (no `SEM004`), and
+member completion, hover and signature help work as described above.
+
+Loading is defensive and never stops the server: a file larger than 64 MiB is
+refused (reading is capped, so an endless file cannot exhaust memory), at most
+64 paths and 256 libraries are used, a missing, unreadable or malformed file
+is skipped and the others still load, and a panic inside the reader is caught
+and reported like any other error. Every problem is sent as a
+`window/logMessage` warning naming the file; a summary (`loaded N type
+libraries`) is logged at info level. The setting is read from
+`initializationOptions` and every time the configuration is applied
+(`workspace/didChangeConfiguration`, `workspace/configuration`); each time the
+files are read again and the previous libraries are replaced, so editing a
+library on disk takes effect on the next configuration change, and removing
+the setting (or an empty list) unloads them. Diagnostics are republished for
+all open documents afterwards.
+
+Go to definition on a library member answers `null` (the libraries carry no
+source locations); it is not an error.
+
 ## Not implemented
 
-- Host object models and COM libraries: without a type provider the analysis
-  knows no library types (`SEM004`/`SEM005` appear for them) and members are
-  not completed. The `vba-lsp` executable installs no provider; there is no
-  setting to load a type library or host description into it. A receiver of a
-  library type is neither late bound nor renamable, and library members have
-  no definition (nothing to jump to). Document and designer modules have no
+- Host object models: without `vba.typeLibraries` (or an embedder's provider)
+  the analysis knows no library types (`SEM004`/`SEM005` appear for them) and
+  members are not completed. The server does not discover libraries by itself
+  (no registry, no `Reference` lines of a project): they are listed in the
+  setting, and the host's own object model must be supplied as a type library
+  file. A receiver of a library type is neither late bound nor renamable, and
+  library members have no definition (nothing to jump to). Document and designer modules have no
   host members. Members of a provider type that cannot enumerate its members
   (`interface_members` returns `None`) are not offered for completion.
 - Hover and completion use *declared* types: the type of an arbitrary
@@ -282,4 +315,11 @@ one is edited). `tests/project_properties.rs`: no panics on arbitrary edits,
 opens and closes across multi-document workspaces probing every semantic
 feature, and rename results that only replace identifier tokens (token streams
 equal outside the edits, edits ordered and disjoint, one name per rename, no
-new diagnostic code afterwards).
+new diagnostic code afterwards). `apps/vba-lsp/tests/libraries.rs`: type
+libraries written by the test itself (the synthetic MSFT and SLTG writers of
+the `vba-typelib` tests and a minimal PE image; no binary fixtures are
+committed) are loaded by the real binary from `initializationOptions` and
+`workspace/didChangeConfiguration`: member completion, hover, signature help,
+null definition, diagnostics before and after, unloading, and bad files
+(missing, garbage, truncated, a directory, a wrong setting type) that are
+reported while a good file still loads.
