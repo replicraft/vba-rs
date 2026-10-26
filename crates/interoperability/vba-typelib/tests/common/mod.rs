@@ -4,6 +4,8 @@
 pub mod builder;
 pub mod libs;
 pub mod pe;
+pub mod sltg;
+pub mod sltg_libs;
 
 use builder::{
     Cv, Dt, FuncKind, FuncSpec, ImportSpec, InvokeKind, LibSpec, ParamSpec, R, TypeKind, TypeSpec,

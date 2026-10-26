@@ -160,13 +160,17 @@ fn all_local_libraries_parse_or_report_a_typed_reason() {
                     check_invariants(&name, lib);
                     parsed += 1;
                 }
+                if data.windows(4).any(|w| w == b"SLTG") {
+                    sltg += 1;
+                }
             }
             Err(TypelibError::NoTypelibResource) => none += 1,
-            Err(TypelibError::UnsupportedFormat(m)) if m.contains("SLTG") => sltg += 1,
             Err(e) => panic!("{name}: {e}"),
         }
     }
-    eprintln!("parsed {parsed} libraries, {sltg} SLTG, {none} without a TYPELIB resource");
+    eprintln!(
+        "parsed {parsed} libraries ({sltg} files with SLTG data), {none} without a TYPELIB resource"
+    );
     assert!(parsed > 0);
 }
 
@@ -273,4 +277,58 @@ fn scripting_runtime_drives_sema() {
         })
         .collect();
     assert_eq!(errs, vec!["SEM019@11"], "{:?}", a.diagnostics);
+}
+
+#[test]
+#[ignore = "needs local Wine type libraries"]
+fn stdole32_is_an_sltg_library() {
+    let files: Vec<_> = candidates()
+        .into_iter()
+        .filter(|p| p.file_name().is_some_and(|n| n == "stdole32.tlb"))
+        .collect();
+    if files.is_empty() {
+        eprintln!("stdole32.tlb not found; skipping");
+        return;
+    }
+    for f in files {
+        let image = std::fs::read(&f).unwrap();
+        let res = vba_typelib::pe::typelib_resources(&image).unwrap();
+        assert_eq!(&res[0].data[..4], b"SLTG");
+        let lib = vba_typelib::load(&image).unwrap();
+        // The raw resource bytes give the same library.
+        assert_eq!(vba_typelib::parse_any(res[0].data).unwrap(), lib);
+        assert_eq!(lib.name, "stdole");
+        assert_eq!(lib.guid.to_string(), "00020430-0000-0000-C000-000000000046");
+        assert_eq!((lib.version.major, lib.version.minor), (1, 0));
+        assert_eq!(lib.lcid, 0x409);
+        assert!(lib.warnings.is_empty(), "{:?}", lib.warnings);
+        let names: Vec<_> = lib.types.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "GUID",
+                "DISPPARAMS",
+                "EXCEPINFO",
+                "IUnknown",
+                "IDispatch",
+                "IEnumVARIANT"
+            ]
+        );
+        let (_, d) = lib.type_by_name("IDispatch").unwrap();
+        assert_eq!(
+            d.guid.unwrap().to_string(),
+            "00020400-0000-0000-C000-000000000046"
+        );
+        assert_eq!(d.implements[0].target, TypeRef::Local(3));
+        let invoke = d.functions.iter().find(|f| f.name == "Invoke").unwrap();
+        assert_eq!(invoke.memid, 0x6001_0003);
+        assert_eq!(invoke.params.len(), 8);
+        assert_eq!(invoke.vtable_offset, 24);
+        let (_, g) = lib.type_by_name("GUID").unwrap();
+        assert_eq!(g.kind, TypeKind::Record);
+        assert_eq!(g.instance_size, 16);
+        assert_eq!(lib.describe(&g.variables[3].ty), "UI1[8]");
+        let (_, e) = lib.type_by_name("EXCEPINFO").unwrap();
+        assert_eq!(e.variables.len(), 9);
+    }
 }
