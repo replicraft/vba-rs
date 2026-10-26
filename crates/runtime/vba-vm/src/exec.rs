@@ -323,7 +323,11 @@ impl Vm {
                         vba_ast::CompareMode::Binary => CompareMode::Binary,
                         _ => CompareMode::Text,
                     };
-                    Variant::Boolean(vba_stdlib::like::like(&text, &pat, m)?)
+                    let budget = self.host.budget();
+                    let b = vba_stdlib::like::like_metered(&text, &pat, m, &mut |units| {
+                        budget.charge_work(units).is_ok()
+                    })?;
+                    Variant::Boolean(b)
                 }
             }
             BinOp::Is => unreachable!("handled above"),
@@ -467,6 +471,21 @@ impl Vm {
         Ok(out)
     }
 
+    /// Every `POLL_INTERVAL` steps asks the host whether the run was
+    /// cancelled, so loops and calls can be stopped from another thread
+    /// without `DoEvents`. Costs one decrement per step.
+    #[inline]
+    fn poll(&mut self) -> VResult<()> {
+        self.poll_countdown -= 1;
+        if self.poll_countdown == 0 {
+            self.poll_countdown = vba_host::POLL_INTERVAL;
+            self.host
+                .poll_cancel()
+                .map_err(|e| Fault::Cancelled(e.description))?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn exec_inst(
         &mut self,
         ir: &IrProgram,
@@ -474,6 +493,7 @@ impl Vm {
         inst: &Inst,
     ) -> VResult<Flow> {
         self.host.budget().charge_step().map_err(Fault::from)?;
+        self.poll()?;
         if self.frames.last().expect("frame").cur_stmt != inst.stmt.0 {
             self.frames.last_mut().expect("frame").cur_stmt = inst.stmt.0;
             if !self.frames.last().expect("frame").owned.is_empty() {
@@ -1010,6 +1030,7 @@ impl Vm {
         base: usize,
     ) -> VResult<Flow> {
         self.host.budget().charge_step().map_err(Fault::from)?;
+        self.poll()?;
         if !self.frames.last().expect("frame").owned.is_empty() {
             self.release_owned()?;
         }

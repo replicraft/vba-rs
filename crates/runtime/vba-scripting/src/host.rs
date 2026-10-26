@@ -109,6 +109,9 @@ impl Host for ScriptingHost {
     fn idle(&self) -> HostResult<()> {
         self.inner.idle()
     }
+    fn poll_cancel(&self) -> HostResult<()> {
+        self.inner.poll_cancel()
+    }
     fn set_clock_hook(&self, part: ClockPart, value: Date) -> HostResult<()> {
         self.inner.set_clock_hook(part, value)
     }

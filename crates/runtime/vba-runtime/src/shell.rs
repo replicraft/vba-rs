@@ -2,6 +2,7 @@
 //! `ProcessSpawn` and the embedder installed a launcher.
 
 use crate::error::FsError;
+use vba_host::command::split_command_line;
 
 /// Starts programs for the `Shell` function. The `ProcessSpawn` permission
 /// has been checked before a hook is called.
@@ -23,66 +24,30 @@ impl ShellHook for NoShell {
     }
 }
 
-/// Splits a command line into program and arguments the way a Windows
-/// command line is read: white space separates, double quotes group, nothing
-/// else is special (no globbing, pipes, redirection or command separators).
-fn split_command_line(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut quoted = false;
-    let mut started = false;
-    for c in line.chars() {
-        match c {
-            '"' => {
-                quoted = !quoted;
-                started = true;
-            }
-            c if c.is_whitespace() && !quoted => {
-                if started {
-                    out.push(std::mem::take(&mut cur));
-                    started = false;
-                }
-            }
-            c => {
-                cur.push(c);
-                started = true;
-            }
-        }
-    }
-    if started {
-        out.push(cur);
-    }
-    out
-}
-
 /// A launcher over the operating system. Installing it is the embedder's
 /// explicit decision; the program is detached and its output is discarded.
 /// The window style is ignored.
 ///
-/// Outside Windows the command line is split into a program and arguments and
-/// started directly, never through a shell, so shell syntax in it (`;`, `|`,
-/// `&&`, `$(...)`) has no effect and a `ProcessSpawn` grant scoped to a
-/// program name really names the program that runs. On Windows the line is
-/// passed to `cmd /C`, which interprets `&` and `|`: do not rely on a scoped
-/// grant there.
+/// The command line is split into a program and arguments by the same reader
+/// the permission check uses ([`vba_host::command::split_command_line`]) and
+/// the program is started directly on every platform, never through a shell
+/// (`sh -c` or `cmd /C`), so shell syntax in it (`;`, `|`, `&&`, `&`, `$(...)`)
+/// has no effect and a `ProcessSpawn` grant scoped to a program really names
+/// the program that runs. Built-in commands of `cmd.exe` (`dir`, `copy`) are
+/// therefore not available; start `cmd.exe` itself (and grant it) if a
+/// program needs them.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StdShell;
 
 impl ShellHook for StdShell {
     fn spawn(&mut self, command_line: &str, _: i16) -> Result<u32, FsError> {
         use std::process::{Command, Stdio};
-        let mut cmd;
-        if cfg!(windows) {
-            cmd = Command::new("cmd");
-            cmd.arg("/C").arg(command_line);
-        } else {
-            let mut parts = split_command_line(command_line).into_iter();
-            let Some(program) = parts.next() else {
-                return Err(FsError::Vba(53));
-            };
-            cmd = Command::new(program);
-            cmd.args(parts);
-        }
+        let mut parts = split_command_line(command_line).into_iter();
+        let Some(program) = parts.next() else {
+            return Err(FsError::Vba(53));
+        };
+        let mut cmd = Command::new(program);
+        cmd.args(parts);
         cmd.stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -96,21 +61,6 @@ impl ShellHook for StdShell {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn command_lines_split_like_windows() {
-        assert_eq!(split_command_line("a b  c"), ["a", "b", "c"]);
-        assert_eq!(
-            split_command_line("\"C:\\Program Files\\x.exe\" /k \"a b\""),
-            ["C:\\Program Files\\x.exe", "/k", "a b"]
-        );
-        assert_eq!(
-            split_command_line("echo hi; touch f"),
-            ["echo", "hi;", "touch", "f"]
-        );
-        assert!(split_command_line("   ").is_empty());
-        assert_eq!(split_command_line("\"\" x"), ["", "x"]);
-    }
 
     #[cfg(unix)]
     #[test]

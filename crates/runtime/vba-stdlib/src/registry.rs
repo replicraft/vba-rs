@@ -81,6 +81,30 @@ impl std::fmt::Debug for FunctionInfo {
     }
 }
 
+/// Functions whose cost grows with the length of their text arguments
+/// (searching, comparing, converting, formatting); they pay for the scan
+/// before it starts. Functions that only copy are paid for by the volume of
+/// what they build.
+fn scans_input(name: &str) -> bool {
+    matches!(
+        name,
+        "InStr"
+            | "InStrB"
+            | "InStrRev"
+            | "Replace"
+            | "Split"
+            | "Join"
+            | "Filter"
+            | "StrComp"
+            | "StrConv"
+            | "Format"
+            | "FormatNumber"
+            | "FormatCurrency"
+            | "FormatPercent"
+            | "FormatDateTime"
+    )
+}
+
 impl FunctionInfo {
     /// Number of arguments that must be present.
     pub fn min_args(&self) -> usize {
@@ -112,6 +136,9 @@ impl FunctionInfo {
         }
         if self.kind == Kind::Vm {
             return Err(StdError::VmRequired(self.name));
+        }
+        if scans_input(self.name) {
+            ctx.charge(crate::call::scan_units(args))?;
         }
         (self.imp)(
             ctx,

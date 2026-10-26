@@ -9,6 +9,10 @@ use crate::ui::UiHooks;
 use vba_automation::{Arg, ErrInfo, ObjectTable};
 use vba_value::{Date, VarType, Variant};
 
+/// How many interpreter steps pass between two calls of
+/// [`Host::poll_cancel`].
+pub const POLL_INTERVAL: u32 = 1024;
+
 /// Result of a host operation; errors are the VBA `Err` contents.
 pub type HostResult<T> = Result<T, ErrInfo>;
 
@@ -130,6 +134,15 @@ pub trait Host {
     fn idle(&self) -> HostResult<()> {
         Ok(())
     }
+    /// Hook polled by the interpreter every [`POLL_INTERVAL`] steps, whatever
+    /// the program is doing, so that a loop without `DoEvents` can be
+    /// cancelled from another thread. It must be cheap (an atomic load); an
+    /// error aborts the run. Unlike [`Host::idle`] it carries no other
+    /// meaning and the default does nothing, so a host that cancels in `idle`
+    /// should cancel here too.
+    fn poll_cancel(&self) -> HostResult<()> {
+        Ok(())
+    }
 
     /// Checks a capability request; denial is error 70.
     fn check(&self, cap: Capability, resource: &str) -> HostResult<()> {
@@ -193,9 +206,11 @@ pub trait Host {
         self.send_keys_hook(keys, wait)
     }
 
-    /// `AppActivate`: requires [`Capability::UiAutomation`] for the title.
+    /// `AppActivate`: requires [`Capability::UiAutomation`] for the resource
+    /// `AppActivate:title` (a grant naming the action `AppActivate` covers
+    /// every title).
     fn app_activate(&self, title: &str, wait: bool) -> HostResult<()> {
-        self.check(Capability::UiAutomation, title)?;
+        self.check(Capability::UiAutomation, &format!("AppActivate:{title}"))?;
         self.app_activate_hook(title, wait)
     }
 

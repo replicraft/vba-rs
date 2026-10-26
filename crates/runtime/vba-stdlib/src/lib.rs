@@ -28,7 +28,7 @@ pub mod registry;
 pub mod strings;
 pub mod textconv;
 
-pub use call::{Args, Ctx, State};
+pub use call::{Args, Ctx, State, WorkMeter, scan_units};
 pub use error::{StdError, StdResult};
 pub use host::{Clock, DateOrder, Environment, FixedHost, Host, Locale};
 pub use registry::{FunctionInfo, Kind, ParamInfo, Resolved, call as call_function, lookup};

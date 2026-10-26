@@ -59,7 +59,7 @@ impl Engine {
         Engine {
             profile: *default_profile(),
             policy: Policy::deny_all(),
-            limits: ResourceLimits::default(),
+            limits: ResourceLimits::untrusted(),
             vm: VmConfig::default(),
             cancel: CancelToken::new(),
             globals: Vec::new(),
@@ -104,7 +104,9 @@ impl Engine {
         self
     }
 
-    /// Sets the resource limits (steps, memory, call depth).
+    /// Sets the resource limits (steps, memory, call depth). A new engine
+    /// starts from [`ResourceLimits::untrusted`]: 100 million steps, 256 MiB
+    /// and 1000 nested calls.
     #[must_use]
     pub fn limits(mut self, limits: ResourceLimits) -> Engine {
         self.limits = limits;
@@ -115,6 +117,22 @@ impl Engine {
     #[must_use]
     pub fn max_steps(mut self, steps: u64) -> Engine {
         self.limits.max_steps = Some(steps);
+        self
+    }
+
+    /// Shorthand for a memory budget in bytes (strings, arrays, collections,
+    /// dictionaries, in-memory files and output all count).
+    #[must_use]
+    pub fn max_memory(mut self, bytes: u64) -> Engine {
+        self.limits.max_memory_bytes = Some(bytes);
+        self
+    }
+
+    /// Removes the step and memory limits (the call depth stays bounded).
+    /// Only for code you trust; the cancellation token still works.
+    #[must_use]
+    pub fn unlimited(mut self) -> Engine {
+        self.limits = ResourceLimits::unlimited();
         self
     }
 

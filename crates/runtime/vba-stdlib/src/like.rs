@@ -15,7 +15,7 @@
 //! With `Option Compare Text` characters are compared after simple case
 //! folding; Windows collation is not reproduced.
 
-use crate::error::INVALID_PATTERN;
+use crate::error::{INVALID_PATTERN, StdError, StdResult};
 use crate::strings::upper;
 use vba_value::collation::fold_unit as cfold;
 use vba_value::{CompareMode, VbaResult, VbaString};
@@ -116,12 +116,41 @@ fn matches_one(tok: &Tok, c: u16, mode: CompareMode) -> bool {
 
 /// `text Like pattern` for non-`Null` operands.
 pub fn like(text: &VbaString, pattern: &VbaString, mode: CompareMode) -> VbaResult<bool> {
+    match like_metered(text, pattern, mode, &mut |_| true) {
+        Ok(b) => Ok(b),
+        Err(StdError::Vba(e)) => Err(e),
+        Err(_) => unreachable!("an unmetered match is never cut short"),
+    }
+}
+
+/// How many comparisons run between two reports to the meter.
+const REPORT_EVERY: u64 = 1024;
+
+/// [`like`] that reports the work it does: `meter` is called with the number
+/// of comparisons done so far (in batches) and returns `false` to stop the
+/// match, which then fails with [`StdError::WorkExceeded`]. Matching a
+/// pattern with many `*` against a long text can take quadratic time; this
+/// is how the step budget bounds it.
+pub fn like_metered(
+    text: &VbaString,
+    pattern: &VbaString,
+    mode: CompareMode,
+    meter: &mut dyn FnMut(u64) -> bool,
+) -> StdResult<bool> {
     let toks = parse(pattern.as_units())?;
     let t = text.as_units();
+    let mut work = 0u64;
     // Iterative matcher with single-star backtracking.
     let (mut ti, mut pi) = (0usize, 0usize);
     let mut star: Option<(usize, usize)> = None;
     loop {
+        work += 1;
+        if work >= REPORT_EVERY {
+            if !meter(work) {
+                return Err(StdError::WorkExceeded);
+            }
+            work = 0;
+        }
         if pi < toks.len() {
             match &toks[pi] {
                 Tok::Star => {
@@ -134,6 +163,9 @@ pub fn like(text: &VbaString, pattern: &VbaString, mode: CompareMode) -> VbaResu
                     continue;
                 }
                 tok => {
+                    if let Tok::Set { items, .. } = tok {
+                        work += items.len() as u64;
+                    }
                     if ti < t.len() && matches_one(tok, t[ti], mode) {
                         ti += 1;
                         pi += 1;
@@ -142,7 +174,11 @@ pub fn like(text: &VbaString, pattern: &VbaString, mode: CompareMode) -> VbaResu
                 }
             }
         } else if ti == t.len() {
-            return Ok(true);
+            return if meter(work) {
+                Ok(true)
+            } else {
+                Err(StdError::WorkExceeded)
+            };
         }
         match star {
             Some((sp, st)) if st < t.len() => {
@@ -150,7 +186,13 @@ pub fn like(text: &VbaString, pattern: &VbaString, mode: CompareMode) -> VbaResu
                 pi = sp + 1;
                 ti = st + 1;
             }
-            _ => return Ok(false),
+            _ => {
+                return if meter(work) {
+                    Ok(false)
+                } else {
+                    Err(StdError::WorkExceeded)
+                };
+            }
         }
     }
 }

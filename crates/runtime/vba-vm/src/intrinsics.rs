@@ -6,7 +6,16 @@ use vba_host::{InputBoxRequest, MsgBoxRequest};
 use vba_ir::{CallArg, Function, IoOp, OutItem};
 use vba_profile::Bitness;
 use vba_sema::Type;
-use vba_stdlib::Ctx;
+use vba_stdlib::{Ctx, WorkMeter};
+
+/// Accounts the scanning work of built-ins against the step budget.
+pub(crate) struct BudgetWork<'a>(pub(crate) &'a vba_host::Budget);
+
+impl WorkMeter for BudgetWork<'_> {
+    fn charge(&self, units: u64) -> bool {
+        self.0.charge_work(units).is_ok()
+    }
+}
 use vba_stdlib::interaction::PrintHelper;
 use vba_value::{CompareMode, PointerWidth, VarType, Variant, VbaError, VbaString, convert};
 
@@ -403,7 +412,9 @@ impl Vm {
             .ok_or_else(|| Fault::Unsupported(format!("unknown function `{name}`")))?;
         let module = self.frames.last().expect("frame").module;
         let opts = &self.ir.program.module(module).options;
+        let meter = BudgetWork(self.host.budget());
         let mut ctx = Ctx::new(&*self.std_host, &mut self.std_state);
+        ctx.work = Some(&meter);
         ctx.compare = match opts.compare {
             vba_ast::CompareMode::Binary => CompareMode::Binary,
             _ => CompareMode::Text,

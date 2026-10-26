@@ -314,6 +314,27 @@ impl ShellHook for Recorder {
 }
 
 #[test]
+fn a_program_grant_does_not_admit_other_programs() {
+    let log = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let src = "Public Sub Main()\nOn Error Resume Next\nDim p As Double\nShell \"notepad-x.exe\"\nDebug.Print \"x\" & Err.Number\nErr.Clear\nShell \"evil.exe notepad\"\nDebug.Print \"y\" & Err.Number\nErr.Clear\nShell \"notepad.exe a.txt & evil.exe\"\nDebug.Print \"z\" & Err.Number\nEnd Sub\n";
+    let sink = BufferSink::new();
+    let mut s = Session::builder()
+        .host(Rc::new(HeadlessHost::new().with_policy(
+            Policy::deny_all().grant_prefixes(Capability::ProcessSpawn, ["notepad"]),
+        )))
+        .debug_sink(sink.clone())
+        .shell(Recorder(log.clone()))
+        .build_sources(&[std_module(src)])
+        .unwrap();
+    s.trust();
+    s.run_procedure("Main", vec![]).unwrap();
+    assert_eq!(sink.contents(), "x70\ny70\nz0\n");
+    // The last line starts notepad (with arguments the launcher does not
+    // interpret); the first two never reach the launcher.
+    assert_eq!(*log.borrow(), ["notepad.exe a.txt & evil.exe|1"]);
+}
+
+#[test]
 fn shell_needs_permission_and_a_launcher() {
     let log = Rc::new(std::cell::RefCell::new(Vec::new()));
     let src = "Public Sub Main()\nOn Error Resume Next\nDim p As Double\np = Shell(\"notepad a.txt\", 2)\nDebug.Print Err.Number & \"/\" & p\nEnd Sub\n";

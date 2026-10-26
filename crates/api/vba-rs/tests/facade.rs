@@ -267,30 +267,75 @@ fn version_facts_and_the_profile_hint_name_a_real_profile() {
     assert!(vba::find_profile(hint).is_some(), "{hint}");
 }
 
-/// Known limitation, pinned so a change is noticed: cancellation is observed
-/// only at `DoEvents`; a loop that never calls it is stopped by the step
-/// limit, not by the token.
+/// Cancellation is polled every few hundred steps, not only at `DoEvents`: a
+/// loop without it stops when the token is raised, from this or another
+/// thread, and a run whose token is never raised is unaffected.
 #[test]
-fn cancellation_is_observed_only_at_do_events_and_the_step_limit_stops_the_rest() {
+fn cancellation_is_observed_in_loops_without_do_events() {
     let spin = project(
         "Public Sub Main()\n  Dim i As Long\n  For i = 1 To 1000\n  Next\n  Debug.Print \"finished\"\nEnd Sub\n",
     );
     let engine = Engine::new();
-    engine.cancel_token().cancel();
     assert_eq!(
         engine.run(&spin, "Main", vec![]).unwrap().output,
-        "finished\n"
+        "finished\n",
+        "an unraised token changes nothing"
     );
+    engine.cancel_token().cancel();
+    let err = engine.run(&spin, "Main", vec![]).unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
     let with_events = project(
         "Public Sub Main()\n  Dim i As Long\n  For i = 1 To 1000\n    DoEvents\n  Next\n  Debug.Print \"finished\"\nEnd Sub\n",
     );
     let err = engine.run(&with_events, "Main", vec![]).unwrap_err();
     assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
-    // Without DoEvents only the step limit ends an endless loop.
+}
+
+#[test]
+fn an_endless_loop_is_cancelled_from_another_thread() {
+    let endless = project("Public Sub Main()\n  Do\n  Loop\nEnd Sub\n");
+    let engine = Engine::new().unlimited();
+    let token = engine.cancel_token();
+    let canceller = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        token.cancel();
+    });
+    let err = engine.run(&endless, "Main", vec![]).unwrap_err();
+    canceller.join().unwrap();
+    assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
+}
+
+#[test]
+fn without_a_token_the_step_limit_ends_an_endless_loop() {
     let endless = project("Public Sub Main()\n  Do\n  Loop\nEnd Sub\n");
     let err = Engine::new()
         .max_steps(100_000)
         .run(&endless, "Main", vec![])
         .unwrap_err();
     assert!(matches!(err, Error::Run(RunError::Limit(_))), "{err:?}");
+}
+
+#[test]
+fn engine_defaults_are_finite_and_unlimited_opts_out() {
+    // 15 strings of 10 million units: about 300 MB, over the 256 MiB default.
+    let hog = project(
+        "Public Sub Main()\n  Dim a(1 To 15) As String, i As Long\n  For i = 1 To 15\n    a(i) = String$(10000000, \"x\")\n  Next\n  Debug.Print \"held\"\nEnd Sub\n",
+    );
+    let err = Engine::new().run(&hog, "Main", vec![]).unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Limit(_))), "{err:?}");
+    let out = Engine::new().unlimited().run(&hog, "Main", vec![]).unwrap();
+    assert_eq!(out.output, "held\n");
+    // The memory limit is a builder away.
+    let err = Engine::new()
+        .max_memory(1_000_000)
+        .run(&hog, "Main", vec![])
+        .unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Limit(_))), "{err:?}");
+    let limits = vba::ResourceLimits::untrusted();
+    assert_eq!(limits.max_steps, Some(100_000_000));
+    assert_eq!(limits.max_memory_bytes, Some(256 * 1024 * 1024));
+    assert_eq!(
+        vba::ResourceLimits::default(),
+        vba::ResourceLimits::unlimited()
+    );
 }

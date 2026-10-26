@@ -71,6 +71,10 @@ impl Clone for VbaArray {
 /// Bytes of storage per array element, as charged to the memory meter.
 pub const ELEMENT_BYTES: u64 = std::mem::size_of::<Variant>() as u64;
 
+/// Bytes charged per array besides its elements (the header, the bounds and
+/// the allocation), so that many small arrays are not free.
+pub const ARRAY_OVERHEAD: u64 = 96;
+
 fn total_len(dims: &[Bounds]) -> VbaResult<usize> {
     if dims.is_empty() || dims.len() > MAX_DIMENSIONS {
         return Err(VbaError::SUBSCRIPT_OUT_OF_RANGE);
@@ -90,7 +94,7 @@ fn total_len(dims: &[Bounds]) -> VbaResult<usize> {
 
 impl VbaArray {
     fn assemble(elem: VarType, fixed: bool, dims: Vec<Bounds>, data: Vec<Variant>) -> Self {
-        let charge = Charge::new(data.capacity() as u64 * ELEMENT_BYTES);
+        let charge = Charge::new(data.capacity() as u64 * ELEMENT_BYTES + ARRAY_OVERHEAD);
         Self {
             elem,
             fixed,
@@ -102,7 +106,8 @@ impl VbaArray {
 
     /// Re-registers the storage after `data` changed its capacity.
     fn sync(&mut self) {
-        self.charge.set(self.data.capacity() as u64 * ELEMENT_BYTES);
+        self.charge
+            .set(self.data.capacity() as u64 * ELEMENT_BYTES + ARRAY_OVERHEAD);
     }
 
     /// Creates a fixed-size array (`Dim a(1 To 3, 0 To 4) As T`). Bounds with

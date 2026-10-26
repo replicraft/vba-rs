@@ -7,6 +7,13 @@ use vba_core::{MemoryMeter, MeterScope};
 /// Default maximum call depth.
 pub const DEFAULT_MAX_CALL_DEPTH: u32 = 1000;
 
+/// Step budget of [`ResourceLimits::untrusted`]: about half a minute of
+/// ordinary statements.
+pub const UNTRUSTED_MAX_STEPS: u64 = 100_000_000;
+
+/// Memory budget of [`ResourceLimits::untrusted`], in bytes.
+pub const UNTRUSTED_MAX_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
+
 /// Limits on one program run. `None` means unlimited.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResourceLimits {
@@ -18,6 +25,34 @@ pub struct ResourceLimits {
     pub max_call_depth: u32,
 }
 
+impl ResourceLimits {
+    /// No step or memory limit; only the call depth is bounded. For code the
+    /// embedder trusts, and for tests.
+    pub const fn unlimited() -> Self {
+        ResourceLimits {
+            max_steps: None,
+            max_memory_bytes: None,
+            max_call_depth: DEFAULT_MAX_CALL_DEPTH,
+        }
+    }
+
+    /// Finite limits for running code that is not trusted:
+    /// [`UNTRUSTED_MAX_STEPS`] steps, [`UNTRUSTED_MAX_MEMORY_BYTES`] bytes and
+    /// [`DEFAULT_MAX_CALL_DEPTH`] nested calls. Generous for real programs,
+    /// finite for hostile ones. The facade's `Engine::new()` and `vbars run`
+    /// start from these.
+    pub const fn untrusted() -> Self {
+        ResourceLimits {
+            max_steps: Some(UNTRUSTED_MAX_STEPS),
+            max_memory_bytes: Some(UNTRUSTED_MAX_MEMORY_BYTES),
+            max_call_depth: DEFAULT_MAX_CALL_DEPTH,
+        }
+    }
+}
+
+/// The default is [`ResourceLimits::unlimited`]: the lower-level crates leave
+/// the choice to the embedder. Use [`ResourceLimits::untrusted`] for code
+/// that is not trusted.
 impl Default for ResourceLimits {
     fn default() -> Self {
         ResourceLimits {
@@ -66,7 +101,21 @@ pub struct Budget {
     steps: Cell<u64>,
     memory: MemoryMeter,
     depth: Cell<u32>,
+    /// Allocation volume already paid for in steps.
+    volume_paid: Cell<u64>,
+    /// Scanning work not yet worth a whole step.
+    work_pending: Cell<u64>,
 }
+
+/// Bytes built per step: data a program builds costs CPU as well as memory,
+/// so every this many bytes of tracked allocation (strings, arrays, objects,
+/// file buffers) are charged as one step.
+pub const ALLOC_BYTES_PER_STEP: u64 = 1024;
+
+/// Units of scanning work per step: a built-in that examines text without
+/// building it (`Like`, a search) charges one unit per UTF-16 unit it looks
+/// at.
+pub const WORK_UNITS_PER_STEP: u64 = 64;
 
 impl Budget {
     /// A fresh meter.
@@ -76,6 +125,8 @@ impl Budget {
             steps: Cell::new(0),
             memory: MemoryMeter::new(limits.max_memory_bytes),
             depth: Cell::new(0),
+            volume_paid: Cell::new(0),
+            work_pending: Cell::new(0),
         }
     }
 
@@ -116,6 +167,15 @@ impl Budget {
 
     /// Charges `n` steps.
     pub fn charge_steps(&self, n: u64) -> Result<(), LimitExceeded> {
+        let built = self.memory.allocated_total();
+        let unpaid = built - self.volume_paid.get();
+        let mut n = n;
+        if unpaid >= ALLOC_BYTES_PER_STEP {
+            let whole = unpaid / ALLOC_BYTES_PER_STEP;
+            self.volume_paid
+                .set(self.volume_paid.get() + whole * ALLOC_BYTES_PER_STEP);
+            n = n.saturating_add(whole);
+        }
         let total = self.steps.get().saturating_add(n);
         self.steps.set(total);
         match self.limits.max_steps {
@@ -126,6 +186,14 @@ impl Budget {
             return Err(LimitExceeded::Memory);
         }
         Ok(())
+    }
+
+    /// Charges `units` of scanning work, [`WORK_UNITS_PER_STEP`] to a step.
+    /// The remainder is carried over, so many small calls add up.
+    pub fn charge_work(&self, units: u64) -> Result<(), LimitExceeded> {
+        let pending = self.work_pending.get().saturating_add(units);
+        self.work_pending.set(pending % WORK_UNITS_PER_STEP);
+        self.charge_steps(pending / WORK_UNITS_PER_STEP)
     }
 
     /// Charges one step.

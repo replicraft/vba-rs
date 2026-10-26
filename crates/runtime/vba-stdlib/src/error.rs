@@ -22,6 +22,9 @@ pub enum StdError {
     /// The function needs information only the VM has (`IsMissing`, object
     /// class names, ...). The VM must implement it itself.
     VmRequired(&'static str),
+    /// The caller's work budget (steps) ran out while the function was
+    /// scanning its arguments. Never a VBA error: the host ends the run.
+    WorkExceeded,
 }
 
 /// Result alias used throughout the crate.
@@ -49,6 +52,7 @@ impl fmt::Display for StdError {
             StdError::Vba(e) => write!(f, "{e}"),
             StdError::Unsupported(what) => write!(f, "unsupported: {what}"),
             StdError::VmRequired(what) => write!(f, "requires the VM: {what}"),
+            StdError::WorkExceeded => f.write_str("work budget exceeded"),
         }
     }
 }

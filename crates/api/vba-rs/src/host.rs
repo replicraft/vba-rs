@@ -154,6 +154,10 @@ impl Host for EngineHost {
     }
 
     fn idle(&self) -> HostResult<()> {
+        self.poll_cancel()
+    }
+
+    fn poll_cancel(&self) -> HostResult<()> {
         if self.cancel.is_cancelled() {
             return Err(ErrInfo::new(18, "cancelled by the embedder"));
         }

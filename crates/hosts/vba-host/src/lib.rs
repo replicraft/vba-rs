@@ -26,11 +26,13 @@
 //! ```
 
 pub mod capability;
+pub mod command;
 pub mod events;
 pub mod headless;
 pub mod host;
 pub mod limits;
 pub mod metadata;
+pub mod scope;
 pub mod scripted;
 pub mod settings;
 pub mod ui;
@@ -38,8 +40,10 @@ pub mod ui;
 pub use capability::{Capability, PermissionDenied, Policy};
 pub use events::{EventDispatch, EventRouter};
 pub use headless::HeadlessHost;
-pub use host::{ClockPart, DeclareRequest, Host, HostResult, ProjectReference};
-pub use limits::{Budget, LimitExceeded, ResourceLimits};
+pub use host::{ClockPart, DeclareRequest, Host, HostResult, POLL_INTERVAL, ProjectReference};
+pub use limits::{
+    Budget, LimitExceeded, ResourceLimits, UNTRUSTED_MAX_MEMORY_BYTES, UNTRUSTED_MAX_STEPS,
+};
 pub use metadata::HostMetadata;
 pub use scripted::ScriptedHost;
 pub use settings::{MemorySettings, SettingsStore};

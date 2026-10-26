@@ -1,7 +1,7 @@
 //! Calling convention shared by every intrinsic: [`Ctx`] carries the host and
 //! the mutable library state, [`Args`] the (possibly omitted) arguments.
 
-use crate::error::{ARGUMENT_NOT_OPTIONAL, StdResult};
+use crate::error::{ARGUMENT_NOT_OPTIONAL, StdError, StdResult};
 use crate::host::Host;
 use crate::math::RndState;
 use vba_value::{CompareMode, PointerWidth, Variant, VbaResult, VbaString, convert};
@@ -12,6 +12,14 @@ use vba_value::{CompareMode, PointerWidth, Variant, VbaResult, VbaString, conver
 pub struct State {
     /// Pseudo-random generator state (`Rnd` / `Randomize`).
     pub rnd: RndState,
+}
+
+/// Receives the scanning work a built-in does, so that the caller can bound
+/// CPU time and not only the number of statements.
+pub trait WorkMeter {
+    /// Accounts for `units` (one per UTF-16 unit looked at). `false` when the
+    /// caller's budget is spent and the function must stop.
+    fn charge(&self, units: u64) -> bool;
 }
 
 /// Everything an intrinsic may consult besides its arguments.
@@ -32,6 +40,8 @@ pub struct Ctx<'a> {
     pub max_string_units: usize,
     /// The most elements an array-returning function may build (`Split`).
     pub max_array_elements: usize,
+    /// Where scanning work is accounted; `None` leaves it unmetered.
+    pub work: Option<&'a dyn WorkMeter>,
 }
 
 /// Default of [`Ctx::max_string_units`] (2 GiB of UTF-16 units).
@@ -51,8 +61,32 @@ impl<'a> Ctx<'a> {
             pointer_width: PointerWidth::Bits64,
             max_string_units: DEFAULT_MAX_STRING_UNITS,
             max_array_elements: DEFAULT_MAX_ARRAY_ELEMENTS,
+            work: None,
         }
     }
+
+    /// Accounts for `units` of scanning work (one per UTF-16 unit examined)
+    /// before it is done. Fails with [`StdError::WorkExceeded`] when the
+    /// caller's budget cannot pay for it.
+    pub fn charge(&self, units: u64) -> StdResult<()> {
+        match self.work {
+            Some(w) if !w.charge(units) => Err(StdError::WorkExceeded),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Units of work to scan the arguments of a call: the length of every
+/// string and the size of every array of strings.
+pub fn scan_units(args: &[Option<Variant>]) -> u64 {
+    fn units(v: &Variant) -> u64 {
+        match v {
+            Variant::String(s) => s.len() as u64,
+            Variant::Array(a) => a.iter().map(|e| 1 + units(e)).sum(),
+            _ => 1,
+        }
+    }
+    args.iter().flatten().map(units).sum()
 }
 
 /// The arguments of a call. `None` marks an omitted optional argument.

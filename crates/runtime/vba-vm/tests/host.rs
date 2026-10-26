@@ -326,16 +326,16 @@ fn declare_needs_native_declare_permission() {
 
 #[test]
 fn a_scoped_declare_grant_cannot_be_smuggled_into_another_library() {
-    // Granted: anything starting with "user32!". The library string below
-    // starts with it but names kernel32 once the directory is dropped.
+    // Granted: every procedure of user32. The library string below starts
+    // with it but names kernel32 once the directory is dropped.
     let src = "Private Declare PtrSafe Function Smuggled Lib \"user32!/kernel32\" Alias \"GetTickCount\" () As Long\nPrivate Declare PtrSafe Function Plain Lib \"kernel32\" Alias \"GetTickCount\" () As Long\nSub Main()\nOn Error Resume Next\nDim t As Long\nt = Smuggled()\nDebug.Print \"smuggled \" & Err.Number\nErr.Clear\nt = Plain()\nDebug.Print \"plain \" & Err.Number\nEnd Sub\n";
     let host = HeadlessHost::new()
-        .with_policy(Policy::deny_all().grant_prefixes(Capability::NativeDeclare, ["user32!"]));
+        .with_policy(Policy::deny_all().grant_prefixes(Capability::NativeDeclare, ["user32!*"]));
     let o = run_host(src, host);
     assert_eq!(o.out, "smuggled 70\nplain 70\n", "{:?}", o.result);
     // A grant for the library actually called works with the .dll spelling.
     let host = HeadlessHost::new()
-        .with_policy(Policy::deny_all().grant_prefixes(Capability::NativeDeclare, ["kernel32"]));
+        .with_policy(Policy::deny_all().grant_prefixes(Capability::NativeDeclare, ["kernel32!*"]));
     let src = "Private Declare PtrSafe Function Tick Lib \"kernel32.dll\" Alias \"GetTickCount\" () As Long\nSub Main()\nOn Error Resume Next\nDim t As Long\nt = Tick()\nDebug.Print Err.Number\nEnd Sub\n";
     let o = run_host(src, host);
     assert_eq!(o.out, " 0 \n", "{:?}", o.result);

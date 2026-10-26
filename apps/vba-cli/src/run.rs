@@ -42,6 +42,7 @@ pub struct RunArgs {
     pub max_steps: Option<u64>,
     pub max_memory: Option<u64>,
     pub max_call_depth: Option<u32>,
+    pub unlimited: bool,
     pub system_env: bool,
     pub allow_shell: bool,
     pub command: Option<String>,
@@ -70,11 +71,16 @@ fn capability(name: &str) -> Option<Capability> {
     })
 }
 
-/// Turns `file-read` or `file-read=/dir` into a grant. A scoped path is made
-/// absolute with forward slashes; an existing directory gets a trailing
-/// slash so the grant covers its contents and nothing next to it.
+/// Turns `file-read` or `file-read=/dir` into a grant. The scope is written
+/// the way the capability's resource is: a path for the file capabilities
+/// (made absolute with forward slashes; an existing directory gets a trailing
+/// slash so the grant covers its contents and nothing next to it), a program
+/// for `process-spawn`, a ProgID (`Scripting.Dictionary`, `Scripting.*`) for
+/// `com-create`, `library!procedure` or `library!*` for `native-declare`, an
+/// action (`SendKeys`, `AppActivate`) for `ui-automation` and a host for
+/// `network`.
 fn apply_grant(policy: Policy, spec: &str) -> Result<Policy, String> {
-    let (name, path) = match spec.split_once('=') {
+    let (name, scope) = match spec.split_once('=') {
         Some((n, p)) => (n, Some(p)),
         None => (spec, None),
     };
@@ -83,10 +89,15 @@ fn apply_grant(policy: Policy, spec: &str) -> Result<Policy, String> {
             "unknown capability `{name}` (expected file-read, file-write, process-spawn, network, com-create, native-declare or ui-automation)"
         )
     })?;
-    match path {
+    match scope {
         None => Ok(policy.grant(cap)),
         Some("") => Err(format!("`--grant {spec}` has an empty scope")),
         Some(p) => {
+            vba_host::scope::validate_scope(cap, p)
+                .map_err(|e| format!("`--grant {spec}`: {e}"))?;
+            if !matches!(cap, Capability::FileRead | Capability::FileWrite) {
+                return Ok(policy.grant_prefixes(cap, [p.to_owned()]));
+            }
             let mut resolved = std::fs::canonicalize(p)
                 .map(|c| c.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| p.to_owned());
@@ -155,12 +166,16 @@ pub fn run(a: RunArgs) -> u8 {
             return exit::INPUT;
         }
     };
+    // The code is untrusted: finite limits unless the user opts out.
+    let base = if a.unlimited {
+        ResourceLimits::unlimited()
+    } else {
+        ResourceLimits::untrusted()
+    };
     let limits = ResourceLimits {
-        max_steps: a.max_steps,
-        max_memory_bytes: a.max_memory,
-        max_call_depth: a
-            .max_call_depth
-            .unwrap_or(ResourceLimits::default().max_call_depth),
+        max_steps: a.max_steps.or(base.max_steps),
+        max_memory_bytes: a.max_memory.or(base.max_memory_bytes),
+        max_call_depth: a.max_call_depth.unwrap_or(base.max_call_depth),
     };
     let host = HeadlessHost::new()
         .with_metadata(HostMetadata::new(

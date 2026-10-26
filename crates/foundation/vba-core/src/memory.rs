@@ -32,6 +32,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Allocations smaller than this many bytes are not tracked individually.
 pub const TRACK_MIN_BYTES: usize = 64;
 
+/// What one allocation adds to [`MemoryMeter::allocated_total`] on top of its
+/// size: the cost of the allocator calls, which for many small objects is
+/// larger than copying their bytes.
+pub const ALLOCATION_COST: u64 = 192;
+
 /// The memory budget is spent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryExceeded;
@@ -49,6 +54,9 @@ struct Shared {
     used: AtomicU64,
     /// `u64::MAX` for no limit.
     limit: AtomicU64,
+    /// Every byte ever charged, never credited: the volume of data the run
+    /// has built, a proxy for the CPU time spent copying it.
+    allocated: AtomicU64,
 }
 
 /// A shared, thread-safe byte counter with an optional limit.
@@ -61,6 +69,7 @@ impl MemoryMeter {
         MemoryMeter(Arc::new(Shared {
             used: AtomicU64::new(0),
             limit: AtomicU64::new(limit.unwrap_or(u64::MAX)),
+            allocated: AtomicU64::new(0),
         }))
     }
 
@@ -75,6 +84,14 @@ impl MemoryMeter {
     /// Bytes currently charged.
     pub fn used(&self) -> u64 {
         self.0.used.load(Ordering::Relaxed)
+    }
+
+    /// The total of all bytes ever charged (never decreases). The budget turns
+    /// this volume into steps, so building data costs CPU budget as well as
+    /// memory.
+    #[inline]
+    pub fn allocated_total(&self) -> u64 {
+        self.0.allocated.load(Ordering::Relaxed)
     }
 
     /// Whether more is charged than the limit allows. Tracked allocations
@@ -99,7 +116,12 @@ impl MemoryMeter {
                 .used
                 .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
             {
-                Ok(_) => return Ok(()),
+                Ok(_) => {
+                    self.0
+                        .allocated
+                        .fetch_add(bytes + ALLOCATION_COST, Ordering::Relaxed);
+                    return Ok(());
+                }
                 Err(c) => cur = c,
             }
         }
@@ -108,6 +130,9 @@ impl MemoryMeter {
     /// Charges `bytes` without checking the limit.
     pub fn alloc_unchecked(&self, bytes: u64) {
         self.0.used.fetch_add(bytes, Ordering::Relaxed);
+        self.0
+            .allocated
+            .fetch_add(bytes + ALLOCATION_COST, Ordering::Relaxed);
     }
 
     /// Credits `bytes` (never below zero).
@@ -233,9 +258,9 @@ impl Charge {
             self.meter = MemoryMeter::current();
         }
         if let Some(m) = &self.meter {
-            if bytes >= self.bytes {
+            if bytes > self.bytes {
                 m.alloc_unchecked(bytes - self.bytes);
-            } else {
+            } else if bytes < self.bytes {
                 m.free(self.bytes - bytes);
             }
             self.bytes = bytes;
@@ -327,6 +352,19 @@ mod tests {
         assert!(m.exceeded());
         drop(c);
         assert!(!m.exceeded());
+    }
+
+    #[test]
+    fn the_allocated_total_only_grows() {
+        let m = MemoryMeter::new(Some(100));
+        m.try_alloc(40).unwrap();
+        m.alloc_unchecked(10);
+        m.free(50);
+        assert_eq!(m.used(), 0);
+        let total = m.allocated_total();
+        assert_eq!(total, 50 + 2 * ALLOCATION_COST);
+        assert!(m.try_alloc(101).is_err());
+        assert_eq!(m.allocated_total(), total);
     }
 
     #[test]

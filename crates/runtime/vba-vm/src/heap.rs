@@ -418,6 +418,9 @@ impl Vm {
                 Ok(Variant::Object(ObjectRef::Handle(h)))
             }
             Variant::Array(mut a) => {
+                if nested_too_deep(&a) {
+                    return Err(Fault::Limit(LimitKind::CallDepth));
+                }
                 if has_refs(a.element_type()) {
                     for e in a.iter_mut() {
                         let old = std::mem::replace(e, Variant::Empty);
@@ -444,35 +447,48 @@ impl Vm {
     }
 
     /// Adds a reference for every object inside `v` (without copying).
+    /// Iterative: arrays nested thousands of levels deep are fine.
     pub(crate) fn retain_value(&mut self, v: &Variant) {
-        match v {
-            Variant::Object(ObjectRef::Handle(h)) => self.retain_handle(*h),
-            Variant::Array(a) if has_refs(a.element_type()) => {
-                for e in a.iter() {
-                    self.retain_value(e);
-                }
+        let mut todo: Vec<&Variant> = vec![v];
+        while let Some(v) = todo.pop() {
+            match v {
+                Variant::Object(ObjectRef::Handle(h)) => self.retain_handle(*h),
+                Variant::Array(a) if has_refs(a.element_type()) => todo.extend(a.iter()),
+                _ => {}
             }
-            _ => {}
         }
     }
 
-    /// Drops the references held by `v`.
+    /// Drops the references held by `v`. Iterative and without copying the
+    /// elements, so releasing an array nested `d` levels deep costs `O(d)`.
+    /// A failing release does not stop the others; the first failure is
+    /// returned.
     pub(crate) fn release_value(&mut self, v: Variant) -> VResult<()> {
-        match v {
-            Variant::Object(ObjectRef::Handle(h)) => self.release_handle(h),
-            Variant::Array(a) if has_refs(a.element_type()) => {
-                let mut first: VResult<()> = Ok(());
-                for e in a.iter() {
-                    if let Err(f) = self.release_value(e.clone())
+        let mut first: VResult<()> = Ok(());
+        let mut todo = vec![v];
+        while let Some(v) = todo.pop() {
+            match v {
+                Variant::Object(ObjectRef::Handle(h)) => {
+                    if let Err(f) = self.release_handle(h)
                         && first.is_ok()
                     {
                         first = Err(f);
                     }
                 }
-                first
+                Variant::Array(mut a) if has_refs(a.element_type()) => {
+                    // Pushed last-first so that elements are released in index
+                    // order, as a recursive release would.
+                    let mut items: Vec<Variant> = a
+                        .iter_mut()
+                        .map(|e| std::mem::replace(e, Variant::Empty))
+                        .collect();
+                    items.reverse();
+                    todo.extend(items);
+                }
+                _ => {}
             }
-            _ => Ok(()),
         }
+        first
     }
 
     /// Like [`Vm::release_value`] but swallows trappable errors (used when
@@ -568,6 +584,33 @@ impl Vm {
         }
         self.gc_threshold = (self.udts.len() * 2).max(4096);
     }
+}
+
+/// Deepest nesting of arrays inside arrays (`Array(Array(...))`). Cloning,
+/// comparing and dropping nested arrays recurse on the native stack, so a
+/// chain thousands of levels deep would overflow it.
+const MAX_ARRAY_NESTING: usize = 128;
+
+/// Whether `a` holds arrays nested deeper than [`MAX_ARRAY_NESTING`]. Looks
+/// only inside arrays of `Variant`, iteratively.
+fn nested_too_deep(a: &VbaArray) -> bool {
+    if a.element_type() != VarType::Variant {
+        return false;
+    }
+    let mut todo: Vec<(&VbaArray, usize)> = vec![(a, 1)];
+    while let Some((arr, depth)) = todo.pop() {
+        if depth > MAX_ARRAY_NESTING {
+            return true;
+        }
+        for e in arr.iter() {
+            if let Variant::Array(inner) = e
+                && inner.element_type() == VarType::Variant
+            {
+                todo.push((inner, depth + 1));
+            }
+        }
+    }
+    false
 }
 
 /// Deepest nesting of user-defined types inside user-defined types.

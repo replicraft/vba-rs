@@ -108,8 +108,14 @@ enum Command {
         args: Vec<String>,
         /// Allow a capability: `file-read`, `file-write`, `process-spawn`,
         /// `network`, `com-create`, `native-declare` or `ui-automation`,
-        /// optionally scoped to a path prefix, for example
-        /// `--grant file-read=/data` (repeatable).
+        /// optionally scoped (repeatable). A scope is a directory or file for
+        /// the file capabilities (`file-read=/data`), a program for
+        /// `process-spawn=notepad`, a ProgID for `com-create=Scripting.Dictionary`
+        /// or a namespace `com-create=Scripting.*`, `library!procedure` or
+        /// `library!*` for `native-declare=kernel32!GetTickCount`, an action
+        /// for `ui-automation=SendKeys`, a host for `network=example.com` or
+        /// `*.example.com`. Without a scope the capability is granted for
+        /// everything.
         #[arg(long = "grant", value_name = "CAPABILITY[=PATH]")]
         grants: Vec<String>,
         /// Language profile id (see `vbars profiles`).
@@ -118,15 +124,23 @@ enum Command {
         /// Use an empty in-memory file system instead of the real one.
         #[arg(long)]
         memfs: bool,
-        /// Stop after this many interpreter steps.
+        /// Stop after this many interpreter steps (default 100000000; a
+        /// step is one instruction, and building large values or scanning
+        /// long strings costs extra steps).
         #[arg(long)]
         max_steps: Option<u64>,
-        /// Stop when the program holds more than this many bytes.
+        /// Stop when the program holds more than this many bytes of strings,
+        /// arrays, collections, dictionaries, in-memory files and output
+        /// (default 268435456).
         #[arg(long)]
         max_memory: Option<u64>,
-        /// Largest call depth.
+        /// Largest call depth (default 1000).
         #[arg(long)]
         max_call_depth: Option<u32>,
+        /// Remove the default step and memory limits (only for code you
+        /// trust; --max-steps and --max-memory still apply when given).
+        #[arg(long)]
+        unlimited: bool,
         /// Let `Now`, `Timer`, `Environ` read the real clock (UTC) and
         /// environment instead of the fixed 2000-01-01 clock and an empty
         /// environment.
@@ -218,6 +232,7 @@ fn main() -> ExitCode {
             max_steps,
             max_memory,
             max_call_depth,
+            unlimited,
             system_env,
             allow_shell,
             command,
@@ -232,6 +247,7 @@ fn main() -> ExitCode {
             max_steps,
             max_memory,
             max_call_depth,
+            unlimited,
             system_env,
             allow_shell,
             command,

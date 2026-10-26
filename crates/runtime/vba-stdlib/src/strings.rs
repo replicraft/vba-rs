@@ -58,6 +58,30 @@ fn prep(units: &[u16], mode: CompareMode, col: &dyn Collation) -> Vec<u16> {
     }
 }
 
+/// Needles up to this long are searched with the plain loop (at most this
+/// many comparisons per position); longer ones with a linear-time search.
+const NAIVE_NEEDLE: usize = 4;
+
+/// The border table of `needle` (Knuth-Morris-Pratt): `t[i]` is the length of
+/// the longest proper prefix of `needle[..=i]` that is also its suffix.
+fn borders(needle: &[u16]) -> Vec<u32> {
+    let mut t = vec![0u32; needle.len()];
+    let mut k = 0usize;
+    for i in 1..needle.len() {
+        while k > 0 && needle[i] != needle[k] {
+            k = t[k - 1] as usize;
+        }
+        if needle[i] == needle[k] {
+            k += 1;
+        }
+        t[i] = k as u32;
+    }
+    t
+}
+
+/// The first occurrence of `needle` in `hay` at or after `from`. Linear in
+/// `hay.len() + needle.len()` whatever the content, so the step budget can
+/// charge for it up front.
 fn find_from(hay: &[u16], needle: &[u16], from: usize) -> Option<usize> {
     if needle.is_empty() {
         return Some(from);
@@ -65,16 +89,52 @@ fn find_from(hay: &[u16], needle: &[u16], from: usize) -> Option<usize> {
     if from > hay.len() || needle.len() > hay.len() - from {
         return None;
     }
-    (from..=hay.len() - needle.len()).find(|&i| hay[i..i + needle.len()] == *needle)
+    if needle.len() <= NAIVE_NEEDLE {
+        return (from..=hay.len() - needle.len()).find(|&i| hay[i..i + needle.len()] == *needle);
+    }
+    let t = borders(needle);
+    let mut k = 0usize;
+    for (i, &c) in hay.iter().enumerate().skip(from) {
+        while k > 0 && c != needle[k] {
+            k = t[k - 1] as usize;
+        }
+        if c == needle[k] {
+            k += 1;
+        }
+        if k == needle.len() {
+            return Some(i + 1 - k);
+        }
+    }
+    None
 }
 
+/// The last occurrence of `needle` that ends at or before `end`. Linear, like
+/// [`find_from`].
 fn rfind_within(hay: &[u16], needle: &[u16], end: usize) -> Option<usize> {
     if needle.len() > end {
         return None;
     }
-    (0..=end - needle.len())
-        .rev()
-        .find(|&i| hay[i..i + needle.len()] == *needle)
+    if needle.len() <= NAIVE_NEEDLE {
+        return (0..=end - needle.len())
+            .rev()
+            .find(|&i| hay[i..i + needle.len()] == *needle);
+    }
+    let rev: Vec<u16> = needle.iter().rev().copied().collect();
+    let t = borders(&rev);
+    let mut k = 0usize;
+    for j in (0..end).rev() {
+        let c = hay[j];
+        while k > 0 && c != rev[k] {
+            k = t[k - 1] as usize;
+        }
+        if c == rev[k] {
+            k += 1;
+        }
+        if k == rev.len() {
+            return Some(j);
+        }
+    }
+    None
 }
 
 fn vs(units: &[u16]) -> VbaString {
@@ -1101,6 +1161,69 @@ pub(crate) fn f_len_b(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
         _ => return Err(VbaError::TYPE_MISMATCH.into()),
     };
     Ok(Variant::Long(n as i32))
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    fn u(s: &str) -> Vec<u16> {
+        s.encode_utf16().collect()
+    }
+
+    #[test]
+    fn linear_search_agrees_with_the_plain_loop() {
+        let alphabet = [u("a"), u("b")];
+        let texts: Vec<Vec<u16>> = (0..=9u32)
+            .flat_map(|n| {
+                (0..(1u32 << n)).map(move |bits| {
+                    (0..n)
+                        .map(|i| {
+                            if bits >> i & 1 == 1 {
+                                'a' as u16
+                            } else {
+                                'b' as u16
+                            }
+                        })
+                        .collect::<Vec<u16>>()
+                })
+            })
+            .collect();
+        let _ = alphabet;
+        for hay in texts.iter().filter(|t| t.len() <= 9) {
+            for needle in texts.iter().filter(|n| (1..=7).contains(&n.len())) {
+                for from in 0..=hay.len() {
+                    let naive = if needle.len() > hay.len() - from {
+                        None
+                    } else {
+                        (from..=hay.len() - needle.len())
+                            .find(|&i| hay[i..i + needle.len()] == needle[..])
+                    };
+                    assert_eq!(find_from(hay, needle, from), naive, "{hay:?} {needle:?}");
+                }
+                let end = hay.len();
+                let naive = if needle.len() > end {
+                    None
+                } else {
+                    (0..=end - needle.len())
+                        .rev()
+                        .find(|&i| hay[i..i + needle.len()] == needle[..])
+                };
+                assert_eq!(rfind_within(hay, needle, end), naive, "{hay:?} {needle:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_long_needle_in_a_long_text_is_fast() {
+        let hay = vec![0x61u16; 2_000_000];
+        let mut needle = vec![0x61u16; 20_000];
+        needle.push(0x62);
+        let t = std::time::Instant::now();
+        assert_eq!(find_from(&hay, &needle, 0), None);
+        assert_eq!(rfind_within(&hay, &needle, hay.len()), None);
+        assert!(t.elapsed().as_secs() < 2, "{:?}", t.elapsed());
+    }
 }
 
 #[cfg(test)]

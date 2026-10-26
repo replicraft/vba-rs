@@ -126,9 +126,10 @@ fn file_prefix_grants_match_whole_path_segments() {
     assert!(p.check(Capability::FileRead, "/data-secret/a.txt").is_err());
     assert!(p.check(Capability::FileRead, "/data2").is_err());
     assert!(p.check(Capability::FileRead, "c:/workshop/a.txt").is_err());
-    // Other capabilities keep the plain text prefix (ProgIDs, commands).
+    // The other capabilities have their own scopes (see `scopes.rs`).
     let q = Policy::deny_all().grant_prefixes(Capability::ProcessSpawn, ["notepad"]);
     assert!(q.check(Capability::ProcessSpawn, "notepad.exe x").is_ok());
+    assert!(q.check(Capability::ProcessSpawn, "notepad-x.exe").is_err());
 }
 
 #[test]

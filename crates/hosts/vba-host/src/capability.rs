@@ -92,14 +92,30 @@ impl From<PermissionDenied> for ErrInfo {
 
 /// The set of granted capabilities. The default grants nothing.
 ///
-/// A grant is either unrestricted or limited to resource prefixes
-/// (case-insensitive, for example a directory path or a ProgID namespace
-/// such as `"Scripting."`). For `FileRead` and `FileWrite` a prefix matches
-/// whole path segments only: `/data` covers `/data` and `/data/x`, not
-/// `/data-secret`. Other capabilities match the text prefix. Resources
-/// containing a `..` path segment never match a scoped grant. No path
-/// canonicalisation is done: embedders that scope file access must pass
-/// normalised paths.
+/// A grant is either unrestricted or limited to *scopes*, and what a scope
+/// means depends on the capability (the table is in the `scope` module and
+/// in `docs/architecture/security-model.md`):
+///
+/// * `FileRead`, `FileWrite`: a path; it covers itself and everything below
+///   it, matched by whole path segments (`/data` covers `/data/x`, not
+///   `/data-secret`). `/` and `\` are the same. Paths containing a `..`
+///   segment never match.
+/// * `ProcessSpawn`: a program; it covers that program (`notepad` also covers
+///   `notepad.exe`, never `notepad-x.exe`) and, as a directory, the programs
+///   below it. Arguments are not part of the match.
+/// * `ComCreate`: a ProgID, matched exactly; `Scripting.*` or `Scripting.`
+///   covers every ProgID below the namespace `Scripting`, by whole dot
+///   segments; `*` covers all.
+/// * `NativeDeclare`: `library!procedure`, matched exactly, or `library!*`
+///   for every procedure of a library. Library names are compared the way
+///   the Win32 provider resolves them (directory and `.dll` dropped).
+/// * `UiAutomation`: an action, `SendKeys` or `AppActivate`; `AppActivate:title`
+///   covers one window title only.
+/// * `Network`: a host, a `host:port`, or `*.domain`.
+///
+/// Matching ignores case, and any scope that is not one of these forms
+/// matches nothing. No path canonicalisation is done: embedders that scope
+/// file access must pass normalised paths.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Policy {
     grants: BTreeMap<Capability, Grant>,
@@ -127,9 +143,11 @@ impl Policy {
         self
     }
 
-    /// Grants a capability for resources starting with one of `prefixes`.
-    /// Calling it again for the same capability adds prefixes; it never
-    /// narrows an unrestricted grant.
+    /// Grants a capability for the resources named by `scopes` (the form of a
+    /// scope depends on the capability, see [`Policy`]). Calling it again for
+    /// the same capability adds scopes; it never narrows an unrestricted
+    /// grant. The name says "prefixes" for compatibility; only paths and
+    /// namespaces behave like prefixes.
     pub fn grant_prefixes<I, S>(mut self, cap: Capability, prefixes: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -163,19 +181,9 @@ impl Policy {
         let ok = match self.grants.get(&cap) {
             None => false,
             Some(Grant::Any) => true,
-            Some(Grant::Prefixes(ps)) => {
-                let r = resource.to_lowercase();
-                let paths = matches!(cap, Capability::FileRead | Capability::FileWrite);
-                !has_parent_segment(&r)
-                    && ps.iter().any(|p| {
-                        let p = p.to_lowercase();
-                        if paths {
-                            path_prefix_matches(&r.replace('\\', "/"), &p.replace('\\', "/"))
-                        } else {
-                            r.starts_with(&p)
-                        }
-                    })
-            }
+            Some(Grant::Prefixes(ps)) => ps
+                .iter()
+                .any(|scope| crate::scope::scope_matches(cap, scope, resource)),
         };
         if ok {
             Ok(())
@@ -186,18 +194,4 @@ impl Policy {
             })
         }
     }
-}
-
-/// Path-segment prefix match on paths whose separators are both `/`: `/data` covers `/data` and `/data/x` but not
-/// `/data-secret/x`. A prefix that ends in a separator covers everything below
-/// it, as before.
-fn path_prefix_matches(resource: &str, prefix: &str) -> bool {
-    match resource.strip_prefix(prefix) {
-        None => false,
-        Some(rest) => rest.is_empty() || prefix.ends_with('/') || rest.starts_with('/'),
-    }
-}
-
-fn has_parent_segment(r: &str) -> bool {
-    r.split(['/', '\\']).any(|seg| seg == "..")
 }
