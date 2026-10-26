@@ -133,13 +133,20 @@ the policy sees the normalized path.
 **Semantics** (documented VBA behavior, not verified against Office):
 
 - Open files are loaded into memory and written back at `Close`, `Close` with no
-  arguments, `End`, `Reset` and when the file system is dropped; the memory is
+  arguments, `End`, `Reset` and when the file system is dropped; file numbers
+  that open the same path share one buffer, so a `Put` on one is seen by a
+  `Get` on another; the memory is
   charged to the host budget and a file larger than `max_file_bytes` (64 MiB) is
   error 61. Text is Windows-1252 with CR LF line ends.
 - `Open`: `Input` needs the file (53); `Output` truncates; `Append` positions at
   the end; `Binary`/`Random` create a missing file when writing. A second `Open`
-  of a path that is open with write access, or of an open file number, is error
-  55; file numbers outside 1..511 are 52.
+  of a path that is open for `Output` or `Append`, or for either of those while
+  it is open, or of an open file number, is error 55; `Input`, `Binary` and
+  `Random` channels may share a path when their `Lock` clauses agree (MS-VBAL
+  5.4.5.1): a clause that denies the access (read, write) of the other channel
+  is error 70, in either direction. File numbers outside 1..511 are 52, and a
+  `Len` outside 1 to 32767 is error 59 (the text names no number; `Binary`
+  ignores `Len`).
 - `Print #` uses the `Debug.Print` layout (leading/trailing space on numbers,
   14-column zones, `Tab`, `Spc`, `Width`). `Write #` writes `"text"`, numbers
   without padding, `#TRUE#`/`#FALSE#`, `#NULL#`, dates as `#yyyy-mm-dd#`,
@@ -156,8 +163,22 @@ the policy sees the normalized path.
   to `Len` (error 59 if larger). Unknown `Variant` tags are error 321.
 - `Dir` supports `*` and `?`, the `vbDirectory`/`vbHidden`/`vbSystem`
   attributes, and a plain name to test existence. `Kill` accepts wildcards.
-- `Lock`/`Unlock` validate the file number only; there is no other process to
-  lock against.
+- `Lock`/`Unlock` (MS-VBAL 5.4.5.4, 5.4.5.5) keep a list of locked ranges per
+  file number: records on a `Random` file, bytes on a `Binary` file; `To n`
+  starts at 1 and a single number locks that unit. A start below 1 or above the
+  end, or an `Unlock` whose range equals no locked one, is error 5 (the text
+  says "an error"; the number is **unverified**). `Unlock` without a range
+  clears every lock of the file number, `Close` drops them, and on `Input`,
+  `Output` and `Append` files the range is ignored (the whole file). Another
+  file number on the same file gets error 70 from `Get`, `Put`, `Input`,
+  `Line Input`, `Print` and `Write` that touch a locked unit; there is no
+  other process to lock against.
+- `Width` (MS-VBAL 5.4.5.7): a `Print` item that does not fit on the rest of
+  the line starts a new line, one longer than the width is broken into lines of
+  that width; `Write` breaks at the width character by character.
+- `Write #` (MS-VBAL 5.4.5.9): `Spc(n)` writes spaces and `Tab(n)` moves to the
+  column; a comma follows an item unless it ends the list without a separator;
+  a list ending in `;` or `,` does not end the line.
 
 - `Input(n, #f)` (**doc**) reads `n` characters (bytes, Windows-1252) from a file
   opened for `Input` or `Binary` (error 54 otherwise, an assumption) and raises
@@ -165,9 +186,10 @@ the policy sees the normalized path.
   Random 4, Append 8, Binary 32); return type 2 is error 5 (**unverified** number).
   `Reset` closes every open file and writes the buffers.
 
-**Not implemented:** shared/exclusive `Lock` conflicts between files, `ChDrive` to another drive
-(error 68), `Get`/`Put` of `Decimal` and of variants holding arrays or objects,
-UNC paths and `Open ... Lock` semantics beyond bookkeeping.
+**Not implemented:** `ChDrive` to another drive (error 68), `Get`/`Put` of
+`Decimal` and of variants holding arrays or objects, UNC paths. `Lock` clauses
+and `Lock` ranges only restrict other file numbers of the same session, never
+other processes.
 
 ## Scripting classes
 

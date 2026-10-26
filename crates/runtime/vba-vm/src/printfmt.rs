@@ -57,7 +57,8 @@ pub fn format_print(items: &[PrintItem], col: &mut usize) -> String {
 }
 
 /// Like [`format_print`] with a line width (`Width #n, w`): a value that
-/// would cross `width` columns starts a new line first. `0` means no limit.
+/// would cross `width` columns starts a new line first, and one longer than
+/// `width` is broken into lines of `width`. `0` means no limit.
 pub fn format_print_width(items: &[PrintItem], col: &mut usize, width: usize) -> String {
     let mut out = String::new();
     let mut newline = true;
@@ -71,8 +72,21 @@ pub fn format_print_width(items: &[PrintItem], col: &mut usize, width: usize) ->
                     out.push('\n');
                     *col = 0;
                 }
-                *col += len;
-                out.push_str(&t);
+                if width > 0 && len > width {
+                    // MS-VBAL 5.4.5.8: the line ends when it reaches the
+                    // maximum length and output goes on at the next line.
+                    for ch in t.chars() {
+                        if *col >= width {
+                            out.push('\n');
+                            *col = 0;
+                        }
+                        out.push(ch);
+                        *col += 1;
+                    }
+                } else {
+                    *col += len;
+                    out.push_str(&t);
+                }
             }
             PrintItem::Semicolon => newline = false,
             PrintItem::Comma => {
@@ -149,6 +163,17 @@ mod tests {
             v(Variant::from_text("y")),
         ];
         assert_eq!(format_print(&items, &mut c), "    x  y\n");
+    }
+
+    #[test]
+    fn a_long_item_is_broken_at_the_width() {
+        let mut c = 0;
+        let items = [v(Variant::from_text("abcdefghijkl"))];
+        assert_eq!(format_print_width(&items, &mut c, 5), "abcde\nfghij\nkl\n");
+        // An item that fits on a line of its own moves there whole.
+        let mut c = 0;
+        let items = [v(Variant::from_text("abcd")), v(Variant::from_text("efgh"))];
+        assert_eq!(format_print_width(&items, &mut c, 5), "abcd\nefgh\n");
     }
 
     #[test]

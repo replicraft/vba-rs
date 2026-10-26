@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.4, stmt.lock-unlock
 ' SOURCE: spec ms-vbal 5.4.5.4 start record must not exceed end record
-' XFAIL: wrong not implemented: tracking of Lock/Unlock ranges
 ' EXPECT: err=True
 ' GRANT: file-read
 ' GRANT: file-write

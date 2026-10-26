@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.9, stmt.write
 ' SOURCE: spec ms-vbal 5.4.5.9 Spc writes spaces; a following comma char-position adds a comma
-' XFAIL: wrong not implemented: Write with a trailing semicolon and Spc items
 ' EXPECT: ["a",   ,"b"]
 ' GRANT: file-read
 ' GRANT: file-write

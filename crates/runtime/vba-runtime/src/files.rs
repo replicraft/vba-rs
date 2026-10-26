@@ -34,15 +34,37 @@ type R<T> = Result<T, FsError>;
 /// Largest in-memory size of one open file (error 61 beyond it).
 pub const DEFAULT_MAX_FILE_BYTES: usize = 64 << 20;
 
+/// The bytes of one file, shared by every file number that has it open.
+#[derive(Debug)]
+struct Shared {
+    data: Vec<u8>,
+    dirty: bool,
+    /// File numbers that refer to this buffer.
+    refs: usize,
+}
+
+/// A range locked by `Lock`: the units written in the statement (records for
+/// a Random file, bytes for Binary) and the bytes they cover, half open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LockRange {
+    start: i64,
+    end: i64,
+    bytes: (u64, u64),
+}
+
 #[derive(Debug)]
 struct OpenFile {
     path: String,
+    /// Key of the shared buffer: the path in lower case.
+    key: String,
     mode: OpenMode,
     readable: bool,
     writable: bool,
-    data: Vec<u8>,
+    lock: OpenLock,
+    /// `Lock` without a range, or on a sequential file.
+    whole_locked: bool,
+    locks: Vec<LockRange>,
     pos: usize,
-    dirty: bool,
     record_len: usize,
     last_record: i64,
     width: usize,
@@ -55,6 +77,7 @@ pub struct FileSystem {
     vfs: Box<dyn Vfs>,
     cwd: String,
     files: BTreeMap<i32, OpenFile>,
+    buffers: BTreeMap<String, Shared>,
     dir_iter: Option<VecDeque<String>>,
     command: String,
     shell: Box<dyn ShellHook>,
@@ -95,6 +118,16 @@ fn dir_resource(p: &str) -> String {
     }
 }
 
+/// Whether a `Lock` clause keeps another channel with this access out.
+fn lock_denies(lock: OpenLock, reads: bool, writes: bool) -> bool {
+    match lock {
+        OpenLock::Shared => false,
+        OpenLock::LockRead => reads,
+        OpenLock::LockWrite => writes,
+        OpenLock::LockReadWrite => reads || writes,
+    }
+}
+
 fn vba<T>(n: i32) -> R<T> {
     Err(FsError::Vba(n))
 }
@@ -113,6 +146,7 @@ impl FileSystem {
             vfs,
             cwd,
             files: BTreeMap::new(),
+            buffers: BTreeMap::new(),
             dir_iter: None,
             command: String::new(),
             shell,
@@ -198,6 +232,13 @@ impl FileSystem {
         self.files.get_mut(&n).ok_or(FsError::Vba(52))
     }
 
+    /// A file number with the buffer it shares with other channels.
+    fn chan(&mut self, n: i32) -> R<(&mut OpenFile, &mut Shared)> {
+        let f = self.files.get_mut(&n).ok_or(FsError::Vba(52))?;
+        let sh = self.buffers.get_mut(&f.key).ok_or(FsError::Vba(52))?;
+        Ok((f, sh))
+    }
+
     fn charge(&self, bytes: usize) -> R<()> {
         self.host
             .budget()
@@ -212,7 +253,7 @@ impl FileSystem {
         path: &str,
         mode: OpenMode,
         access: Option<OpenAccess>,
-        _lock: Option<OpenLock>,
+        lock: Option<OpenLock>,
         file: i32,
         record_len: Option<i32>,
     ) -> R<()> {
@@ -239,16 +280,27 @@ impl FileSystem {
         if writable {
             self.allow(Capability::FileWrite, &p)?;
         }
-        for f in self.files.values() {
-            if f.path.eq_ignore_ascii_case(&p) && (writable || f.writable) {
+        let key = p.to_ascii_lowercase();
+        let lock = lock.unwrap_or(OpenLock::Shared);
+        for f in self.files.values().filter(|f| f.key == key) {
+            // A sequential writer needs the file to itself; Input, Binary and
+            // Random channels can share it when their Lock clauses agree.
+            let sequential_writer = |m: OpenMode| matches!(m, OpenMode::Output | OpenMode::Append);
+            if sequential_writer(mode) || sequential_writer(f.mode) {
                 return vba(55);
+            }
+            if lock_denies(f.lock, readable, writable) || lock_denies(lock, f.readable, f.writable)
+            {
+                return vba(70);
             }
         }
         let record_len = match (mode, record_len) {
-            (OpenMode::Random, None) => 128,
-            (OpenMode::Random, Some(n)) if n > 0 => n as usize,
-            (OpenMode::Random, Some(_)) => return vba(59),
-            _ => 128,
+            (OpenMode::Binary, _) => 128,
+            // MS-VBAL 5.4.5.1: Len is 1 to 32767 (59 is the number of a bad
+            // record length; the text names no number).
+            (_, Some(n)) if !(1..=32767).contains(&n) => return vba(59),
+            (_, Some(n)) => n as usize,
+            (_, None) => 128,
         };
         // A record is buffered whole on every Get and Put; one that no file
         // could hold must not be allocated first.
@@ -260,12 +312,17 @@ impl FileSystem {
             return vba(75);
         }
         let max = self.max_file_bytes;
+        let shared = self.buffers.contains_key(&key);
         let data = match mode {
             OpenMode::Input => {
                 if st.is_none() {
                     return vba(53);
                 }
-                self.vfs.read_limited(&p, max).map_err(map_vfs)?
+                if shared {
+                    Vec::new()
+                } else {
+                    self.vfs.read_limited(&p, max).map_err(map_vfs)?
+                }
             }
             OpenMode::Output => {
                 self.vfs.write(&p, &[]).map_err(map_vfs)?;
@@ -280,7 +337,9 @@ impl FileSystem {
                 }
             }
             OpenMode::Binary | OpenMode::Random => {
-                if st.is_some() {
+                if shared {
+                    Vec::new()
+                } else if st.is_some() {
                     self.vfs.read_limited(&p, max).map_err(map_vfs)?
                 } else if writable {
                     self.vfs.write(&p, &[]).map_err(map_vfs)?;
@@ -299,16 +358,31 @@ impl FileSystem {
         } else {
             0
         };
+        match self.buffers.get_mut(&key) {
+            Some(sh) => sh.refs += 1,
+            None => {
+                self.buffers.insert(
+                    key.clone(),
+                    Shared {
+                        data,
+                        dirty: false,
+                        refs: 1,
+                    },
+                );
+            }
+        }
         self.files.insert(
             file,
             OpenFile {
                 path: p,
+                key,
                 mode,
                 readable,
                 writable,
-                data,
+                lock,
+                whole_locked: false,
+                locks: Vec::new(),
                 pos,
-                dirty: false,
                 record_len,
                 last_record: 0,
                 width: 0,
@@ -319,17 +393,20 @@ impl FileSystem {
     }
 
     fn flush(&mut self, n: i32) -> R<()> {
-        let Some(f) = self.files.get_mut(&n) else {
+        let Some(f) = self.files.get(&n) else {
             return Ok(());
         };
-        if f.dirty && f.writable {
-            let path = f.path.clone();
-            let data = std::mem::take(&mut f.data);
+        let (path, key) = (f.path.clone(), f.key.clone());
+        let Some(sh) = self.buffers.get_mut(&key) else {
+            return Ok(());
+        };
+        if sh.dirty && self.files.get(&n).is_some_and(|f| f.writable) {
+            let data = std::mem::take(&mut sh.data);
             let r = self.vfs.write(&path, &data).map_err(map_vfs);
-            if let Some(f) = self.files.get_mut(&n) {
-                f.data = data;
+            if let Some(sh) = self.buffers.get_mut(&key) {
+                sh.data = data;
                 if r.is_ok() {
-                    f.dirty = false;
+                    sh.dirty = false;
                 }
             }
             r?;
@@ -339,8 +416,15 @@ impl FileSystem {
 
     fn close_one(&mut self, n: i32) -> R<()> {
         let r = self.flush(n);
-        if let Some(f) = self.files.remove(&n) {
-            self.host.budget().free(f.data.len() as u64);
+        if let Some(f) = self.files.remove(&n)
+            && let Some(sh) = self.buffers.get_mut(&f.key)
+        {
+            sh.refs -= 1;
+            if sh.refs == 0 {
+                let len = sh.data.len();
+                self.buffers.remove(&f.key);
+                self.host.budget().free(len as u64);
+            }
         }
         r
     }
@@ -363,25 +447,97 @@ impl FileSystem {
         }
     }
 
+    // ---- locks ----------------------------------------------------------------------
+
+    /// Error 70 when another file number on the same file holds a lock that
+    /// covers the bytes `range` (`None` is the whole file).
+    fn check_not_locked(&self, n: i32, range: Option<(u64, u64)>) -> R<()> {
+        let Some(me) = self.files.get(&n) else {
+            return Ok(());
+        };
+        for (m, other) in &self.files {
+            if *m == n || other.key != me.key {
+                continue;
+            }
+            let hit = other.whole_locked
+                || match range {
+                    None => !other.locks.is_empty(),
+                    Some((lo, hi)) => other.locks.iter().any(|l| l.bytes.0 < hi && lo < l.bytes.1),
+                };
+            if hit {
+                return vba(70);
+            }
+        }
+        Ok(())
+    }
+
+    /// `Lock` and `Unlock` (MS-VBAL 5.4.5.4, 5.4.5.5). On a sequential file
+    /// the range is ignored and the whole file is meant.
+    fn lock(&mut self, n: i32, from: Option<i64>, to: Option<i64>, unlock: bool) -> R<()> {
+        let f = self.file(n)?;
+        let sequential = !matches!(f.mode, OpenMode::Binary | OpenMode::Random);
+        if sequential || (from.is_none() && to.is_none()) {
+            if unlock {
+                f.whole_locked = false;
+                f.locks.clear();
+            } else {
+                f.whole_locked = true;
+            }
+            return Ok(());
+        }
+        // `Lock #1, 3` is the single unit 3; `To 4` starts at 1.
+        let start = from.unwrap_or(1);
+        let end = to.or(from).unwrap_or(start);
+        if start < 1 || start > end {
+            return vba(5);
+        }
+        let unit = if f.mode == OpenMode::Random {
+            f.record_len as u64
+        } else {
+            1
+        };
+        let bytes = (
+            (start as u64 - 1).saturating_mul(unit),
+            (end as u64).saturating_mul(unit),
+        );
+        if unlock {
+            // The range must equal one that was locked.
+            match f
+                .locks
+                .iter()
+                .position(|l| l.start == start && l.end == end)
+            {
+                Some(i) => {
+                    f.locks.remove(i);
+                }
+                None => return vba(5),
+            }
+        } else {
+            f.locks.push(LockRange { start, end, bytes });
+        }
+        Ok(())
+    }
+
     // ---- sequential output --------------------------------------------------------
 
     fn put_bytes(&mut self, n: i32, bytes: &[u8]) -> R<()> {
+        self.check_not_locked(n, None)?;
         let max = self.max_file_bytes;
         let host = self.host.clone();
-        let f = self.file(n)?;
+        let (f, sh) = self.chan(n)?;
         let end = f.pos + bytes.len();
         if end > max {
             return vba(61);
         }
-        if end > f.data.len() {
+        if end > sh.data.len() {
             host.budget()
-                .alloc((end - f.data.len()) as u64)
+                .alloc((end - sh.data.len()) as u64)
                 .map_err(|_| FsError::Limit(LimitKind::Memory))?;
-            f.data.resize(end, 0);
+            sh.data.resize(end, 0);
         }
-        f.data[f.pos..end].copy_from_slice(bytes);
+        sh.data[f.pos..end].copy_from_slice(bytes);
         f.pos = end;
-        f.dirty = true;
+        sh.dirty = true;
         Ok(())
     }
 
@@ -396,34 +552,90 @@ impl FileSystem {
         self.put_bytes(n, &bytes)
     }
 
+    /// `Write #` (MS-VBAL 5.4.5.9): a comma follows each item unless it is
+    /// the last one without a separator; `Spc` and `Tab` take a comma only
+    /// from an explicit `,`; the line ends unless the list ends with a
+    /// separator.
     fn write_stmt(&mut self, n: i32, items: &[PrintItem]) -> R<()> {
         let f = self.file(n)?;
         if !f.writable || f.mode == OpenMode::Binary {
             return vba(54);
         }
-        let mut parts = Vec::new();
-        for it in items {
-            if let PrintItem::Value(v) = it {
-                parts.push(write_value(v));
+        let width = f.width;
+        let mut out = LineOut::new(&mut f.col, width);
+        let mut i = 0;
+        while i < items.len() {
+            let next_is_comma = |i: usize| matches!(items.get(i), Some(PrintItem::Comma));
+            let next_is_sep =
+                |i: usize| matches!(items.get(i), Some(PrintItem::Comma | PrintItem::Semicolon));
+            match &items[i] {
+                PrintItem::Value(v) => {
+                    out.push(&write_value(v));
+                    i += 1;
+                    if next_is_sep(i) {
+                        i += 1;
+                        out.push(",");
+                    } else if i < items.len() {
+                        out.push(",");
+                    }
+                }
+                PrintItem::Spc(k) => {
+                    out.push(&" ".repeat((*k).max(0) as usize));
+                    i += 1;
+                    if next_is_comma(i) {
+                        out.push(",");
+                    }
+                    if next_is_sep(i) {
+                        i += 1;
+                    }
+                }
+                PrintItem::Tab(Some(k)) => {
+                    out.tab((*k).max(1) as usize - 1);
+                    i += 1;
+                    if next_is_comma(i) {
+                        out.push(",");
+                    }
+                    if next_is_sep(i) {
+                        i += 1;
+                    }
+                }
+                PrintItem::Tab(None) => {
+                    out.push(",");
+                    i += 1;
+                    if next_is_comma(i) {
+                        out.push(",");
+                    }
+                    if next_is_sep(i) {
+                        i += 1;
+                    }
+                }
+                // A separator with no item before it stands for "".
+                PrintItem::Comma | PrintItem::Semicolon => {
+                    out.push(",");
+                    i += 1;
+                }
             }
         }
-        let mut line = parts.join(",");
-        line.push_str("\r\n");
-        let bytes = encode_text(&VbaString::from(line));
+        if !matches!(items.last(), Some(PrintItem::Comma | PrintItem::Semicolon)) {
+            out.newline();
+        }
+        let text = out.finish().replace('\n', "\r\n");
+        let bytes = encode_text(&VbaString::from(text));
         self.put_bytes(n, &bytes)
     }
 
     // ---- sequential input -------------------------------------------------------------
 
     fn line_input(&mut self, n: i32) -> R<VbaString> {
-        let f = self.file(n)?;
+        self.check_not_locked(n, None)?;
+        let (f, sh) = self.chan(n)?;
         if !f.readable || f.mode == OpenMode::Random {
             return vba(54);
         }
-        if f.pos >= f.data.len() {
+        if f.pos >= sh.data.len() {
             return vba(62);
         }
-        let rest = &f.data[f.pos..];
+        let rest = &sh.data[f.pos..];
         let end = rest
             .iter()
             .position(|b| *b == b'\r' || *b == b'\n')
@@ -441,13 +653,14 @@ impl FileSystem {
     }
 
     fn input_items(&mut self, n: i32, kinds: &[VarType]) -> R<Vec<Variant>> {
-        let f = self.file(n)?;
+        self.check_not_locked(n, None)?;
+        let (f, sh) = self.chan(n)?;
         if !f.readable || f.mode != OpenMode::Input {
             return vba(54);
         }
         let mut out = Vec::new();
         for k in kinds {
-            out.push(read_token(f, *k)?);
+            out.push(read_token(f, &sh.data, *k)?);
         }
         Ok(out)
     }
@@ -470,36 +683,42 @@ impl FileSystem {
     }
 
     fn get(&mut self, n: i32, record: Option<i64>, shape: &Shape) -> R<RecordValue> {
-        let f = self.file(n)?;
+        let (f, _) = self.chan(n)?;
         if !f.readable || !matches!(f.mode, OpenMode::Binary | OpenMode::Random) {
             return vba(54);
         }
         let random = f.mode == OpenMode::Random;
         let pos = Self::record_pos(f, record)?;
-        if random {
-            if pos >= f.data.len() {
-                return vba(62);
+        let record_len = f.record_len;
+        let (v, end) = {
+            let (_, sh) = self.chan(n)?;
+            if random {
+                if pos >= sh.data.len() {
+                    return vba(62);
+                }
+                let end = (pos + record_len).min(sh.data.len());
+                let mut buf = sh.data[pos..end].to_vec();
+                buf.resize(record_len, 0);
+                let mut r = Reader::new(&buf, 0);
+                (records::decode(shape, &mut r, true)?, pos + record_len)
+            } else {
+                let mut r = Reader::new(&sh.data, pos);
+                (records::decode(shape, &mut r, false)?, r.pos())
             }
-            let end = (pos + f.record_len).min(f.data.len());
-            let mut buf = f.data[pos..end].to_vec();
-            buf.resize(f.record_len, 0);
-            let mut r = Reader::new(&buf, 0);
-            let v = records::decode(shape, &mut r, true)?;
-            f.last_record = (pos / f.record_len + 1) as i64;
-            f.pos = pos + f.record_len;
-            Ok(v)
-        } else {
-            let mut r = Reader::new(&f.data, pos);
-            let v = records::decode(shape, &mut r, false)?;
-            f.pos = r.pos();
-            Ok(v)
+        };
+        self.check_not_locked(n, Some((pos as u64, end as u64)))?;
+        let f = self.file(n)?;
+        if random {
+            f.last_record = (pos / record_len + 1) as i64;
         }
+        f.pos = end;
+        Ok(v)
     }
 
     fn put(&mut self, n: i32, record: Option<i64>, shape: &Shape, value: &RecordValue) -> R<()> {
         let max = self.max_file_bytes;
         let host = self.host.clone();
-        let f = self.file(n)?;
+        let (f, _) = self.chan(n)?;
         if !f.writable || !matches!(f.mode, OpenMode::Binary | OpenMode::Random) {
             return vba(54);
         }
@@ -507,25 +726,28 @@ impl FileSystem {
         let pos = Self::record_pos(f, record)?;
         let mut buf = Vec::new();
         records::encode(shape, value, random, &mut buf)?;
+        let record_len = f.record_len;
         if random {
-            if buf.len() > f.record_len {
+            if buf.len() > record_len {
                 return vba(59);
             }
-            buf.resize(f.record_len, 0);
+            buf.resize(record_len, 0);
         }
         let end = pos + buf.len();
+        self.check_not_locked(n, Some((pos as u64, end as u64)))?;
         if end > max {
             return vba(61);
         }
-        if end > f.data.len() {
+        let (f, sh) = self.chan(n)?;
+        if end > sh.data.len() {
             host.budget()
-                .alloc((end - f.data.len()) as u64)
+                .alloc((end - sh.data.len()) as u64)
                 .map_err(|_| FsError::Limit(LimitKind::Memory))?;
-            f.data.resize(end, 0);
+            sh.data.resize(end, 0);
         }
-        f.data[pos..end].copy_from_slice(&buf);
+        sh.data[pos..end].copy_from_slice(&buf);
         f.pos = end;
-        f.dirty = true;
+        sh.dirty = true;
         if random {
             f.last_record = (pos / f.record_len + 1) as i64;
         }
@@ -685,15 +907,16 @@ impl FileSystem {
                 // reading past the end is error 62.
                 let count = num(a, 0)?;
                 let n = num(a, 1)?;
-                let f = self.file(n)?;
+                self.check_not_locked(n, None)?;
+                let (f, sh) = self.chan(n)?;
                 if !f.readable || !matches!(f.mode, OpenMode::Input | OpenMode::Binary) {
                     return vba(54);
                 }
                 let count = usize::try_from(count).map_err(|_| FsError::Vba(5))?;
-                if f.data.len() - f.pos.min(f.data.len()) < count {
+                if sh.data.len() - f.pos.min(sh.data.len()) < count {
                     return vba(62);
                 }
-                let text = decode_text(&f.data[f.pos..f.pos + count]);
+                let text = decode_text(&sh.data[f.pos..f.pos + count]);
                 f.pos += count;
                 Ok(Variant::String(text))
             }
@@ -721,15 +944,15 @@ impl FileSystem {
             }
             "eof" => {
                 let n = num(a, 0)?;
-                let f = self.file(n)?;
+                let (f, sh) = self.chan(n)?;
                 if !f.readable {
                     return vba(54);
                 }
-                Ok(Variant::Boolean(f.pos >= f.data.len()))
+                Ok(Variant::Boolean(f.pos >= sh.data.len()))
             }
             "lof" => {
                 let n = num(a, 0)?;
-                Ok(Variant::Long(self.file(n)?.data.len() as i32))
+                Ok(Variant::Long(self.chan(n)?.1.data.len() as i32))
             }
             "loc" => {
                 let n = num(a, 0)?;
@@ -834,10 +1057,9 @@ impl FileSystem {
                 let st = self.stat_checked(&p)?;
                 // An open file reports its current size, as it would on disk.
                 let open = self
-                    .files
-                    .values()
-                    .find(|f| f.path.eq_ignore_ascii_case(&p))
-                    .map(|f| f.data.len() as u64);
+                    .buffers
+                    .get(&p.to_ascii_lowercase())
+                    .map(|sh| sh.data.len() as u64);
                 Ok(Variant::Long(open.unwrap_or(st.len) as i32))
             }
             "filedatetime" => {
@@ -941,10 +1163,12 @@ impl FileSystem {
                 self.seek(file, position)?;
                 Ok(IoReply::Done)
             }
-            IoRequest::Lock { file, .. } | IoRequest::Unlock { file, .. } => {
-                // Locks only matter between processes; within one session a
-                // single table of open files is the only user. Validate.
-                self.file(file)?;
+            IoRequest::Lock { file, from, to } => {
+                self.lock(file, from, to, false)?;
+                Ok(IoReply::Done)
+            }
+            IoRequest::Unlock { file, from, to } => {
+                self.lock(file, from, to, true)?;
                 Ok(IoReply::Done)
             }
             IoRequest::Width { file, width } => {
@@ -963,6 +1187,59 @@ impl FileSystem {
 impl Drop for FileSystem {
     fn drop(&mut self) {
         let _ = self.close_all();
+    }
+}
+
+/// Output for one `Write #` statement, wrapping at the `Width` of the file.
+struct LineOut<'a> {
+    out: String,
+    col: &'a mut usize,
+    width: usize,
+}
+
+impl<'a> LineOut<'a> {
+    fn new(col: &'a mut usize, width: usize) -> Self {
+        LineOut {
+            out: String::new(),
+            col,
+            width,
+        }
+    }
+
+    /// Writes characters; a line that reaches the width ends first.
+    fn push(&mut self, text: &str) {
+        for ch in text.chars() {
+            if self.width > 0 && *self.col >= self.width {
+                self.newline();
+            }
+            self.out.push(ch);
+            *self.col += 1;
+        }
+    }
+
+    fn newline(&mut self) {
+        self.out.push('\n');
+        *self.col = 0;
+    }
+
+    /// Moves to the 0-based column `target`, on the next line when the
+    /// position is already past it.
+    fn tab(&mut self, target: usize) {
+        let target = if self.width > 0 {
+            target % self.width
+        } else {
+            target
+        };
+        if target < *self.col {
+            self.newline();
+        }
+        let gap = target - *self.col;
+        self.out.push_str(&" ".repeat(gap));
+        *self.col = target;
+    }
+
+    fn finish(self) -> String {
+        self.out
     }
 }
 
@@ -991,8 +1268,7 @@ pub fn write_value(v: &Variant) -> String {
     }
 }
 
-fn read_token(f: &mut OpenFile, kind: VarType) -> R<Variant> {
-    let d = &f.data;
+fn read_token(f: &mut OpenFile, d: &[u8], kind: VarType) -> R<Variant> {
     let mut i = f.pos;
     while i < d.len() && matches!(d[i], b' ' | b'\t' | b'\r' | b'\n') {
         i += 1;

@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.5, stmt.lock-unlock
 ' SOURCE: spec ms-vbal 5.4.5.5 Unlock without range removes all restrictions; later range unlock has no match
-' XFAIL: wrong not implemented: tracking of Lock/Unlock ranges
 ' EXPECT: err=True
 ' GRANT: file-read
 ' GRANT: file-write

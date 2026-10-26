@@ -298,8 +298,31 @@ impl Parser<'_> {
     fn file_stmt(&mut self, kind: NodeKind) {
         self.start(kind);
         self.bump();
-        if self.at_expr_start() || self.at(TokenKind::Comma) {
+        if matches!(kind, NodeKind::LockStmt | NodeKind::UnlockStmt) {
+            self.lock_args();
+        } else if self.at_expr_start() || self.at(TokenKind::Comma) {
             self.parse_arg_list_bare();
+        }
+        self.finish();
+    }
+
+    /// `#file [, [start] [To end]]`: the record range of `Lock` and `Unlock`
+    /// may omit its start (MS-VBAL 5.4.5.4).
+    fn lock_args(&mut self) {
+        self.start(NodeKind::ArgList);
+        self.parse_arg();
+        if self.at(TokenKind::Comma) {
+            self.bump();
+            self.start(NodeKind::Arg);
+            if self.at_kw(Keyword::To) {
+                self.start(NodeKind::RangeExpr);
+                self.bump();
+                self.parse_expr(0);
+                self.finish();
+            } else if self.at_expr_start() {
+                self.parse_range_or_expr();
+            }
+            self.finish();
         }
         self.finish();
     }
