@@ -43,7 +43,31 @@ Per-function reference tests are the `tests` column in the catalog.
 | kernel32 `GetLastError`, `SetLastError` | Emulated per logical thread. |
 | kernel32 `GetVersion`, `GetVersionExA` | From the context. `OSVERSIONINFOA` (148) and `OSVERSIONINFOEXA` (156) written using the vba-ffi UDT layout; other sizes set error 87 (the documentation does not specify the code; choice recorded). |
 | advapi32 `GetUserNameA`, kernel32 `GetComputerNameA` | Injected identity. Buffer-too-small: 0 with 122 and 111 respectively and the required size written back. |
+| user32 `EnumWindows`, `EnumChildWindows` | Call the `WNDENUMPROC` the program passed as `AddressOf Proc` for each window of the context window list (`CallContext::windows`, empty unless the embedding application adds windows; `HWND`s are opaque numbers it chooses). `FALSE` from the procedure stops the enumeration and is the return value. Children are depth first; a NULL parent is `EnumWindows`; an unknown parent is error 1400. winuser docs. |
+| user32 `SetTimer`, `KillTimer` | Timers live in `CallContext::timers`. A `TIMERPROC` token is required (without one the timer would post `WM_TIMER` to a window and there is no message queue: `Unsupported`). `uElapse` clamps to 10..=0x7FFFFFFF; a NULL window gets a fresh id. Delivery is the stand-in for a message pump: `dispatch_timers` calls every due procedure once (late timers do not burst) and the interpreter calls it from `DoEvents`. `KillTimer` of an unknown timer is FALSE with error 87 (a vba-rs choice). |
+| msvcrt `qsort` | In-place heap sort of emulated memory; the comparison procedure receives the addresses of two real elements and reads them with `RtlMoveMemory`. Not stable (like C). The whole range is validated before the first comparison. msvcrt is not in Microsoft's Win32 metadata, so the inventory test exempts it. |
 | kernel32 `RtlMoveMemory`, `RtlFillMemory`, `RtlZeroMemory` | Bounds-checked, `memmove` semantics. `CopyMemory`/`FillMemory`/`ZeroMemory` are SDK macros, not exports, and are cataloged as not implemented; VBA reaches these through `Alias "RtlMoveMemory"` etc. |
+
+## Callbacks (`AddressOf`)
+
+A shim that takes a procedure pointer never calls native code. It receives the
+integer VBA code got from `AddressOf` (a session-bound token, see
+[ffi.md](ffi.md#callbacks-addressof)) and a `CallbackHost` supplied by the
+interpreter for the length of the call:
+
+* `Provider::call_with_callbacks` / `Registry::call_with_callbacks` carry the
+  host; the default implementation ignores it, so existing providers are
+  unaffected, and a shim reached through `Registry::call` gets no host and
+  fails with `Unsupported`.
+* `CallbackHost::validate(token, sig)` checks a token and its procedure
+  against a `CallbackSig` (`WNDENUMPROC`, `TIMERPROC`, `QSORT_COMPARE`: slot
+  classes `Int32`/`Ptr`, result `Int32`/`Void`) without running it;
+  `invoke(ctx, token, sig, args)` runs it. The shim passes its own
+  `CallContext`, so a procedure that itself uses `Declare` sees the same
+  emulated memory, handles and last error.
+* `WinApiError::BadCallback` (token or signature refused, nothing ran) and
+  `CallbackAborted` (the procedure ended abnormally; the interpreter keeps the
+  cause and raises it after the shim returned).
 
 ## Not implemented
 
@@ -88,15 +112,17 @@ Coverage (inventory vs implemented):
 | | Count |
 | --- | --- |
 | Inventory functions (distinct `dll!symbol`) | 14 494 |
-| Implemented shim exports (registry) | 30 |
-| of which present in the inventory | 27 |
+| Implemented shim exports (registry) | 35 |
+| of which present in the inventory | 31 |
 | Coverage of the inventory | 0.2 % |
 
-The three implemented exports absent from the inventory are
+The four implemented exports absent from the inventory are
+`msvcrt!qsort` (the C runtime is not in the Win32 metadata) and
 `kernel32!RtlMoveMemory/RtlFillMemory/RtlZeroMemory`: real exports that the SDK
 headers expose as macros, so the metadata omits them (as it does the
 `CopyMemory`/`FillMemory`/`ZeroMemory` macros that the catalog lists as not
-implemented). `tests/inventory.rs` names exactly these exemptions.
+implemented). `tests/inventory.rs` names exactly these exemptions. Tests of the callback
+shims use a mock `CallbackHost` (`tests/shims.rs`, `tests/callbacks.rs`).
 
 `catalog.csv` stays the implemented-shim catalog; `tests/inventory.rs` checks
 that every cataloged DLL/symbol exists in the inventory, that declared

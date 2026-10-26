@@ -12,6 +12,7 @@
 //! A function that is not implemented never succeeds: it fails with
 //! [`WinApiError::Unsupported`] naming the symbol.
 
+pub mod callback;
 pub mod catalog;
 pub mod context;
 pub mod error;
@@ -19,6 +20,10 @@ pub mod inventory;
 pub mod provider;
 pub mod shims;
 
+pub use callback::{
+    CallbackError, CallbackHost, CallbackSig, CbRet, CbSlot, QSORT_COMPARE, TIMERPROC, Timer,
+    TimerTable, WNDENUMPROC, Window, WindowList, dispatch_timers,
+};
 pub use context::{CallContext, HostEnv, Identity, ManualClock, SystemClock, WindowsVersion};
 pub use error::WinApiError;
 pub use provider::{Provider, Registry, Resolved, normalize_library};

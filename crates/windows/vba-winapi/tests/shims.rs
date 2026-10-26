@@ -9,12 +9,54 @@ use vba_ffi::{MemoryError, NativeArg};
 use vba_profile::{OperatingSystem, Target};
 use vba_value::VbaString;
 use vba_winapi::catalog::catalog;
-use vba_winapi::{CallContext, Identity, ManualClock, Registry, WinApiError, WindowsVersion};
+use vba_winapi::{
+    CallContext, CallbackError, CallbackHost, CallbackSig, Identity, ManualClock, Registry,
+    WinApiError, Window, WindowsVersion,
+};
+
+pub type Handler = Box<dyn FnMut(&mut CallContext, &[i64]) -> Result<i64, CallbackError>>;
+
+/// A callback host for tests: tokens 0x4000_0001.. are valid, every call is
+/// logged and answered by `handler` (default: TRUE).
+pub struct Mock {
+    pub valid: Vec<i64>,
+    pub log: Vec<Vec<i64>>,
+    pub handler: Handler,
+}
+
+pub const TOKEN: i64 = 0x4000_0001;
+
+impl CallbackHost for Mock {
+    fn validate(&mut self, token: i64, sig: &CallbackSig) -> Result<(), CallbackError> {
+        if self.valid.contains(&token) {
+            Ok(())
+        } else {
+            Err(CallbackError::Rejected(format!(
+                "{token} is not a {} token",
+                sig.name
+            )))
+        }
+    }
+    fn invoke(
+        &mut self,
+        ctx: &mut CallContext,
+        token: i64,
+        sig: &CallbackSig,
+        args: &[i64],
+    ) -> Result<i64, CallbackError> {
+        self.validate(token, sig)?;
+        assert_eq!(args.len(), sig.params.len());
+        self.log.push(args.to_vec());
+        (self.handler)(ctx, args)
+    }
+}
 
 pub struct Fx {
     pub ctx: CallContext,
     pub reg: Registry,
     pub clock: ManualClock,
+    pub mock: Mock,
+    pub with_host: bool,
 }
 
 #[allow(clippy::new_without_default)]
@@ -31,6 +73,12 @@ impl Fx {
             ctx,
             reg: Registry::with_native_shims(),
             clock,
+            mock: Mock {
+                valid: vec![TOKEN],
+                log: Vec::new(),
+                handler: Box::new(|_, _| Ok(1)),
+            },
+            with_host: true,
         }
     }
 
@@ -47,7 +95,12 @@ impl Fx {
             &[EntryCandidate::Symbol(sym.into())],
         )?;
         let a: Vec<NativeArg> = args.iter().map(|v| NativeArg::Int(*v)).collect();
-        self.reg.call(&mut self.ctx, &r, &a)
+        let host: Option<&mut dyn CallbackHost> = if self.with_host {
+            Some(&mut self.mock)
+        } else {
+            None
+        };
+        self.reg.call_with_callbacks(&mut self.ctx, &r, &a, host)
     }
 
     pub fn int(&mut self, sym: &str, args: &[i64]) -> i64 {
@@ -113,6 +166,22 @@ impl Fx {
             .chunks(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect()
+    }
+}
+
+fn add_windows(f: &mut Fx) {
+    for (hwnd, parent) in [
+        (0x100, 0),
+        (0x110, 0x100),
+        (0x120, 0x100),
+        (0x200, 0),
+        (0x111, 0x110),
+    ] {
+        assert!(f.ctx.windows.add(Window {
+            hwnd,
+            parent,
+            thread: 1
+        }));
     }
 }
 
@@ -859,6 +928,203 @@ pub const CASES: &[Case] = &[
             WinApiError::Memory(MemoryError::NullPointer)
         );
     }),
+    // --- callbacks ------------------------------------------------------
+    (
+        "EnumWindows",
+        "visits top-level windows in order with lParam",
+        |f| {
+            add_windows(f);
+            assert_eq!(f.int("EnumWindows", &[TOKEN, 77]), 1);
+            assert_eq!(f.mock.log, vec![vec![0x100, 77], vec![0x200, 77]]);
+        },
+    ),
+    (
+        "EnumWindows",
+        "FALSE from the procedure stops the enumeration",
+        |f| {
+            add_windows(f);
+            f.mock.handler = Box::new(|_, _| Ok(0));
+            assert_eq!(f.int("EnumWindows", &[TOKEN, 0]), 0);
+            assert_eq!(f.mock.log.len(), 1);
+        },
+    ),
+    ("EnumWindows", "no windows means no calls and TRUE", |f| {
+        assert_eq!(f.int("EnumWindows", &[TOKEN, 0]), 1);
+        assert!(f.mock.log.is_empty());
+    }),
+    ("EnumWindows", "a refused token runs nothing", |f| {
+        add_windows(f);
+        assert!(matches!(
+            f.err("EnumWindows", &[TOKEN + 1, 0]),
+            WinApiError::BadCallback { .. }
+        ));
+        assert!(f.mock.log.is_empty());
+    }),
+    (
+        "EnumWindows",
+        "an aborted callback stops and reports it",
+        |f| {
+            add_windows(f);
+            f.mock.handler = Box::new(|_, _| Err(CallbackError::Aborted));
+            assert!(matches!(
+                f.err("EnumWindows", &[TOKEN, 0]),
+                WinApiError::CallbackAborted { .. }
+            ));
+            assert_eq!(f.mock.log.len(), 1);
+            f.with_host = false;
+            assert!(matches!(
+                f.err("EnumWindows", &[TOKEN, 0]),
+                WinApiError::Unsupported { .. }
+            ));
+        },
+    ),
+    ("EnumChildWindows", "visits descendants depth first", |f| {
+        add_windows(f);
+        assert_eq!(f.int("EnumChildWindows", &[0x100, TOKEN, 5]), 1);
+        let seen: Vec<i64> = f.mock.log.iter().map(|a| a[0]).collect();
+        assert_eq!(seen, vec![0x110, 0x111, 0x120]);
+    }),
+    ("EnumChildWindows", "a NULL parent is EnumWindows", |f| {
+        add_windows(f);
+        assert_eq!(f.int("EnumChildWindows", &[0, TOKEN, 5]), 1);
+        let seen: Vec<i64> = f.mock.log.iter().map(|a| a[0]).collect();
+        assert_eq!(seen, vec![0x100, 0x200]);
+    }),
+    ("EnumChildWindows", "an unknown parent is error 1400", |f| {
+        add_windows(f);
+        assert_eq!(f.int("EnumChildWindows", &[0x999, TOKEN, 5]), 0);
+        assert_eq!(f.last(), 1400);
+        assert!(f.mock.log.is_empty());
+    }),
+    ("SetTimer", "a NULL window gets a new id", |f| {
+        let a = f.int("SetTimer", &[0, 0, 500, TOKEN]);
+        let b = f.int("SetTimer", &[0, 0, 500, TOKEN]);
+        assert!(a > 0 && b > 0 && a != b);
+        assert_eq!(f.ctx.timers.len(), 2);
+        assert_eq!(f.ctx.timers.timers()[0].due_ms, 1500);
+    }),
+    (
+        "SetTimer",
+        "a window timer keeps its id and is reset",
+        |f| {
+            f.ctx.windows.add(Window {
+                hwnd: 0x100,
+                parent: 0,
+                thread: 1,
+            });
+            assert_eq!(f.int("SetTimer", &[0x100, 9, 500, TOKEN]), 9);
+            f.clock.advance(100);
+            assert_eq!(f.int("SetTimer", &[0x100, 9, 700, TOKEN]), 9);
+            assert_eq!(f.ctx.timers.len(), 1);
+            assert_eq!(f.ctx.timers.timers()[0].due_ms, 1800);
+        },
+    ),
+    ("SetTimer", "the interval is clamped", |f| {
+        f.int("SetTimer", &[0, 0, 1, TOKEN]);
+        f.int("SetTimer", &[0, 0, 0xFFFF_FFFF, TOKEN]);
+        let t = f.ctx.timers.timers();
+        assert_eq!(t[0].interval_ms, 10);
+        assert_eq!(t[1].interval_ms, 0x7FFF_FFFF);
+    }),
+    ("SetTimer", "without a procedure it is unsupported", |f| {
+        assert!(matches!(
+            f.err("SetTimer", &[0, 0, 500, 0]),
+            WinApiError::Unsupported { .. }
+        ));
+        assert!(f.ctx.timers.is_empty());
+    }),
+    ("SetTimer", "unknown window and refused token fail", |f| {
+        assert_eq!(f.int("SetTimer", &[0x555, 1, 500, TOKEN]), 0);
+        assert_eq!(f.last(), 1400);
+        assert!(matches!(
+            f.err("SetTimer", &[0, 0, 500, TOKEN + 9]),
+            WinApiError::BadCallback { .. }
+        ));
+        assert!(f.ctx.timers.is_empty());
+    }),
+    ("KillTimer", "removes a timer", |f| {
+        let id = f.int("SetTimer", &[0, 0, 500, TOKEN]);
+        assert_eq!(f.int("KillTimer", &[0, id]), 1);
+        assert!(f.ctx.timers.is_empty());
+    }),
+    (
+        "KillTimer",
+        "an unknown timer is FALSE with error 87",
+        |f| {
+            assert_eq!(f.int("KillTimer", &[0, 42]), 0);
+            assert_eq!(f.last(), 87);
+        },
+    ),
+    (
+        "qsort",
+        "sorts elements in place through the comparison",
+        |f| {
+            let vals: [i32; 6] = [5, -3, 9, 0, 9, 1];
+            let bytes: Vec<u8> = vals.iter().flat_map(|v| v.to_le_bytes()).collect();
+            let p = f.raw(&bytes);
+            f.mock.handler = Box::new(|ctx, a| {
+                let rd = |ctx: &CallContext, p: i64| {
+                    i32::from_le_bytes(ctx.memory.read(p as u64, 4).unwrap().try_into().unwrap())
+                };
+                let (x, y) = (rd(ctx, a[0]), rd(ctx, a[1]));
+                Ok(i64::from(x.cmp(&y) as i32))
+            });
+            f.void("qsort", &[p, 6, 4, TOKEN]);
+            let out: Vec<i32> = f
+                .bytes(p, 24)
+                .chunks(4)
+                .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+                .collect();
+            assert_eq!(out, vec![-3, 0, 1, 5, 9, 9]);
+        },
+    ),
+    ("qsort", "a descending comparison reverses the order", |f| {
+        let p = f.raw(&[1, 2, 3, 4, 5, 6, 7]);
+        f.mock.handler = Box::new(|ctx, a| {
+            let x = ctx.memory.read(a[0] as u64, 1).unwrap()[0];
+            let y = ctx.memory.read(a[1] as u64, 1).unwrap()[0];
+            Ok(i64::from(y.cmp(&x) as i32))
+        });
+        f.void("qsort", &[p, 7, 1, TOKEN]);
+        assert_eq!(f.bytes(p, 7), vec![7, 6, 5, 4, 3, 2, 1]);
+    }),
+    ("qsort", "fewer than two elements never calls back", |f| {
+        let p = f.raw(&[3, 1]);
+        f.void("qsort", &[p, 1, 2, TOKEN]);
+        f.void("qsort", &[p, 0, 2, TOKEN]);
+        assert!(f.mock.log.is_empty());
+        assert_eq!(f.bytes(p, 2), vec![3, 1]);
+    }),
+    ("qsort", "a bad range faults before any comparison", |f| {
+        let p = f.raw(&[3, 1, 2]);
+        assert!(matches!(
+            f.err("qsort", &[p, 4, 1, TOKEN]),
+            WinApiError::Memory(_)
+        ));
+        assert!(matches!(
+            f.err("qsort", &[p, i64::MAX, 4, TOKEN]),
+            WinApiError::BadArguments { .. } | WinApiError::Memory(_)
+        ));
+        assert!(f.mock.log.is_empty());
+        assert_eq!(f.bytes(p, 3), vec![3, 1, 2]);
+    }),
+    (
+        "qsort",
+        "a refused or aborted comparison stops the sort",
+        |f| {
+            let p = f.raw(&[3, 1, 2]);
+            assert!(matches!(
+                f.err("qsort", &[p, 3, 1, TOKEN + 2]),
+                WinApiError::BadCallback { .. }
+            ));
+            f.mock.handler = Box::new(|_, _| Err(CallbackError::Aborted));
+            assert!(matches!(
+                f.err("qsort", &[p, 3, 1, TOKEN]),
+                WinApiError::CallbackAborted { .. }
+            ));
+            assert_eq!(f.mock.log.len(), 1);
+        },
+    ),
 ];
 
 #[test]

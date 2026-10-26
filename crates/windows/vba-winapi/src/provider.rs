@@ -1,5 +1,6 @@
 //! The provider trait and the `Declare` resolution registry.
 
+use crate::callback::CallbackHost;
 use crate::catalog::{self, Status};
 use crate::inventory;
 use crate::{CallContext, WinApiError};
@@ -43,6 +44,21 @@ pub trait Provider {
         symbol: &str,
         args: &[NativeArg],
     ) -> Result<NativeReturn, WinApiError>;
+
+    /// Like [`Provider::call`], for a call that may run VBA procedures through
+    /// `callbacks` (functions taking an `AddressOf` token). The default
+    /// ignores the callback host.
+    fn call_with_callbacks(
+        &self,
+        ctx: &mut CallContext,
+        library: &str,
+        symbol: &str,
+        args: &[NativeArg],
+        callbacks: Option<&mut dyn CallbackHost>,
+    ) -> Result<NativeReturn, WinApiError> {
+        let _ = callbacks;
+        self.call(ctx, library, symbol, args)
+    }
 }
 
 /// The outcome of resolving a `Declare`: which provider, which symbol.
@@ -202,6 +218,24 @@ impl Registry {
         args: &[NativeArg],
     ) -> Result<NativeReturn, WinApiError> {
         self.providers[resolved.provider].call(ctx, &resolved.library, &resolved.symbol, args)
+    }
+
+    /// Performs a resolved call that may call back into VBA through
+    /// `callbacks`.
+    pub fn call_with_callbacks(
+        &self,
+        ctx: &mut CallContext,
+        resolved: &Resolved,
+        args: &[NativeArg],
+        callbacks: Option<&mut dyn CallbackHost>,
+    ) -> Result<NativeReturn, WinApiError> {
+        self.providers[resolved.provider].call_with_callbacks(
+            ctx,
+            &resolved.library,
+            &resolved.symbol,
+            args,
+            callbacks,
+        )
     }
 
     /// The provider that serves `resolved`.

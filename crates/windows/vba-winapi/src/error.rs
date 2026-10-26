@@ -31,6 +31,22 @@ pub enum WinApiError {
     /// An emulated memory fault (real Windows would crash or corrupt).
     #[error(transparent)]
     Memory(#[from] MemoryError),
+    /// A procedure pointer was refused: not a live token, or the procedure
+    /// does not fit the signature the function requires. Nothing ran.
+    #[error("{symbol}: invalid callback: {reason}")]
+    BadCallback {
+        /// Symbol called.
+        symbol: &'static str,
+        /// What is wrong.
+        reason: String,
+    },
+    /// A callback ended abnormally; the interpreter holds the cause and
+    /// raises it after the shim returned.
+    #[error("{symbol}: the callback ended abnormally")]
+    CallbackAborted {
+        /// Symbol called.
+        symbol: &'static str,
+    },
     /// Two providers export the same symbol.
     #[error("duplicate export {0}")]
     DuplicateExport(String),

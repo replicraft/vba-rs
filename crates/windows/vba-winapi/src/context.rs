@@ -3,6 +3,7 @@
 //! real machine.
 
 use crate::WinApiError;
+use crate::callback::{TimerTable, WindowList};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -201,6 +202,11 @@ pub struct CallContext {
     pub last_errors: LastErrorStore,
     /// The logical thread making the call.
     pub thread: LogicalThread,
+    /// The windows `EnumWindows` and `EnumChildWindows` see (empty unless the
+    /// embedding application adds some).
+    pub windows: WindowList,
+    /// Timers set with `SetTimer`.
+    pub timers: TimerTable,
 }
 
 impl CallContext {
@@ -217,6 +223,8 @@ impl CallContext {
             handles: HandleTable::new(),
             last_errors: LastErrorStore::new(),
             thread: LogicalThread::default(),
+            windows: WindowList::default(),
+            timers: TimerTable::default(),
         }
     }
 

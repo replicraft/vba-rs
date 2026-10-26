@@ -16,6 +16,8 @@ const NOT_IN_METADATA: &[(&str, &str)] = &[
     ("kernel32", "CopyMemory"),
     ("kernel32", "FillMemory"),
     ("kernel32", "ZeroMemory"),
+    // The C runtime is not part of the Win32 metadata.
+    ("msvcrt", "qsort"),
 ];
 
 fn declared_param_count(signature: &str) -> Option<usize> {

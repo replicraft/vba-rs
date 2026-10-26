@@ -1,13 +1,16 @@
 //! Portable native shims: Win32 functions whose behavior is reproducible and
 //! testable identically on every host OS.
 
+mod callbacks;
 mod convert;
 mod memory;
 mod string;
 mod system;
 mod time;
 
+use crate::callback::{CallbackError, CallbackHost, CallbackSig};
 use crate::{CallContext, Provider, WinApiError};
+use std::cell::RefCell;
 use vba_ffi::{NativeArg, NativeReturn, ProviderId};
 
 /// Identity of the built-in shim provider.
@@ -23,12 +26,61 @@ pub(crate) struct Shim {
 }
 
 /// Validated view of a call's arguments.
-pub(crate) struct Args<'a> {
+pub(crate) struct Args<'a, 'c> {
     symbol: &'static str,
     args: &'a [NativeArg],
+    callbacks: RefCell<Option<&'c mut dyn CallbackHost>>,
 }
 
-impl Args<'_> {
+impl Args<'_, '_> {
+    /// Checks that `token` is a procedure pointer fit for `sig`.
+    pub(crate) fn check_callback(
+        &self,
+        index: usize,
+        token: i64,
+        sig: &CallbackSig,
+    ) -> Result<(), WinApiError> {
+        let mut slot = self.callbacks.borrow_mut();
+        let host = slot.as_mut().ok_or_else(|| self.no_callbacks())?;
+        host.validate(token, sig).map_err(|e| match e {
+            CallbackError::Rejected(reason) => WinApiError::BadCallback {
+                symbol: self.symbol,
+                reason: format!("argument {index}: {reason}"),
+            },
+            CallbackError::Aborted => WinApiError::CallbackAborted {
+                symbol: self.symbol,
+            },
+        })
+    }
+
+    /// Runs the VBA procedure behind `token`.
+    pub(crate) fn callback(
+        &self,
+        ctx: &mut CallContext,
+        token: i64,
+        sig: &CallbackSig,
+        args: &[i64],
+    ) -> Result<i64, WinApiError> {
+        let mut slot = self.callbacks.borrow_mut();
+        let host = slot.as_mut().ok_or_else(|| self.no_callbacks())?;
+        host.invoke(ctx, token, sig, args).map_err(|e| match e {
+            CallbackError::Rejected(reason) => WinApiError::BadCallback {
+                symbol: self.symbol,
+                reason,
+            },
+            CallbackError::Aborted => WinApiError::CallbackAborted {
+                symbol: self.symbol,
+            },
+        })
+    }
+
+    fn no_callbacks(&self) -> WinApiError {
+        WinApiError::Unsupported {
+            symbol: self.symbol.to_string(),
+            reason: "this call needs the interpreter to run a procedure pointer, and no callback host was provided".into(),
+        }
+    }
+
     pub(crate) fn bad(&self, index: usize, reason: &'static str) -> WinApiError {
         WinApiError::BadArguments {
             symbol: self.symbol,
@@ -81,6 +133,7 @@ fn table() -> Vec<Shim> {
     t.extend(convert::SHIMS);
     t.extend(system::SHIMS);
     t.extend(memory::SHIMS);
+    t.extend(callbacks::SHIMS);
     t
 }
 
@@ -104,6 +157,17 @@ impl Provider for NativeShims {
         symbol: &str,
         args: &[NativeArg],
     ) -> Result<NativeReturn, WinApiError> {
+        self.call_with_callbacks(ctx, library, symbol, args, None)
+    }
+
+    fn call_with_callbacks(
+        &self,
+        ctx: &mut CallContext,
+        library: &str,
+        symbol: &str,
+        args: &[NativeArg],
+        callbacks: Option<&mut dyn CallbackHost>,
+    ) -> Result<NativeReturn, WinApiError> {
         let shim = table()
             .into_iter()
             .find(|s| s.dll == library && s.symbol == symbol)
@@ -123,6 +187,7 @@ impl Provider for NativeShims {
             &Args {
                 symbol: shim.symbol,
                 args,
+                callbacks: RefCell::new(callbacks),
             },
         )
     }
