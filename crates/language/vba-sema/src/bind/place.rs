@@ -144,10 +144,16 @@ impl Binder<'_, '_> {
                 } else {
                     LateKind::PropertyPut
                 };
+                let receiver_place = (late.member == LateMember::Default
+                    && late.receiver.ty == Type::Variant)
+                    .then(|| self.expr_to_place(&late.receiver))
+                    .flatten()
+                    .map(Box::new);
                 Some((
                     BPlace::Late {
                         late,
                         ty: Type::Variant,
+                        receiver_place,
                     },
                     Type::Variant,
                 ))

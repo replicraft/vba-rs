@@ -1147,8 +1147,15 @@ impl<'p> Builder<'p> {
                     args,
                 });
             }
-            BPlace::Late { late, .. } => {
-                let recv = self.lower_expr(&late.receiver)?;
+            BPlace::Late {
+                late,
+                receiver_place,
+                ..
+            } => {
+                let recv = match receiver_place {
+                    Some(p) => Operand::Reg(self.place_ref(p)?),
+                    None => self.lower_expr(&late.receiver)?,
+                };
                 let mut args = self.lower_late_args(&late.args)?;
                 args.push(LateArg {
                     name: None,

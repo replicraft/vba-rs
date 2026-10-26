@@ -274,6 +274,10 @@ pub enum BPlace {
         late: Box<BLate>,
         /// Type of the assigned value (`Variant`).
         ty: Type,
+        /// The location of a `Variant` receiver, when it has one: the run
+        /// time stores into the array element when the variable holds an
+        /// array (`v(i) = x`), and invokes the default member otherwise.
+        receiver_place: Option<Box<BPlace>>,
     },
 }
 

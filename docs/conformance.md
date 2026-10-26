@@ -23,18 +23,18 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 293 |
-| partial | 11 |
+| implemented | 295 |
+| partial | 9 |
 | unsupported | 32 |
 | not-started | 0 |
-| Conformance programs | 655 |
-| Programs that are known deviations (XFAIL) | 33 |
+| Conformance programs | 656 |
+| Programs that are known deviations (XFAIL) | 31 |
 
 ## Entries per category and status
 
 | Category | Total | implemented | partial | unsupported | not-started |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| statement | 76 | 64 | 3 | 9 | 0 |
+| statement | 76 | 65 | 2 | 9 | 0 |
 | function-conversion | 8 | 8 | 0 | 0 | 0 |
 | function-math | 13 | 13 | 0 | 0 | 0 |
 | function-type-conversion | 13 | 13 | 0 | 0 | 0 |
@@ -53,7 +53,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operator-comparison | 8 | 8 | 0 | 0 | 0 |
 | operator-logical | 6 | 6 | 0 | 0 | 0 |
 | operator-precedence | 1 | 1 | 0 | 0 | 0 |
-| data-type | 18 | 13 | 4 | 1 | 0 |
+| data-type | 18 | 14 | 3 | 1 | 0 |
 | identifier-type-character | 7 | 6 | 1 | 0 | 0 |
 | object | 13 | 3 | 0 | 10 | 0 |
 | language-element | 38 | 36 | 1 | 1 | 0 |
@@ -72,7 +72,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 
 | Area | Programs | spec | doc | derived | unverified |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| arrays | 30 | 0 | 12 | 2 | 16 |
+| arrays | 31 | 0 | 12 | 3 | 16 |
 | classes | 27 | 0 | 11 | 10 | 6 |
 | collections | 17 | 0 | 17 | 0 | 0 |
 | conversions | 39 | 0 | 18 | 16 | 5 |
@@ -104,7 +104,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.function` | statement | Function | partial | a Function declared 'As Long()' (array result) is rejected: 'cannot convert Long() to Long'; assigning to a member of the function-result variable (Mk.X = 1 inside Function Mk As P) is rejected with SEM025 |
 | `stmt.let` | statement | Let | partial | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
 | `stmt.load` | statement | Load | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
-| `stmt.redim` | statement | ReDim | partial | element assignment into an array held in a Variant (ReDim v(..); v(i) = x) is rejected as 'late binding' |
 | `stmt.reset` | statement | Reset | unsupported | the Reset statement is not bound by the analysis |
 | `stmt.savesetting` | statement | SaveSetting | unsupported | the registry-backed settings statements have no host service |
 | `stmt.sendkeys` | statement | SendKeys | unsupported | SendKeys is not defined ('Sub or Function not defined'); with UiAutomation as the gating capability it should be error 70 |
@@ -125,7 +124,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `func.rgb` | function-interaction | RGB | unsupported | RGB is not defined ('Sub or Function not defined') |
 | `type.currency` | data-type | Currency | partial | the largest Currency value written as a literal is rejected as 'Currency literal overflows' (SEM010) |
 | `type.string` | data-type | String | partial | assigning a String to a Byte() array (b = s) is rejected: 'cannot convert String to Byte()' |
-| `type.variant` | data-type | Variant | partial | element assignment into an array held in a Variant (ReDim v(..); v(i) = x) is rejected as 'late binding' |
 | `type.udt` | data-type | User-defined type (Type) | partial | Len() of a user-defined type variable is rejected ('cannot convert Rec to Variant') |
 | `type.dictionary` | data-type | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `typechar.at` | identifier-type-character | @ Currency type character | partial | the largest Currency value written as a literal is rejected as 'Currency literal overflows' (SEM010) |
@@ -148,7 +146,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 
 | Program | Kind | Reason |
 | --- | --- | --- |
-| `arrays/variant_holding_array_resized` | unsupported | element assignment into an array held in a Variant (ReDim v(..); v(i) = x) is rejected as 'late binding' |
 | `classes/default_member_let` | unsupported | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
 | `collections/dictionary_not_provided` | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `collections/filesystemobject_not_provided` | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
@@ -178,6 +175,5 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `logic/partition_null` | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `procedures/function_returns_array` | unsupported | a Function declared 'As Long()' (array result) is rejected: 'cannot convert Long() to Long' |
 | `procedures/function_returns_udt` | unsupported | assigning to a member of the function-result variable (Mk.X = 1 inside Function Mk As P) is rejected with SEM025 |
-| `statements/redim_variant_array` | unsupported | element assignment into an array held in a Variant (ReDim v(..); v(i) = x) is rejected as 'late binding' |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
 | `strings/string_to_byte_array` | unsupported | assigning a String to a Byte() array (b = s) is rejected: 'cannot convert String to Byte()' |

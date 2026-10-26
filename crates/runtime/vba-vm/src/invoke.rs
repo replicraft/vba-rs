@@ -53,6 +53,16 @@ impl Vm {
         args: &[LateArg],
     ) -> VResult<crate::exec::Flow> {
         let recv = self.invoke_receiver(receiver)?;
+        if matches!(member, Member::Default)
+            && kind != InvokeKind::Get
+            && matches!(recv, Variant::Array(_))
+            && let Operand::Reg(r) = receiver
+            && let Ok(loc) = self.reg_loc(*r)
+        {
+            let largs = self.late_args(args)?;
+            self.store_variant_array_element(&loc, &recv, largs)?;
+            return Ok(crate::exec::Flow::Next);
+        }
         let largs = self.late_args(args)?;
         self.push_request = Some(dst);
         self.push_done = false;
@@ -70,6 +80,41 @@ impl Vm {
             None => self.own(&result),
         }
         Ok(crate::exec::Flow::Next)
+    }
+
+    /// `v(i) = x` where the `Variant` variable at `loc` holds an array: the
+    /// value is converted to the array's element type and stored in place.
+    fn store_variant_array_element(
+        &mut self,
+        loc: &Loc,
+        array: &Variant,
+        mut args: LateArgs,
+    ) -> VResult<()> {
+        let Variant::Array(a) = array else {
+            return Err(VbaError::new(13).into());
+        };
+        let (_, last) = args.pop().ok_or(VbaError::new(450))?;
+        let v = self.bound_value(&last)?.ok_or(VbaError::new(449))?;
+        let mut idx = Vec::new();
+        for (_, b) in &args {
+            let x = self.bound_value(b)?.ok_or(VbaError::new(449))?;
+            idx.push(self.long_of(x)?);
+        }
+        if idx.len() != a.dimensions() {
+            return Err(VbaError::SUBSCRIPT_OUT_OF_RANGE.into());
+        }
+        let v = self.value_of(v)?;
+        let v = match a.element_type() {
+            vba_value::VarType::Variant => v,
+            t => convert::convert_to(&v, t)?,
+        };
+        self.store(
+            &Loc::Elem {
+                base: Box::new(loc.clone()),
+                idx,
+            },
+            v,
+        )
     }
 
     fn invoke_receiver(&mut self, op: &Operand) -> VResult<Variant> {

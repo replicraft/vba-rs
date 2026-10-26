@@ -163,7 +163,7 @@ impl Vm {
                 let fr = self.frames.last().ok_or_else(no_frame)?;
                 match &fr.regs[r.0 as usize] {
                     RegVal::V(v) => Ok(v.clone()),
-                    RegVal::Alias(loc) => self.load(loc),
+                    RegVal::Alias(loc) | RegVal::Ref(loc) => self.load(loc),
                     RegVal::Empty => Err(Fault::Internal(format!(
                         "register r{} read before it was defined",
                         r.0
