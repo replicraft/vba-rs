@@ -394,73 +394,191 @@ pub fn format_date_time(d: Date, named: i32, env: &FormatEnv<'_>) -> VbaResult<S
 // Detection
 
 fn is_date_format(fmt: &str) -> bool {
-    let c: Vec<char> = fmt.chars().collect();
-    let mut i = 0;
-    while i < c.len() {
-        match c[i] {
+    let mut it = fmt.char_indices();
+    while let Some((at, ch)) = it.next() {
+        match ch {
             '"' => {
-                i += 1;
-                while i < c.len() && c[i] != '"' {
-                    i += 1;
-                }
+                it.by_ref().find(|&(_, c)| c == '"');
             }
-            '\\' | '*' | '_' => i += 1,
+            '\\' | '*' | '_' => {
+                it.next();
+            }
             '[' => {
-                while i < c.len() && c[i] != ']' {
-                    i += 1;
-                }
+                it.by_ref().find(|&(_, c)| c == ']');
             }
             ch if "dymhnswqtc".contains(ch.to_ascii_lowercase()) => return true,
-            ch if ch.eq_ignore_ascii_case(&'a') => {
+            'a' | 'A' => {
                 // The AM/PM, A/P and AMPM designators make a date/time format.
-                let word: String = c[i..c.len().min(i + 5)]
-                    .iter()
-                    .map(char::to_ascii_lowercase)
-                    .collect();
-                if word.starts_with("am/pm") || word.starts_with("a/p") || word.starts_with("ampm")
-                {
+                let rest = fmt.as_bytes().get(at..).unwrap_or_default();
+                let starts = |p: &str| {
+                    rest.get(..p.len())
+                        .is_some_and(|w| w.eq_ignore_ascii_case(p.as_bytes()))
+                };
+                if starts("am/pm") || starts("a/p") || starts("ampm") {
                     return true;
                 }
             }
             _ => {}
         }
-        i += 1;
     }
     false
+}
+
+#[cfg(test)]
+mod date_format_tests {
+    use super::is_date_format;
+
+    /// The detector as it was before it stopped collecting the format.
+    fn is_date_format_chars(fmt: &str) -> bool {
+        let c: Vec<char> = fmt.chars().collect();
+        let mut i = 0;
+        while i < c.len() {
+            match c[i] {
+                '"' => {
+                    i += 1;
+                    while i < c.len() && c[i] != '"' {
+                        i += 1;
+                    }
+                }
+                '\\' | '*' | '_' => i += 1,
+                '[' => {
+                    while i < c.len() && c[i] != ']' {
+                        i += 1;
+                    }
+                }
+                ch if "dymhnswqtc".contains(ch.to_ascii_lowercase()) => return true,
+                ch if ch.eq_ignore_ascii_case(&'a') => {
+                    let word: String = c[i..c.len().min(i + 5)]
+                        .iter()
+                        .map(char::to_ascii_lowercase)
+                        .collect();
+                    if word.starts_with("am/pm")
+                        || word.starts_with("a/p")
+                        || word.starts_with("ampm")
+                    {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
+    #[test]
+    fn matches_the_collecting_version() {
+        let alphabet: Vec<char> = "\"\\*_[]/aApPmMdyhnswqtcDE0#.,;%+-x \u{e9}\u{4e2d}"
+            .chars()
+            .collect();
+        let mut seed = 0xdead_beef_cafe_f00du64;
+        let mut next = move |n: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % n as u64) as usize
+        };
+        for _ in 0..100_000 {
+            let len = next(12);
+            let s: String = (0..len).map(|_| alphabet[next(alphabet.len())]).collect();
+            assert_eq!(is_date_format(&s), is_date_format_chars(&s), "{s:?}");
+        }
+        for s in ["", "am/pm", "AM/PM", "a/p", "AMPM", "a", "0.00", "x\"d\"", "[h]0"] {
+            assert_eq!(is_date_format(s), is_date_format_chars(s), "{s:?}");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Numbers
 
-fn split_sections(c: &[char]) -> Vec<Vec<char>> {
-    let mut out = vec![Vec::new()];
-    let mut i = 0;
+/// Splits a format at the semicolons outside quotes and escapes. Each
+/// section is a slice of `c`.
+fn split_sections(c: &[char]) -> Vec<&[char]> {
+    let mut out = Vec::with_capacity(2);
+    let (mut start, mut i) = (0, 0);
     while i < c.len() {
         match c[i] {
-            ';' => out.push(Vec::new()),
+            ';' => {
+                out.push(&c[start..i]);
+                start = i + 1;
+            }
             '"' => {
-                let end = c[i + 1..]
+                i = c[i + 1..]
                     .iter()
                     .position(|&x| x == '"')
                     .map_or(c.len(), |p| i + 1 + p + 1);
-                out.last_mut()
-                    .expect("section")
-                    .extend_from_slice(&c[i..end.min(c.len())]);
-                i = end;
                 continue;
             }
             '\\' if i + 1 < c.len() => {
-                out.last_mut()
-                    .expect("section")
-                    .extend_from_slice(&c[i..i + 2]);
                 i += 2;
                 continue;
             }
-            ch => out.last_mut().expect("section").push(ch),
+            _ => {}
         }
         i += 1;
     }
+    out.push(&c[start..]);
     out
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::split_sections;
+
+    /// The section splitter as it was before sections became slices.
+    fn split_sections_copy(c: &[char]) -> Vec<Vec<char>> {
+        let mut out = vec![Vec::new()];
+        let mut i = 0;
+        while i < c.len() {
+            match c[i] {
+                ';' => out.push(Vec::new()),
+                '"' => {
+                    let end = c[i + 1..]
+                        .iter()
+                        .position(|&x| x == '"')
+                        .map_or(c.len(), |p| i + 1 + p + 1);
+                    out.last_mut()
+                        .expect("section")
+                        .extend_from_slice(&c[i..end.min(c.len())]);
+                    i = end;
+                    continue;
+                }
+                '\\' if i + 1 < c.len() => {
+                    out.last_mut()
+                        .expect("section")
+                        .extend_from_slice(&c[i..i + 2]);
+                    i += 2;
+                    continue;
+                }
+                ch => out.last_mut().expect("section").push(ch),
+            }
+            i += 1;
+        }
+        out
+    }
+
+    #[test]
+    fn slices_equal_copies() {
+        let alphabet: Vec<char> = "\"\\;0#.,%Eae+-x ".chars().collect();
+        let mut seed = 0x1234_5678_9abc_def1u64;
+        let mut next = move |n: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % n as u64) as usize
+        };
+        for _ in 0..50_000 {
+            let len = next(14);
+            let c: Vec<char> = (0..len).map(|_| alphabet[next(alphabet.len())]).collect();
+            let old = split_sections_copy(&c);
+            let new = split_sections(&c);
+            assert_eq!(old.len(), new.len(), "{c:?}");
+            for (o, n) in old.iter().zip(&new) {
+                assert_eq!(o.as_slice(), *n, "{c:?}");
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
