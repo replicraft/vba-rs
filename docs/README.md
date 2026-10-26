@@ -46,6 +46,7 @@ are. Statements about behavior carry a confidence marker (`spec`, `doc`, `derive
 * [vba-format](formats/vba-format.md): the MS-OVBA reader and writer, preservation, JSON inspect schema.
 * [vba-project](formats/vba-project.md): the project model.
 * [typelib](formats/typelib.md): the type-library reader.
+* [typelib-binding](formats/typelib-binding.md): how library types flow through sema, IR and the VM (early binding).
 * [pcode](formats/pcode.md): compiled-code cache, observations and verification plan.
 * [pcode-format](formats/pcode-format.md): compiled-code cache structure specification.
 * [pcode-opcodes](formats/pcode-opcodes.md): compiled-code opcode reference.
