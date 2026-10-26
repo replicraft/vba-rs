@@ -22,6 +22,34 @@ tested in `tests/ffi.rs`; the feature is tested in `tests/native_call.rs`.
 | Last error | `LastErrorStore` per `LogicalThread`; the host's value is never read. | `GetLastError` documentation. |
 | Native call stage | Default build: `call_native` requires a host-issued `NativePermission`, checks the declared target equals the claimed host, then returns `NativeCallError::Unavailable` ("NativeCallUnavailable"). With feature `native-call`: really loads and calls, see below. | Section below. |
 
+## Callbacks (`AddressOf`)
+
+`callback.rs` holds the token table behind `AddressOf`: `CallbackTable<T>` mints an opaque
+positive 31-bit integer per target (here a VBA procedure) and resolves it again. A token is
+`marker(1) | check(12) | generation(8) | slot(10)`; the check value is a keyed mix of slot and
+generation. It is never a native address and never refers to executable memory.
+
+* Arithmetic on a token or a guessed number fails the check (`TokenError::Forged`), a token of
+  an earlier generation is `Stale` after `invalidate_all` (the VM calls it on reset and `End`).
+  The check is defence in depth, not a secret (the key is a constant so runs are reproducible):
+  a collision can only name one of the procedures the program itself took the address of, and
+  the receiving shim checks that procedure against its signature before running it.
+* At most 1024 distinct procedures per session (`TokenError::Full`). A generation has 8 bits, so
+  a token may alias one 256 resets later; it still only selects one of the program's own
+  procedures.
+* The table lives in `vba-vm`; `vba-winapi` shims receive tokens as plain integers and call back
+  through `CallbackHost` (docs/interop/winapi.md).
+
+**Native backend (feature `native-call`).** Not supported, deliberately. Calling a VBA
+procedure from real native code would need a generated thunk (for example a libffi closure) that
+re-enters an interpreter from a foreign stack frame with `&mut Vm` in hand, and every native
+frame between the callee and the thunk would have to survive a VBA error, `End` or a limit
+unwinding through it. That cannot be made safe here, and it would also put a real function
+address into VBA's hands. So the native stage never sees a token as a pointer: `vba-vm` does not
+use the stage at all, and `call_native` / `call_prepared` have no parameter kind that carries a
+callback. A library that wants a procedure pointer is served only by an emulated shim, or fails
+as an unimplemented `Declare`.
+
 ## Not implemented (fails visibly)
 
 * Variant arguments: `FfiError::Unsupported("Variant arguments")`.
@@ -30,6 +58,7 @@ tested in `tests/ffi.rs`; the feature is tested in `tests/native_call.rs`.
 * Arrays of non-scalar, non-UDT elements; multi-dimensional descriptor (SAFEARRAY) passing.
 * Any dynamic call into native code in the default build (feature
   `native-call` off).
+* Callbacks from native code into VBA (see "Callbacks (`AddressOf`)"): only emulated shims call procedures.
 
 ## Native call stage (feature)
 

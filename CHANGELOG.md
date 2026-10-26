@@ -18,6 +18,12 @@ All notable changes are recorded here. The format follows
   (`Engine::unlimited()` removes it); `vbars run --timeout SECONDS` with the same default.
 - Root `README.md`, `CONTRIBUTING.md`, `SECURITY.md` and this changelog.
 
+- `AddressOf` yields a session-bound callback token (never a native address) that the emulated
+  `Declare` shims `EnumWindows`, `EnumChildWindows`, `SetTimer`/`KillTimer` (delivered at
+  `DoEvents`) and `qsort` call back into VBA, under the step and native-stack budgets and the
+  `Declare` grant. `vba-sema` rejects an `AddressOf` operand that is not a `Sub` or `Function` of
+  a standard module.
+
 ### Fixed
 
 - Cancellation and the time allowance of a call are honoured inside long library calls and

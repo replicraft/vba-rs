@@ -105,6 +105,19 @@ to resource prefixes. Denial is error 70 and always happens before the effect.
 * A `Declare` is checked against `library!procedure` as written and as the provider will resolve
   it (`a_scoped_declare_grant_cannot_be_smuggled_into_another_library`). The Wine bridge
   re-checks every call (`provider_scoped_grant_limits_symbols`).
+* `AddressOf` never exposes an address: it yields an integer token of the session's callback
+  table, valid only until `Vm::reset`/`End`. Forged (arithmetic, guessed) and stale tokens are
+  error 5 and run nothing (`tokens_forged_by_arithmetic_or_guessing_are_refused`,
+  `a_live_token_works_and_a_stale_one_is_refused_after_reset`). A token is useful only to an
+  emulated shim that takes a procedure pointer; the shim validates the procedure's arity,
+  `ByVal` types and result before it runs (`a_procedure_that_does_not_fit_the_signature_is_error_49`).
+  A callback needs the grant of the `Declare` that received it (`a_callback_needs_the_grant_of_the_declare`,
+  `a_scoped_grant_that_misses_the_declare_denies_the_callback`); timers are re-checked when
+  delivered. Callbacks run under the same step, depth and native-stack budgets as any other call
+  (`a_callback_cancelled_by_the_step_limit_is_not_trappable`,
+  `unbounded_recursion_through_callbacks_hits_a_depth_limit`), and an error or limit inside a
+  callback is raised by the `Declare` that made the call, never swallowed by the shim. The native
+  backend (`native-call`) cannot call back into VBA at all.
 * `Shell` through `StdShell` starts one program with arguments, directly on every
   platform (no `sh -c`, no `cmd /C`); shell syntax in the command line has no
   effect (`shell_syntax_is_not_interpreted`).

@@ -69,6 +69,14 @@ file-io/write_format	safety	needs the `file-read` grant; needs the `file-write` 
 file-io/write_input	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/write_input_double_type_characters	safety	needs the `file-read` grant; needs the `file-write` grant
 host/appactivate_denied	safety	AppActivate drives the UI
+host/callback_denied_without_declare_grant	safety	Declare calls native code
+host/callback_error_surfaces_at_the_declare	safety	needs the `native-declare` grant
+host/callback_forged_token_is_refused	safety	needs the `native-declare` grant
+host/callback_qsort_sorts_with_vba_comparison	safety	needs the `native-declare` grant
+host/callback_recursion_is_bounded	safety	needs the `native-declare` grant; expects the engine-specific outcome `limit`
+host/callback_signature_mismatch_is_error_49	safety	needs the `native-declare` grant
+host/callback_step_limit_cancels_the_callback	safety	needs the `native-declare` grant; expects the engine-specific outcome `limit`; tests the engine step budget
+host/callback_timer_runs_at_doevents	safety	needs the `native-declare` grant
 host/command_empty_by_default	safety	Command is machine specific
 host/createobject_denied	safety	CreateObject instantiates COM classes
 host/createobject_granted_but_unregistered	safety	needs the `com-create` grant
@@ -97,6 +105,8 @@ host/shell_denied	safety	Shell starts processes
 host/step_limit_not_trappable	engine-only	expects the engine-specific outcome `limit`; tests the engine step budget
 host/step_limit_stops_loop	engine-only	expects the engine-specific outcome `limit`; tests the engine step budget
 host/unsupported_feature_is_not_success	safety	GetSetting reads the registry; SaveSetting writes the registry
+language/addressof_class_member_operand_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+language/addressof_declare_operand_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 language/cc_const	untranslatable	no `Main` procedure in a standard module outside conditional compilation
 language/cc_if_else	untranslatable	no `Main` procedure in a standard module outside conditional compilation
 language/dollar_functions_of_the_runtime_resolve	safety	needs the `file-read` grant; needs the `file-write` grant

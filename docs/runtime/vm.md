@@ -158,6 +158,49 @@ strings, `Mid`, `Set`/`Let`, property calls, `RaiseEvent`, `Debug.Print`, `Open`
 `Close`, `Print #`, `Write #`, `Input #`, `Line Input #`, `Get`, `Put`, `Seek`,
 `Lock`, `Unlock`, `Width`, `Name`.
 
+## Callbacks (`AddressOf`)
+
+`AddressOf Proc` (a `Sub` or `Function` of a standard module, checked by `vba-sema`) evaluates to
+a `LongPtr` **token**, never to a native address: a 31-bit positive integer that names a slot
+of the session's callback table (`vba_ffi::CallbackTable`, see `docs/interop/ffi.md`). The same
+procedure always gives the same token within a session; a token is only meaningful to this VM.
+
+* **Who can use it.** Only a shim of `vba-winapi` that takes a procedure pointer
+  (`EnumWindows`, `EnumChildWindows`, `SetTimer`, `qsort`). While a `Declare` call runs, the shim
+  is given a `CallbackHost` (`callbacks.rs`) that validates the token and runs the procedure; a
+  host `declare_hook` or any other function receives the number and nothing else.
+* **Validation, before anything runs.** The token must be live (a forged, guessed, shifted or
+  multiplied number, or one from before `Vm::reset` or `End`, is error 5, "invalid procedure
+  call"), and the procedure must fit the callback signature the shim names: same arity, every
+  parameter `ByVal` and of the slot's type (`Long`, or `LongPtr` which is `Long` on a 32-bit and
+  `LongLong` on a 64-bit target), and a `Function ... As Long` where the callback returns a
+  value. A mismatch is error 49 ("bad DLL calling convention", what real VBA reports when the
+  stack ends up unbalanced); nothing of the procedure runs.
+* **Running it.** A nested run (`call_nested`) on the same VM, so the callback shares the step,
+  memory, call-depth and native-stack budgets of the outer program (`max_native_depth`,
+  `max_native_stack_bytes`); recursion through callbacks ends in the same call-depth limit as any
+  other recursion. The `Declare` context (emulated memory, handles, last error) is handed to the
+  procedure, so it may itself call `Declare`d functions such as `RtlMoveMemory` to read the
+  elements `qsort` passes it.
+* **Failure.** An error the callback does not handle, a limit, cancellation, `End` or `Stop`
+  stops the shim (it only learns `Aborted`) and the `Declare` statement that made the call fails
+  with exactly that fault: a VBA error stays trappable by the caller's `On Error`, limits and
+  cancellation stay untrappable.
+* **Capabilities.** A callback needs the grant of the `Declare` that received the pointer
+  (`NativeDeclare`, `library!procedure`, deny by default): without it the `Declare` is error 70
+  and the procedure never runs. Timers outlive the call that set them, so the grant is checked
+  again when they are delivered.
+* **Timers.** `SetTimer` keeps its timers in the `Declare` context. There is no message queue;
+  `DoEvents` is the pump: it calls every due `TIMERPROC` once with the manual or injected clock
+  (`Sleep` advances it). `Vm::reset` and `End` drop all timers.
+* **Windows.** `EnumWindows` and `EnumChildWindows` enumerate the window list of the
+  `CallContext` given to `Vm::set_native_bridge`; it is empty unless the embedding application
+  adds windows (opaque `HWND` numbers it chooses).
+
+Tests: `crates/runtime/vba-vm/tests/callbacks.rs` (error in a callback, recursion, step limit,
+stale tokens after `reset` and `End`, forged tokens, signature mismatches, grants, timers) and the
+`host/callback_*` conformance programs.
+
 ## Run-time provided functions
 
 `CallByName(object, name, calltype, args...)` dispatches like a late-bound access:
@@ -168,9 +211,8 @@ assumed number), the built-in `Collection`/`Err`, and host objects through the a
 traits. Any other call type is error 5 (assumed). `Reset`, `Input()` and `FileAttr()` are
 served by the file system layer (`docs/runtime/runtime.md`); the settings statements,
 `Date =`/`Time =`, `SendKeys` and `AppActivate` go through host hooks (`docs/architecture/host.md`).
-`AddressOf` stays an explicit `Unsupported` error: producing a callable address would need
-a native thunk, and a made-up pointer would be a fake; the conformance program
-`language/addressof_without_native` records that.
+`AddressOf` yields a session-bound token that only emulated `Declare` shims can call back (see
+"Callbacks (`AddressOf`)" below); it never produces a native address.
 
 ## Rules not verified against a real VBA host
 
@@ -211,7 +253,7 @@ by a test of our own expectation and none was compared with Office.
 - `Resume Next` after an error raised by `Return` (without `GoSub`) or `Resume`
   (without error) cannot continue: the IR drops the unreachable code after those
   jumps, so such an error propagates as if unhandled.
-- `AddressOf` is an explicit `Unsupported` error (callbacks from native code).
+- `AddressOf` is a token for the emulated shims only: no native function can call a VBA procedure (no thunk is generated), and `AddressOf` of a `Declare` is rejected by the analysis.
 - `MidB` statement, `LSet`/`RSet` between user-defined types, `Get`/`Put` of
   dynamic arrays and `Decimal` values are explicit `Unsupported` errors.
 - A VBA object passed to a host is an opaque handle in the host's table; the host

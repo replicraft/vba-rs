@@ -669,7 +669,8 @@ host methods, in whatever order the program calls them. Therefore:
   lines.
 * Async, multi-threaded sharing of one instance, and preemptive timeouts other
   than the step budget and the cancel token.
-* Compiled-only (source-less) modules, `AddressOf`, a native `Declare` backend
+* Compiled-only (source-less) modules, callbacks from native code (`AddressOf` serves the
+  emulated `Declare` shims only), a native `Declare` backend
   and the other gaps listed in [vm.md](../runtime/vm.md) and
   [conformance.md](../tooling/conformance.md).
 
