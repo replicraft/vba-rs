@@ -1,6 +1,5 @@
 ' INV: vbal.5.5.1.2.6, expr.implicit-conv
 ' SOURCE: spec ms-vbal 5.5.1.2.6 Let-coercion to and from resizable Byte(), String to Byte() and back round-trips; uninitialized array gives empty string
-' XFAIL: wrong not implemented: Byte() to String * length coercion
 ' EXPECT: back=Hello
 ' EXPECT: lenok=True
 ' EXPECT: fixed=[Hi   ]

@@ -278,7 +278,11 @@ impl Vm {
                 _ => Err(VbaError::TYPE_MISMATCH.into()),
             },
             Type::FixedString(n) => {
-                let v = self.value_of(v)?;
+                let v = if matches!(&v, Variant::Array(a) if a.element_type() == VarType::Byte) {
+                    self.convert_value(v, &Type::String)?
+                } else {
+                    self.value_of(v)?
+                };
                 let s = convert::to_vba_string(&v)?;
                 let mut units = s.into_units();
                 units.resize(*n as usize, u16::from(b' '));
