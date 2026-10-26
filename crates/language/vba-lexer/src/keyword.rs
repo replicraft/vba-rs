@@ -59,6 +59,16 @@ macro_rules! keywords {
                 }
             }
 
+            /// The canonical spelling (`ElseIf`, `ByVal`), the way the
+            /// language reference writes the word. For `VbAttribute`, which
+            /// stands for a family of `VB_*` names, this is not a real
+            /// spelling; check [`Keyword::class`] first.
+            pub const fn canonical(self) -> &'static str {
+                match self {
+                    $(Keyword::$variant => stringify!($variant),)*
+                }
+            }
+
             /// The primary category of the keyword.
             pub const fn class(self) -> KeywordClass {
                 match self {
@@ -265,6 +275,19 @@ pub fn lookup_keyword(text: &[u8], generation: LanguageGeneration) -> Option<Key
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_spelling_matches_the_word() {
+        for &k in Keyword::ALL {
+            if k != Keyword::VbAttribute {
+                assert!(
+                    Keyword::from_lower(k.canonical().to_ascii_lowercase().as_bytes()) == Some(k),
+                    "{k:?}"
+                );
+            }
+        }
+        assert_eq!(Keyword::ElseIf.canonical(), "ElseIf");
+    }
 
     #[test]
     fn case_insensitive() {

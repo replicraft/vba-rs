@@ -200,7 +200,7 @@ impl View<'_> {
             ) {
                 continue;
             }
-            let canonical = format!("{kw:?}");
+            let canonical = kw.canonical();
             if t.text() == canonical.as_bytes()
                 || !t.text().eq_ignore_ascii_case(canonical.as_bytes())
             {
@@ -231,11 +231,11 @@ impl View<'_> {
             {
                 Some(e) => {
                     e.range.end = range.end;
-                    e.new_text.push_str(&canonical);
+                    e.new_text.push_str(canonical);
                 }
                 None => out.push(TextEdit {
                     range,
-                    new_text: canonical,
+                    new_text: canonical.to_owned(),
                 }),
             }
         }
