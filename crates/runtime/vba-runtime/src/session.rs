@@ -103,6 +103,7 @@ pub struct SessionBuilder {
     config: VmConfig,
     allow_partial: bool,
     host_members: Vec<String>,
+    strict_spec: bool,
 }
 
 impl Default for SessionBuilder {
@@ -127,6 +128,7 @@ impl SessionBuilder {
             config: VmConfig::default(),
             allow_partial: false,
             host_members: Vec::new(),
+            strict_spec: false,
         }
     }
 
@@ -213,6 +215,16 @@ impl SessionBuilder {
         self
     }
 
+    /// Reports the spec-strict diagnostics (rules taken from the
+    /// specification text whose acceptance by real VBA is uncertain) as
+    /// errors that block loading. Off by default: they are warnings. See
+    /// [`vba_sema::Options::strict_spec`].
+    #[must_use]
+    pub fn strict_spec(mut self, on: bool) -> Self {
+        self.strict_spec = on;
+        self
+    }
+
     /// Lets [`build_project`](SessionBuilder::build_project) accept a
     /// *mixed* project (some modules have no source). The modules without
     /// source are left out of the program, and running a procedure that
@@ -264,6 +276,7 @@ impl SessionBuilder {
             project_name: project.name.clone(),
             constants: vba_sema::parse_project_constants(&project.constants),
             host_members: self.host_members.clone(),
+            strict_spec: self.strict_spec,
             ..Options::default()
         };
         let (project_name, absent_modules) = (project.name.clone(), absent);
@@ -276,6 +289,7 @@ impl SessionBuilder {
     pub fn build_sources(self, modules: &[SourceModule]) -> Result<Session, Error> {
         let options = Options {
             host_members: self.host_members.clone(),
+            strict_spec: self.strict_spec,
             ..Options::default()
         };
         self.build(modules, &options)

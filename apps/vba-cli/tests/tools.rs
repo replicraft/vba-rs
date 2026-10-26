@@ -372,3 +372,31 @@ fn diagnostics_in_windows_1252_files_point_at_the_right_columns() {
     assert!(out.contains("caf\u{e9}"), "{out}");
     assert!(out.contains("unterminated string literal"), "{out}");
 }
+
+#[test]
+fn strict_spec_promotes_spec_strict_warnings() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = write(
+        dir.path(),
+        "Spec.bas",
+        "DefInt A-D\r\nDefLng C-F\r\nPublic Sub Main()\r\n    Debug.Print \"ran\"\r\nEnd Sub\r\n",
+    );
+    let a = vbars().arg("check").arg(&f).assert().success();
+    assert!(stdout(&a).contains("1 warning(s)"), "{}", stdout(&a));
+    vbars()
+        .arg("check")
+        .arg("--strict-spec")
+        .arg(&f)
+        .assert()
+        .code(1);
+    let a = vbars().arg("run").arg("--memfs").arg(&f).assert().success();
+    assert!(stdout(&a).contains("ran"), "{}", stdout(&a));
+    assert!(stderr(&a).contains("warning"), "{}", stderr(&a));
+    vbars()
+        .arg("run")
+        .arg("--memfs")
+        .arg("--strict-spec")
+        .arg(&f)
+        .assert()
+        .failure();
+}

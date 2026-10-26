@@ -133,7 +133,11 @@ pub fn parse_file(path: &Path, profile: &Profile, tree: bool) -> Result<Report, 
 }
 
 /// `vbars check`: the semantic analysis of one or more files as one project.
-pub fn check_files(paths: &[PathBuf], profile: &Profile) -> Result<Report, ToolError> {
+pub fn check_files(
+    paths: &[PathBuf],
+    profile: &Profile,
+    strict_spec: bool,
+) -> Result<Report, ToolError> {
     let loaded = load::load(paths)?;
     if let Some(e) = loaded.compiled_only_error() {
         return Err(e.into());
@@ -144,10 +148,17 @@ pub fn check_files(paths: &[PathBuf], profile: &Profile) -> Result<Report, ToolE
             Options {
                 project_name: p.name.clone(),
                 constants: vba_sema::parse_project_constants(&p.constants),
+                strict_spec,
                 ..Options::default()
             },
         ),
-        None => (loaded.modules.clone(), Options::default()),
+        None => (
+            loaded.modules.clone(),
+            Options {
+                strict_spec,
+                ..Options::default()
+            },
+        ),
     };
     let analysis = analyze_sources(&modules, profile, &NoLibraries, &options);
     let errors = count_errors(&analysis.diagnostics);

@@ -46,11 +46,17 @@ impl Binder<'_, '_> {
     pub(crate) fn bind_target(&mut self, e: &Expr, set: bool) -> Option<(BPlace, Type)> {
         // MS-VBAL 5.6.6: a parenthesized expression is a value, not a location.
         if matches!(e.kind, ExprKind::Paren(_)) {
-            self.err(
+            self.spec(
                 codes::NOT_ASSIGNABLE,
                 e.span,
                 "a parenthesized expression cannot be assigned to",
             );
+            // Lenient mode: assign to the inner expression.
+            if let ExprKind::Paren(inner) = &e.kind
+                && !self.sema.strict_spec
+            {
+                return self.bind_target(inner, set);
+            }
             return None;
         }
         // The implicit result variable of a function or property getter.

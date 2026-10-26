@@ -50,6 +50,8 @@ pub(crate) struct Sema<'a> {
     pub project_name: Name,
     /// Lower-case names the host supplies to document and designer modules.
     pub host_members: std::collections::HashSet<String>,
+    /// Spec-strict diagnostics are errors.
+    pub strict_spec: bool,
     pub module_ids: HashMap<Name, ModuleId>,
     pub proc_src: Vec<&'a ProcDecl>,
     pub global_src: Vec<Option<&'a Declarator>>,
@@ -80,6 +82,7 @@ impl<'a> Sema<'a> {
             provider,
             project_name: Name::new(project_name),
             host_members: std::collections::HashSet::new(),
+            strict_spec: false,
             module_ids: HashMap::new(),
             proc_src: Vec::new(),
             global_src: Vec::new(),
@@ -124,6 +127,26 @@ impl<'a> Sema<'a> {
         self.report(Severity::Error, module, code, span, msg);
     }
 
+    /// Reports a spec-strict diagnostic: a warning unless `strict_spec`.
+    pub(crate) fn spec_strict(
+        &self,
+        module: ModuleId,
+        code: Code,
+        span: Span,
+        msg: impl Into<String>,
+    ) {
+        self.report(self.spec_severity(), module, code, span, msg);
+    }
+
+    /// The severity of spec-strict diagnostics.
+    pub(crate) fn spec_severity(&self) -> Severity {
+        if self.strict_spec {
+            Severity::Error
+        } else {
+            Severity::Warning
+        }
+    }
+
     /// Reports a diagnostic with a secondary label.
     pub(crate) fn error_with_label(
         &self,
@@ -138,6 +161,23 @@ impl<'a> Sema<'a> {
         self.diags
             .borrow_mut()
             .push(Diagnostic::error(code, file, span, msg).with_label(label_span, label));
+    }
+
+    /// Like [`Self::error_with_label`] for a spec-strict diagnostic.
+    pub(crate) fn spec_strict_with_label(
+        &self,
+        module: ModuleId,
+        code: Code,
+        span: Span,
+        msg: impl Into<String>,
+        label_span: Span,
+        label: impl Into<String>,
+    ) {
+        let file = self.program.modules[module.index()].file;
+        self.diags.borrow_mut().push(
+            Diagnostic::new(self.spec_severity(), code, file, span, msg)
+                .with_label(label_span, label),
+        );
     }
 
     pub(crate) fn enum_id_count(&self) -> usize {

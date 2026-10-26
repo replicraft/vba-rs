@@ -68,6 +68,9 @@ pub struct ParseOptions {
     /// Extra project-level conditional compilation constants
     /// (`name`, value), consulted before the profile's predefined ones.
     pub constants: Vec<(String, i64)>,
+    /// Report the spec-strict rules (see the analysis option of the same
+    /// name) as errors instead of warnings.
+    pub strict_spec: bool,
 }
 
 impl ParseOptions {
@@ -127,7 +130,13 @@ pub fn parse(file: FileId, src: &[u8], profile: &Profile, opts: &ParseOptions) -
         lopts = lopts.strict();
     }
     let lexed = lex(file, src, lopts);
-    let cc = cc::analyze(file, &lexed.tokens, profile, &opts.constants);
+    let cc = cc::analyze(
+        file,
+        &lexed.tokens,
+        profile,
+        &opts.constants,
+        opts.strict_spec,
+    );
     let sig: Vec<usize> = lexed
         .tokens
         .iter()

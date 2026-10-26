@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use vba_diagnostics::{Code, Diagnostic};
+use vba_diagnostics::{Code, Diagnostic, Severity};
 use vba_lexer::{Keyword, Token, TokenKind};
 use vba_profile::Profile;
 use vba_source::{FileId, Span};
@@ -34,6 +34,8 @@ pub(crate) struct CcInfo {
     pub diagnostics: Vec<Diagnostic>,
     /// Names defined by `#Const` in this module (lower case, no suffix).
     defined: HashSet<Vec<u8>>,
+    /// Spec-strict rules are errors.
+    strict_spec: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,8 +71,12 @@ pub(crate) fn analyze(
     toks: &[Token<'_>],
     profile: &Profile,
     extra: &[(String, i64)],
+    strict_spec: bool,
 ) -> CcInfo {
-    let mut info = CcInfo::default();
+    let mut info = CcInfo {
+        strict_spec,
+        ..CcInfo::default()
+    };
     let mut consts: HashMap<Vec<u8>, Value> = HashMap::new();
     for (n, v) in extra {
         consts.insert(n.to_ascii_lowercase().into_bytes(), Value::Int(*v));
@@ -113,7 +119,15 @@ pub(crate) fn analyze(
             TokenKind::HashIf => {
                 effective = cur_active;
                 // 3.4.2: every condition must conform, even in excluded blocks.
-                let c = eval_cond(&mut info.diagnostics, file, t.span, &line, &consts, profile);
+                let c = eval_cond(
+                    &mut info.diagnostics,
+                    file,
+                    t.span,
+                    &line,
+                    &consts,
+                    profile,
+                    !cur_active && !strict_spec,
+                );
                 let v = if effective {
                     value = Some(c);
                     c
@@ -135,7 +149,15 @@ pub(crate) fn analyze(
                     if f.seen_else {
                         unmatched(&mut info, file, t.span, "`#ElseIf` after `#Else`");
                     }
-                    let v = eval_cond(&mut info.diagnostics, file, t.span, &line, &consts, profile);
+                    let v = eval_cond(
+                        &mut info.diagnostics,
+                        file,
+                        t.span,
+                        &line,
+                        &consts,
+                        profile,
+                        !f.parent_active && !strict_spec,
+                    );
                     if f.parent_active && !f.taken {
                         value = Some(v);
                         f.active = v;
@@ -212,7 +234,9 @@ fn eval_cond(
     line: &[Token<'_>],
     consts: &HashMap<Vec<u8>, Value>,
     profile: &Profile,
+    lenient: bool,
 ) -> bool {
+    // `lenient`: the block is excluded and the rule is a spec-strict one.
     let body = match line.last() {
         Some(l) if l.kind == TokenKind::Keyword(Keyword::Then) => &line[..line.len() - 1],
         _ => {
@@ -232,7 +256,11 @@ fn eval_cond(
                 (Some(f), Some(l)) => Span::new(f.span.start, l.span.end),
                 _ => at,
             };
-            diags.push(Diagnostic::error(CC_BAD_EXPR, file, sp, m));
+            diags.push(if lenient {
+                Diagnostic::warning(CC_BAD_EXPR, file, sp, m)
+            } else {
+                Diagnostic::error(CC_BAD_EXPR, file, sp, m)
+            });
             false
         }
     }
@@ -252,6 +280,7 @@ fn define_const(
     profile: &Profile,
     report: bool,
 ) {
+    let strict_spec = info.strict_spec;
     let ok = line.len() >= 3 && line[0].kind == TokenKind::Ident && line[1].kind == TokenKind::Eq;
     if !ok {
         info.diagnostics.push(Diagnostic::error(
@@ -266,7 +295,14 @@ fn define_const(
     let name = strip_suffix(line[0].text).to_ascii_lowercase();
     // Names are distinct within a module, including those in excluded blocks.
     if !info.defined.insert(name.clone()) {
-        info.diagnostics.push(Diagnostic::error(
+        // Real VBA lets a later `#Const` redefine an earlier one.
+        let sev = if strict_spec {
+            Severity::Error
+        } else {
+            Severity::Warning
+        };
+        info.diagnostics.push(Diagnostic::new(
+            sev,
             CC_BAD_EXPR,
             file,
             line[0].span,

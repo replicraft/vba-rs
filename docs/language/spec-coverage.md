@@ -87,6 +87,44 @@ missing (enums, colours, key codes, system colours); `Len` of a numeric variable
 of a Date; conversion functions on Error values; `FileAttr` optional argument; `ChDrive ""`;
 `Err.LastDllError` read-only; `ReDim x(n) As T` on an implicit name.
 
+## Severity of the static rules
+
+Rejecting a program that real VBA runs is worse than accepting one it refuses, and there is
+no oracle yet for the static rules read from the specification text. Diagnostics therefore
+have two classes. A *spec-strict* diagnostic is a warning by default: the project loads and
+runs and the warning is reported (`Session::warnings`, `vbars run` on stderr, `vbars check`).
+With `strict_spec` they are errors that block loading: `Engine::strict_spec(true)`,
+`SessionBuilder::strict_spec(true)`, `vba_sema::Options::strict_spec`, and
+`vbars check|run --strict-spec`. Conformance programs that expect "does not compile" for a
+spec-strict rule carry the header `' STRICT_SPEC: true`; each has a sibling `*_warns`
+program that checks the default behaviour (warn and run).
+
+| Rule | Default | Rationale |
+| --- | --- | --- |
+| Def<Type> ranges naming a letter twice (5.2.2) | warning | Real VBA accepts overlapping `DefInt A-D` / `DefLng C-F`; the later directive wins. |
+| `Implements` interface prefix that begins another's, or interface member with an underscore (5.2.4.2) | warning | Common in real projects; the implementing name is still resolved by exact match. |
+| Empty `Type` or `Enum` (5.2.3.3, 5.2.3.4) | warning | Acceptance of an empty block is uncertain; nothing downstream depends on it. |
+| `Global` on a procedure in a class (5.3.1.1) | warning | Treated as `Public`. |
+| `ByVal` array parameter (5.3.1.5) | warning | Not checked by older hosts; the parameter keeps its declared mechanism. |
+| Parameter named like its function (5.3.1.5) | warning | The name resolves to the parameter inside the body. |
+| Get/Let/Set parameter mechanism mismatch (5.3.1.7) | warning | Each procedure keeps its own mechanism. |
+| Underscore in an event name (5.2.4.3) | warning | The event is usable; handlers resolve by exact name. |
+| Module name longer than 31 characters (4.2) | warning | Names come from the project; nothing truncates them. |
+| Source class with `VB_Creatable` / `VB_GlobalNameSpace` True (4.2) | warning | Exported files of real projects carry these attributes. The flags are otherwise ignored. |
+| `#Const` name repeated (3.4.1) | warning | Real VBA lets a later `#Const` redefine an earlier one. |
+| `#If`/`#ElseIf` condition in an excluded block that is not Boolean-coercible (3.4.2) | warning | An excluded block is not compiled by real VBA. The same condition in a live block is an error. |
+| Type character that differs from the declared type, `n$` for a `Long` (5.6.10) | warning | The declared type wins. |
+| Assignment to a parenthesized expression, `(x) = 5` (5.6.6) | warning | Assigns to the inner expression. |
+
+These stay errors in every mode because real VBA rejects them (or the program has no
+meaning): syntax errors, undefined names under `Option Explicit`, type mismatches, duplicate
+declarations, missing `End` statements, assignments to constants, unresolved references or
+libraries, bad argument lists, misplaced `Option` statements, `Declare` in a public class
+member, `Friend` in a standard module, `Static` at module level, `Implements` with missing
+members, `Do` with a condition on both ends, invalid date literals, float and radix literals
+out of range, wrong `Exit` kinds, and property
+pairing errors other than the parameter mechanism.
+
 ## Deliberate differences
 
 Where the text and documented VBA behaviour disagree, the documented behaviour is kept (each

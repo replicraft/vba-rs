@@ -65,6 +65,7 @@ pub struct Engine {
     system_environment: bool,
     command: String,
     host_members: Vec<String>,
+    strict_spec: bool,
 }
 
 impl Default for Engine {
@@ -88,6 +89,7 @@ impl Engine {
             system_environment: false,
             command: String::new(),
             host_members: Vec::new(),
+            strict_spec: false,
         }
     }
 
@@ -272,6 +274,17 @@ impl Engine {
         self
     }
 
+    /// Treats the spec-strict diagnostics as errors. These are static rules
+    /// taken from the MS-VBAL text (overlapping `Def<Type>` ranges, empty
+    /// `Type`/`Enum`, `ByVal` array parameters...) that real VBA is not
+    /// known to enforce; by default they are warnings and the project loads
+    /// and runs. See `docs/language/spec-coverage.md` for the list.
+    #[must_use]
+    pub fn strict_spec(mut self, on: bool) -> Engine {
+        self.strict_spec = on;
+        self
+    }
+
     /// The text `Command$` returns.
     #[must_use]
     pub fn command_line(mut self, command: &str) -> Engine {
@@ -282,7 +295,12 @@ impl Engine {
     /// Analyses the project with this engine's profile; nothing runs.
     pub fn analyze(&self, project: &Project) -> Report {
         let globals = EngineGlobals(self.globals.iter().map(|(n, _)| n.clone()).collect());
-        project.analyze_with(&self.profile, &globals, &self.host_members)
+        project.analyze_with(
+            &self.profile,
+            &globals,
+            &self.host_members,
+            self.strict_spec,
+        )
     }
 
     /// A session builder configured like this engine, plus the sink that
@@ -311,6 +329,7 @@ impl Engine {
             .debug_sink(sink.clone())
             .command_line(&self.command)
             .host_members(self.host_members.clone())
+            .strict_spec(self.strict_spec)
             .vm_config(self.vm.clone());
         b = match &self.files {
             Files::Memory(files) => {

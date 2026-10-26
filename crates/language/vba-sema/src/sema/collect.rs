@@ -86,7 +86,7 @@ impl<'a> Sema<'a> {
             .count()
             > 31
         {
-            self.error(
+            self.spec_strict(
                 m,
                 codes::TYPE_DECLARATION,
                 Span::empty(0),
@@ -154,7 +154,7 @@ impl<'a> Sema<'a> {
                             || a.name.name.eq_ignore_case("VB_GlobalNameSpace"))
                         && is_true_attr(a)
                     {
-                        self.error(
+                        self.spec_strict(
                             m,
                             codes::TYPE_DECLARATION,
                             a.span,
@@ -209,7 +209,7 @@ impl<'a> Sema<'a> {
                         }
                     }
                     if overlap {
-                        self.error(
+                        self.spec_strict(
                             m,
                             codes::TYPE_DECLARATION,
                             d.span,
@@ -289,7 +289,7 @@ impl<'a> Sema<'a> {
                         );
                     }
                     if e.name.name.to_string().contains('_') {
-                        self.error(
+                        self.spec_strict(
                             m,
                             codes::EVENTS,
                             e.name.span,
@@ -396,7 +396,7 @@ impl<'a> Sema<'a> {
                 Item::Type(t) => {
                     declared_any = true;
                     if t.members.is_empty() && t.directives.is_empty() {
-                        self.error(
+                        self.spec_strict(
                             m,
                             codes::TYPE_DECLARATION,
                             t.name.span,
@@ -419,7 +419,7 @@ impl<'a> Sema<'a> {
                 Item::Enum(e) => {
                     declared_any = true;
                     if e.members.is_empty() {
-                        self.error(
+                        self.spec_strict(
                             m,
                             codes::TYPE_DECLARATION,
                             e.name.span,
@@ -458,7 +458,7 @@ impl<'a> Sema<'a> {
                         Some(v) => v,
                     };
                     if p.visibility == Some(Visibility::Global) && class_like {
-                        self.error(
+                        self.spec_strict(
                             m,
                             codes::PROCEDURE_RULE,
                             p.name.span,

@@ -75,7 +75,7 @@ impl Sema<'_> {
             let pi = &self.program.procs[p.index()];
             for prm in &pi.params {
                 if prm.by_val && prm.is_array {
-                    self.error(
+                    self.spec_strict(
                         m,
                         codes::PROCEDURE_RULE,
                         prm.span,
@@ -85,7 +85,7 @@ impl Sema<'_> {
                 if matches!(pi.kind, ProcKind::Function | ProcKind::PropertyGet)
                     && prm.name == pi.name
                 {
-                    self.error(
+                    self.spec_strict(
                         m,
                         codes::PROCEDURE_RULE,
                         prm.span,
@@ -114,7 +114,7 @@ impl Sema<'_> {
                 }
                 for (a, b) in get.params.iter().zip(&pi.params) {
                     if a.by_val != b.by_val {
-                        self.error_with_label(
+                        self.spec_strict_with_label(
                             m,
                             codes::PROPERTY_PAIRING,
                             b.span,
@@ -491,20 +491,22 @@ impl Sema<'_> {
                         other.starts_with(&prefix) || prefix.starts_with(&other)
                     });
                     if clash {
-                        self.error(
+                        self.spec_strict(
                             m,
                             codes::IMPLEMENTS,
                             d.span,
                             "an implemented interface name prefix cannot begin with another interface's prefix",
                         );
-                        continue;
+                        if self.strict_spec {
+                            continue;
+                        }
                     }
                     if let Some(bad) = self
                         .required_of_class(*c)
                         .into_iter()
                         .find(|r| r.name.to_string().contains('_'))
                     {
-                        self.error(
+                        self.spec_strict(
                             m,
                             codes::IMPLEMENTS,
                             d.span,
@@ -513,7 +515,9 @@ impl Sema<'_> {
                                 bad.name
                             ),
                         );
-                        continue;
+                        if self.strict_spec {
+                            continue;
+                        }
                     }
                     let mut members = Vec::new();
                     for req in self.required_of_class(*c) {

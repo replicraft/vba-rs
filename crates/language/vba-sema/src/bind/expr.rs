@@ -364,7 +364,7 @@ impl Binder<'_, '_> {
                         };
                         let wanted = self.sema.suffix_type(sfx);
                         if !declared.is_error() && !declared.is_variant() && declared != wanted {
-                            self.err(
+                            self.spec(
                                 codes::TYPE_MISMATCH,
                                 id.span,
                                 format!(
@@ -372,7 +372,9 @@ impl Binder<'_, '_> {
                                     id.name
                                 ),
                             );
-                            return self.error_expr(span);
+                            if self.sema.strict_spec {
+                                return self.error_expr(span);
+                            }
                         }
                     }
                     let b = self.local_expr(l, span);

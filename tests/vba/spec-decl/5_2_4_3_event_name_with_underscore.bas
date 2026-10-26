@@ -1,6 +1,7 @@
 ' INV: vbal.5.2.4.3
 ' SOURCE: spec ms-vbal 5.2.4.3 event names cannot contain an underscore
 ' ERROR: load
+' STRICT_SPEC: true
 Public Sub Main()
 End Sub
 '#MODULE Src class

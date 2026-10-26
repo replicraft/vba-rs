@@ -16,6 +16,8 @@
 //!                                or `load` (does not compile), `limit`, `cancelled`, `unsupported`
 //! ' GRANT: file-write            capability grants (repeatable; `name=prefix` scopes it)
 //! ' MAX_STEPS: 100000            step budget
+//! ' STRICT_SPEC: true            analyse with `Engine::strict_spec(true)`: the spec-strict
+//!                                diagnostics are errors (default: warnings, the program runs)
 //! ' XFAIL: wrong|unsupported why known deviation: the program must still fail
 //! ```
 //!
@@ -86,6 +88,7 @@ struct Program {
     error: Option<String>,
     grants: Vec<String>,
     max_steps: Option<u64>,
+    strict_spec: bool,
     xfail: Option<(Xfail, String)>,
     raises: Vec<(String, String)>,
     modules: Vec<(String, ModuleKind, String)>,
@@ -124,6 +127,7 @@ fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
         error: None,
         grants: Vec::new(),
         max_steps: None,
+        strict_spec: false,
         xfail: None,
         raises: Vec::new(),
         modules: Vec::new(),
@@ -200,6 +204,7 @@ fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
                             .map_err(|_| format!("{id}: bad MAX_STEPS"))?,
                     )
                 }
+                "STRICT_SPEC" => p.strict_spec = value.trim() == "true",
                 "XFAIL" => {
                     let (k, why) = value.split_once(' ').unwrap_or((value, ""));
                     let kind = match k {
@@ -272,7 +277,7 @@ fn run_program(p: &Program) -> Result<(), String> {
             .add_module(name, *kind, src)
             .map_err(|e| format!("cannot add module {name}: {e}"))?;
     }
-    let mut engine = Engine::new();
+    let mut engine = Engine::new().strict_spec(p.strict_spec);
     for g in &p.grants {
         engine = match g.split_once('=') {
             Some((n, prefix)) => engine.grant_prefixes(capability(n), [prefix.to_owned()]),

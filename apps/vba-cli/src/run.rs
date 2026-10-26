@@ -47,6 +47,7 @@ pub struct RunArgs {
     pub allow_shell: bool,
     pub command: Option<String>,
     pub allow_partial: bool,
+    pub strict_spec: bool,
 }
 
 struct StdoutSink;
@@ -203,6 +204,7 @@ pub fn run(a: RunArgs) -> u8 {
     if a.allow_shell {
         builder = builder.shell(StdShell);
     }
+    builder = builder.strict_spec(a.strict_spec);
     if a.allow_partial {
         builder = builder.allow_partial();
     }

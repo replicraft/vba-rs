@@ -28,7 +28,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | partial | 163 |
 | unsupported | 6 |
 | not-started | 34 |
-| Conformance programs | 2043 |
+| Conformance programs | 2062 |
 | Programs that are known deviations (XFAIL) | 180 |
 
 ## Entries per category and status
@@ -100,16 +100,16 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | math | 37 | 0 | 24 | 4 | 2 | 7 |
 | operators | 65 | 0 | 59 | 0 | 5 | 1 |
 | procedures | 34 | 0 | 23 | 2 | 4 | 5 |
-| spec-coerce | 186 | 0 | 186 | 0 | 0 | 0 |
+| spec-coerce | 187 | 0 | 187 | 0 | 0 | 0 |
 | spec-data | 274 | 0 | 274 | 0 | 0 | 0 |
-| spec-decl | 148 | 0 | 148 | 0 | 0 | 0 |
-| spec-lex | 132 | 0 | 132 | 0 | 0 | 0 |
+| spec-decl | 155 | 0 | 155 | 0 | 0 | 0 |
+| spec-lex | 138 | 0 | 138 | 0 | 0 | 0 |
 | spec-lib-a | 96 | 0 | 96 | 0 | 0 | 0 |
 | spec-lib-b | 61 | 0 | 61 | 0 | 0 | 0 |
 | spec-lib-c | 58 | 0 | 58 | 0 | 0 | 0 |
 | spec-lib-d | 74 | 0 | 74 | 0 | 0 | 0 |
-| spec-ops | 130 | 0 | 130 | 0 | 0 | 0 |
-| spec-proc | 205 | 0 | 205 | 0 | 0 | 0 |
+| spec-ops | 131 | 0 | 131 | 0 | 0 | 0 |
+| spec-proc | 209 | 0 | 209 | 0 | 0 | 0 |
 | statements | 88 | 0 | 74 | 13 | 1 | 0 |
 | strings | 71 | 0 | 33 | 14 | 8 | 16 |
 

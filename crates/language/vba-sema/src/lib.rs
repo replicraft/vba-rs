@@ -73,6 +73,11 @@ pub struct Options {
     /// Matched case-insensitively. Names not listed keep the normal rules
     /// (a call, `Name(args)`, is always bound late).
     pub host_members: Vec<String>,
+    /// Report the spec-strict diagnostics as errors. These are rules added
+    /// from the specification text where real-world acceptance is uncertain
+    /// (see `docs/language/spec-coverage.md`); by default they are warnings
+    /// and do not block loading.
+    pub strict_spec: bool,
 }
 
 impl Default for Options {
@@ -82,6 +87,7 @@ impl Default for Options {
             project_name: "VBAProject".to_owned(),
             constants: Vec::new(),
             host_members: Vec::new(),
+            strict_spec: false,
         }
     }
 }
@@ -115,6 +121,18 @@ pub fn analyze_project_with_host_members(
     provider: &dyn TypeProvider,
     host_members: &[String],
 ) -> Analysis {
+    analyze_project_with_options(project, profile, provider, host_members, false)
+}
+
+/// Like [`analyze_project_with_host_members`], with the
+/// [`Options::strict_spec`] switch.
+pub fn analyze_project_with_options(
+    project: &VbaProject,
+    profile: &Profile,
+    provider: &dyn TypeProvider,
+    host_members: &[String],
+    strict_spec: bool,
+) -> Analysis {
     let modules: Vec<SourceModule> = project
         .modules
         .iter()
@@ -128,6 +146,7 @@ pub fn analyze_project_with_host_members(
         project_name: project.name.clone(),
         constants: parse_project_constants(&project.constants),
         host_members: host_members.to_vec(),
+        strict_spec,
         ..Options::default()
     };
     analyze_sources(&modules, profile, provider, &opts)
@@ -147,6 +166,7 @@ pub fn analyze_sources(
         ParseOptions::tolerant()
     };
     parse_opts.constants = opts.constants.clone();
+    parse_opts.strict_spec = opts.strict_spec;
     let mut all = Diagnostics::new();
     let mut asts = Vec::new();
     let mut infos = Vec::new();
@@ -227,6 +247,7 @@ pub fn analyze_sources(
         .iter()
         .map(|n| n.to_ascii_lowercase())
         .collect();
+    s.strict_spec = opts.strict_spec;
     s.module_ids = ids;
     sema::run_declaration_passes(&mut s);
     let mut bound = Vec::new();

@@ -70,6 +70,10 @@ enum Command {
         /// Language profile id (see `vbars profiles`).
         #[arg(long)]
         profile: Option<String>,
+        /// Report the spec-strict diagnostics (rules from the language
+        /// specification that real VBA is not known to enforce) as errors.
+        #[arg(long)]
+        strict_spec: bool,
     },
     /// Check that a source file survives the syntax tree unchanged and
     /// follows basic whitespace conventions.
@@ -158,6 +162,11 @@ enum Command {
         /// error (exit 6). A fully compiled-only project is always refused.
         #[arg(long)]
         allow_partial: bool,
+        /// Report the spec-strict diagnostics (rules from the language
+        /// specification that real VBA is not known to enforce) as errors
+        /// that block loading; by default they are warnings.
+        #[arg(long)]
+        strict_spec: bool,
     },
 }
 
@@ -212,8 +221,13 @@ fn main() -> ExitCode {
         } => finish(
             tools::profile_arg(profile.as_deref()).and_then(|p| tools::parse_file(&file, &p, tree)),
         ),
-        Command::Check { files, profile } => finish(
-            tools::profile_arg(profile.as_deref()).and_then(|p| tools::check_files(&files, &p)),
+        Command::Check {
+            files,
+            profile,
+            strict_spec,
+        } => finish(
+            tools::profile_arg(profile.as_deref())
+                .and_then(|p| tools::check_files(&files, &p, strict_spec)),
         ),
         Command::FmtCheck { file, profile } => {
             finish(tools::profile_arg(profile.as_deref()).and_then(|p| tools::fmt_check(&file, &p)))
@@ -237,6 +251,7 @@ fn main() -> ExitCode {
             allow_shell,
             command,
             allow_partial,
+            strict_spec,
         } => ExitCode::from(run::run(run::RunArgs {
             files,
             entry,
@@ -252,6 +267,7 @@ fn main() -> ExitCode {
             allow_shell,
             command,
             allow_partial,
+            strict_spec,
         })),
     }
 }

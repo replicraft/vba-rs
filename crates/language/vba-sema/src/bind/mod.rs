@@ -151,6 +151,11 @@ impl<'s, 'a> Binder<'s, 'a> {
         self.sema.error(self.module, code, span, msg);
     }
 
+    /// Reports a spec-strict diagnostic (a warning unless `strict_spec`).
+    pub(crate) fn spec(&self, code: vba_diagnostics::Code, span: Span, msg: impl Into<String>) {
+        self.sema.spec_strict(self.module, code, span, msg);
+    }
+
     pub(crate) fn tn(&self, t: &Type) -> String {
         self.sema.program.type_name(t)
     }

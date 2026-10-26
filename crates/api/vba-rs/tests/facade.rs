@@ -339,3 +339,30 @@ fn engine_defaults_are_finite_and_unlimited_opts_out() {
         vba::ResourceLimits::unlimited()
     );
 }
+
+const SPEC_STRICT_SRC: &str = "DefInt A-D\nDefLng C-F\nPrivate Type Empty1\nEnd Type\nPublic Sub Main()\n  Debug.Print \"ran\"\nEnd Sub\n";
+
+#[test]
+fn spec_strict_rules_warn_by_default_and_run() {
+    let p = project(SPEC_STRICT_SRC);
+    let engine = Engine::new();
+    let report = engine.analyze(&p);
+    assert!(!report.has_errors(), "{:?}", report.rendered());
+    assert!(report.warnings().count() >= 2);
+    assert_eq!(engine.run(&p, "Main", vec![]).unwrap().output, "ran\n");
+}
+
+#[test]
+fn strict_spec_promotes_the_warnings_to_errors() {
+    let p = project(SPEC_STRICT_SRC);
+    let engine = Engine::new().strict_spec(true);
+    assert!(engine.analyze(&p).has_errors());
+    let err = engine.run(&p, "Main", vec![]).unwrap_err();
+    assert!(err.kind() == "load", "{err:?}");
+}
+
+#[test]
+fn real_errors_stay_errors_by_default() {
+    let p = project("Option Explicit\nPublic Sub Main()\n  x = 1\nEnd Sub\n");
+    assert!(Engine::new().analyze(&p).has_errors());
+}
