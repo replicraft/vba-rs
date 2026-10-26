@@ -695,8 +695,9 @@ pub fn str_conv(s: &VbaString, conversion: i32) -> StdResult<VbaString> {
 /// `vbFromUnicode` yields the code page bytes packed two per `UTF-16` unit
 /// (little endian), which is how a VBA string holds them. A result with an odd
 /// number of bytes cannot be represented and is `Unsupported`.
-/// `vbSimplifiedChinese`, `vbTraditionalChinese` and `vbLinguisticCasing` are
-/// `Unsupported`; other bits are error 5.
+/// `vbSimplifiedChinese` and `vbTraditionalChinese` are `Unsupported`;
+/// `vbLinguisticCasing` is accepted with `vbUpperCase`/`vbLowerCase` only
+/// (error 5 otherwise) and changes nothing for en-US; other bits are error 5.
 pub fn str_conv_cp(s: &VbaString, conversion: i32, code_page: u32) -> StdResult<VbaString> {
     const KNOWN: i32 = 3
         | flag::WIDE
@@ -736,8 +737,10 @@ pub fn str_conv_cp(s: &VbaString, conversion: i32, code_page: u32) -> StdResult<
             "StrConv vbSimplifiedChinese/vbTraditionalChinese",
         ));
     }
-    if has(flag::LINGUISTIC) {
-        return Err(StdError::Unsupported("StrConv vbLinguisticCasing"));
+    if has(flag::LINGUISTIC) && !matches!(conversion & 3, conv::UPPER | conv::LOWER) {
+        // Valid with vbUpperCase and vbLowerCase only. For the en-US locale
+        // the linguistic rules equal the plain conversion.
+        return Err(E5.into());
     }
     let mut r = s.clone();
     if has(flag::WIDE) {

@@ -438,7 +438,6 @@ fn strcomp_strconv() {
         ("a", 128, 0),
         ("a", 256, 0),
         ("a", 512, 0),
-        ("a", 1024, 0),
         ("ab", 128, 0x1234),
     ] {
         assert!(
@@ -449,6 +448,11 @@ fn strcomp_strconv() {
             "{mode} {lcid}"
         );
     }
+    // vbLinguisticCasing (1024) is valid with the upper/lower case modes only.
+    assert_eq!(e.call("StrConv", &[s("aB"), n(1025)]), Ok(s("AB")));
+    assert_eq!(e.call("StrConv", &[s("aB"), n(1026)]), Ok(s("ab")));
+    assert_eq!(e.call("StrConv", &[s("aB"), n(1024)]), Err(err(5)));
+    assert_eq!(e.call("StrConv", &[s("aB"), n(1027)]), Err(err(5)));
     // Typed API with explicit code pages.
     use vba_stdlib::strings::{asc_cp, chr_cp, str_conv_cp};
     let v = |x: &str| vba_value::VbaString::from(x);
