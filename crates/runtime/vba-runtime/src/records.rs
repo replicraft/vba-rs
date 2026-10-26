@@ -133,13 +133,12 @@ fn encode_scalar(vt: VarType, v: &Variant, out: &mut Vec<u8>) -> Result<(), FsEr
                         out,
                     )?;
                 }
-                Variant::Array(_)
-                | Variant::Object(_)
-                | Variant::UserDefined(_)
-                | Variant::Error(_) => {
+                Variant::Array(_) | Variant::Object(_) | Variant::UserDefined(_) => {
+                    // MS-VBAL 5.4.5.11: an object or user-defined type has no
+                    // descriptor. The layout of an array in a Variant is not
+                    // documented.
                     return Err(FsError::Unsupported(
-                        "Put of a Variant holding an array, object, user-defined type or error"
-                            .into(),
+                        "Put of a Variant holding an array, object or user-defined type".into(),
                     ));
                 }
                 other => {
@@ -149,7 +148,21 @@ fn encode_scalar(vt: VarType, v: &Variant, out: &mut Vec<u8>) -> Result<(), FsEr
             }
         }
         VarType::Decimal => {
-            return Err(FsError::Unsupported("Put of a Decimal".into()));
+            let d = convert::to_decimal(v).map_err(|e| FsError::Vba(e.number()))?;
+            // MS-OAUT 2.2.26: reserved word, scale, sign, high 32 bits and
+            // low 64 bits of the 96-bit mantissa.
+            let m = d.mantissa();
+            out.extend_from_slice(&[0, 0, d.scale(), if d.is_negative() { 0x80 } else { 0 }]);
+            out.extend_from_slice(&((m >> 64) as u32).to_le_bytes());
+            out.extend_from_slice(&(m as u64).to_le_bytes());
+        }
+        VarType::Error => {
+            // MS-VBAL 5.4.5.11: the error code as an HRESULT.
+            let n = match v {
+                Variant::Error(e) => e.number(),
+                _ => return Err(type_mismatch()),
+            };
+            out.extend_from_slice(&(0x800A_0000u32 | (n as u32 & 0xFFFF)).to_le_bytes());
         }
         _ => return Err(type_mismatch()),
     }
@@ -259,17 +272,28 @@ fn decode_scalar(vt: VarType, r: &mut Reader<'_>) -> Result<Variant, FsError> {
                     | VarType::Currency
                     | VarType::Date),
                 ) => decode_scalar(t, r)?,
-                Some(VarType::Error | VarType::Decimal) => {
-                    return Err(FsError::Unsupported(format!(
-                        "Get of a Variant tagged {code} (error or decimal)"
-                    )));
-                }
+                Some(t @ (VarType::Error | VarType::Decimal)) => decode_scalar(t, r)?,
                 // Objects and user-defined types are never written by `Put`, and
                 // other codes are not Variant tags: the file is not what was written.
                 _ => return Err(FsError::Vba(321)),
             }
         }
-        VarType::Decimal => return Err(FsError::Unsupported("Get of a Decimal".into())),
+        VarType::Decimal => {
+            let b = r.take(16)?;
+            let hi = u32::from_le_bytes(b[4..8].try_into().expect("4"));
+            let lo = u64::from_le_bytes(b[8..16].try_into().expect("8"));
+            let m = (u128::from(hi) << 64) | u128::from(lo);
+            // A scale above 28 is not a Decimal that VBA writes.
+            Variant::Decimal(
+                vba_value::Decimal::from_parts(m, b[2], b[3] & 0x80 != 0)
+                    .map_err(|_| FsError::Vba(321))?,
+            )
+        }
+        VarType::Error => {
+            let h = u32::from_le_bytes(arr(r, 4)?.try_into().expect("4"));
+            let n = if h >> 16 == 0x800A { h & 0xFFFF } else { h };
+            Variant::Error(VbaError::new(n as i32))
+        }
         _ => return Err(type_mismatch()),
     })
 }

@@ -742,13 +742,11 @@ impl Vm {
                     Variant::Long(_) | Variant::Single(_) => 4,
                     Variant::String(s) => 2 + s.len() as u64,
                     Variant::Decimal(_) => 16,
-                    Variant::Array(_)
-                    | Variant::Object(_)
-                    | Variant::UserDefined(_)
-                    | Variant::Error(_) => {
+                    Variant::Error(_) => 4,
+                    Variant::Array(_) | Variant::Object(_) | Variant::UserDefined(_) => {
                         return Err(Fault::Unsupported(
                             "Len of a user-defined type with a Variant holding an array, \
-                             object, user-defined type or error"
+                             object or user-defined type"
                                 .into(),
                         ));
                     }

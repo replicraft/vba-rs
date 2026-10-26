@@ -158,7 +158,8 @@ the policy sees the normalized path.
   and CR LF. Reading past the end is error 62.
 - `Get`/`Put` layout: scalars little endian, `Boolean` -1/0 in two bytes,
   `String * n` space padded ANSI, variable strings raw in binary mode and with a
-  two-byte length in random mode, `Variant` with a two-byte type tag, UDTs and
+  two-byte length in random mode, `Variant` with a two-byte type tag (a `Decimal`
+  is the 16 bytes of MS-OAUT 2.2.26, an error its HRESULT `0x800A0000 + n`), UDTs and
   fixed arrays as the concatenation of their members; random records are padded
   to `Len` (error 59 if larger). Unknown `Variant` tags are error 321.
 - `Dir` supports `*` and `?`, the `vbDirectory`/`vbHidden`/`vbSystem`
@@ -187,7 +188,9 @@ the policy sees the normalized path.
   `Reset` closes every open file and writes the buffers.
 
 **Not implemented:** `ChDrive` to another drive (error 68), `Get`/`Put` of
-`Decimal` and of variants holding arrays or objects, UNC paths. `Lock` clauses
+variants holding arrays or objects and of dynamic arrays (the array descriptor of
+the documentation, 2 + 8 bytes per dimension, has no documented layout), UNC
+paths. `Lock` clauses
 and `Lock` ranges only restrict other file numbers of the same session, never
 other processes.
 
