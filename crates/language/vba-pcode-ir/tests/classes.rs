@@ -507,7 +507,7 @@ fn members_of_the_host_base_are_late_bound_on_me() {
     // The same members in a class module (no host base) do not lower.
     let lp = lower_kind(&t, ModuleKind::Class, &lines, &[]);
     assert_eq!(lp.lowered_count(), 0);
-    assert!(reasons(&lp, "Shout").contains("no such member"));
+    assert!(reasons(&lp, "Shout").contains("not available"));
 }
 
 #[test]
@@ -727,4 +727,92 @@ fn the_end_statement_ends_the_run() {
     let p = vm.find_procedure("Cls.Quit").expect("entry");
     let r = vm.run_procedure(p, vec![Arg::Value(l(7))]).expect("runs");
     assert_eq!(r.status, vba_vm::RunStatus::Ended);
+}
+
+#[test]
+fn me_reaches_the_field_even_when_a_parameter_has_the_same_name() {
+    let mut t = Tables::default();
+    let (m, got) = (t.name("m"), t.name("Got"));
+    let mv = t.variable("m", Some(T_LONG));
+    let mut lines = vec![
+        Line::new()
+            .opm(Opcode::DimMarker, 16)
+            .rec(Opcode::VarDecl, 1, mv),
+    ];
+    // Public Sub Store(m As Long): Me.m = m * 2
+    let p = t.function("Store", None, &[("m", T_LONG, true)]);
+    lines.extend(block(
+        p,
+        5,
+        Opcode::ProcEndSub,
+        vec![
+            Line::new()
+                .read(m)
+                .i16(2)
+                .op(Opcode::NumMultiply)
+                .name(Opcode::ReadSimple, ME)
+                .name(Opcode::WriteDot, m),
+        ],
+    ));
+    // Public Function Got() As Long: Got = Me.m
+    let g = t.function("Got", Some(T_LONG), &[]);
+    lines.extend(block(
+        g,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new()
+                .name(Opcode::ReadSimple, ME)
+                .name(Opcode::ReadDot, m)
+                .write(got),
+        ],
+    ));
+    let lp = lower_kind(&t, ModuleKind::Class, &lines, &[]);
+    assert_eq!(lp.lowered_count(), 2, "{:?}", lp.procedures);
+    let (mut vm, _) = new_vm(&lp);
+    let module = vm.find_module("Cls").expect("module");
+    let o = vm.create_instance(module, None).expect("instance");
+    vm.run_method(o, proc_id(&lp, "Store", 0), vec![Arg::Value(l(21))])
+        .expect("runs");
+    let r = vm
+        .run_method(o, proc_id(&lp, "Got", 0), vec![])
+        .expect("runs");
+    assert_eq!(r.value, l(42));
+}
+
+#[test]
+fn a_member_the_cache_declares_is_never_taken_for_a_host_member() {
+    let mut t = Tables::default();
+    let (x, r) = (t.name("x"), t.name("Look"));
+    // Private x As Object   (not a plain scalar: left out of the program)
+    let xv = t.variable("x", Some(9));
+    let mut lines = vec![
+        Line::new().opm(Opcode::OptionStmt, 4),
+        Line::new()
+            .opm(Opcode::DimMarker, 16)
+            .rec(Opcode::VarDecl, 1, xv),
+    ];
+    // Function Look() As Variant: Look = Me.x
+    let f = t.function("Look", Some(T_VARIANT), &[]);
+    lines.extend(block(
+        f,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new()
+                .name(Opcode::ReadSimple, ME)
+                .name(Opcode::ReadDot, x)
+                .write(r),
+        ],
+    ));
+    let lp = lower_kind(&t, ModuleKind::Document, &lines, &[]);
+    assert_eq!(lp.lowered_count(), 0);
+    assert!(reasons(&lp, "Look").contains("not available"));
+    assert_eq!(
+        lp.declarations
+            .iter()
+            .filter(|d| d.unsupported.is_some())
+            .count(),
+        1
+    );
 }

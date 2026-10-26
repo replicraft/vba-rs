@@ -240,12 +240,16 @@ pub fn lower_project_with_options(
     let mut index = lower::ProcIndex::default();
     let mut by_id: HashMap<ProcId, (usize, usize)> = HashMap::new();
     for m in &models {
-        index
-            .known
-            .extend(m.procs.iter().map(|p| p.name.to_ascii_lowercase()));
-        index
-            .known
-            .extend(m.decls.iter().map(|d| d.name.to_ascii_lowercase()));
+        let names: std::collections::HashSet<String> = m
+            .procs
+            .iter()
+            .map(|p| p.name.to_ascii_lowercase())
+            .chain(m.decls.iter().map(|d| d.name.to_ascii_lowercase()))
+            .collect();
+        if !m.class_like() {
+            index.known_std.extend(names.iter().cloned());
+        }
+        index.members.push(names);
     }
     for (mi, m) in models.iter().enumerate() {
         for (pi, p) in m.procs.iter().enumerate() {

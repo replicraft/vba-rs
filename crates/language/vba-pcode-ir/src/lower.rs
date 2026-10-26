@@ -31,9 +31,13 @@ use crate::model::CompareStored;
 pub(crate) struct ProcIndex {
     /// Lower-case name to `(module index, proc index, id)`.
     pub by_name: HashMap<String, Vec<(usize, usize, ProcId)>>,
-    /// Lower-case names of every procedure and module-level declaration in
-    /// the project, lowered or not: such a name is never a host member.
-    pub known: std::collections::HashSet<String>,
+    /// Lower-case names of the procedures and module-level declarations of
+    /// the standard modules, lowered or not: visible from everywhere, so
+    /// never host members.
+    pub known_std: std::collections::HashSet<String>,
+    /// `[module index]`: lower-case names of all procedures and module-level
+    /// declarations of the module, lowered or not.
+    pub members: Vec<std::collections::HashSet<String>>,
 }
 
 /// An expression tree built from the stack; IR is emitted when a statement
@@ -654,7 +658,8 @@ impl Lw<'_> {
             && !name.starts_with(crate::model::PLACEHOLDER)
             && (!bare_read || self.cx.host_members.contains(&name.to_ascii_lowercase()))
             && self.module_symbol(name).is_none()
-            && !self.cx.index.known.contains(&name.to_ascii_lowercase())
+            && !self.cx.index.known_std.contains(&name.to_ascii_lowercase())
+            && !self.cx.index.members[self.cx.module].contains(&name.to_ascii_lowercase())
             && vba_stdlib::lookup(name).is_none()
             && BuiltinLibrary.global(name).is_none()
     }
@@ -2110,9 +2115,17 @@ impl Lw<'_> {
                 None => Err(self.no(ins.opcode, "property without a Get")),
             },
             Some(_) => Err(self.no(ins.opcode, "member of the module that is not callable")),
-            None if self.cx.host_backed => Ok(self.host_member(name, args)),
-            None => Err(self.no(ins.opcode, "module has no such member")),
+            None if self.cx.host_backed && !self.declared_in_module(name) => {
+                Ok(self.host_member(name, args))
+            }
+            None => Err(self.no(ins.opcode, "member of the module that is not available")),
         }
+    }
+
+    /// Whether the cache declares `name` in the current module (a procedure
+    /// or a variable, even one that is not part of the program).
+    fn declared_in_module(&self, name: &str) -> bool {
+        self.cx.index.members[self.cx.module].contains(&name.to_ascii_lowercase())
     }
 
     fn me_call(&mut self, ins: &Listed, id: ProcId, args: Vec<Ex>) -> R<Ex> {
@@ -2179,6 +2192,18 @@ impl Lw<'_> {
         Ok(())
     }
 
+    /// Stores `v` into a module-level variable.
+    fn store_global(&mut self, ins: &Listed, g: GlobalId, v: Ex) -> R<()> {
+        let ty = self.cx.program.global(g).ty.clone();
+        if v.ty().is_object() || ty.is_object() {
+            return Err(self.no(ins.opcode, "object assignment"));
+        }
+        let v = self.coerce(v, &ty);
+        let o = self.emit_ex(&v);
+        self.emit_global_store(g, o);
+        Ok(())
+    }
+
     /// `Property Let` call with the value as its last argument (by value).
     fn let_property(&mut self, ins: &Listed, pid: ProcId, v: Ex) -> R<()> {
         if v.ty().is_object() {
@@ -2238,7 +2263,7 @@ impl Lw<'_> {
                 let key = vba_ast::Name::new(&name);
                 let own = self.cx.program.module(self.sema.module);
                 match own.symbols.get(&key).map(|(s, _)| *s) {
-                    Some(Symbol::Var(_)) => self.store_name(ins, &name, v),
+                    Some(Symbol::Var(g)) => self.store_global(ins, g, v),
                     Some(Symbol::Property(g)) => match g.let_ {
                         Some(p) => {
                             if !self.callees.contains(&p) {
@@ -2249,10 +2274,10 @@ impl Lw<'_> {
                         None => Err(self.no(ins.opcode, "property without a Let")),
                     },
                     Some(_) => Err(self.no(ins.opcode, "assignment to a module member")),
-                    None if self.cx.host_backed => {
+                    None if self.cx.host_backed && !self.declared_in_module(&name) => {
                         self.late_put(ins, Ex::Me(self.sema.module), &name, v)
                     }
-                    None => Err(self.no(ins.opcode, "module has no such member")),
+                    None => Err(self.no(ins.opcode, "member of the module that is not available")),
                 }
             }
             Ex::Late { .. } => self.late_put(ins, recv, &name, v),
