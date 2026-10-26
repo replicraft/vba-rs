@@ -167,7 +167,15 @@ impl Binder<'_, '_> {
                     let e = self.bind_expr(&c.expr);
                     (c.kind == LoopCondKind::Until, self.coerce_condition(e))
                 });
-                self.stmt(span, BStmtKind::Do { pre, post, body })
+                self.stmt(
+                    span,
+                    BStmtKind::Do {
+                        pre,
+                        post,
+                        body,
+                        is_while: false,
+                    },
+                )
             }
             StmtKind::While { cond, body } => {
                 let c = self.bind_expr(cond);
@@ -181,6 +189,7 @@ impl Binder<'_, '_> {
                         pre: Some((false, c)),
                         post: None,
                         body,
+                        is_while: true,
                     },
                 )
             }

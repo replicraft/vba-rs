@@ -547,6 +547,8 @@ pub enum BStmtKind {
         post: Option<(bool, BExpr)>,
         /// Body.
         body: Vec<BStmt>,
+        /// Written as `While ... Wend` (which `Exit Do` does not leave).
+        is_while: bool,
     },
     /// `With` on an object: the object is evaluated once into a hidden local.
     With {

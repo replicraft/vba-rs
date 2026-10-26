@@ -1,4 +1,4 @@
-//! Module and project scope lookup (MS-VBAL §5.6.10 simple name
+//! Module and project scope lookup (MS-VBAL §5.6 simple name
 //! resolution, the module/project part).
 
 use vba_ast::{CompareMode, Ident, Name, Visibility};

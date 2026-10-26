@@ -279,7 +279,7 @@ pub enum Coercion {
 }
 
 /// The result type of a binary operator over statically known operand types
-/// (MS-VBAL §5.6.9, "operator type rules"). `Variant` operands give
+/// (MS-VBAL §5.6, "operator type rules"). `Variant` operands give
 /// `Variant`; the result of an operation on an error type is `Error`.
 pub fn binary_result(op: BinaryOp, l: &Type, r: &Type) -> Type {
     use BinaryOp::*;

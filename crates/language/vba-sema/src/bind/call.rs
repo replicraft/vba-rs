@@ -1,12 +1,12 @@
-//! Call signatures, argument matching (MS-VBAL §5.6.13) and implicit
-//! coercions (§5.6.x, `Let`/`Set` rules).
+//! Call signatures, argument matching (MS-VBAL §5.6) and implicit
+//! coercions (§5.6, `Let`/`Set` rules).
 
 use vba_ast::{Arg, Expr, ExprKind, Ident};
 use vba_source::Span;
 use vba_stdlib::FunctionInfo;
 use vba_value::VarType;
 
-use crate::bound::{BArg, BExpr, BExprKind, BLate, CallTarget, LateKind, LateMember};
+use crate::bound::{BArg, BExpr, BExprKind, BLate, CallTarget, Constant, LateKind, LateMember};
 use crate::codes;
 use crate::program::{DeclareInfo, EventInfo, ProcInfo};
 use crate::provider::LibMember;
@@ -302,6 +302,27 @@ impl Binder<'_, '_> {
         }
         let span = e.span;
         let from = e.ty.clone();
+        // Constants are converted at analysis time when that is exact.
+        if let BExprKind::Const(Constant::Value(v)) = &e.kind
+            && !from.is_object()
+            && !matches!(from, Type::Udt(_) | Type::Array { .. })
+        {
+            match to {
+                Type::Variant => {
+                    return BExpr::new(span, Type::Variant, e.kind);
+                }
+                t if !t.is_object()
+                    && !matches!(t, Type::FixedString(_) | Type::Udt(_) | Type::Array { .. }) =>
+                {
+                    if let Some(vt) = t.var_type()
+                        && let Ok(c) = vba_value::convert::convert_to(v, vt)
+                    {
+                        return BExpr::new(span, to.clone(), BExprKind::Const(Constant::Value(c)));
+                    }
+                }
+                _ => {}
+            }
+        }
         let mismatch = |this: &Self| {
             this.err(
                 codes::TYPE_MISMATCH,
@@ -430,7 +451,7 @@ impl Binder<'_, '_> {
 
     // ---- arguments ---------------------------------------------------------
 
-    /// Matches an argument list against a signature (§5.6.13): positional,
+    /// Matches an argument list against a signature (§5.6): positional,
     /// then named arguments, `Optional`, `ParamArray`.
     pub(crate) fn match_args(&mut self, sig: &Sig, args: &[Arg], call_span: Span) -> Vec<BArg> {
         let pa = sig.params.iter().position(|p| p.param_array);

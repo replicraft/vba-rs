@@ -1,4 +1,4 @@
-//! Literal typing and constant folding (MS-VBAL §3.3, §5.6.5).
+//! Literal typing and constant folding (MS-VBAL §3.3, §5.6).
 
 use vba_ast::{BinaryOp, CompareMode, Expr, ExprKind, Ident, Literal, Radix, UnaryOp};
 use vba_lexer::TypeSuffix;

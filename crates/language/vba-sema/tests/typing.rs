@@ -37,6 +37,10 @@ fn proc_of<'a>(a: &'a Analysis, name: &str) -> &'a ProcInfo {
 
 fn type_of(decls: &str, expr: &str) -> String {
     let (a, v) = bound_value(decls, expr);
+    // A constant stored into the Variant result keeps its own subtype.
+    if let BExprKind::Const(Constant::Value(var)) = &v.kind {
+        return a.program.type_name(&vba_sema::fold::type_of_variant(var));
+    }
     a.program.type_name(&v.ty)
 }
 

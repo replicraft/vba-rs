@@ -1,5 +1,5 @@
-//! Expression binding: simple name resolution (MS-VBAL §5.6.10), member
-//! access (§5.6.11), index and call classification.
+//! Expression binding: simple name resolution (MS-VBAL §5.6), member
+//! access (§5.6), index and call classification.
 
 use vba_ast::{Arg, BinaryOp, Expr, ExprKind, Ident, Name, UnaryOp};
 use vba_lexer::TypeSuffix;
@@ -100,6 +100,20 @@ impl Binder<'_, '_> {
                         format!("operator is not defined for {}", self.tn(&o.ty)),
                     );
                     return self.error_expr(span);
+                }
+                // Fold negation and `Not` of constants (`-1`, `Not True`).
+                if let BExprKind::Const(Constant::Value(v)) = &o.kind {
+                    let folded = match op {
+                        UnaryOp::Neg => {
+                            vba_value::ops::negate(v, vba_value::ops::Overflow::Error).ok()
+                        }
+                        UnaryOp::Not => vba_value::ops::not(v).ok(),
+                        UnaryOp::Plus => None,
+                    };
+                    if let Some(r) = folded {
+                        let ty = crate::fold::type_of_variant(&r);
+                        return BExpr::new(span, ty, BExprKind::Const(Constant::Value(r)));
+                    }
                 }
                 let ty = match op {
                     UnaryOp::Neg | UnaryOp::Plus => negate_result(&o.ty),
@@ -453,6 +467,9 @@ impl Binder<'_, '_> {
             };
         }
         // Unresolved.
+        if (args.is_some() || stmt) && self.is_host_name(id) {
+            return self.host_member(id, span, args);
+        }
         if args.is_none() && !stmt {
             if self.explicit {
                 self.err(
@@ -462,7 +479,7 @@ impl Binder<'_, '_> {
                 );
                 return self.error_expr(span);
             }
-            // Implicit declaration (§5.6.10): a local Variant (or Def type).
+            // Implicit declaration (§5.6): a local Variant (or Def type).
             let ty = match id.suffix {
                 Some(s) => self.sema.suffix_type(s),
                 None => self.options().default_type_for(&id.name),
@@ -850,8 +867,63 @@ impl Binder<'_, '_> {
         {
             return self.call_intrinsic(r, span, args);
         }
-        let recv = self.bind_expr(t);
+        let recv = match &t.kind {
+            ExprKind::Name(id) if self.is_host_name(id) => self.host_member(id, t.span, None),
+            _ => self.bind_expr(t),
+        };
         self.member_of(recv, name, args, stmt)
+    }
+
+    /// Whether the module is a document or designer module, whose base class
+    /// (the form, the worksheet) and controls come from the host.
+    fn host_backed(&self) -> bool {
+        matches!(
+            self.sema.program.modules[self.module.index()].kind,
+            vba_project::ModuleKind::Designer | vba_project::ModuleKind::Document
+        )
+    }
+
+    /// An unresolved simple name in a host-backed module.
+    fn is_host_name(&self, id: &Ident) -> bool {
+        self.host_backed()
+            && !id.is_missing()
+            && !id.name.eq_ignore_case("Me")
+            && !self.scope.contains_key(&id.name)
+            && matches!(
+                self.sema.lookup_module_scope(self.module, &id.name),
+                Found::None
+            )
+            && lookup_intrinsic(id).is_none()
+            && self
+                .sema
+                .provider
+                .global(&id.name.to_string_lossy())
+                .is_none()
+    }
+
+    /// A member of the host-provided base class of a document or designer
+    /// module (a control, `Caption`, `Show`...), bound late. The analysis
+    /// cannot verify it without the form description, so it says so.
+    fn host_member(&mut self, id: &Ident, span: Span, args: Option<&[Arg]>) -> BExpr {
+        self.sema.report(
+            vba_diagnostics::Severity::Info,
+            self.module,
+            codes::LATE_BOUND_LIBRARY_MEMBER,
+            id.span,
+            format!(
+                "`{}` is not declared in this module; it is assumed to be a host-provided member (control or base-class member) and is bound late",
+                id.name
+            ),
+        );
+        let me = self.me_expr(span);
+        let la = self.late_args(args.unwrap_or(&[]));
+        self.late(
+            me,
+            LateMember::Named(id.name.clone()),
+            la,
+            Type::Variant,
+            None,
+        )
     }
 
     fn try_namespace(&mut self, t: &Expr) -> Option<Namespace> {
@@ -934,6 +1006,15 @@ impl Binder<'_, '_> {
             Namespace::Module(m) => {
                 let mi = &sema.program.modules[m.index()];
                 let Some((sym, _)) = mi.symbols.get(&name.name).copied() else {
+                    if mi.predeclared
+                        && matches!(
+                            mi.kind,
+                            vba_project::ModuleKind::Designer | vba_project::ModuleKind::Document
+                        )
+                    {
+                        let inst = BExpr::new(span, Type::Class(m), BExprKind::DefaultInstance(m));
+                        return self.member_of(inst, name, args, stmt);
+                    }
                     self.err(
                         codes::NO_SUCH_MEMBER,
                         name.span,
@@ -1022,6 +1103,31 @@ impl Binder<'_, '_> {
                             return self.error_expr(span);
                         }
                         self.use_symbol(m, sym, name, span, args, stmt, Some(receiver))
+                    }
+                    _ if matches!(
+                        mi.kind,
+                        vba_project::ModuleKind::Designer | vba_project::ModuleKind::Document
+                    ) =>
+                    {
+                        // Members of the host-provided base class.
+                        self.sema.report(
+                            vba_diagnostics::Severity::Info,
+                            self.module,
+                            codes::LATE_BOUND_LIBRARY_MEMBER,
+                            name.span,
+                            format!(
+                                "`{}` is not declared in module `{}`; it is assumed to be a host-provided member and is bound late",
+                                name.name, mi.name
+                            ),
+                        );
+                        let la = self.late_args(args.unwrap_or(&[]));
+                        self.late(
+                            receiver,
+                            LateMember::Named(name.name.clone()),
+                            la,
+                            Type::Variant,
+                            None,
+                        )
                     }
                     _ => {
                         self.err(

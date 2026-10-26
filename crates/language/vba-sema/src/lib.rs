@@ -2,7 +2,7 @@
 //!
 //! [`analyze_sources`] / [`analyze_project`] parse the modules of a project
 //! (through `vba-ast`), build module and project symbol tables, resolve
-//! names case-insensitively following MS-VBAL §5.6.10/§5.6.11, check
+//! names case-insensitively following MS-VBAL §5.6, check
 //! declarations (`Option Explicit`, properties, `Implements`, events,
 //! `Declare`), fold constants, type every expression and bind every call.
 //! The result is an [`Analysis`]: a [`Program`] whose procedure bodies are

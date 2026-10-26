@@ -390,7 +390,7 @@ impl Sema<'_> {
         }
     }
 
-    /// Builds parameter infos and checks the parameter-list rules (§5.3.1.x).
+    /// Builds parameter infos and checks the parameter-list rules (§5.3).
     pub(crate) fn build_params(
         &self,
         module: ModuleId,
