@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn windows_verbatim_paths_become_the_canonical_spelling() {
         let t = |s: &str| to_canonical_text(Path::new(s));
-        assert_eq!(t(r"\\?\C:\Users\Me"), "c:/Users/Me");
+        assert_eq!(t(r"\\?\C:\Data\Me"), "c:/Data/Me");
         assert_eq!(t(r"\\?\UNC\srv\share\x"), "//srv/share/x");
         assert_eq!(t(r"D:\a"), "d:/a");
         assert_eq!(t("/usr/lib"), "/usr/lib");

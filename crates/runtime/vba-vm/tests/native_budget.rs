@@ -22,12 +22,13 @@ fn run_on_stack(mods: Mods, stack: usize, budget: Option<usize>) -> Result<(), V
         .stack_size(stack)
         .spawn(move || {
             let mods: Vec<_> = mods.iter().map(|(n, k, s)| module(n, *k, s)).collect();
-            let mut cfg = VmConfig::default();
             // Lift the count so that only the byte budget is under test.
-            cfg.max_native_depth = u32::MAX;
-            if let Some(b) = budget {
-                cfg.max_native_stack_bytes = b;
-            }
+            let default = VmConfig::default();
+            let cfg = VmConfig {
+                max_native_depth: u32::MAX,
+                max_native_stack_bytes: budget.unwrap_or(default.max_native_stack_bytes),
+                ..default
+            };
             let host = Rc::new(HeadlessHost::new().with_limits(ResourceLimits {
                 max_steps: Some(50_000_000),
                 max_call_depth: 1_000_000,
