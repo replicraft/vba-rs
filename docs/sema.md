@@ -107,7 +107,10 @@ to ordinary expressions.
 
 Run-time provided intrinsics (called as `Callee::Intrinsic`, implemented by
 the VM, not present in the `vba-stdlib` registry): `CreateObject`, `GetObject`,
-`MsgBox`, `InputBox`, `DoEvents`, `Beep`, `Erl`, `Command`, and the `Mid`
+`MsgBox`, `InputBox`, `DoEvents`, `Beep`, `Erl`, `Command`, `Shell`, the file
+system functions and statements (`FreeFile`, `EOF`, `LOF`, `Loc`, `Seek`,
+`FileLen`, `FileDateTime`, `GetAttr`, `SetAttr`, `CurDir`, `Dir`, `Kill`,
+`MkDir`, `RmDir`, `ChDir`, `ChDrive`, `FileCopy`), and the `Mid`
 statement, which is bound as a call of `MidStatement(ref target, start,
 length|missing, value)` (`MidBStatement` for `MidB`).
 

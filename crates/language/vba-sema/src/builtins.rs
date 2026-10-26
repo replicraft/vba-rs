@@ -207,6 +207,49 @@ pub fn runtime_function(name: &str) -> Option<LibMember> {
             vec![p("ArgName", Type::Variant)],
             Type::Boolean,
         ),
+        "shell" => LibMember::function(
+            "Shell",
+            vec![p("PathName", Type::String), o("WindowStyle", Type::Integer)],
+            Type::Double,
+        ),
+        // File system functions and statements (`VBA.FileSystem`).
+        "freefile" => LibMember::function(
+            "FreeFile",
+            vec![o("RangeNumber", Type::Variant)],
+            Type::Integer,
+        ),
+        "eof" => LibMember::function("EOF", vec![p("FileNumber", Type::Integer)], Type::Boolean),
+        "lof" => LibMember::function("LOF", vec![p("FileNumber", Type::Integer)], Type::Long),
+        "loc" => LibMember::function("Loc", vec![p("FileNumber", Type::Integer)], Type::Long),
+        "seek" => LibMember::function("Seek", vec![p("FileNumber", Type::Integer)], Type::Long),
+        "filelen" => LibMember::function("FileLen", vec![p("PathName", Type::String)], Type::Long),
+        "filedatetime" => LibMember::function(
+            "FileDateTime",
+            vec![p("PathName", Type::String)],
+            Type::Date,
+        ),
+        "getattr" => {
+            LibMember::function("GetAttr", vec![p("PathName", Type::String)], Type::Integer)
+        }
+        "curdir" => LibMember::function("CurDir", vec![o("Drive", Type::Variant)], Type::Variant),
+        "dir" => LibMember::function(
+            "Dir",
+            vec![o("PathName", Type::Variant), o("Attributes", Type::Long)],
+            Type::String,
+        ),
+        "setattr" => LibMember::sub(
+            "SetAttr",
+            vec![p("PathName", Type::String), p("Attributes", Type::Integer)],
+        ),
+        "kill" => LibMember::sub("Kill", vec![p("PathName", Type::Variant)]),
+        "mkdir" => LibMember::sub("MkDir", vec![p("Path", Type::String)]),
+        "rmdir" => LibMember::sub("RmDir", vec![p("Path", Type::String)]),
+        "chdir" => LibMember::sub("ChDir", vec![p("Path", Type::String)]),
+        "chdrive" => LibMember::sub("ChDrive", vec![p("Drive", Type::Variant)]),
+        "filecopy" => LibMember::sub(
+            "FileCopy",
+            vec![p("Source", Type::String), p("Destination", Type::String)],
+        ),
         _ => return None,
     })
 }

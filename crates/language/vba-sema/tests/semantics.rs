@@ -310,3 +310,26 @@ fn analyses_a_project_with_conditional_compilation_constants() {
     assert_eq!(c.ty, Type::Long);
     assert!(a.program.find_proc("Main", "Broken").is_none());
 }
+
+#[test]
+fn file_system_and_shell_functions_are_run_time_intrinsics() {
+    let a = analyze(&[bas(
+        "M",
+        "Sub P()\n\
+         Dim n As Integer, s As String, d As Date, pid As Double\n\
+         n = FreeFile\n\
+         If Not EOF(n) Then s = Dir(\"*.txt\")\n\
+         Kill \"a.txt\"\n\
+         MkDir \"d\"\n\
+         RmDir \"d\"\n\
+         ChDir \"d\"\n\
+         FileCopy \"a\", \"b\"\n\
+         SetAttr \"a\", vbReadOnly\n\
+         s = CurDir$\n\
+         d = FileDateTime(\"a\")\n\
+         n = GetAttr(\"a\") + LOF(1) + Loc(1) + Seek(1) + FileLen(\"a\")\n\
+         pid = Shell(\"cmd\", 1)\n\
+         End Sub\n",
+    )]);
+    assert_clean(&a);
+}
