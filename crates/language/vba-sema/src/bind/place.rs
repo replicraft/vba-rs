@@ -152,7 +152,7 @@ impl Binder<'_, '_> {
             BExprKind::Late(mut late) if late.kind == LateKind::Get => {
                 let mut value_ty = Type::Variant;
                 if let (Some(lt), LateMember::Named(n)) = (&late.static_receiver, &late.member)
-                    && late.dispid.is_some()
+                    && (late.dispid.is_some() || lt.library == crate::builtins::VBA_LIBRARY)
                     && let Some(m) = self.sema.provider.member(lt, &n.to_string_lossy())
                 {
                     match m.kind {
