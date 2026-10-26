@@ -78,6 +78,21 @@ impl<'a> Sema<'a> {
         let kind = self.program.modules[m.index()].kind;
         let class_like = kind != ModuleKind::Standard;
         self.implements_src.push(Vec::new());
+        // MS-VBAL 4.2: a module name has at most 31 characters.
+        if self.program.modules[m.index()]
+            .name
+            .to_string()
+            .chars()
+            .count()
+            > 31
+        {
+            self.error(
+                m,
+                codes::TYPE_DECLARATION,
+                Span::empty(0),
+                "a module name has at most 31 characters",
+            );
+        }
 
         let mut declared_any = false;
         let mut def_seen = [false; 26];
@@ -131,6 +146,21 @@ impl<'a> Sema<'a> {
                     }
                 }
                 Item::Attribute(a) => {
+                    // MS-VBAL 4.2: classes in source form are not creatable and are
+                    // not global-namespace classes.
+                    if class_like
+                        && a.object.is_none()
+                        && (a.name.name.eq_ignore_case("VB_Creatable")
+                            || a.name.name.eq_ignore_case("VB_GlobalNameSpace"))
+                        && is_true_attr(a)
+                    {
+                        self.error(
+                            m,
+                            codes::TYPE_DECLARATION,
+                            a.span,
+                            format!("`{}` must be False for a class module", a.name.name),
+                        );
+                    }
                     if a.object.is_none()
                         && a.name.name.eq_ignore_case("VB_PredeclaredId")
                         && is_true_attr(a)
