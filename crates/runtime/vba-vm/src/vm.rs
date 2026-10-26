@@ -97,6 +97,9 @@ pub struct Vm {
     pub(crate) debug_col: usize,
     pub(crate) declare: DeclareState,
     pub(crate) run_depth: u32,
+    /// The stack address seen by the outermost active run; nested runs
+    /// measure their distance from it.
+    pub(crate) native_base: usize,
     /// How many host calls the VM is suspended in (nested embedder runs).
     pub(crate) nesting: u32,
     /// The place this VM waits in while a re-entrant host object runs.
@@ -174,6 +177,7 @@ impl Vm {
             debug_col: 0,
             declare: DeclareState::new(),
             run_depth: 0,
+            native_base: 0,
             nesting: 0,
             slot: crate::reentry::ReentrySlot::new(),
             pending_fatal: None,

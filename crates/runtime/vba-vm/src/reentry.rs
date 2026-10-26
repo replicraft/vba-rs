@@ -169,6 +169,7 @@ impl Vm {
             debug_col: 0,
             declare: DeclareState::new(),
             run_depth: 0,
+            native_base: 0,
             nesting: 0,
             poll_countdown: vba_host::POLL_INTERVAL,
             stop_reason: None,

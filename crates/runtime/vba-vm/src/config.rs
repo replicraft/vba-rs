@@ -71,6 +71,16 @@ pub struct VmConfig {
     /// handlers and default-member coercions do. Beyond the limit the run
     /// ends with a call-depth limit error.
     pub max_native_depth: u32,
+    /// How much native stack, in bytes, nested runs may use between the
+    /// outermost run and the innermost one. The count above does not bound
+    /// the stack by itself: a nested run reached through host code, a
+    /// default-member coercion or a deep chain of native frames costs a
+    /// different amount each time. Both limits apply and the first one hit
+    /// ends the run with a call-depth limit error. The default (1 MiB) fits a
+    /// thread of the standard library's default 2 MiB; a debug build spends
+    /// about 70 KiB on a level. Lower it when the interpreter runs on a
+    /// thread with a smaller stack.
+    pub max_native_stack_bytes: usize,
     /// How many runs may nest through host calls: a host object that
     /// declares itself re-entrant calls back into the session (raising an
     /// event, creating a form) while the VM waits in that host call. Beyond
@@ -87,6 +97,7 @@ impl Default for VmConfig {
             max_array_elements: 1 << 24,
             max_gosub_depth: 1 << 12,
             max_native_depth: 48,
+            max_native_stack_bytes: 1 << 20,
             max_reentrancy_depth: 4,
         }
     }

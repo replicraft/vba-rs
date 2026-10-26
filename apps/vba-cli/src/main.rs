@@ -264,6 +264,25 @@ fn finish(r: Result<tools::Report, tools::ToolError>) -> ExitCode {
     }
 }
 
+/// Stack of the thread that compiles and runs a program. The interpreter
+/// budgets its own native nesting (`VmConfig::max_native_stack_bytes`); the
+/// main thread of some systems (Windows: 1 MiB) is smaller than that budget.
+const RUN_STACK_BYTES: usize = 64 << 20;
+
+/// Runs `f` on a thread with [`RUN_STACK_BYTES`] of stack.
+fn on_large_stack(f: impl FnOnce() -> u8 + Send + 'static) -> u8 {
+    let spawned = std::thread::Builder::new()
+        .stack_size(RUN_STACK_BYTES)
+        .spawn(f);
+    match spawned.map(|h| h.join()) {
+        Ok(Ok(code)) => code,
+        _ => {
+            eprintln!("error: the run ended abnormally");
+            5
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     diag::set_color(cli.color.enabled());
@@ -349,22 +368,25 @@ fn main() -> ExitCode {
             command,
             allow_partial,
             strict_spec,
-        } => ExitCode::from(run::run(run::RunArgs {
-            files,
-            entry,
-            args,
-            grants,
-            profile,
-            memfs,
-            max_steps,
-            max_memory,
-            max_call_depth,
-            unlimited,
-            system_env,
-            allow_shell,
-            command,
-            allow_partial,
-            strict_spec,
-        })),
+        } => {
+            let args = run::RunArgs {
+                files,
+                entry,
+                args,
+                grants,
+                profile,
+                memfs,
+                max_steps,
+                max_memory,
+                max_call_depth,
+                unlimited,
+                system_env,
+                allow_shell,
+                command,
+                allow_partial,
+                strict_spec,
+            };
+            ExitCode::from(on_large_stack(move || run::run(args)))
+        }
     }
 }

@@ -32,7 +32,17 @@ impl Vm {
     /// the last frame popped.
     pub(crate) fn run(&mut self, base: usize) -> VResult<Variant> {
         let ir = self.ir.clone();
-        if self.run_depth >= self.cfg.max_native_depth {
+        // The address of a local is where the stack is now (it grows toward
+        // lower addresses on every supported target, and only the distance
+        // matters).
+        let marker = 0u8;
+        let here = std::ptr::addr_of!(marker) as usize;
+        if self.run_depth == 0 {
+            self.native_base = here;
+        }
+        if self.run_depth >= self.cfg.max_native_depth
+            || self.native_base.abs_diff(here) > self.cfg.max_native_stack_bytes
+        {
             return Err(Fault::Limit(crate::error::LimitKind::CallDepth));
         }
         self.run_depth += 1;
