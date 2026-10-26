@@ -366,7 +366,8 @@ pub enum Evidence {
 /// expression stack under the documented stack semantics and the resulting
 /// expression is compared with the source expression parsed with the VBAL
 /// operator precedence. Statements compared: 1,098 assignments (1,097
-/// agree), 237 block `If` conditions (237), 11 `ElseIf` (11), 18 `Do`/`Loop`
+/// agree), 237 block `If` conditions (237), 28 single-line `If` conditions
+/// (27; the other has a `StrComp` the check does not model), 11 `ElseIf` (11), 18 `Do`/`Loop`
 /// conditions (18), 2 `Select Case` subjects (2), 35 `For` headers with
 /// start, end and step in order (35), 317 `Case` lists with values, ranges
 /// and `Is` comparisons (317), 15 `Debug.Print` lists with separators (15)
@@ -379,9 +380,10 @@ pub enum Evidence {
 /// literal with value 65535 where the language gives `-1`.
 const VERIFIED: &[u16] = &[
     3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 25, 26, 27, 29, 32,
-    36, 39, 65, 75, 76, 81, 82, 83, 84, 91, 93, 95, 97, 98, 100, 101, 103, 105, 107, 109, 110, 111,
-    113, 121, 122, 124, 132, 133, 134, 138, 145, 146, 149, 150, 154, 156, 172, 173, 176, 178, 183,
-    185, 186, 188, 189, 190, 202, 203, 208, 216, 217, 218, 220, 237, 245, 246, 247, 257, 258,
+    36, 39, 65, 75, 76, 81, 82, 83, 84, 91, 93, 95, 97, 98, 100, 101, 103, 105, 106, 107, 109, 110,
+    111, 113, 121, 122, 124, 132, 133, 134, 138, 145, 146, 149, 150, 154, 155, 156, 172, 173, 176,
+    178, 183, 185, 186, 188, 189, 190, 202, 203, 208, 216, 217, 218, 220, 237, 245, 246, 247, 257,
+    258,
 ];
 
 /// Opcodes that occur in the observed material (135 of 264).

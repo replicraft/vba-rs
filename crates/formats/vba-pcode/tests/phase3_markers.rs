@@ -66,6 +66,25 @@ fn predicates() -> Vec<(Opcode, &'static str, Pred)> {
         "If..Then (block)",
         Box::new(|t| w(t, 0) == "if" && t.last().map(lc).as_deref() == Some("then")),
     ));
+    v.push((
+        Opcode::IfSingleLine,
+        "If..Then stmt (single line)",
+        Box::new(|t| w(t, 0) == "if" && t.last().map(lc).as_deref() != Some("then")),
+    ));
+    v.push((
+        Opcode::EndifSingleLine,
+        "If..Then stmt (single line)",
+        Box::new(|t| w(t, 0) == "if" && t.last().map(lc).as_deref() != Some("then")),
+    ));
+    v.push((
+        Opcode::ElseSingleLine,
+        "single-line If with Else",
+        Box::new(|t| {
+            w(t, 0) == "if"
+                && t.last().map(lc).as_deref() != Some("then")
+                && t.iter().any(|x| lc(x) == "else")
+        }),
+    ));
     v.push((Opcode::BlockElseBranch, "Else alone", alone("else")));
     v.push((Opcode::BlockElseifBranch, "ElseIf", first("elseif")));
     v.push((Opcode::BlockIfClose, "End If", two("end", "if")));

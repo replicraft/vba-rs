@@ -19,6 +19,7 @@ fn kw(t: &common::Tok, k: Keyword) -> bool {
 enum Shape<'a> {
     Assign(String, &'a [common::Tok]),
     If(&'a [common::Tok]),
+    SingleIf(&'a [common::Tok]),
     ElseIf(&'a [common::Tok]),
     DoWhile(&'a [common::Tok]),
     DoUntil(&'a [common::Tok]),
@@ -32,6 +33,12 @@ fn shape(t: &[common::Tok]) -> Option<Shape<'_>> {
     let first = t.first()?;
     if kw(first, Keyword::If) && t.last().is_some_and(|l| kw(l, Keyword::Then)) {
         return Some(Shape::If(&t[1..t.len() - 1]));
+    }
+    if kw(first, Keyword::If)
+        && let Some(pos) = t.iter().position(|x| kw(x, Keyword::Then))
+        && pos + 1 < t.len()
+    {
+        return Some(Shape::SingleIf(&t[1..pos]));
     }
     if kw(first, Keyword::ElseIf) && t.last().is_some_and(|l| kw(l, Keyword::Then)) {
         return Some(Shape::ElseIf(&t[1..t.len() - 1]));
@@ -101,6 +108,7 @@ fn expression_streams_agree_with_source() {
             let (name, toks, tail): (&str, &[common::Tok], &[Opcode]) = match &sh {
                 Shape::Assign(_, t) => ("assign", t, &[Opcode::WriteSimple]),
                 Shape::If(t) => ("if", t, &[Opcode::IfBlockOpen]),
+                Shape::SingleIf(t) => ("single-if", t, &[Opcode::IfSingleLine]),
                 Shape::ElseIf(t) => ("elseif", t, &[Opcode::BlockElseifBranch]),
                 Shape::DoWhile(t) => ("do-while", t, &[Opcode::DoOpenWhile]),
                 Shape::DoUntil(t) => ("do-until", t, &[Opcode::DoOpenUntil]),
@@ -117,7 +125,9 @@ fn expression_streams_agree_with_source() {
             let got = replay(&ins);
             let ok = match &got {
                 Some((st, k))
-                    if st.len() == 1 && ins.len() == k + 1 && ins[*k].opcode == tail[0] =>
+                    if st.len() == 1
+                        && (ins.len() == k + 1 || matches!(sh, Shape::SingleIf(_)))
+                        && ins.get(*k).is_some_and(|x| x.opcode == tail[0]) =>
                 {
                     let name_ok = match (&sh, ins[*k].operands.first()) {
                         (Shape::Assign(n, _), Some(op)) => {
