@@ -79,6 +79,8 @@ enum Ex {
     },
     /// `Me`.
     Me(ModuleId),
+    /// An omitted positional argument; only valid inside an argument list.
+    Missing,
     /// A member of the host base of a document or designer module (a
     /// control, a base-class member), or a member of such a value: bound
     /// late, as the source binding does.
@@ -123,6 +125,7 @@ enum ArgEx {
 enum LateEx {
     Val(Ex),
     Ref(RefTarget),
+    Missing,
 }
 
 /// What a name is looked up for.
@@ -143,7 +146,7 @@ impl Ex {
             | Ex::Call { ty, .. }
             | Ex::Global { ty, .. } => ty.clone(),
             Ex::Me(m) => Type::Class(*m),
-            Ex::Late { .. } => Type::Variant,
+            Ex::Late { .. } | Ex::Missing => Type::Variant,
             Ex::Convert { to, .. } => to.clone(),
             Ex::Paren(e) => e.ty(),
             Ex::LibObj { lt, .. } => Type::Library(lt.clone()),
@@ -247,6 +250,8 @@ struct Lw<'a> {
     labels: HashMap<String, BlockId>,
     /// Labels that were defined by a `LABEL_NAMED`.
     defined: Vec<String>,
+    /// Local constants (lower-case name): folded where they are read.
+    local_consts: HashMap<String, (Variant, Type)>,
 }
 
 type R<T> = Result<T, Unsupported>;
@@ -331,6 +336,7 @@ pub(crate) fn lower_body(
         has_on_error: body.iter().any(|(_, i)| i.opcode == Opcode::ErrHandlerSet),
         labels: HashMap::new(),
         defined: Vec::new(),
+        local_consts: HashMap::new(),
     };
     lw.begin_stmt();
     let mut last_op = Opcode::ProcHeader;
@@ -683,9 +689,11 @@ impl Lw<'_> {
     // ---- stack helpers -----------------------------------------------------
 
     fn pop(&mut self, ins: &Listed) -> R<Ex> {
-        self.stack
-            .pop()
-            .ok_or_else(|| self.no(ins.opcode, "expression stack underflow"))
+        match self.stack.pop() {
+            Some(Ex::Missing) => Err(self.no(ins.opcode, "omitted argument outside a call")),
+            Some(e) => Ok(e),
+            None => Err(self.no(ins.opcode, "expression stack underflow")),
+        }
     }
 
     fn pop_n(&mut self, ins: &Listed, n: usize) -> R<Vec<Ex>> {
@@ -710,6 +718,13 @@ impl Lw<'_> {
         }
         let mut out = Vec::new();
         for (p, a) in callee.params.iter().zip(args) {
+            if matches!(a, Ex::Missing) {
+                if !p.optional {
+                    return Err(self.no(ins.opcode, "omitted argument for a required parameter"));
+                }
+                out.push(ArgEx::Missing);
+                continue;
+            }
             let forced = matches!(a, Ex::Paren(_));
             if p.by_val || forced {
                 out.push(ArgEx::Val(self.coerce(a, &p.ty)));
@@ -802,6 +817,13 @@ impl Lw<'_> {
         let skip = usize::from(lead_missing);
         for (k, a) in args.drain(..).enumerate() {
             let p = &info.params[k + skip];
+            if matches!(a, Ex::Missing) {
+                if !p.optional {
+                    return Err(self.no(ins.opcode, "omitted argument for a required parameter"));
+                }
+                out.push(ArgEx::Missing);
+                continue;
+            }
             let pty = var_type_to_type(p.ty);
             if pty.is_object() {
                 return Err(self.no(ins.opcode, "object parameter"));
@@ -843,6 +865,13 @@ impl Lw<'_> {
         }
         let mut out = Vec::new();
         for (p, a) in m.params.iter().zip(args) {
+            if matches!(a, Ex::Missing) {
+                if !p.optional {
+                    return Err(self.no(ins.opcode, "omitted argument for a required parameter"));
+                }
+                out.push(ArgEx::Missing);
+                continue;
+            }
             out.push(ArgEx::Val(self.coerce(a, &p.ty)));
         }
         while out.len() < m.params.len() {
@@ -982,6 +1011,7 @@ impl Lw<'_> {
                 self.emit_global_load(*id, dst);
                 IrOperand::Reg(dst)
             }
+            Ex::Missing => IrOperand::Const(Constant::Value(Variant::Empty)),
             Ex::Me(m) => {
                 let dst = self.reg(Type::Class(*m));
                 self.emit(InstKind::LoadMe { dst });
@@ -1119,6 +1149,7 @@ impl Lw<'_> {
                 arg: match a {
                     LateEx::Val(v) => CallArg::Val(self.emit_ex(v)),
                     LateEx::Ref(t) => CallArg::Ref(self.emit_ref(*t)),
+                    LateEx::Missing => CallArg::Missing,
                 },
             });
         }
@@ -1447,6 +1478,13 @@ impl Lw<'_> {
             }
 
             // ---- statements ----
+            Opcode::ArgMissing => self.stack.push(Ex::Missing),
+            Opcode::BranchGoto => {
+                let (name, _) = self.name_of(ins)?;
+                let b = self.label_block(&name);
+                self.terminate_and_continue(Terminator::Jump(b));
+            }
+            Opcode::VarDecl if ins.modifier & 0x23 == 2 => self.local_const(ins)?,
             Opcode::DimMarker | Opcode::VarDecl | Opcode::OptionStmt => {}
             Opcode::InvokeSimple => {
                 let (name, suffix) = self.name_of(ins)?;
@@ -1799,6 +1837,8 @@ impl Lw<'_> {
             // `Resume label`.
             Opcode::ErrResume => ins.modifier == 0,
             Opcode::LabelNamed => true,
+            // An omitted positional argument.
+            Opcode::ArgMissing => true,
             // Hexadecimal `Integer` literals and the `CLng`/`CStr` family.
             Opcode::ConstInt16Hex | Opcode::ConstDate => true,
             Opcode::ConvertToType => matches!(ins.modifier, 3 | 8),
@@ -1864,6 +1904,7 @@ impl Lw<'_> {
             .map(|a| match &a {
                 Ex::Local { id, bare: true, .. } => LateEx::Ref(RefTarget::Local(*id)),
                 Ex::Global { id, bare: true, .. } => LateEx::Ref(RefTarget::Global(*id)),
+                Ex::Missing => LateEx::Missing,
                 _ => LateEx::Val(a),
             })
             .collect()
@@ -1894,6 +1935,9 @@ impl Lw<'_> {
         }
         if let Some((id, ty)) = self.local_by_name(name) {
             return Ok(Ex::Local { id, ty, bare: true });
+        }
+        if let Some((v, ty)) = self.local_consts.get(&name.to_ascii_lowercase()) {
+            return Ok(Ex::Const(v.clone(), ty.clone()));
         }
         match self.module_symbol(name) {
             Some(Symbol::Var(g)) if args.is_empty() => return Ok(self.global_ex(g)),
@@ -1943,7 +1987,9 @@ impl Lw<'_> {
         suffix: Option<char>,
         args: Vec<Ex>,
     ) -> R<Ex> {
-        if self.local_by_name(name).is_some() {
+        if self.local_by_name(name).is_some()
+            || self.local_consts.contains_key(&name.to_ascii_lowercase())
+        {
             return Err(self.no(ins.opcode, "indexing of a variable"));
         }
         if self.is_result_name(name) && suffix.is_none() {
@@ -1987,7 +2033,10 @@ impl Lw<'_> {
         suffix: Option<char>,
         args: Vec<Ex>,
     ) -> R<Ex> {
-        if self.local_by_name(name).is_some() || self.is_result_name(name) {
+        if self.local_by_name(name).is_some()
+            || self.is_result_name(name)
+            || self.local_consts.contains_key(&name.to_ascii_lowercase())
+        {
             return Err(self.no(ins.opcode, "call of a variable"));
         }
         if matches!(
@@ -2083,6 +2132,9 @@ impl Lw<'_> {
             Global(GlobalId, Type),
             Property(ProcId),
         }
+        if self.local_consts.contains_key(&name.to_ascii_lowercase()) {
+            return Err(self.no(ins.opcode, "assignment to a constant"));
+        }
         let target = if self.is_result_name(name) {
             match self.sema.result_local {
                 Some(l) => Target::Local(l, self.sema.ret.clone()),
@@ -2131,6 +2183,44 @@ impl Lw<'_> {
         let call = self.project_call(ins, pid, vec![Ex::Paren(Box::new(v))])?;
         self.emit_call_stmt(&call);
         Ok(())
+    }
+
+    /// `Const name [As T] = value` inside the procedure: the value must fold
+    /// to a literal.
+    fn local_const(&mut self, ins: &Listed) -> R<()> {
+        let Some(Operand::Variable(v)) = ins.operands.first() else {
+            return Err(self.no(ins.opcode, "unresolved constant"));
+        };
+        let Some(name) = crate::model::local_spelling(&v.name) else {
+            return Err(self.no(ins.opcode, "name does not resolve"));
+        };
+        let value = self.pop(ins)?;
+        self.expect_empty(ins)?;
+        let value = self.fold(value);
+        let value = match crate::model::scalar_type(&v.ty) {
+            Some(t) if v.ty != vba_pcode::ResolvedType::None => self.coerce(value, &t),
+            _ => value,
+        };
+        let Ex::Const(c, ty) = value else {
+            return Err(self.no(ins.opcode, "constant value is not a literal"));
+        };
+        self.local_consts.insert(name.to_ascii_lowercase(), (c, ty));
+        Ok(())
+    }
+
+    /// Folds a negated numeric literal.
+    fn fold(&self, e: Ex) -> Ex {
+        if let Ex::Unary {
+            op: UnOp::Neg,
+            e: inner,
+            ..
+        } = &e
+            && let Ex::Const(v, t) = &**inner
+            && let Ok(n) = vba_value::ops::negate(v, Overflow::Error)
+        {
+            return Ex::Const(n, t.clone());
+        }
+        e
     }
 
     /// `receiver.name = v`.

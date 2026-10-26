@@ -561,3 +561,140 @@ fn unresolved_names_are_host_members_only_where_the_source_binding_says_so() {
     assert_eq!(v, s("<(default)>"));
     assert_eq!(journal, ["get lblstatus[]", "get lblstatus.(default)[]"]);
 }
+
+/// Runs a function of the module `Cls` (any kind) as a procedure of a
+/// standard module.
+fn call_std(lp: &LoweredProject, name: &str, args: Vec<Arg>) -> Variant {
+    let (mut vm, _) = new_vm(lp);
+    let p = vm.find_procedure(&format!("Cls.{name}")).expect("entry");
+    vm.run_procedure(p, args).expect("runs").value
+}
+
+#[test]
+fn goto_jumps_to_a_label() {
+    let mut t = Tables::default();
+    let (x, r, done, f) = (t.name("x"), t.name("r"), t.name("Done"), t.name("F"));
+    let rv = t.variable("r", Some(T_LONG));
+    let rec = t.function("F", Some(T_LONG), &[("x", T_LONG, true)]);
+    let mut lines = vec![];
+    // Function F(x As Long) As Long
+    //   Dim r As Long: r = 1: GoTo Done: r = 2
+    // Done:
+    //   F = r + x
+    lines.extend(block(
+        rec,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new()
+                .op(Opcode::DimMarker)
+                .rec(Opcode::VarDecl, 1, rv),
+            Line::new().i16(1).write(r),
+            Line::new().name(Opcode::BranchGoto, done),
+            Line::new().i16(2).write(r),
+            Line::new().name(Opcode::LabelNamed, done),
+            Line::new().read(r).read(x).op(Opcode::NumAdd).write(f),
+        ],
+    ));
+    let lp = lower_kind(&t, ModuleKind::Standard, &lines, &[]);
+    assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
+    assert_eq!(call_std(&lp, "F", vec![Arg::Value(l(10))]), l(11));
+}
+
+#[test]
+fn omitted_arguments_become_missing() {
+    let mut t = Tables::default();
+    let (a, b, h, use_, bad) = (
+        t.name("a"),
+        t.name("b"),
+        t.name("H"),
+        t.name("Use"),
+        t.name("Bad"),
+    );
+    // Function H(a As Long, Optional b As Long) As Long: H = a * 100 + b
+    let hr = t.function(
+        "H",
+        Some(T_LONG),
+        &[("a", T_LONG, true), ("b", T_LONG, true)],
+    );
+    t.mark_optional(hr, 1, false);
+    let mut lines = block(
+        hr,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new()
+                .read(a)
+                .i16(100)
+                .op(Opcode::NumMultiply)
+                .read(b)
+                .op(Opcode::NumAdd)
+                .write(h),
+        ],
+    );
+    // Function Use() As Long: Use = H(1, )
+    let u = t.function("Use", Some(T_LONG), &[]);
+    lines.extend(block(
+        u,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new()
+                .i16(1)
+                .op(Opcode::ArgMissing)
+                .call(h, 2)
+                .write(use_),
+        ],
+    ));
+    // Function Bad() As Long: Bad = H(, 1)   (the first parameter is required)
+    let bd = t.function("Bad", Some(T_LONG), &[]);
+    lines.extend(block(
+        bd,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new()
+                .op(Opcode::ArgMissing)
+                .i16(1)
+                .call(h, 2)
+                .write(bad),
+        ],
+    ));
+    let lp = lower_kind(&t, ModuleKind::Standard, &lines, &[]);
+    assert!(lp.report("Cls", "Use").unwrap().outcome.is_lowered());
+    assert!(reasons(&lp, "Bad").contains("omitted argument"));
+    assert_eq!(call_std(&lp, "Use", vec![]), l(100));
+}
+
+#[test]
+fn local_constants_fold_where_they_are_read() {
+    let mut t = Tables::default();
+    let (k, j, g) = (t.name("K"), t.name("J"), t.name("G"));
+    let kv = t.variable("K", Some(T_LONG));
+    let jv = t.variable("J", None);
+    let rec = t.function("G", Some(T_LONG), &[]);
+    // Function G() As Long
+    //   Const K As Long = 40
+    //   Const J = -2
+    //   G = K + J
+    let lines = block(
+        rec,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new()
+                .opm(Opcode::DimMarker, 1)
+                .i16(40)
+                .rec(Opcode::VarDecl, 2, kv),
+            Line::new()
+                .opm(Opcode::DimMarker, 1)
+                .i16(2)
+                .op(Opcode::NumNegate)
+                .rec(Opcode::VarDecl, 2, jv),
+            Line::new().read(k).read(j).op(Opcode::NumAdd).write(g),
+        ],
+    );
+    let lp = lower_kind(&t, ModuleKind::Standard, &lines, &[]);
+    assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
+    assert_eq!(call_std(&lp, "G", vec![]), l(38));
+}

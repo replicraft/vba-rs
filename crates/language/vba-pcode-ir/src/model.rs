@@ -574,6 +574,22 @@ fn finish_signature(p: &mut ProcModel) {
         // 0x20 is WithEvents; 0x10 only adds a layout word (seen on
         // declarations whose `As` is aligned with extra spaces).
         let m = ins.modifier;
+        if m & 0x20 == 0 && m & 0x03 == 2 && v.ty != ResolvedType::None {
+            // A local constant is not a slot: the lowering folds its value.
+            if scalar_type(&v.ty).is_none() {
+                p.signature_problem = Some(unsup(
+                    ins.opcode,
+                    &name,
+                    *l,
+                    "local constant of unsupported type",
+                ));
+                return;
+            }
+            continue;
+        }
+        if m & 0x20 == 0 && m & 0x03 == 2 {
+            continue;
+        }
         if m & 0x20 != 0 || m & 0x03 != 1 {
             p.signature_problem = Some(unsup(
                 ins.opcode,
@@ -584,7 +600,12 @@ fn finish_signature(p: &mut ProcModel) {
             return;
         }
         let (Some(n), Some(ty)) = (local_spelling(&v.name), scalar_type(&v.ty)) else {
-            p.signature_problem = Some(unsup(ins.opcode, &name, *l, "local of unsupported type"));
+            p.signature_problem = Some(unsup(
+                ins.opcode,
+                &name,
+                *l,
+                format!("local of unsupported type {}", v.ty),
+            ));
             return;
         };
         if v.is_new {
@@ -596,7 +617,7 @@ fn finish_signature(p: &mut ProcModel) {
     // A `Dim` marker with a scope flag other than the plain local one means
     // `Static`/`Public`/`Private` inside a procedure.
     for (l, ins) in &p.body {
-        if ins.opcode == Opcode::DimMarker && ins.modifier & 0x2D != 0 {
+        if ins.opcode == Opcode::DimMarker && ins.modifier & 0x2C != 0 {
             p.signature_problem =
                 Some(unsup(ins.opcode, &name, *l, "Static or scoped declaration"));
             return;
