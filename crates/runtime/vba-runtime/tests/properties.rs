@@ -139,8 +139,17 @@ proptest! {
         fs.0.borrow_mut().write("/junk.bin", &bytes).unwrap();
         let src = "Sub Main()\nOn Error Resume Next\nDim s As String, v As Variant, n As Long, i As Long\nOpen \"junk.bin\" For Input As #1\nDo While Not EOF(1) And i < 50\nLine Input #1, s\ni = i + 1\nLoop\nClose #1\nOpen \"junk.bin\" For Input As #1\nFor i = 1 To 40\nInput #1, v\nInput #1, n\nInput #1, s\nNext\nClose #1\nOpen \"junk.bin\" For Binary As #1\nFor i = 1 To 40\nGet #1, , n\nGet #1, , v\nGet #1, , s\nNext\nClose #1\nOpen \"junk.bin\" For Random As #1 Len = 16\nFor i = 1 To 40\nGet #1, i, n\nGet #1, i, v\nNext\nClose #1\nDebug.Print \"done\"\nEnd Sub\n";
         let o = run(src, fs, all_files());
-        prop_assert!(o.result.is_ok(), "{:?}", o.result);
-        prop_assert_eq!(o.out, "done\n");
+        // Variants tagged Error or Decimal are valid in a file but not implemented:
+        // that is an explicit `Unsupported`, never a panic or a wrong value.
+        match &o.result {
+            Err(vba_runtime::Error::Unsupported(m)) => {
+                prop_assert!(m.contains("tagged"), "{m}");
+            }
+            r => {
+                prop_assert!(r.is_ok(), "{:?}", r);
+                prop_assert_eq!(o.out, "done\n");
+            }
+        }
     }
 
     #[test]
