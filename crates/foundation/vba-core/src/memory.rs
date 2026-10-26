@@ -81,6 +81,14 @@ impl MemoryMeter {
         }
     }
 
+    /// Replaces the limit (`None` for unlimited). Bytes already charged stay
+    /// charged; a lower limit makes the next allocation fail.
+    pub fn set_limit(&self, limit: Option<u64>) {
+        self.0
+            .limit
+            .store(limit.unwrap_or(u64::MAX), Ordering::Relaxed);
+    }
+
     /// Bytes currently charged.
     pub fn used(&self) -> u64 {
         self.0.used.load(Ordering::Relaxed)

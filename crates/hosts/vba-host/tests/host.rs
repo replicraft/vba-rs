@@ -7,7 +7,8 @@ use vba_automation::testing::MemObject;
 use vba_automation::{Arg, ErrInfo};
 use vba_host::{
     Budget, Capability, DeclareRequest, EventDispatch, EventRouter, HeadlessHost, Host,
-    InputBoxRequest, LimitExceeded, MsgBoxRequest, Policy, ResourceLimits, ScriptedHost,
+    InputBoxRequest, LimitExceeded, MsgBoxRequest, Policy, ResourceLimits, ScopeLimits,
+    ScriptedHost,
 };
 use vba_value::{ObjectRef, Variant};
 
@@ -234,6 +235,45 @@ fn do_events_is_a_cancellable_safe_point_and_costs_a_step() {
     assert!(h.do_events().is_ok());
     assert_eq!(h.do_events().unwrap_err().number, 18);
     assert_eq!(h.limits().max_steps, Some(2));
+}
+
+#[test]
+fn a_scope_narrows_the_limits_and_restores_them() {
+    let b = Budget::new(ResourceLimits {
+        max_steps: Some(100),
+        max_memory_bytes: Some(1000),
+        max_call_depth: 10,
+    });
+    b.charge_steps(40).unwrap();
+    b.alloc(100).unwrap();
+    let outer = b.enter_scope(ScopeLimits {
+        max_steps: Some(10),
+        max_memory_bytes: Some(50),
+        ..ScopeLimits::default()
+    });
+    // A wider inner scope cannot widen the outer one.
+    let inner = b.enter_scope(ScopeLimits {
+        max_steps: Some(1000),
+        ..ScopeLimits::default()
+    });
+    assert!(b.charge_steps(10).is_ok());
+    assert_eq!(b.charge_step(), Err(LimitExceeded::Steps));
+    b.leave_scope(inner);
+    assert_eq!(b.charge_step(), Err(LimitExceeded::Steps));
+    assert_eq!(b.alloc(60), Err(LimitExceeded::Memory));
+    assert!(b.alloc(50).is_ok());
+    b.leave_scope(outer);
+    // Back to the construction limits: 40 + 12 steps so far, 150 bytes.
+    assert!(b.charge_steps(40).is_ok());
+    assert!(b.alloc(500).is_ok());
+    assert!(!b.deadline_passed());
+    let t = b.enter_scope(ScopeLimits {
+        timeout: Some(std::time::Duration::ZERO),
+        ..ScopeLimits::default()
+    });
+    assert!(b.deadline_passed());
+    b.leave_scope(t);
+    assert!(!b.deadline_passed());
 }
 
 #[test]

@@ -1,6 +1,7 @@
 //! Resource limits as data, and a meter that enforces them.
 
 use std::cell::Cell;
+use std::time::{Duration, Instant};
 use vba_automation::ErrInfo;
 use vba_core::{MemoryMeter, MeterScope};
 
@@ -105,6 +106,31 @@ pub struct Budget {
     volume_paid: Cell<u64>,
     /// Scanning work not yet worth a whole step.
     work_pending: Cell<u64>,
+    /// Absolute step count a call scope must not pass.
+    step_ceiling: Cell<Option<u64>>,
+    /// When a call scope ends by itself.
+    deadline: Cell<Option<Instant>>,
+}
+
+/// What a call scope narrows, see [`Budget::enter_scope`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScopeLimits {
+    /// Steps the scope may spend from now on.
+    pub max_steps: Option<u64>,
+    /// Bytes the scope may add to what is charged now.
+    pub max_memory_bytes: Option<u64>,
+    /// How long the scope may run.
+    pub timeout: Option<Duration>,
+}
+
+/// The state [`Budget::enter_scope`] replaced; hand it to
+/// [`Budget::leave_scope`].
+#[derive(Debug)]
+#[must_use = "pass it to Budget::leave_scope"]
+pub struct ScopeToken {
+    step_ceiling: Option<u64>,
+    memory_limit: Option<u64>,
+    deadline: Option<Instant>,
 }
 
 /// Bytes built per step: data a program builds costs CPU as well as memory,
@@ -127,7 +153,52 @@ impl Budget {
             depth: Cell::new(0),
             volume_paid: Cell::new(0),
             work_pending: Cell::new(0),
+            step_ceiling: Cell::new(None),
+            deadline: Cell::new(None),
         }
+    }
+
+    /// Narrows the limits for the duration of one call: `scope.max_steps`
+    /// more steps, `scope.max_memory_bytes` more bytes than are charged now,
+    /// and a deadline `scope.timeout` from now. A scope never widens what is
+    /// already in force (the construction limits or an outer scope), and
+    /// leaves the counters alone. Pair with [`leave_scope`](Budget::leave_scope).
+    pub fn enter_scope(&self, scope: ScopeLimits) -> ScopeToken {
+        let token = ScopeToken {
+            step_ceiling: self.step_ceiling.get(),
+            memory_limit: self.memory.limit(),
+            deadline: self.deadline.get(),
+        };
+        if let Some(n) = scope.max_steps {
+            let ceiling = self.steps.get().saturating_add(n);
+            let ceiling = self.step_ceiling.get().map_or(ceiling, |c| c.min(ceiling));
+            self.step_ceiling.set(Some(ceiling));
+        }
+        if let Some(n) = scope.max_memory_bytes {
+            let limit = self.memory.used().saturating_add(n);
+            let limit = self.memory.limit().map_or(limit, |l| l.min(limit));
+            self.memory.set_limit(Some(limit));
+        }
+        if let Some(t) = scope.timeout {
+            let at = Instant::now() + t;
+            let at = self.deadline.get().map_or(at, |d| d.min(at));
+            self.deadline.set(Some(at));
+        }
+        token
+    }
+
+    /// Restores what [`enter_scope`](Budget::enter_scope) replaced.
+    pub fn leave_scope(&self, token: ScopeToken) {
+        self.step_ceiling.set(token.step_ceiling);
+        self.memory.set_limit(token.memory_limit);
+        self.deadline.set(token.deadline);
+    }
+
+    /// Whether the deadline of a call scope has passed. A host that wants
+    /// the timeout honoured returns an error from `poll_cancel` when this
+    /// is true.
+    pub fn deadline_passed(&self) -> bool {
+        self.deadline.get().is_some_and(|d| Instant::now() >= d)
     }
 
     /// The limits.
@@ -195,6 +266,10 @@ impl Budget {
         let total = self.steps.get().saturating_add(n);
         self.steps.set(total);
         match self.limits.max_steps {
+            Some(max) if total > max => return Err(LimitExceeded::Steps),
+            _ => {}
+        }
+        match self.step_ceiling.get() {
             Some(max) if total > max => return Err(LimitExceeded::Steps),
             _ => {}
         }

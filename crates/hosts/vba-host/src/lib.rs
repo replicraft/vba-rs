@@ -42,7 +42,8 @@ pub use events::{EventDispatch, EventRouter};
 pub use headless::HeadlessHost;
 pub use host::{ClockPart, DeclareRequest, Host, HostResult, POLL_INTERVAL, ProjectReference};
 pub use limits::{
-    Budget, LimitExceeded, ResourceLimits, UNTRUSTED_MAX_MEMORY_BYTES, UNTRUSTED_MAX_STEPS,
+    Budget, LimitExceeded, ResourceLimits, ScopeLimits, ScopeToken, UNTRUSTED_MAX_MEMORY_BYTES,
+    UNTRUSTED_MAX_STEPS,
 };
 pub use metadata::HostMetadata;
 pub use scripted::ScriptedHost;
