@@ -149,6 +149,18 @@
 //! assert!(matches!(err, Error::Run(RunError::Cancelled(_))));
 //! ```
 //!
+//! # Hosting forms
+//!
+//! Applications that run event handlers of forms create one instance per form
+//! with a host object as its `Me`, raise events with `ByRef` arguments (such as
+//! `Cancel`) and read the result back:
+//! [`Instance::create_object`], [`Instance::raise_event_on`],
+//! [`Instance::call`], [`Instance::get_global`], [`HostContext`] for host
+//! members that call back into the running session, and [`Error`] with call
+//! stacks. The whole flow, with compiled examples and the semantics of
+//! re-entrancy, limits and cancellation, is in `docs/architecture/embedding-guide.md`;
+//! a runnable simulation is `examples/form_events.rs`.
+//!
 //! # Reading and editing a project with preservation
 //!
 //! ```
@@ -302,3 +314,8 @@ impl Error {
         }
     }
 }
+
+/// Compiles and runs the code blocks of the embedding guide as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../../../../docs/architecture/embedding-guide.md")]
+pub struct EmbeddingGuide;

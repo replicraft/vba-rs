@@ -43,6 +43,36 @@ session.run_procedure("Module1.Main", vec![])?;
   runs on the module's default instance. `raise_event("Workbook", "Open", args)`
   runs `Workbook_Open` of a document module (`Ok(None)` when nothing handles
   it).
+- **Calls with arguments** (`Session::call(&Target, name, positional, named)`):
+  values, `Arg::ByRef` variables whose final values come back in `RunOutput::byref`
+  (converted to the declared parameter type, error 13 when impossible; `ByVal`
+  parameters and `ParamArray` elements are reported unchanged), omitted (`Missing`)
+  and named arguments (448 unknown name, 446 given twice, 449 required missing,
+  450 too many). `Target::Project` resolves a name like `run_procedure`;
+  `Target::Object` looks in the object's own module (`Sub`, `Function`,
+  `Property Get`, public only).
+- **Instances.** `create_object(module, host_base)` makes a new instance of a class,
+  document or designer module (own module state, `Class_Initialize`);
+  `default_instance` returns the borrowed predeclared one; `destroy_object` gives
+  back the creator's reference (`Class_Terminate` runs when it was the last).
+  A *host base* object receives the members the module does not define
+  (`Me.X`, `Me!X`, `Me("X")`, listed unqualified names), late bound.
+  `raise_event_on(obj, source, event, ..)` runs `<source>_<event>` of that
+  instance whatever its visibility; `has_procedure`, `get_member`, `set_member`.
+- **Module variables.** `get_global`/`set_global` read and assign public variables
+  and constants of standard modules (`Module.Name`, or `Name` when unique) with the
+  VBA conversions; `modules()`, `list_public_members()`, `modules_defining(name)`
+  describe modules, procedures with parameter lists and variables, private event
+  handlers included.
+- **Errors.** `ErrorReport` carries `Err`'s fields, module, procedure, `Erl` and
+  source line and the structured call stack (`frames`, innermost first),
+  captured at the raise point; `Session::last_error()` gives the same for the
+  error `Err` currently holds (also when the program handled it). The default
+  `Err.Source` of an unhandled error is the project name.
+- **Re-entrancy.** `HostContext` (`Ops`) is the session's operations for a host
+  member that is running a call made by VBA; see [vm.md](vm.md#re-entrancy).
+- **`reset()`** discards module state, objects (no `Class_Terminate`), `Err`,
+  files and the budget counters; the trust decision is kept.
 - **Isolation.** Each session owns its VM: module variables, default
   instances, `Err`, the random generator and open files are per session.
 - `shutdown` releases module-level objects (running `Class_Terminate` in
@@ -54,13 +84,14 @@ session.run_procedure("Module1.Main", vec![])?;
 | --- | --- |
 | `Load` | the project does not compile (rendered diagnostics) |
 | `CompiledOnly { project, modules }` | the project (or the module a call needs) has no source text; compiled state is never run |
-| `NotTrusted`, `NoSuchProcedure`, `AmbiguousProcedure`, `NotCallable` | the embedder's request |
+| `NotTrusted`, `NoSuchProcedure`, `AmbiguousProcedure`, `NotCallable`, `NoSuchMember`, `AmbiguousMember`, `NotAccessible` | the embedder's request |
+| `Reentrancy` | a `HostContext` call that cannot start (stale handle, depth limit) |
 | `Vba` | an unhandled error raised by the program or the language (with procedure, line, stack) |
 | `Host` | an unhandled error reported by a host hook or host object |
 | `PermissionDenied` | a capability the policy refused (error 70) |
 | `Bridge` | the `Declare` bridge could not make a call |
 | `Limit` | steps, memory, call depth, string length or array size |
-| `Cancelled` | the host's idle hook asked to stop |
+| `Cancelled` | the host's idle or `poll_cancel` hook asked to stop |
 | `Unsupported` | a feature this implementation lacks |
 | `Internal` | a broken invariant (a bug) |
 

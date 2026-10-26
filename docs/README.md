@@ -12,13 +12,16 @@ are. Statements about behavior carry a confidence marker (`spec`, `doc`, `derive
 2. **How to run.** The `vbars` command line is described in the [root README](../README.md);
    run-time behavior and exit codes are in [runtime](runtime/runtime.md), and the grants a
    program needs in [host](architecture/host.md).
-3. **How to embed.** [Architecture overview](architecture/overview.md), then
+3. **How to embed.** [Architecture overview](architecture/overview.md), then the
+   [embedding guide](architecture/embedding-guide.md) (the whole flow with compiled examples:
+   forms with a host `Me`, `ByRef` events, re-entrancy, errors, limits), the
    [public API](architecture/public-api.md) (the `vba` facade) and [host](architecture/host.md)
    (the contract an embedder implements).
 
 ## architecture/
 
 * [overview](architecture/overview.md): crate groups, dependency direction, data flow, the permission model, the standalone-library principle.
+* [embedding-guide](architecture/embedding-guide.md): embedding end to end (load, trust, forms, host objects, events with `Cancel`, re-entrancy, errors, limits, threading, transactions, what is not supported).
 * [public-api](architecture/public-api.md): the stable `vba` facade for embedders.
 * [host](architecture/host.md): the `vba-host` contract, capabilities, policy and limits.
 * [security-model](architecture/security-model.md): what is guaranteed (with the tests) and what is not.

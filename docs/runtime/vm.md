@@ -103,6 +103,50 @@ session with a trust gate (see `docs/runtime/runtime.md`).
   coercions) is limited by `max_native_depth` (48); beyond it the run ends with
   a call-depth limit error.
 
+## Embedder calls
+
+`run_procedure` / `run_method` take `Arg::Value`, `Arg::Missing` and `Arg::ByRef`.
+A `ByRef` argument lives in a temporary variable slot above the module variables
+for the duration of the call; the parameter is bound to it (after conversion to
+its declared type) so the callee writes through, and the final values are returned
+in `RunOutput::byref`. `arrange_call_args` places named arguments. `create_instance`,
+`destroy_instance`, `default_instance_with`, `get_member`/`set_member`,
+`get_global`/`set_global`, `current_error` and `reset` are the operations the
+runtime layer exposes. A class-like object may carry a *host base* (a handle in the
+host's object table owned by the instance): a late-bound member the module does not
+define, including the default member, is dispatched to it. Errors carry the call
+stack with module, procedure, `Erl` and source line (`StackFrame`), captured when
+the error is raised; the stack of an error the program handles is kept in `Err`'s
+state (`Vm::current_error`).
+
+## Re-entrancy
+
+A host object whose `Dispatch::reentrant()` is true makes the VM *suspend itself*
+for the duration of the call: the whole `Vm` is moved into a `ReentrySlot` that
+the host reaches from its `ObjectTable` (`ObjectTable::link`), and a hollow
+placeholder takes its place. `ReentrySlot::with_vm` takes the VM out, runs a nested
+operation (`run_top` and the `embed` operations), and puts it back; when the host
+call returns the VM moves back. No unsafe code, no copying of state, no extra cost
+for objects that do not declare themselves re-entrant.
+
+* Nested runs share the budget (steps, memory, call depth), `Err`, module state and
+  the `Debug.Print` sink. `max_reentrancy_depth` (default 4) bounds them; each also
+  uses a `max_native_depth` level.
+* A nested run does not clear the frames of the outer run. An unhandled VBA error is
+  returned (`Err`); `End`, `Stop` and the fatal faults (limits, cancellation,
+  unsupported feature, internal error) are returned **and** stored in
+  `Vm::pending_fatal`; when the host call returns, `invoke_external` re-raises it in
+  the outer run, whatever the host did with the error, so `On Error` cannot swallow
+  it.
+* Events raised through a connection point by a re-entrant object while the VM is
+  suspended in its call are delivered immediately (`deliver_event_now`) with
+  `ByRef` write-back into the argument list; events from other objects, or raised
+  while the VM is not suspended, are queued and delivered after the host call, in
+  order (`deliver_pending_events` for the latter case). A queued event is always
+  delivered before a newer one.
+* Cancellation: `Host::poll_cancel` is polled at the start of every run and every
+  1024 steps (basic blocks).
+
 ## Implemented
 
 Every statement kind the IR can express: `If`, `Select`, `For`, `For Each`
@@ -154,6 +198,12 @@ by a test of our own expectation and none was compared with Office.
 - Error numbers 18 (steps), 7 (memory) and 28 (call depth) of `vba-host` are
   *not* used by the VM: limits are untrappable faults, so a program cannot
   swallow them with `On Error`.
+- **Unverified:** `Class_Initialize` / `Class_Terminate` also run for document and
+  designer modules (as in Access forms); other hosts' document modules were not
+  compared.
+- A fatal fault discards the frames of the run without running code (objects only
+  those frames held are never terminated), unlike an unhandled VBA error, which
+  unwinds with releases. `Vm::reset` is the way back to a clean state.
 
 ## Not implemented / known gaps
 
@@ -163,8 +213,9 @@ by a test of our own expectation and none was compared with Office.
 - `AddressOf` is an explicit `Unsupported` error (callbacks from native code).
 - `MidB` statement, `LSet`/`RSet` between user-defined types, `Get`/`Put` of
   dynamic arrays and `Decimal` values are explicit `Unsupported` errors.
-- Class members cannot be called back by host objects (a VBA object passed to a
-  host is not in the host's table; use events). Custom `For Each` enumerators on
+- A VBA object passed to a host is an opaque handle in the host's table; the host
+  calls its members through `HostContext` (`call_on`, `get_member`...), not through
+  `Dispatch` on the handle. Custom `For Each` enumerators on
   VBA classes (`_NewEnum`) are not supported (error 438).
 - `Implements` of library interfaces is analysed but calls through the library
   interface type are late bound by name and do not reach `Iface_Member`.
@@ -186,7 +237,7 @@ by a test of our own expectation and none was compared with Office.
 | `End` | no | ends the program, resets module state |
 | `Stop` | no | halts (also failed `Debug.Assert`) |
 | `Limit` (steps, memory, call depth, string length, array size) | no | a configured limit |
-| `Cancelled` | no | the host idle hook failed (`DoEvents`) |
+| `Cancelled` | no | `Host::idle` (`DoEvents`) or `Host::poll_cancel` failed |
 | `Unsupported` | no | a feature this implementation lacks |
 | `Bridge` | no | the `Declare` bridge cannot make the call |
 | `Internal` | no | a broken invariant (a bug) |

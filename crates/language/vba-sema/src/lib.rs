@@ -104,6 +104,17 @@ pub fn analyze_project(
     profile: &Profile,
     provider: &dyn TypeProvider,
 ) -> Analysis {
+    analyze_project_with_host_members(project, profile, provider, &[])
+}
+
+/// Like [`analyze_project`], with the names the embedder provides as members
+/// of document and designer modules (see [`Options::host_members`]).
+pub fn analyze_project_with_host_members(
+    project: &VbaProject,
+    profile: &Profile,
+    provider: &dyn TypeProvider,
+    host_members: &[String],
+) -> Analysis {
     let modules: Vec<SourceModule> = project
         .modules
         .iter()
@@ -116,6 +127,7 @@ pub fn analyze_project(
     let opts = Options {
         project_name: project.name.clone(),
         constants: parse_project_constants(&project.constants),
+        host_members: host_members.to_vec(),
         ..Options::default()
     };
     analyze_sources(&modules, profile, provider, &opts)

@@ -27,7 +27,10 @@ instance.shutdown()?;                           // Class_Terminate of module obj
 ```
 
 `Engine::run(&project, "Proc", args)` does load, trust, run and shutdown in one
-call; calling it *is* the trust decision. Compiled doctests in the crate root
+call; calling it *is* the trust decision. Applications that host forms (instances
+with their own state, a host object as `Me`, events with `ByRef` results such as
+`Cancel`) use the richer `Instance` API; the whole flow is in the
+[embedding guide](embedding-guide.md). Compiled doctests in the crate root
 cover: running a standard-module function, embedding a custom host object,
 denied permissions, resource limits and cancellation, and reading and editing a
 project with preservation.
@@ -38,11 +41,16 @@ project with preservation.
 | --- | --- |
 | `Project` | modules plus the metadata and preserved bytes of a `vbaProject.bin`; `from_source`, `from_bytes`, `from_streams`, `open`, `add_module`, `add_source_file`, `set_module_source`, `to_bytes`, `to_streams`, `version`, `analyze`; `model()` exposes `vba_project::VbaProject` |
 | `Report` | the diagnostics of an analysis (`has_errors`, `errors`, `warnings`, `codes`, `rendered`) |
-| `Engine` | builder: `profile`, `policy`/`grant`/`grant_prefixes`, `limits`/`max_steps`/`max_memory`/`unlimited`, `class`/`dispatch_class`, `global`/`dispatch_global`, `with_file`, `real_files`, `system_environment`, `command_line`, `cancel_token`, `session_builder`; then `analyze`, `load`, `run` |
-| `Instance` | one loaded session with its `Debug.Print` buffer: `trust`, `run`, `raise_event`, `output`, `shutdown`, `session()` |
+| `Engine` | builder: `profile`, `policy`/`grant`/`grant_prefixes`, `limits`/`max_steps`/`max_memory`/`unlimited`, `vm_config`, `class`/`dispatch_class`, `global`/`dispatch_global`, `host_members`, `with_file`, `real_files`, `system_environment`, `command_line`, `cancel_token`, `session_builder`; then `analyze`, `load`, `load_with`, `run` |
+| `Instance` | one loaded session with its `Debug.Print` buffer. Running: `trust`, `run`, `call`, `raise_event`, `shutdown`. Instances: `create_object`, `default_instance`, `destroy_object`, `call_on`, `has_procedure`, `raise_event_on`, `get_member`, `set_member`, `release`, `deliver_pending_events`. State: `get_global`, `set_global`, `modules`, `list_public_members`, `modules_defining`, `last_error`. Lifecycle: `is_usable`, `reset_step_counter`, `reset`; plus `output`, `session()`, `from_session` |
+| `Arg`, `CallTarget`, `CallResult` | arguments (`val`, `by_ref`, `missing`, `named`), the target of a call (`Project` or `Object`) and its result `{ value, status, byref, output }` |
+| `EventOutcome` | `{ handled, status, byref, output }` of `raise_event_on` |
+| `HostContext` | the re-entrant handle a host member uses to call back into the running session (`HostContext::current(table)`) |
 | `Outcome` | `value`, `status` (`Completed`, `Ended`, `Stopped`) and the text printed by that call |
+| `ModuleSummary`, `ProcedureSummary`, `ParamSummary`, `VariableSummary`, `ProcKind` | project metadata for hosts that discover event handlers |
+| `ErrorReport`, `VbaErrorInfo`, `StackFrame` | the details of an unhandled or handled VBA error (number, description, source, help, `LastDllError`, module, procedure, line, call stack) |
 | `CancelToken` | `Send + Sync + Clone`; `cancel`, `reset`, `is_cancelled` |
-| `Error` | `#[non_exhaustive]`: `Format`, `Model`, `Source`, `Io`, `Run(vba::runtime::Error)`; `kind()` gives a stable short name |
+| `Error` | `#[non_exhaustive]`: `Format`, `Model`, `Source`, `Io`, `Run(vba::runtime::Error)`, `Poisoned`; `kind()` gives a stable short name |
 | Re-exports | profiles (`Profile`, `default_profile`, `find_profile`), values (`Variant`, `Currency`, `Date`, `Decimal`, `VbaString`, `VbaArray`), host contract (`Host`, `Policy`, `Capability`, `ResourceLimits`, `HeadlessHost`, `ScriptedHost`), runtime (`Session`, `SessionBuilder`, `MemFs`, `RealFs`, `SystemHost`, `ShellHook`), project/format (`VbaProject`, `Module`, `ModuleKind`, `Reference`, `SysKind`, `ProjectVersion`, `ReferenceHint`, `ProjectStreams`, `ReadMode`, `ReadLimits`, `WriteOptions`, `WriteReport`, `StaleCache`), diagnostics (`Diagnostic`, `Severity`) |
 | `vba::automation` | the traits an embedder implements to expose host objects: `Dispatch`, `DispId`, `DispParams`, `InvokeFlags`, `MemberInfo`, `ParamInfo`, `ObjectTable`, `DispError`, `ErrInfo`, plus `testing::MemObject` |
 | `vba::runtime` | the whole `vba-runtime` crate, for its `Error` taxonomy and file-system types |
@@ -51,7 +59,12 @@ project with preservation.
 
 Host objects are `Dispatch` implementations registered by ProgID
 (`Engine::dispatch_class("Demo.Greeter", || Greeter)`) or by global name
-(`dispatch_global`). `CreateObject` additionally needs `Capability::ComCreate`.
+(`dispatch_global`; the names are made known to the analysis, so `Option Explicit`
+code can mention them). `CreateObject` additionally needs `Capability::ComCreate`.
+A host object that must call back into VBA while it runs (open a form and run
+its handlers, raise `BeforeUpdate` and read `Cancel`) returns `true` from
+`Dispatch::reentrant` and uses `HostContext`; the semantics are in the
+[embedding guide](embedding-guide.md#6-re-entrancy-a-host-member-that-calls-back).
 
 ## Embedding with a container you read yourself
 
@@ -109,8 +122,8 @@ code available, and every use still requires an explicit `Policy` grant.
 
 ## Embedder contract
 
-**Threading.** A session is single-threaded: `Instance`, `Session` and the
-host objects are built on `Rc`/`RefCell` and are not `Send`. Create each
+**Threading.** A session is single-threaded: `Instance`, `Session`, `HostContext`
+and the host objects are built on `Rc`/`RefCell` and are not `Send`. Create each
 session on the thread that runs it. Independent sessions share nothing (module
 variables, default instances, `Err`, the random generator and open files are
 per session; `sessions_are_isolated` in `crates/api/vba-rs/tests/facade.rs`).
@@ -136,11 +149,16 @@ configuration produce the same output (`runs_are_deterministic`). Using
 `system_environment()` removes that guarantee.
 
 **Limits and cancellation.** `ResourceLimits` bound steps, memory and call
-depth; `VmConfig` bounds string length and array size. Exceeding one ends the
-run with `runtime::Error::Limit`, which `On Error` cannot swallow. Cancelling
-through `CancelToken` is cooperative: the session checks it at `DoEvents`. A
-loop that never calls `DoEvents` cannot be interrupted by a token; give such
-programs a step budget.
+depth; `VmConfig` bounds string length, array size, native nesting and host
+re-entrancy depth (`max_reentrancy_depth`, default 4). Exceeding one ends the
+run with `runtime::Error::Limit`, which `On Error` cannot swallow. The meter
+belongs to the `Instance` and spans all its calls, nested ones included.
+Cancelling through `CancelToken` is cooperative: the session polls it before
+every call, at `DoEvents` and every 1024 steps, so a loop that never yields is
+stopped too; a single long interpreter operation or a blocking host member is
+not interrupted. After a fatal fault `Instance::is_usable` says whether another
+call can start, `reset_step_counter` gives a new step allowance and `reset`
+starts from scratch (see the [embedding guide](embedding-guide.md#8-limits-cancellation-and-the-state-after-a-fault)).
 
 **Error taxonomy.** `Error::kind()` (and `runtime::Error::kind()`) return stable
 names:
@@ -148,8 +166,10 @@ names:
 | Kind | Responsible party | Trappable by `On Error` |
 | --- | --- | --- |
 | `load` | the project does not compile (rendered diagnostics) | n/a |
-| `not-trusted`, `no-such-procedure`, `ambiguous-procedure`, `not-callable` | the embedder's request | n/a |
-| `vba` | an unhandled error raised by the program or the language (number, procedure, line, stack in the report) | yes while running |
+| `not-trusted`, `no-such-procedure`, `ambiguous-procedure`, `not-callable`, `no-such-member`, `ambiguous-member`, `not-accessible` | the embedder's request | n/a |
+| `reentrancy` | a call-back from a host member that is stale or too deeply nested | n/a |
+| `poisoned` | the instance hit an internal error and refuses calls until `reset` | n/a |
+| `vba` | an unhandled error raised by the program or the language (number, description, source, help, module, procedure, line, call stack in the report) | yes while running |
 | `host` | an unhandled error reported by a host hook or host object | yes |
 | `permission-denied` | the policy refused a capability (error 70) | yes |
 | `bridge` | the `Declare` bridge could not make a call | no |

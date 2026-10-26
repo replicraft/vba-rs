@@ -281,7 +281,8 @@ impl Engine {
 
     /// Analyses the project with this engine's profile; nothing runs.
     pub fn analyze(&self, project: &Project) -> Report {
-        project.analyze(&self.profile)
+        let globals = EngineGlobals(self.globals.iter().map(|(n, _)| n.clone()).collect());
+        project.analyze_with(&self.profile, &globals, &self.host_members)
     }
 
     /// A session builder configured like this engine, plus the sink that

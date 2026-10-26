@@ -52,6 +52,16 @@ flags, EXCEPINFO, HRESULT) and MS-VBAL §5 call semantics. Everything marked
 | `CO_E_CLASSSTRING`, `REGDB_E_CLASSNOTREG`, `CO_E_SERVER_EXEC_FAILURE` | 429 |
 | `0x800A0000` OR `n`; any other value | `n`; unchanged |
 
+### Re-entrant objects
+
+`Dispatch::reentrant()` (default `false`) lets an object call back into the running
+session while one of its members runs; `ObjectTable::set_link`/`link` carry the
+interpreter's opaque handle that `vba-vm`/`vba-runtime` wrap into a `HostContext`.
+See [vm.md](vm.md#re-entrancy). Event sinks (`EventSink::on_event`) of VBA
+`WithEvents` variables run the handler synchronously, with `ByRef` write-back into
+the `Arg` slice, when the raising object is re-entrant and the VM is waiting in its
+call.
+
 ### Foreign handles
 
 Handles with `FOREIGN_HANDLE_BIT` (bit 62) set name objects owned by someone else (the VM's own
@@ -71,3 +81,4 @@ into a host object, so a host object that stores or returns a VM-owned class ins
 * Reference cycles are not collected; arrays of objects are traversed by `add_ref_value`/`release_value` but not by Rust drops.
 * `Property Set` versus `Let` fallback for Variant-typed properties is not attempted: a Let is a PropertyPut and a Set is a PropertyPutRef, exactly as the caller requested.
 * Event delivery stops at the first handler error; WithEvents source discovery is one connection point per object.
+* Re-entry is available during `invoke` (and the events it raises) only, not from `terminate`, `held_references` or enumerators.

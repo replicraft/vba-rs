@@ -530,3 +530,105 @@ fn events_from_other_host_objects_are_still_queued_until_the_call_returns() {
     // handler's Cancel cannot reach the host (False), unlike above.
     assert_eq!(r.output, "handler\npressed=False\ndone\n");
 }
+
+#[test]
+fn analysis_knows_the_engines_globals_and_host_members() {
+    let mut p = vba::Project::new();
+    p.add_module(
+        "Module1",
+        ModuleKind::Standard,
+        "Option Explicit\nPublic Sub Go()\n  DoCmd.OpenForm \"Details\"\n  Application.Run \"Go\"\nEnd Sub\n",
+    )
+    .unwrap();
+    p.add_module(
+        "Form_Orders",
+        ModuleKind::Document,
+        "Option Explicit\nPrivate Sub Form_Current()\n  Caption = \"x\"\nEnd Sub\n",
+    )
+    .unwrap();
+    // A plain engine does not know DoCmd, Application or Caption.
+    let plain = Engine::new().analyze(&p);
+    assert!(plain.has_errors());
+    let app = Rc::new(AppState::default());
+    let report = app_engine(&app).host_members(["Caption"]).analyze(&p);
+    assert!(!report.has_errors(), "{:?}", report.rendered());
+}
+
+/// A button that stays reachable from the test, and a watcher that keeps it.
+fn persistent_button() -> (vba::Instance, Rc<RefCell<Option<Rc<Button>>>>) {
+    use vba::automation::ObjectRef;
+    use vba::raw::sema::{LibEvent, LibMember, LibParam, StaticLibrary, Type};
+    let lib = StaticLibrary::new("Lib")
+        .with_type(
+            "Button",
+            vec![LibMember::function("Press", vec![], Type::Boolean)],
+        )
+        .with_events(
+            "Button",
+            vec![LibEvent {
+                name: "Click".into(),
+                params: vec![LibParam {
+                    by_ref: true,
+                    ..LibParam::required("Cancel", Type::Boolean)
+                }],
+            }],
+        );
+    let kept: Rc<RefCell<Option<Rc<Button>>>> = Rc::default();
+    let k = kept.clone();
+    let engine = Engine::new()
+        .grant(Capability::ComCreate)
+        .class("Lib.Button", move |table| {
+            let b = Rc::new(Button {
+                cp: ConnectionPoint::new("ButtonEvents"),
+                reentrant: true,
+            });
+            *k.borrow_mut() = Some(b.clone());
+            Ok(Variant::Object(ObjectRef::Handle(table.insert(b))))
+        });
+    let mut p = vba::Project::new();
+    p.add_module(
+        "Watcher",
+        ModuleKind::Class,
+        "Private WithEvents btn As Lib.Button\nPrivate n As Long\nPublic Sub Attach(b As Lib.Button)\n  Set btn = b\nEnd Sub\nPrivate Sub btn_Click(Cancel As Boolean)\n  n = n + 1\n  Debug.Print \"handler \" & n\nEnd Sub\n",
+    )
+    .unwrap();
+    p.add_module(
+        "Module1",
+        ModuleKind::Standard,
+        "Public B As Lib.Button\nPublic W As Watcher\nPublic Sub Setup()\n  Set B = CreateObject(\"Lib.Button\")\n  Set W = New Watcher\n  W.Attach B\nEnd Sub\nPublic Sub Press()\n  Debug.Print \"pressed=\" & B.Press()\nEnd Sub\n",
+    )
+    .unwrap();
+    let mut inst = engine
+        .load_with(&p, |b| b.extra_provider(lib))
+        .expect("loads");
+    inst.trust();
+    (inst, kept)
+}
+
+fn fire_from_outside(inst: &vba::Instance, kept: &Rc<RefCell<Option<Rc<Button>>>>) {
+    let button = kept.borrow().clone().expect("created by Setup");
+    let mut args = vec![vba::automation::Arg::by_ref(Variant::Boolean(false))];
+    button
+        .cp
+        .fire(inst.session().host().objects(), "Click", &mut args)
+        .unwrap();
+}
+
+#[test]
+fn events_raised_outside_a_call_are_queued_and_delivered_in_order() {
+    let (mut inst, kept) = persistent_button();
+    inst.call(CallTarget::Project, "Setup", vec![]).unwrap();
+    let before = inst.output().len();
+
+    // The host raises while no VBA statement is waiting: queued.
+    fire_from_outside(&inst, &kept);
+    fire_from_outside(&inst, &kept);
+    assert_eq!(&inst.output()[before..], "");
+    inst.deliver_pending_events().unwrap();
+    assert_eq!(&inst.output()[before..], "handler 1\nhandler 2\n");
+
+    // An older queued event is delivered before a newer synchronous one.
+    fire_from_outside(&inst, &kept);
+    let r = inst.call(CallTarget::Project, "Press", vec![]).unwrap();
+    assert_eq!(r.output, "handler 3\nhandler 4\npressed=False\n");
+}

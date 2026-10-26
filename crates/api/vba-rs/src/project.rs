@@ -165,7 +165,23 @@ impl Project {
 
     /// Parses and analyses the project without running anything.
     pub fn analyze(&self, profile: &Profile) -> Report {
-        let analysis = vba_sema::analyze_project(&self.model, profile, &vba_sema::NoLibraries);
+        self.analyze_with(profile, &vba_sema::NoLibraries, &[])
+    }
+
+    /// [`analyze`](Project::analyze) with a type provider and the host
+    /// member names an engine was configured with.
+    pub(crate) fn analyze_with(
+        &self,
+        profile: &Profile,
+        provider: &dyn vba_sema::TypeProvider,
+        host_members: &[String],
+    ) -> Report {
+        let analysis = vba_sema::analyze_project_with_host_members(
+            &self.model,
+            profile,
+            provider,
+            host_members,
+        );
         let rendered = analysis
             .diagnostics
             .iter()

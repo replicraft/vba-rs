@@ -28,6 +28,19 @@ covered by explicit tests but remain unverified against Office.
 
 ## Rules
 
+### Exchange with Rust (`exchange`)
+
+`From` for `bool`, `u8`, `i8`, `i16`, `u16`, `i32`, `u32`, `i64`, `f32`, `f64`, `&str`,
+`String`, `Option<T>` (`None` is `Null`), `Vec<T>` (a zero-based `Variant` array),
+`VbaError`, `ObjectRef`; `TryFrom<&Variant>`/`TryFrom<Variant>` for the same scalar types,
+`Currency`, `Decimal`, `Date`, `String`, `Vec<Variant>` and `ObjectRef`, following the
+`convert` functions below (`"12"` is 12, `Null` is error 94, overflow error 6).
+`Variant::empty/null/nothing`, `date_from_serial`, `date_from_ymd_hms`,
+`array_with_lower_bound/array_zero_based/array_one_based`, `array_bounds`, `to_vec`;
+`Date::from_unix_seconds`/`unix_seconds` (no time zones). `Display` is a debugging
+form (strings quoted, `Empty`/`Null` named, arrays with bounds). One-dimensional
+arrays only.
+
 ### Conversions (`convert`)
 - Float, Currency and Decimal to integer subtypes round half to even, then
   range-check; NaN, infinities and out-of-range values are error 6 (**doc**,
