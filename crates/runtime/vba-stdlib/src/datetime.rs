@@ -348,9 +348,16 @@ pub(crate) fn f_time_serial(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant>
     let int = |i| -> StdResult<i32> { Ok(i32::from(convert::to_integer(a.req(i)?)?)) };
     Ok(Variant::Date(time_serial(int(0)?, int(1)?, int(2)?)?))
 }
-pub(crate) fn f_date_value(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+pub(crate) fn f_date_value(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     null_guard!(a, 0);
-    let d = date_arg(a, 0)?;
+    let d = match (date_arg(a, 0), a.req(0)?) {
+        // A date written without a year takes the current year.
+        (Err(_), Variant::String(s)) => {
+            let year = ctx.host.now().parts().year;
+            vba_value::text::parse_date_in_year(s, Some(year))?
+        }
+        (d, _) => d?,
+    };
     Ok(Variant::Date(Date::from_serial(d.serial().trunc())?))
 }
 pub(crate) fn f_time_value(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {

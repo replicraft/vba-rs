@@ -24,12 +24,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 508 |
-| partial | 161 |
+| implemented | 510 |
+| partial | 159 |
 | unsupported | 6 |
 | not-started | 33 |
-| Conformance programs | 2084 |
-| Programs that are known deviations (XFAIL) | 176 |
+| Conformance programs | 2085 |
+| Programs that are known deviations (XFAIL) | 175 |
 
 ## Entries per category and status
 
@@ -41,7 +41,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | function-type-conversion | 13 | 11 | 2 | 0 | 0 |
 | derived-math | 21 | 21 | 0 | 0 | 0 |
 | function-string | 20 | 16 | 4 | 0 | 0 |
-| function-datetime | 20 | 16 | 4 | 0 | 0 |
+| function-datetime | 20 | 17 | 3 | 0 | 0 |
 | function-financial | 13 | 13 | 0 | 0 | 0 |
 | function-information | 11 | 10 | 1 | 0 | 0 |
 | function-array | 3 | 3 | 0 | 0 | 0 |
@@ -66,15 +66,15 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-statements | 55 | 34 | 20 | 0 | 1 |
 | spec-coercion | 18 | 9 | 8 | 0 | 1 |
 | spec-expressions | 53 | 22 | 26 | 0 | 5 |
-| spec-library | 193 | 146 | 24 | 0 | 23 |
+| spec-library | 193 | 147 | 23 | 0 | 23 |
 
 ## Entries per provenance
 
 | Provenance | Entries |
 | --- | ---: |
 | oracle | 0 |
-| spec | 443 |
-| doc | 97 |
+| spec | 441 |
+| doc | 99 |
 | derived | 39 |
 | unverified | 96 |
 | (no program) | 33 |
@@ -88,7 +88,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | collections | 23 | 0 | 7 | 14 | 0 | 2 |
 | conversions | 39 | 0 | 28 | 4 | 2 | 5 |
 | datatypes | 52 | 0 | 27 | 16 | 0 | 9 |
-| datetime | 44 | 0 | 18 | 13 | 2 | 11 |
+| datetime | 45 | 0 | 18 | 14 | 2 | 11 |
 | derived-math | 21 | 0 | 0 | 21 | 0 | 0 |
 | errors | 26 | 0 | 18 | 6 | 0 | 2 |
 | events | 7 | 0 | 6 | 0 | 1 | 0 |
@@ -149,7 +149,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `func.strconv` | function-string | StrConv | partial | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
 | `func.string` | function-string | String | partial |  |
 | `func.datepart` | function-datetime | DatePart | partial |  |
-| `func.datevalue` | function-datetime | DateValue | partial |  |
 | `func.day` | function-datetime | Day | partial |  |
 | `func.timeserial` | function-datetime | TimeSerial | partial |  |
 | `func.isnumeric` | function-information | IsNumeric | partial |  |
@@ -278,7 +277,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.6.1.2.3.1.17` | spec-library | Hex / Hex$ | partial |  |
 | `vbal.6.1.2.3.1.20` | spec-library | Str / Str$ | partial |  |
 | `vbal.6.1.2.4.1.3` | spec-library | DatePart | partial |  |
-| `vbal.6.1.2.4.1.5` | spec-library | DateValue | partial |  |
 | `vbal.6.1.2.4.1.6` | spec-library | Day | partial |  |
 | `vbal.6.1.2.4.1.9` | spec-library | Month | partial |  |
 | `vbal.6.1.2.4.1.11` | spec-library | TimeSerial | partial |  |
@@ -443,7 +441,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-lib-a/6_1_2_3_1_5_cdbl_sign_whitespace` | wrong | not implemented: whitespace between a sign and the digits of a numeric string |
 | `spec-lib-a/6_1_2_4_1_11_timeserial` | wrong | not implemented: TimeSerial minute overflow carrying into the date part |
 | `spec-lib-a/6_1_2_4_1_3_datepart_intervals` | wrong | VBA behaviour kept where MS-VBAL text differs: DatePart returns a Long |
-| `spec-lib-a/6_1_2_4_1_5_datevalue_no_year` | wrong | not implemented: DateValue of a date without a year |
 | `spec-lib-a/6_1_2_4_1_6_day_errors` | wrong | not implemented: error 13 for Day/Year of an Error value |
 | `spec-lib-b/6_1_2_5_1_3_eof_binary_short_get` | wrong | VBA behaviour kept where MS-VBAL text differs: EOF on an Output file is error 54; EOF is True after the last full record |
 | `spec-lib-b/6_1_2_5_1_3_eof_output_true` | wrong | VBA behaviour kept where MS-VBAL text differs: EOF on an Output file is error 54; EOF is True after the last full record |

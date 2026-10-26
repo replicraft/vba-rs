@@ -20,9 +20,17 @@ pub fn is_array(v: &Variant) -> bool {
 /// `IsDate`: a `Date`, or a string that parses as a date or time. Numeric
 /// strings are not dates.
 pub fn is_date(v: &Variant) -> bool {
+    is_date_in_year(v, None)
+}
+
+/// [`is_date`] where text written without a year (`Jan 5`) takes
+/// `current_year`.
+pub fn is_date_in_year(v: &Variant, current_year: Option<i32>) -> bool {
     match v {
         Variant::Date(_) => true,
-        Variant::String(s) => vtext::parse_numeric(s).is_err() && vtext::parse_date(s).is_ok(),
+        Variant::String(s) => {
+            vtext::parse_numeric(s).is_err() && vtext::parse_date_in_year(s, current_year).is_ok()
+        }
         _ => false,
     }
 }
@@ -117,8 +125,9 @@ pub fn array_of(items: &[Variant], base: i32) -> VbaResult<Variant> {
 pub(crate) fn f_is_array(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     Ok(Variant::Boolean(is_array(a.req(0)?)))
 }
-pub(crate) fn f_is_date(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
-    Ok(Variant::Boolean(is_date(a.req(0)?)))
+pub(crate) fn f_is_date(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+    let year = ctx.host.now().parts().year;
+    Ok(Variant::Boolean(is_date_in_year(a.req(0)?, Some(year))))
 }
 pub(crate) fn f_is_empty(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     Ok(Variant::Boolean(a.req(0)?.is_empty()))

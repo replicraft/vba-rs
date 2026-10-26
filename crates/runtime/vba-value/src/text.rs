@@ -288,8 +288,15 @@ fn parse_number_u32(s: &str) -> Option<u32> {
 /// Supported: numeric strings (serial numbers); `m/d/y`, `m-d-y`, `y-m-d`,
 /// `y/m/d`; month-name forms (`Jan 5, 2020`, `5 January 2020`, `5-Jan-2020`);
 /// times `h:mm[:ss]` and `h AM/PM` with optional AM/PM. Dates without a year
-/// are not supported (they depend on the current date). Failure is error 13.
+/// (`Dec 30`, `30 Dec`, `12/30`) depend on the current date and are error 13
+/// here; [`parse_date_in_year`] supplies the year. A month and year alone
+/// (`Dec 2024`) mean the first of the month. Failure is error 13.
 pub fn parse_date(s: &VbaString) -> VbaResult<Date> {
+    parse_date_in_year(s, None)
+}
+
+/// [`parse_date`] where a date written without a year takes `current_year`.
+pub fn parse_date_in_year(s: &VbaString, current_year: Option<i32>) -> VbaResult<Date> {
     let text = s.to_string_lossy();
     let t = text.trim_matches(is_blank);
     if t.is_empty() {
@@ -357,7 +364,8 @@ pub fn parse_date(s: &VbaString) -> VbaResult<Date> {
         }
         return Date::from_serial(secs as f64 / 86_400.0);
     }
-    let (y, m, d) = parse_date_tokens(&date_tokens).ok_or(VbaError::TYPE_MISMATCH)?;
+    let (y, m, d) =
+        parse_date_tokens(&date_tokens, current_year).ok_or(VbaError::TYPE_MISMATCH)?;
     let base = Date::from_ymd_hms(y, m, d, 0, 0, 0).map_err(|_| VbaError::TYPE_MISMATCH)?;
     let serial = base.serial();
     let frac = secs as f64 / 86_400.0;
@@ -369,7 +377,7 @@ pub fn parse_date(s: &VbaString) -> VbaResult<Date> {
 }
 
 /// Interprets the non-time tokens of a date string as (year, month, day).
-fn parse_date_tokens(tokens: &[String]) -> Option<(i32, u32, u32)> {
+fn parse_date_tokens(tokens: &[String], current_year: Option<i32>) -> Option<(i32, u32, u32)> {
     // Normalize to three parts: split a single separated token, or take the
     // three words as they are.
     let parts: Vec<&str> = match tokens {
@@ -379,9 +387,16 @@ fn parse_date_tokens(tokens: &[String]) -> Option<(i32, u32, u32)> {
             one.split(sepc).collect()
         }
         [a, b, c] => vec![a.as_str(), b.as_str(), c.as_str()],
+        [a, b] => vec![a.as_str(), b.as_str()],
         _ => return None,
     };
-    if parts.len() != 3 || parts.iter().any(|p| p.is_empty()) {
+    if parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    if parts.len() == 2 {
+        return parse_two_part_date(&parts, current_year?);
+    }
+    if parts.len() != 3 {
         return None;
     }
     let named: Vec<Option<u32>> = parts.iter().map(|p| month_from_name(p)).collect();
@@ -408,6 +423,33 @@ fn parse_date_tokens(tokens: &[String]) -> Option<(i32, u32, u32)> {
         Some((n[0].0 as i32, n[1].0, n[2].0))
     } else {
         Some((expand_year(n[2].0, n[2].1), n[0].0, n[1].0))
+    }
+}
+
+/// A date of two parts: a month name with a day (`Dec 30`, `30 Dec`) or a
+/// year (`Dec 2024`, the first of the month), or numeric `month/day`.
+fn parse_two_part_date(parts: &[&str], year: i32) -> Option<(i32, u32, u32)> {
+    let named = [month_from_name(parts[0]), month_from_name(parts[1])];
+    let num = |p: &str| parse_number_u32(p).map(|n| (n, p.len()));
+    match named {
+        [Some(m), None] | [None, Some(m)] => {
+            let other = if named[0].is_some() { parts[1] } else { parts[0] };
+            let (n, len) = num(other)?;
+            if len >= 3 {
+                Some((n as i32, m, 1))
+            } else {
+                Some((year, m, n))
+            }
+        }
+        [None, None] => {
+            let (a, al) = num(parts[0])?;
+            let (b, bl) = num(parts[1])?;
+            if al > 2 || bl > 2 {
+                return None;
+            }
+            Some((year, a, b))
+        }
+        _ => None,
     }
 }
 
@@ -532,6 +574,21 @@ mod tests {
         assert_eq!(date("43831.5"), Ok(43831.5));
         assert_eq!(date("12/30/1899"), Ok(0.0));
         assert_eq!(date("12/29/1899 6:00"), Ok(-1.25));
+    }
+
+    #[test]
+    fn date_without_a_year() {
+        let in_year = |s: &str| parse_date_in_year(&VbaString::from(s), Some(2024)).map(Date::serial);
+        let full = |s: &str| date(s);
+        assert_eq!(in_year("Dec 30"), full("12/30/2024"));
+        assert_eq!(in_year("30 Dec"), full("12/30/2024"));
+        assert_eq!(in_year("December 30,"), full("12/30/2024"));
+        assert_eq!(in_year("12/30"), full("12/30/2024"));
+        assert_eq!(in_year("Dec 2024"), full("12/1/2024"));
+        assert_eq!(in_year("Dec 30 6:00 PM"), Ok(full("12/30/2024").unwrap() + 0.75));
+        assert_eq!(in_year("Feb 30"), Err(VbaError::TYPE_MISMATCH));
+        assert_eq!(in_year("13/1"), Err(VbaError::TYPE_MISMATCH));
+        assert_eq!(date("Dec 30"), Err(VbaError::TYPE_MISMATCH));
     }
 
     #[test]
