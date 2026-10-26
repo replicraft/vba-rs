@@ -74,10 +74,26 @@ to resource prefixes. Denial is error 70 and always happens before the effect.
   the path that is used, and `RealFs` refuses a path that no longer resolves to
   itself, so a link swapped in between the check and the use is not followed:
   every operation re-resolves its path (the directory that holds it, for the
-  operations that act on a final link without following it), and `Open` and
-  `Output` also compare the open handle with the file at the approved path
-  before reading or truncating (`a_link_swapped_in_after_the_check_is_not_followed`). Both ends of `FileCopy` and `Name` are
-  checked (`copying_and_renaming_check_both_ends`).
+  operations that act on a final link without following it)
+  (`a_link_swapped_in_after_the_check_is_not_followed`). On Unix the operation
+  then walks the path from `/` one directory at a time with `O_NOFOLLOW` and acts
+  relative to the directory handle it opened (`openat`, `unlinkat`, `mkdirat`,
+  `renameat`; the `rustix` crate, safe API): `Kill`, `Name`, `MkDir`, `RmDir`,
+  `FileCopy`, `SetAttr` and the open of a file for `Input`, `Output` and the
+  other modes. A parent directory swapped for a link at any point is refused or
+  already behind the handle, so the call lands on the directory that was
+  verified (`a_parent_swapped_after_the_check_does_not_redirect_an_operation`,
+  `an_operation_acts_on_the_directory_that_was_verified`). A file is opened
+  without following a final link, so a write through a name swapped for a link
+  creates nothing behind it, and no empty file appears at the new place before
+  a handle check (`a_write_through_a_swapped_name_creates_nothing_outside`,
+  `a_swapped_parent_leaves_no_stray_empty_file`). Both ends of `FileCopy` and
+  `Name` are checked (`copying_and_renaming_check_both_ends`).
+* `GetObject(path)` is made absolute against the working directory and resolved
+  through links before the policy sees it, and the host is handed the resolved
+  path; a denial names the capability only
+  (`get_object_is_checked_against_the_resolved_path`,
+  `get_object_resolves_a_relative_path_against_the_working_directory`).
 * `CurDir` and the text of a denial do not reveal a start directory the policy does not
   cover: the program sees `/` instead, and a denial names the capability but not the
   resolved path. A directory it may read, or one it entered with `ChDir`, is shown
@@ -222,19 +238,28 @@ error, never a panic.
   work, not guaranteed: the cost of an allocation, a hash lookup or a collation compare varies by
   machine and by string content (`Option Compare Text` folds through a table). A wall-clock
   deadline needs the cancellation token.
-* **Check and use are still two steps for some operations.** `RealFs` re-resolves the path at
-  the use, and compares the open handle for reading and writing a file, but `Kill`, `Name`,
-  `MkDir`, `RmDir` and `FileCopy` act on a path by name: another process that swaps a
-  directory for a link in the instant between the re-resolution and the system call can
-  still redirect them. Closing that needs `openat`-style calls the standard library does not
-  have. A write through a swapped path may also create an empty file at the new place before
-  the handle is compared. Keep granted directories out of the reach of other writers.
+* **Check and use are two steps where there are no directory handles.** On Unix the
+  mutating operations and file opens act through a verified directory handle (see
+  above). What remains: `Dir`, `FileLen`, `FileDateTime`, `GetAttr` and `stat`/`list`
+  inside the file system read metadata and names by path after the re-resolution, so
+  a parent swapped in that instant can show the program the metadata or the names of
+  a directory outside the grant (they change nothing). `Name` onto an existing name
+  is refused with an atomic no-replace rename on Linux, Android and macOS, and with
+  a check followed by `renameat` elsewhere, where a file created in the instant
+  between them in the already verified directory is replaced. The host-side
+  `GetObject` hook binds the resolved path again by name, so what the embedding
+  application does with it is its own to protect. On other systems (Windows) no
+  directory handle is used: every operation is the re-resolution followed by a call
+  by name, and another process that swaps a directory for a link or junction in the
+  instant between them can still redirect `Kill`, `Name`, `MkDir`, `RmDir`,
+  `FileCopy` and `SetAttr`, and a write through a swapped path may create an empty
+  file at the new place before the handle is compared. Keep granted directories out
+  of the reach of other writers.
 * **Windows paths follow the rules above, but the Windows file system was not run here.** The
   matching is tested with Windows spellings on every platform; a short name that exists on
   disk is refused rather than expanded, `\\?\` verbatim paths are never granted by a
   drive or UNC grant, and the start of a process (`CreateProcess` through
   `std::process::Command`) was not run.
-* `GetObject(path)` is checked against the path as written, not the resolved path.
 * Native recursion outside the interpreter (sema, IR lowering and the formatter for shapes
   not listed above) has no byte budget; the shapes tried are bounded or iterative. Run
   analysis of untrusted source on a thread with a large stack (for example 64 MiB).
