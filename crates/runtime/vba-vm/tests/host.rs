@@ -325,6 +325,16 @@ fn declare_needs_native_declare_permission() {
 }
 
 #[test]
+fn last_dll_error_follows_declare_calls() {
+    let host = HeadlessHost::new().with_policy(Policy::deny_all().grant(Capability::NativeDeclare));
+    let o = run_host(
+        "Private Declare PtrSafe Sub SetLastError Lib \"kernel32\" (ByVal code As Long)\nSub Main()\nDebug.Print Err.LastDllError\nSetLastError 1234\nDebug.Print Err.LastDllError\nEnd Sub\n",
+        host,
+    );
+    assert_eq!(o.out, " 0 \n 1234 \n", "{:?}", o.result);
+}
+
+#[test]
 fn unimplemented_declare_is_an_explicit_unsupported_error() {
     let host = HeadlessHost::new().with_policy(Policy::deny_all().grant(Capability::NativeDeclare));
     let o = run_host(

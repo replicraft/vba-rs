@@ -81,6 +81,9 @@ pub struct Vm {
     pub(crate) run_depth: u32,
     pub(crate) stop_reason: Option<String>,
     pub(crate) last_site: Option<(String, u64, Vec<String>)>,
+    pub(crate) push_request: Option<Option<vba_ir::Reg>>,
+    pub(crate) push_done: bool,
+    pub(crate) cascade: Option<crate::state::Cascade>,
 }
 
 impl Vm {
@@ -123,6 +126,9 @@ impl Vm {
             run_depth: 0,
             stop_reason: None,
             last_site: None,
+            push_request: None,
+            push_done: false,
+            cascade: None,
         };
         vm.index_program();
         vm.reset_state().map_err(|f| vm.fault_to_error(f))?;

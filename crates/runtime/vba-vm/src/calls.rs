@@ -403,6 +403,7 @@ impl Vm {
                 for c in ext_conns {
                     self.disconnect_external(c);
                 }
+                let mut pending = Vec::with_capacity(fields.len());
                 for (i, v) in fields.into_iter().enumerate() {
                     let g = info.and_then(|c| c.fields.get(i).copied());
                     if let Some(g) = g
@@ -410,12 +411,11 @@ impl Vm {
                     {
                         self.disconnect_events(id, g, &v);
                     }
-                    if let Err(f) = self.release_value(v)
-                        && !matches!(f, Fault::Err(_))
-                        && result.is_ok()
-                    {
-                        result = Err(f);
-                    }
+                    pending.push(v);
+                }
+                let r = self.release_cascade(pending);
+                if result.is_ok() {
+                    result = r;
                 }
             }
             ObjKind::Collection(items) => {
@@ -426,6 +426,37 @@ impl Vm {
             ObjKind::Err | ObjKind::Debug => {}
         }
         result
+    }
+
+    /// Releases `values` in order. When this runs inside the cascade of an
+    /// enclosing destruction at the same frame depth the values are handed to
+    /// it, so a chain of objects that own each other is destroyed in a loop
+    /// instead of by recursion; the order is the same depth-first order.
+    fn release_cascade(&mut self, values: Vec<Variant>) -> VResult<()> {
+        let base = self.frames.len();
+        if let Some(c) = &mut self.cascade
+            && c.base == base
+        {
+            c.stack.extend(values.into_iter().rev());
+            return Ok(());
+        }
+        let outer = self.cascade.replace(Cascade {
+            base,
+            stack: values.into_iter().rev().collect(),
+        });
+        let mut first: VResult<()> = Ok(());
+        loop {
+            let next = self.cascade.as_mut().and_then(|c| c.stack.pop());
+            let Some(v) = next else { break };
+            if let Err(f) = self.release_value(v)
+                && !matches!(f, Fault::Err(_))
+                && first.is_ok()
+            {
+                first = Err(f);
+            }
+        }
+        self.cascade = outer;
+        first
     }
 
     // ---- procedure resolution ----------------------------------------------

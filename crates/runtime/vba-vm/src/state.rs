@@ -141,6 +141,17 @@ pub(crate) struct Obj {
     pub sinks: Vec<Sink>,
 }
 
+/// References released by the destruction of an object, processed by the
+/// loop that started the cascade so that long chains do not nest the Rust
+/// stack.
+#[derive(Debug)]
+pub(crate) struct Cascade {
+    /// Frame count at which the cascade runs.
+    pub base: usize,
+    /// Values still to release, next one last.
+    pub stack: Vec<Variant>,
+}
+
 /// An event from an object outside the VM, waiting for delivery.
 #[derive(Debug)]
 pub(crate) struct PendingEvent {

@@ -60,15 +60,22 @@ pub struct VmConfig {
     pub max_array_elements: u64,
     /// The deepest `GoSub` nesting of one frame (error 28 beyond it).
     pub max_gosub_depth: usize,
+    /// How deeply the interpreter may nest itself on the native stack. Calls
+    /// between procedures never nest it; `Class_Initialize`,
+    /// `Class_Terminate` bodies reached from inside another one, event
+    /// handlers and default-member coercions do. Beyond the limit the run
+    /// ends with a call-depth limit error.
+    pub max_native_depth: u32,
 }
 
 impl Default for VmConfig {
     fn default() -> VmConfig {
         VmConfig {
             project_name: "VBAProject".to_owned(),
-            max_string_units: 1 << 26,
+            max_string_units: 1 << 25,
             max_array_elements: 1 << 24,
             max_gosub_depth: 1 << 12,
+            max_native_depth: 48,
         }
     }
 }

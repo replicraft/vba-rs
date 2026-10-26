@@ -32,6 +32,9 @@ impl Vm {
     /// the last frame popped.
     pub(crate) fn run(&mut self, base: usize) -> VResult<Variant> {
         let ir = self.ir.clone();
+        if self.run_depth >= self.cfg.max_native_depth {
+            return Err(Fault::Limit(crate::error::LimitKind::CallDepth));
+        }
         self.run_depth += 1;
         let r = self.run_loop(&ir, base);
         self.run_depth -= 1;
@@ -392,19 +395,18 @@ impl Vm {
             StoreMode::SetWithEvents => {
                 let old = self.load(loc)?;
                 self.store(loc, v.clone())?;
-                if let Some(me) = self.me_of_frame()
-                    && let Loc::Field { index, obj } = loc
-                    && *obj == me
-                {
+                // The sink is the object that owns the `WithEvents` field,
+                // whether the assignment runs inside it or from outside.
+                if let Loc::Field { index, obj } = self.resolve_loc(loc) {
                     let ir = self.ir.clone();
                     if let Some(Obj {
                         kind: ObjKind::Class { module, .. },
                         ..
-                    }) = self.objects.get(&me)
+                    }) = self.objects.get(&obj)
                         && let Some(info) = ir.classes[module.index()].as_ref()
-                        && let Some(g) = info.fields.get(*index as usize)
+                        && let Some(g) = info.fields.get(index as usize)
                     {
-                        self.rewire_events(me, *g, &old, &v)?;
+                        self.rewire_events(obj, *g, &old, &v)?;
                     }
                 }
                 Ok(())
@@ -614,9 +616,7 @@ impl Vm {
                 kind,
                 args,
                 ..
-            } => {
-                self.exec_invoke(*dst, receiver, member, *kind, args)?;
-            }
+            } => return self.exec_invoke(*dst, receiver, member, *kind, args),
             InstKind::New { dst, target } => {
                 let v = self.create_new(target)?;
                 self.own(&v);

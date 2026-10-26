@@ -41,7 +41,9 @@ impl Vm {
         })
     }
 
-    /// Executes an `Invoke` instruction.
+    /// Executes an `Invoke` instruction. A call of a procedure of a class
+    /// instance pushes a frame (no native recursion); everything else
+    /// completes here.
     pub(crate) fn exec_invoke(
         &mut self,
         dst: Option<vba_ir::Reg>,
@@ -49,10 +51,17 @@ impl Vm {
         member: &Member,
         kind: InvokeKind,
         args: &[LateArg],
-    ) -> VResult<()> {
+    ) -> VResult<crate::exec::Flow> {
         let recv = self.invoke_receiver(receiver)?;
         let largs = self.late_args(args)?;
-        let result = self.invoke_value(recv, member, kind, largs, dst.is_some())?;
+        self.push_request = Some(dst);
+        self.push_done = false;
+        let result = self.invoke_value(recv, member, kind, largs, dst.is_some());
+        self.push_request = None;
+        let result = result?;
+        if std::mem::take(&mut self.push_done) {
+            return Ok(crate::exec::Flow::Pushed);
+        }
         match dst {
             Some(r) => {
                 self.own(&result);
@@ -60,7 +69,7 @@ impl Vm {
             }
             None => self.own(&result),
         }
-        Ok(())
+        Ok(crate::exec::Flow::Next)
     }
 
     fn invoke_receiver(&mut self, op: &Operand) -> VResult<Variant> {
@@ -76,6 +85,7 @@ impl Vm {
         args: LateArgs,
         want_value: bool,
     ) -> VResult<Variant> {
+        let push = self.push_request.take();
         match recv {
             Variant::Array(a) => match (member, kind) {
                 (Member::Default, InvokeKind::Get) => {
@@ -94,7 +104,7 @@ impl Vm {
                 _ => Err(VbaError::new(424).into()),
             },
             Variant::Object(ObjectRef::Handle(h)) => match vm_id(h) {
-                Some(id) => self.invoke_vm_object(id, member, kind, args),
+                Some(id) => self.invoke_vm_object(id, member, kind, args, push),
                 None => self.invoke_external(h, member, kind, args, want_value),
             },
             Variant::Object(ObjectRef::Nothing) | Variant::Empty => Err(VbaError::new(91).into()),
@@ -108,6 +118,7 @@ impl Vm {
         member: &Member,
         kind: InvokeKind,
         args: LateArgs,
+        push: Option<Option<vba_ir::Reg>>,
     ) -> VResult<Variant> {
         let k = match self.objects.get(&id).map(|o| &o.kind) {
             Some(ObjKind::Class { module, .. }) => Some(*module),
@@ -115,7 +126,7 @@ impl Vm {
             None => return Err(VbaError::new(91).into()),
         };
         if let Some(m) = k {
-            return self.invoke_class(id, m, member, kind, args);
+            return self.invoke_class(id, m, member, kind, args, push);
         }
         match self.objects.get(&id).map(|o| &o.kind) {
             Some(ObjKind::Err) => self.invoke_err(member, kind, args),
@@ -163,6 +174,7 @@ impl Vm {
         member: &Member,
         kind: InvokeKind,
         args: LateArgs,
+        push: Option<Option<vba_ir::Reg>>,
     ) -> VResult<Variant> {
         let ir = self.ir.clone();
         let mi = ir.program.module(module);
@@ -195,6 +207,11 @@ impl Vm {
                     return Err(VbaError::new(438).into());
                 }
                 let bound = self.arrange_args(pid, args)?;
+                if let Some(ret_dst) = push {
+                    self.push_proc_frame(pid, Some(id), bound, ret_dst)?;
+                    self.push_done = true;
+                    return Ok(Variant::Empty);
+                }
                 return self.call_nested(pid, Some(id), bound);
             }
         }

@@ -106,6 +106,17 @@ pub fn run_limited(src: &str, limits: ResourceLimits) -> Outcome {
     )
 }
 
+/// Runs `Main` of a multi-module program with the given limits.
+pub fn run_with_limits(mods: &[SourceModule], limits: ResourceLimits) -> Outcome {
+    run_with(
+        mods,
+        "Main",
+        vec![],
+        Rc::new(HeadlessHost::new().with_limits(limits)),
+        Box::new(NoServices),
+    )
+}
+
 /// The output of a program that must complete.
 pub fn output(src: &str) -> String {
     let o = run(src);
