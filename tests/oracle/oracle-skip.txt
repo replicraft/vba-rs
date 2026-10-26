@@ -197,13 +197,16 @@ spec-data/5_4_5_11_put_object_data_invalid	safety	needs the `file-read` grant; n
 spec-data/5_4_5_11_put_sizes_single_double_currency_date	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_udt_members_in_declaration_order	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_unopened_error52	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-data/5_4_5_11_put_variant_decimal_sixteen_bytes	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_variant_double_descriptor	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_variant_empty_and_null	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-data/5_4_5_11_put_variant_error_hresult	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_variant_integer_has_type_descriptor	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_variant_long_descriptor	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_variant_string_descriptor	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_random_roundtrip_records	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_random_variable_string_roundtrip	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-data/5_4_5_11_random_variant_members_roundtrip	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_12_get_binary_omitted_record_uses_pointer	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_12_get_non_variable_invalid	safety	needs the `file-read` grant; needs the `file-write` grant; expects a compile error (needs a modal dialog in a real host)
 spec-data/5_4_5_12_get_object_variable_invalid	safety	needs the `file-read` grant; needs the `file-write` grant; expects a compile error (needs a modal dialog in a real host)
@@ -490,7 +493,9 @@ spec-lib-b/6_1_2_5_1_6_filelen_bytes	safety	needs the `file-read` grant; needs t
 spec-lib-b/6_1_2_5_1_6_filelen_missing_errors	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-lib-b/6_1_2_5_1_6_filelen_open_file_size_before_open	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-lib-b/6_1_2_5_1_7_freefile_next_available	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-lib-b/6_1_2_5_1_7_freefile_ranges_are_independent	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-lib-b/6_1_2_5_1_8_loc_binary_and_random	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-lib-b/6_1_2_5_1_8_loc_sequential_position_div_128	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-lib-b/6_1_2_5_1_9_lof_size_in_bytes	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-lib-b/6_1_2_5_2_1_chdir_changes_current_directory	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-lib-b/6_1_2_5_2_2_chdrive_empty_keeps_drive	safety	needs the `file-read` grant; needs the `file-write` grant
