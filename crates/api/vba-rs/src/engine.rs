@@ -305,7 +305,13 @@ pub struct Outcome {
 }
 
 /// A loaded project: one [`Session`] and its `Debug.Print` buffer.
-/// Single-threaded (`!Send`).
+/// Single-threaded: an instance is not `Send`, so it cannot leave the thread
+/// that created it.
+///
+/// ```compile_fail
+/// fn assert_send<T: Send>() {}
+/// assert_send::<vba::Instance>();
+/// ```
 pub struct Instance {
     session: Session,
     sink: BufferSink,
