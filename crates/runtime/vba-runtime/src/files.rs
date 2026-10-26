@@ -665,7 +665,11 @@ impl FileSystem {
                 // Random 4, Append 8, Binary 32); type 2 (the OS handle) is
                 // an error on 32-bit systems, error 5 here (**unverified**).
                 let n = num(a, 0)?;
-                let kind = num(a, 1)?;
+                // MS-VBAL 6.1.2.5.1.4: ReturnType is optional and defaults to 1.
+                let kind = match a.get(1) {
+                    Some(Some(Variant::Empty)) | Some(None) | None => 1,
+                    Some(Some(_)) => num(a, 1)?,
+                };
                 let f = self.file(n)?;
                 if kind != 1 {
                     return vba(5);

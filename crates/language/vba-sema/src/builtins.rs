@@ -407,7 +407,7 @@ pub fn runtime_function(name: &str) -> Option<LibMember> {
             "FileAttr",
             vec![
                 p("FileNumber", Type::Integer),
-                p("ReturnType", Type::Integer),
+                o("ReturnType", Type::Integer),
             ],
             Type::Long,
         ),
