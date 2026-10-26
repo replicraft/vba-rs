@@ -203,7 +203,7 @@ impl Vm {
             Operand::Reg(r) => {
                 let fr = self.frames.last().ok_or_else(no_frame)?;
                 match &fr.regs[r.0 as usize] {
-                    RegVal::V(v) => Ok(v.clone()),
+                    RegVal::V(v) => Ok(clone_variant(v)),
                     RegVal::Alias(loc) | RegVal::Ref(loc) => self.load(loc),
                     RegVal::Empty => Err(Fault::Internal(format!(
                         "register r{} read before it was defined",
@@ -618,6 +618,18 @@ impl Vm {
             }
         }
         self.gc_threshold = (self.udts.len() * 2).max(4096);
+    }
+}
+
+/// `Variant::clone` with the scalar cases inlined at the call site.
+#[inline(always)]
+fn clone_variant(v: &Variant) -> Variant {
+    match v {
+        Variant::Long(x) => Variant::Long(*x),
+        Variant::Integer(x) => Variant::Integer(*x),
+        Variant::Double(x) => Variant::Double(*x),
+        Variant::Boolean(x) => Variant::Boolean(*x),
+        other => other.clone(),
     }
 }
 

@@ -296,8 +296,13 @@ pub fn arith(op: ArithOp, l: &Variant, r: &Variant, overflow: Overflow) -> VbaRe
 #[inline]
 fn arith_fast(op: ArithOp, l: &Variant, r: &Variant) -> Option<Variant> {
     match (l, r) {
-        (Variant::Long(a), Variant::Long(b)) => {
-            let (a, b) = (i64::from(*a), i64::from(*b));
+        (Variant::Long(_) | Variant::Integer(_), Variant::Long(_) | Variant::Integer(_)) => {
+            let long = |v: &Variant| match v {
+                Variant::Long(x) => (true, i64::from(*x)),
+                Variant::Integer(x) => (false, i64::from(*x)),
+                _ => (false, 0),
+            };
+            let ((la, a), (lb, b)) = (long(l), long(r));
             let res = match op {
                 ArithOp::Add => a + b,
                 ArithOp::Sub => a - b,
@@ -306,7 +311,11 @@ fn arith_fast(op: ArithOp, l: &Variant, r: &Variant) -> Option<Variant> {
                 ArithOp::Mod if b != 0 => a % b,
                 _ => return None,
             };
-            i32::try_from(res).ok().map(Variant::Long)
+            if la || lb {
+                i32::try_from(res).ok().map(Variant::Long)
+            } else {
+                i16::try_from(res).ok().map(Variant::Integer)
+            }
         }
         (Variant::Double(_), Variant::Double(_) | Variant::Long(_))
         | (Variant::Long(_), Variant::Double(_)) => {
@@ -634,6 +643,12 @@ pub fn compare_values(
     // Shortcuts for the common numeric pairs; same results as the general path.
     match (l, r) {
         (Variant::Long(a), Variant::Long(b)) => return Ok(Some(a.cmp(b).into())),
+        (Variant::Long(a), Variant::Integer(b)) => {
+            return Ok(Some(i32::cmp(a, &i32::from(*b)).into()));
+        }
+        (Variant::Integer(a), Variant::Long(b)) => {
+            return Ok(Some(i32::cmp(&i32::from(*a), b).into()));
+        }
         (Variant::Double(a), Variant::Double(b)) => return Ok(Some(cmp_f64(*a, *b))),
         (Variant::Long(a), Variant::Double(b)) => return Ok(Some(cmp_f64(f64::from(*a), *b))),
         (Variant::Double(a), Variant::Long(b)) => return Ok(Some(cmp_f64(*a, f64::from(*b)))),

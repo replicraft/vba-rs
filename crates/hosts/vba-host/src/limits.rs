@@ -217,6 +217,7 @@ impl Budget {
     }
 
     /// Steps charged so far.
+    #[inline]
     pub fn steps_used(&self) -> u64 {
         self.steps.get()
     }
@@ -263,6 +264,7 @@ impl Budget {
     }
 
     /// Charges `n` steps.
+    #[inline]
     pub fn charge_steps(&self, n: u64) -> Result<(), LimitExceeded> {
         let built = self.memory.allocated_total();
         let unpaid = built - self.volume_paid.get();
@@ -304,6 +306,7 @@ impl Budget {
     }
 
     /// Charges one step.
+    #[inline]
     pub fn charge_step(&self) -> Result<(), LimitExceeded> {
         self.charge_steps(1)
     }

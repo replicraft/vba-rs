@@ -559,8 +559,7 @@ impl Vm {
     /// and must not postpone the next poll by that many instructions. Costs
     /// one read of the step counter per instruction.
     #[inline]
-    fn poll(&mut self) -> VResult<()> {
-        let steps = self.host.budget().steps_used();
+    fn poll(&mut self, steps: u64) -> VResult<()> {
         // A counter that went back (a fresh allowance) starts a new interval.
         if steps < self.polled_at || steps - self.polled_at >= u64::from(vba_host::POLL_INTERVAL) {
             self.polled_at = steps;
@@ -577,8 +576,12 @@ impl Vm {
         func: &Function,
         inst: &Inst,
     ) -> VResult<Flow> {
-        self.host.budget().charge_step().map_err(Fault::from)?;
-        self.poll()?;
+        let steps = {
+            let budget = self.host.budget();
+            budget.charge_step().map_err(Fault::from)?;
+            budget.steps_used()
+        };
+        self.poll(steps)?;
         let frame = self.frames.last_mut().expect("frame");
         if frame.cur_stmt != inst.stmt.0 {
             frame.cur_stmt = inst.stmt.0;
@@ -629,9 +632,28 @@ impl Vm {
                     // `Next` without the `For` initialisation (MS-VBAL 5.4.2.3).
                     return Err(VbaError::new(92).into());
                 }
-                let l = self.val(lhs)?;
-                let r = self.val(rhs)?;
-                let out = self.binary(op, ty, *overflow, l, r)?;
+                // Operands that are plain values are used in place: no copy and
+                // no default-member resolution (neither can apply to them).
+                let fast = match (self.operand_ref(lhs), self.operand_ref(rhs)) {
+                    (Some(l), Some(r)) => match op {
+                        BinOp::Arith(a) => Some(ops::arith(*a, l, r, *overflow)),
+                        BinOp::Compare(c, opts) => Some(ops::compare(*c, l, r, *opts)),
+                        BinOp::Logic(o) => Some(ops::logic(*o, l, r)),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let out = match fast {
+                    Some(out) => {
+                        let out = out?;
+                        self.fit(out, ty)?
+                    }
+                    None => {
+                        let l = self.val(lhs)?;
+                        let r = self.val(rhs)?;
+                        self.binary(op, ty, *overflow, l, r)?
+                    }
+                };
                 self.set_val(*dst, out);
             }
             InstKind::Convert { dst, src, to } => {
@@ -828,6 +850,23 @@ impl Vm {
                 end,
                 step,
             } => {
+                let fast = match (
+                    self.operand_ref(counter),
+                    self.operand_ref(end),
+                    self.operand_ref(step),
+                ) {
+                    (Some(Variant::Long(c)), Some(Variant::Long(e)), Some(Variant::Long(s))) => {
+                        Some(if *s >= 0 { c <= e } else { c >= e })
+                    }
+                    (Some(Variant::Long(c)), Some(Variant::Long(e)), Some(Variant::Integer(s))) => {
+                        Some(if *s >= 0 { c <= e } else { c >= e })
+                    }
+                    _ => None,
+                };
+                if let Some(t) = fast {
+                    self.set_val(*dst, Variant::Boolean(t));
+                    return Ok(Flow::Next);
+                }
                 let c = self.val(counter)?;
                 let e = self.val(end)?;
                 let s = self.val(step)?;
@@ -871,6 +910,22 @@ impl Vm {
             InstKind::Io(op) => self.exec_io(func, op)?,
         }
         Ok(Flow::Next)
+    }
+
+    /// A plain value an operand stands for, in place: a constant or a
+    /// register holding a value that is not an object (so no default member
+    /// needs resolving). `None` for anything else.
+    #[inline]
+    fn operand_ref<'a>(&'a self, op: &'a Operand) -> Option<&'a Variant> {
+        let v = match op {
+            Operand::Const(vba_sema::bound::Constant::Value(v)) => v,
+            Operand::Reg(r) => match &self.frames.last()?.regs[r.0 as usize] {
+                RegVal::V(v) => v,
+                _ => return None,
+            },
+            Operand::Const(_) => return None,
+        };
+        (!matches!(v, Variant::Object(_))).then_some(v)
     }
 
     fn load_into(&mut self, dst: vba_ir::Reg, loc: &Loc) -> VResult<()> {
@@ -1140,8 +1195,12 @@ impl Vm {
         block: &Block,
         base: usize,
     ) -> VResult<Flow> {
-        self.host.budget().charge_step().map_err(Fault::from)?;
-        self.poll()?;
+        let steps = {
+            let budget = self.host.budget();
+            budget.charge_step().map_err(Fault::from)?;
+            budget.steps_used()
+        };
+        self.poll(steps)?;
         if !self.frames.last().expect("frame").owned.is_empty() {
             self.release_owned()?;
         }
@@ -1156,8 +1215,13 @@ impl Vm {
                 then_block,
                 else_block,
             } => {
-                let c = self.val(cond)?;
-                let t = self.truthy(c)?;
+                let t = match self.operand_ref(cond) {
+                    Some(Variant::Boolean(b)) => *b,
+                    _ => {
+                        let c = self.val(cond)?;
+                        self.truthy(c)?
+                    }
+                };
                 self.goto(if t { *then_block } else { *else_block });
                 Ok(Flow::Jumped)
             }
