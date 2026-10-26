@@ -199,8 +199,8 @@ by a test of our own expectation and none was compared with Office.
   *not* used by the VM: limits are untrappable faults, so a program cannot
   swallow them with `On Error`.
 - **Unverified:** `Class_Initialize` / `Class_Terminate` also run for document and
-  designer modules (as in Access forms); other hosts' document modules were not
-  compared.
+  designer modules, because an embedding application's forms are classes; the
+  behavior of document modules in other hosts was not compared.
 - A fatal fault discards the frames of the run without running code (objects only
   those frames held are never terminated), unlike an unhandled VBA error, which
   unwinds with releases. `Vm::reset` is the way back to a clean state.

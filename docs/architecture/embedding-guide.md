@@ -259,8 +259,8 @@ borrowed reference of the predeclared instance (created on first use), and
 `call(CallTarget::Project, "Form_Orders.Proc", ..)` runs on it. A default
 instance lives as long as the session and cannot be destroyed.
 **(unverified)** `Class_Initialize` and `Class_Terminate` also run for document
-and designer modules; in Access forms they do, in other hosts' document modules
-the behavior was not compared.
+and designer modules, because an embedding application's forms are classes; the
+behavior of document modules in other hosts was not compared.
 
 **Object lifetime.** The reference `create_object` returns is yours. VBA code
 may keep the instance (`Set held = Me`); `destroy_object` gives your reference
