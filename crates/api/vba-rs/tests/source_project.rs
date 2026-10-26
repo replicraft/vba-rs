@@ -71,9 +71,11 @@ fn replacing_one_module_source_reloads_cleanly() {
 
 #[test]
 fn a_module_that_does_not_compile_is_reported_before_anything_runs() {
-    let project =
-        Project::from_modules("P", [("M", ModuleKind::Standard, "Public Sub A(\nEnd Sub\n")])
-            .unwrap();
+    let project = Project::from_modules(
+        "P",
+        [("M", ModuleKind::Standard, "Public Sub A(\nEnd Sub\n")],
+    )
+    .unwrap();
     let report = Engine::new().analyze(&project);
     assert!(report.has_errors());
     let err = Engine::new().load(&project).err().expect("load must fail");
