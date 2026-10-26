@@ -106,10 +106,11 @@ pub fn to_boolean(v: &Variant) -> VbaResult<bool> {
     if let Variant::String(s) = v {
         let l = s.to_string_lossy();
         let l = l.trim();
-        if l.eq_ignore_ascii_case("true") {
+        // MS-VBAL 5.5.1.2.4: `True`/`False` and the `#TRUE#`/`#FALSE#` forms.
+        if l.eq_ignore_ascii_case("true") || l == "#TRUE#" {
             return Ok(true);
         }
-        if l.eq_ignore_ascii_case("false") {
+        if l.eq_ignore_ascii_case("false") || l == "#FALSE#" {
             return Ok(false);
         }
     }

@@ -582,6 +582,11 @@ pub fn compare_values(
                     Ok(Some(flip(Ordered::Less)))
                 }
                 StringNumberRule::Coerce => {
+                    // MS-VBAL 5.6.9.5: Boolean with String compares as Boolean.
+                    if matches!(other, Variant::Boolean(_)) {
+                        let sb = crate::convert::to_boolean(&Variant::String(s.clone()))?;
+                        return Ok(Some(flip(cmp_val(num, val_of(&Variant::Boolean(sb))?)?)));
+                    }
                     let sv = val_of(&Variant::String(s.clone()))?;
                     Ok(Some(flip(cmp_val(num, sv)?)))
                 }

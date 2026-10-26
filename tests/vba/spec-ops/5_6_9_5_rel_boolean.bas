@@ -1,6 +1,5 @@
 ' INV: vbal.5.6.9.5, op.lt, op.gt
 ' SOURCE: spec ms-vbal 5.6.9.5 relational Boolean effective type, True less than False
-' XFAIL: wrong pending
 ' EXPECT: True
 ' EXPECT: False
 ' EXPECT: True
