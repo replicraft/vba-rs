@@ -95,6 +95,16 @@ covered by explicit tests but remain unverified against Office.
 
 ## Known gaps
 
+- **When a Double or Single prints in scientific notation is unverified.** `format_double`
+  (`CStr`, `&`, `Debug.Print`, `Str`) switches to `E` notation for a decimal exponent below
+  -4 (so `0.0001` prints `0.0001` and `0.00001` prints `1E-05`), and for 15 or more integer
+  digits (`1E+15`); `format_single` does the same with 7 significant digits. A common belief is
+  that real VBA already prints `0.0001` as `1E-04` (a threshold of -3). Searched: the Learn pages of `Str` and the type-conversion functions (the `CStr` entry) say only that the number becomes a string
+  and give no switch-over point (their examples are `437.324`, `459.001`); the 15/7 digit counts are not stated there either. With no
+  document to back a change, the threshold is left as it was and the conformance programs that
+  pin it (`datatypes/double_default_display`, `conversions/double_to_string`) stay tagged
+  `unverified`. Changing it needs a documented example or a run on real VBA.
+
 - **Strings with an odd number of bytes are not representable.** `VbaString`
   is a sequence of 16-bit code units; a native `BSTR` can carry a trailing
   odd byte (`StrConv(s, vbFromUnicode)` of an odd number of characters,
