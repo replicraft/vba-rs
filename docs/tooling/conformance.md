@@ -24,18 +24,18 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 527 |
-| partial | 143 |
+| implemented | 533 |
+| partial | 137 |
 | unsupported | 5 |
 | not-started | 33 |
-| Conformance programs | 2102 |
-| Programs that are known deviations (XFAIL) | 154 |
+| Conformance programs | 2111 |
+| Programs that are known deviations (XFAIL) | 146 |
 
 ## Entries per category and status
 
 | Category | Total | implemented | partial | unsupported | not-started |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| statement | 76 | 62 | 12 | 2 | 0 |
+| statement | 76 | 65 | 9 | 2 | 0 |
 | function-conversion | 8 | 6 | 2 | 0 | 0 |
 | function-math | 13 | 13 | 0 | 0 | 0 |
 | function-type-conversion | 13 | 11 | 2 | 0 | 0 |
@@ -63,8 +63,8 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-organization | 3 | 1 | 0 | 0 | 2 |
 | spec-declarations | 21 | 11 | 10 | 0 | 0 |
 | spec-procedures | 12 | 6 | 5 | 0 | 1 |
-| spec-statements | 55 | 42 | 12 | 0 | 1 |
-| spec-coercion | 18 | 9 | 8 | 0 | 1 |
+| spec-statements | 55 | 44 | 10 | 0 | 1 |
+| spec-coercion | 18 | 10 | 7 | 0 | 1 |
 | spec-expressions | 53 | 22 | 26 | 0 | 5 |
 | spec-library | 193 | 148 | 22 | 0 | 23 |
 
@@ -73,9 +73,9 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Provenance | Entries |
 | --- | ---: |
 | oracle | 0 |
-| spec | 438 |
+| spec | 436 |
 | doc | 101 |
-| derived | 39 |
+| derived | 41 |
 | unverified | 97 |
 | (no program) | 33 |
 
@@ -83,9 +83,9 @@ Provenance of the expected values (the weakest among an entry's passing programs
 
 | Area | Programs | oracle | spec | doc | derived | unverified |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| arrays | 31 | 0 | 7 | 10 | 3 | 11 |
-| classes | 28 | 0 | 12 | 4 | 9 | 3 |
-| collections | 23 | 0 | 7 | 14 | 0 | 2 |
+| arrays | 34 | 0 | 7 | 10 | 6 | 11 |
+| classes | 30 | 0 | 12 | 6 | 9 | 3 |
+| collections | 24 | 0 | 7 | 14 | 1 | 2 |
 | conversions | 39 | 0 | 28 | 4 | 2 | 5 |
 | datatypes | 52 | 0 | 27 | 16 | 0 | 9 |
 | datetime | 45 | 0 | 18 | 14 | 2 | 11 |
@@ -101,7 +101,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operators | 66 | 0 | 59 | 1 | 5 | 1 |
 | procedures | 34 | 0 | 23 | 2 | 4 | 5 |
 | spec-coerce | 187 | 0 | 187 | 0 | 0 | 0 |
-| spec-data | 277 | 0 | 277 | 0 | 0 | 0 |
+| spec-data | 280 | 0 | 279 | 0 | 1 | 0 |
 | spec-decl | 155 | 0 | 155 | 0 | 0 | 0 |
 | spec-lex | 145 | 0 | 145 | 0 | 0 | 0 |
 | spec-lib-a | 96 | 0 | 96 | 0 | 0 | 0 |
@@ -123,15 +123,12 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.dim` | statement | Dim | partial |  |
 | `stmt.let` | statement | Let | partial | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
 | `stmt.load` | statement | Load | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
-| `stmt.lset` | statement | LSet | partial |  |
-| `stmt.mid` | statement | Mid | partial |  |
 | `stmt.on-error` | statement | On Error | partial |  |
 | `stmt.open` | statement | Open | partial |  |
 | `stmt.print` | statement | Print # | partial |  |
 | `stmt.put` | statement | Put | partial |  |
 | `stmt.redim` | statement | ReDim | partial | element assignment into an array held in a Variant (ReDim v(..); v(i) = x) is rejected as 'late binding' |
 | `stmt.seek` | statement | Seek | partial |  |
-| `stmt.set` | statement | Set | partial |  |
 | `stmt.unload` | statement | Unload | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
 | `func.hex` | function-conversion | Hex | partial |  |
 | `func.str` | function-conversion | Str | partial |  |
@@ -207,8 +204,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.4.2.11` | spec-statements | Stop Statement | not-started |  |
 | `vbal.5.4.3.1` | spec-statements | Local Variable Declarations | partial |  |
 | `vbal.5.4.3.3` | spec-statements | ReDim Statement | partial |  |
-| `vbal.5.4.3.5` | spec-statements | Mid/MidB/Mid$/MidB$ Statement | partial |  |
-| `vbal.5.4.3.6` | spec-statements | LSet Statement | partial |  |
 | `vbal.5.4.3.8` | spec-statements | Let Statement | partial |  |
 | `vbal.5.4.4.1` | spec-statements | On Error Statement | partial |  |
 | `vbal.5.4.5.1` | spec-statements | Open Statement | partial |  |
@@ -223,7 +218,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.5.1.2.9` | spec-coercion | Let-coercion to and from Error | partial |  |
 | `vbal.5.5.1.2.11` | spec-coercion | Let-coercion from Empty | partial |  |
 | `vbal.5.5.1.2.13` | spec-coercion | Let-coercion to and from a class or Object or Nothing | partial |  |
-| `vbal.5.5.2.2.2` | spec-coercion | Set-coercion to and from non-object types | partial |  |
 | `vbal.5.6.1` | spec-expressions | Expression Classifications | not-started |  |
 | `vbal.5.6.2.1` | spec-expressions | Evaluation to a data value | partial |  |
 | `vbal.5.6.2.2` | spec-expressions | Evaluation to a simple data value | partial |  |
@@ -320,13 +314,9 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-coerce/5_5_1_2_6_byte_array_string_round_trip` | wrong | not implemented: Byte() to String * length coercion |
 | `spec-coerce/5_5_1_2_9_error_to_other_type_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-coerce/5_5_1_2_9_error_to_string_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
-| `spec-coerce/5_5_2_2_2_set_empty_variant_to_object_object_required` | wrong | not implemented: error numbers of Set with a non-object Variant (13/424) differ |
-| `spec-coerce/5_5_2_2_2_set_variant_scalar_to_object_object_required` | wrong | not implemented: error numbers of Set with a non-object Variant (13/424) differ |
-| `spec-coerce/5_5_2_2_2_set_variant_scalar_to_variant_type_mismatch` | wrong | not implemented: error numbers of Set with a non-object Variant (13/424) differ |
 | `spec-coerce/5_6_2_1_function_name_inside_function_is_return_value` | wrong | VBA behaviour kept where MS-VBAL text differs: reading the function name inside its own body is a recursive call |
 | `spec-coerce/5_6_2_1_function_result_indexed_after_empty_arguments` | wrong | VBA behaviour kept where MS-VBAL text differs: F(1) passes 1 as an argument of F |
-| `spec-coerce/5_6_2_1_variant_object_indexed_subscript_out_of_range` | wrong | not implemented: error 9 when indexing a Variant that holds a scalar or object |
-| `spec-coerce/5_6_2_1_variant_scalar_indexed_subscript_out_of_range` | wrong | not implemented: error 9 when indexing a Variant that holds a scalar or object |
+| `spec-coerce/5_6_2_1_variant_object_indexed_subscript_out_of_range` | wrong | VBA behaviour kept where MS-VBAL text differs: a Variant holding an object followed by an argument list calls the object's default member (the Learn page on default members documents it) instead of raising error 9 |
 | `spec-coerce/5_6_2_2_parenthesized_object_without_default_fails` | wrong | not implemented: error 438 for (v) when v holds an object without a default member |
 | `spec-coerce/5_6_5_literal_identifier_type_suffix_no_effect` | wrong | not implemented: type suffix on True/False/Empty/Null |
 | `spec-coerce/5_6_7_typeof_is_literal_operand_invalid` | wrong | not implemented: static rejection of TypeOf on a non-variable operand |
@@ -349,8 +339,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-data/5_4_3_1_local_same_as_property_get_name` | wrong | VBA behaviour kept where MS-VBAL text differs: a local may share the name of the enclosing Function or Property Get |
 | `spec-data/5_4_3_3_redim_as_new_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: ReDim ... As New is accepted |
 | `spec-data/5_4_3_3_redim_locked_by_byref_error10` | wrong | not implemented: error 10 for ReDim of an array locked by a ByRef argument |
-| `spec-data/5_4_3_5_midb_replaces_bytes` | unsupported | the MidB statement |
-| `spec-data/5_4_3_6_lset_udt_target_accepted` | unsupported | LSet/RSet between user-defined types |
 | `spec-data/5_4_3_8_let_object_variable_without_default_error438` | wrong | VBA behaviour kept where MS-VBAL text differs: misuse of Let on objects and read-only properties is rejected at analysis, not at run time |
 | `spec-data/5_4_3_8_let_property_get_only_variant_error451` | wrong | VBA behaviour kept where MS-VBAL text differs: misuse of Let on objects and read-only properties is rejected at analysis, not at run time |
 | `spec-data/5_4_4_1_on_error_resets_err` | wrong | VBA behaviour kept where MS-VBAL text differs: On Error does not reset Err |
@@ -449,8 +437,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-proc/5_3_1_11_byref_variant_accepts_any_variable` | wrong | VBA behaviour kept where MS-VBAL text differs: ByRef arguments of a different declared type are rejected or copied |
 | `spec-proc/5_3_1_11_byref_variant_param_keeps_arg_declared_type_on_assign` | wrong | VBA behaviour kept where MS-VBAL text differs: ByRef arguments of a different declared type are rejected or copied |
 | `spec-proc/5_3_1_11_byval_object_param_scalar_arg_invalid` | wrong | not implemented: static rejection of a scalar passed to a ByVal Object parameter |
-| `spec-proc/5_3_1_11_late_bound_arg_mapped_twice_error_448` | wrong | not implemented: error numbers of late-bound named/omitted arguments |
-| `spec-proc/5_3_1_11_late_bound_omitted_required_error_448` | wrong | not implemented: error numbers of late-bound named/omitted arguments |
 | `spec-proc/5_3_1_2_static_trailing_keeps_locals` | wrong | not implemented: trailing Static in a procedure header |
 | `spec-proc/5_3_1_5_optional_deftype_requires_default_invalid` | wrong | not implemented: Optional parameter default rule under Def directives |
 | `spec-proc/5_3_1_8_event_handler_mechanism_mismatch_invalid` | wrong | not implemented: event handler declaration rules |
