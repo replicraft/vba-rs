@@ -25,7 +25,7 @@
 //! text, and has not been verified against a real VBA host.
 //!
 //! Date rules: `Date + x` and `x + Date` are Dates, `Date - Date` is a Double,
-//! `Date - x` is a Date, `x - Date` is a Double, `*` and `/` give Doubles.
+//! `Date - x` and `x - Date` are Dates, `*` and `/` give Doubles.
 //! A Date result outside the Date range is error 6.
 //!
 //! `/` gives Decimal if either operand is Decimal, Currency if either is
@@ -221,12 +221,29 @@ fn finite(f: f64) -> VbaResult<f64> {
     }
 }
 
-fn single_result(f: f64) -> VbaResult<Variant> {
+/// A Single result; a value beyond the Single range is error 6, or the Double
+/// itself when a Variant operand allows promotion (MS-VBAL 5.6.9.3).
+fn single_result(f: f64, overflow: Overflow) -> VbaResult<Variant> {
     let s = f as f32;
-    if !f.is_finite() || s.is_infinite() {
+    if !f.is_finite() {
         Err(VbaError::OVERFLOW)
+    } else if s.is_infinite() {
+        match overflow {
+            Overflow::Promote => Ok(Variant::Double(f)),
+            Overflow::Error => Err(VbaError::OVERFLOW),
+        }
     } else {
         Ok(Variant::Single(s))
+    }
+}
+
+/// A Date result; a serial beyond the Date range is error 6, or the Double
+/// serial when a Variant operand allows promotion (MS-VBAL 5.6.9.3).
+fn date_result(serial: f64, overflow: Overflow) -> VbaResult<Variant> {
+    match (Date::from_serial(serial), overflow) {
+        (Ok(d), _) => Ok(Variant::Date(d)),
+        (Err(_), Overflow::Promote) => Ok(Variant::Double(serial)),
+        (Err(e), Overflow::Error) => Err(e),
     }
 }
 
@@ -262,7 +279,7 @@ pub fn arith(op: ArithOp, l: &Variant, r: &Variant, overflow: Overflow) -> VbaRe
                     l,
                     Variant::Single(_) | Variant::Double(_) | Variant::String(_) | Variant::Date(_)
                 );
-            divide(a, b, zero_by_empty)
+            divide(a, b, zero_by_empty, overflow)
         }
         ArithOp::IntDiv | ArithOp::Mod => int_div_mod(op, a, b, overflow),
         ArithOp::Pow => power(a, b),
@@ -301,9 +318,9 @@ fn add_sub_mul(op: ArithOp, a: Val, b: Val, overflow: Overflow) -> VbaResult<Var
         let r = finite(float_op(op, a.to_f64(), b.to_f64()))?;
         let both = matches!(a, VDate(_)) && matches!(b, VDate(_));
         return Ok(match op {
-            ArithOp::Add => Variant::Date(Date::from_serial(r)?),
+            ArithOp::Add => date_result(r, overflow)?,
             ArithOp::Sub if both => Variant::Double(r),
-            ArithOp::Sub if matches!(a, VDate(_)) => Variant::Date(Date::from_serial(r)?),
+            ArithOp::Sub => date_result(r, overflow)?,
             _ => Variant::Double(r),
         });
     }
@@ -317,7 +334,7 @@ fn add_sub_mul(op: ArithOp, a: Val, b: Val, overflow: Overflow) -> VbaResult<Var
         return if wide {
             Ok(Variant::Double(finite(r)?))
         } else {
-            single_result(r)
+            single_result(r, overflow)
         };
     }
     let (Int(ka, x), Int(kb, y)) = (a, b) else {
@@ -344,7 +361,7 @@ fn add_sub_mul(op: ArithOp, a: Val, b: Val, overflow: Overflow) -> VbaResult<Var
     }
 }
 
-fn divide(a: Val, b: Val, zero_by_empty: bool) -> VbaResult<Variant> {
+fn divide(a: Val, b: Val, zero_by_empty: bool, overflow: Overflow) -> VbaResult<Variant> {
     use Val::{Cur, Dec, Single};
     if matches!(a, Dec(_)) || matches!(b, Dec(_)) {
         return Ok(Variant::Decimal(
@@ -366,7 +383,7 @@ fn divide(a: Val, b: Val, zero_by_empty: bool) -> VbaResult<Variant> {
     }
     let r = a.to_f64() / d;
     if matches!(a, Single(_)) && matches!(b, Single(_)) {
-        single_result(r)
+        single_result(r, overflow)
     } else {
         Ok(Variant::Double(finite(r)?))
     }
@@ -439,7 +456,7 @@ pub fn negate(v: &Variant, overflow: Overflow) -> VbaResult<Variant> {
         Val::Double(d) => Variant::Double(-d),
         Val::Cur(c) => Variant::Currency(c.checked_neg()?),
         Val::Dec(d) => Variant::Decimal(d.negate()),
-        Val::Date(d) => Variant::Date(Date::from_serial(-d)?),
+        Val::Date(d) => date_result(-d, overflow)?,
     })
 }
 

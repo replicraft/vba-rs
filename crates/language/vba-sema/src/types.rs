@@ -382,12 +382,13 @@ fn arith_result(op: BinaryOp, l: &Type, r: &Type) -> Type {
             }
         }
         Add | Sub | Mul => {
-            // Date arithmetic.
-            if op == Sub && a == Type::Date && b == Type::Date {
-                return Type::Double;
-            }
-            if a == Type::Date || b == Type::Date {
-                return if l.is_string() || r.is_string() {
+            // Date arithmetic (MS-VBAL 5.6.9.3): the result is a Date, except
+            // `Date - Date`; a Currency or Decimal operand outranks the Date.
+            if (a == Type::Date || b == Type::Date)
+                && !matches!(a, Type::Currency | Type::Decimal)
+                && !matches!(b, Type::Currency | Type::Decimal)
+            {
+                return if op == Sub && a == Type::Date && b == Type::Date {
                     Type::Double
                 } else {
                     Type::Date
@@ -404,6 +405,7 @@ fn arith_result(op: BinaryOp, l: &Type, r: &Type) -> Type {
                 Type::Single => 5,
                 Type::Currency => 6,
                 Type::Decimal => 7,
+                Type::Date => 0,
                 _ => 8,
             };
             let (oa, ob) = (order(&a), order(&b));
