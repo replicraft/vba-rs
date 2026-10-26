@@ -44,6 +44,15 @@ impl Binder<'_, '_> {
     /// Binds the target of `Let`/`Set`/`LSet`/`RSet`. `set` selects
     /// `Property Set` / `DISPATCH_PROPERTYPUTREF`.
     pub(crate) fn bind_target(&mut self, e: &Expr, set: bool) -> Option<(BPlace, Type)> {
+        // MS-VBAL 5.6.6: a parenthesized expression is a value, not a location.
+        if matches!(e.kind, ExprKind::Paren(_)) {
+            self.err(
+                codes::NOT_ASSIGNABLE,
+                e.span,
+                "a parenthesized expression cannot be assigned to",
+            );
+            return None;
+        }
         // The implicit result variable of a function or property getter.
         let name_of = |x: &Expr| match &x.kind {
             ExprKind::Name(id) => Some(id.clone()),
