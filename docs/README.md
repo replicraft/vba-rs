@@ -63,3 +63,4 @@ are. Statements about behavior carry a confidence marker (`spec`, `doc`, `derive
 
 * [lsp](tooling/lsp.md): the language server core and the `vba-lsp` binary.
 * [conformance](tooling/conformance.md): the generated conformance report (do not edit by hand).
+* [differential-testing](tooling/differential-testing.md): running the conformance programs in real VBA (the oracle), comparison, provenance upgrade. The Windows side is untested.
