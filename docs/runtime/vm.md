@@ -259,7 +259,6 @@ by a test of our own expectation and none was compared with Office.
   VBA classes (`_NewEnum`) are not supported (error 438).
 - `Implements` of library interfaces is analysed but calls through the library
   interface type are late bound by name and do not reach `Iface_Member`.
-- Late-bound assignment to an element of an array nested inside another array (`v(1)(2) = x`); `v(i) = x` on a `Variant` variable that holds an array works (the value is converted to the array's element type).
 - The `Declare` bridge has no native backend: only the `vba-winapi` shims and
   host hooks exist; `Variant` arguments, `Object` parameters and variable-length
   strings inside UDTs are refused.

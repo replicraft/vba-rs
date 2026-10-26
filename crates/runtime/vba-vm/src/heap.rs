@@ -335,9 +335,7 @@ impl Vm {
                     .and_then(|u| u.fields.get_mut(*index as usize))
                     .ok_or_else(|| Fault::Internal("dangling user-defined type".into()))
             }
-            Loc::Elem { .. } => Err(Fault::Unsupported(
-                "taking a reference to an element of an array nested in an array".into(),
-            )),
+            Loc::Elem { base, idx } => Ok(self.array_mut(base)?.get_mut(idx)?),
         }
     }
 

@@ -70,7 +70,10 @@ impl Vm {
         args: &[LateArg],
         early: EarlyBind<'_>,
     ) -> VResult<crate::exec::Flow> {
-        let recv = self.invoke_receiver(receiver)?;
+        let recv = match self.nested_element_receiver(receiver, member, kind)? {
+            Some(v) => v,
+            None => self.invoke_receiver(receiver)?,
+        };
         if matches!(member, Member::Default)
             && kind != InvokeKind::Get
             && matches!(recv, Variant::Array(_))
@@ -103,6 +106,41 @@ impl Vm {
             None => self.own(&result),
         }
         Ok(crate::exec::Flow::Next)
+    }
+
+    /// The receiver of `v(i)(j) = x`, which the analysis expressed as the
+    /// element `v(i)`: when `v` holds an object and not an array, `v(i)` is
+    /// the object's default member, evaluated now. `None` when the receiver
+    /// is an ordinary location.
+    fn nested_element_receiver(
+        &mut self,
+        receiver: &Operand,
+        member: &Member,
+        kind: InvokeKind,
+    ) -> VResult<Option<Variant>> {
+        if !matches!(member, Member::Default) || kind == InvokeKind::Get {
+            return Ok(None);
+        }
+        let Operand::Reg(r) = receiver else {
+            return Ok(None);
+        };
+        let fr = self.frames.last().ok_or_else(crate::heap::no_frame)?;
+        let crate::state::RegVal::Ref(Loc::Elem { base, idx }) = &fr.regs[r.0 as usize] else {
+            return Ok(None);
+        };
+        let (base, idx) = (base.clone(), idx.clone());
+        let holder = self.load(&base)?;
+        if matches!(holder, Variant::Array(_) | Variant::Empty) {
+            return Ok(None);
+        }
+        let args: LateArgs = idx
+            .iter()
+            .map(|i| (None, BoundArg::Val(Variant::Long(*i))))
+            .collect();
+        self.push_request = None;
+        let v = self.invoke_value_early(holder, &Member::Default, InvokeKind::Get, args, true, None)?;
+        self.own(&v);
+        Ok(Some(v))
     }
 
     /// `v(i) = x` where the `Variant` variable at `loc` holds an array: the

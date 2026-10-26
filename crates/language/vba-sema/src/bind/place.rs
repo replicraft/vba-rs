@@ -41,6 +41,38 @@ impl Binder<'_, '_> {
         }
     }
 
+    /// The location `v(i)` of an element of the array a `Variant` location
+    /// may hold, for `v(i)(j) = x`. Only integral subscripts qualify: the
+    /// run time falls back to the default member of an object for them.
+    fn late_element_place(&self, e: &BExpr) -> Option<BPlace> {
+        let BExprKind::Late(l) = &e.kind else {
+            return None;
+        };
+        if l.kind != LateKind::Get
+            || l.member != LateMember::Default
+            || l.dispid.is_some()
+            || l.receiver.ty != Type::Variant
+            || l.args.is_empty()
+        {
+            return None;
+        }
+        let mut indices = Vec::with_capacity(l.args.len());
+        for a in &l.args {
+            match (&a.name, &a.arg) {
+                (None, BArg::Value(x)) if x.ty.is_integral() => indices.push(x.clone()),
+                _ => return None,
+            }
+        }
+        let base = self
+            .expr_to_place(&l.receiver)
+            .or_else(|| self.late_element_place(&l.receiver))?;
+        Some(BPlace::Index {
+            base: Box::new(base),
+            indices,
+            elem: Type::Variant,
+        })
+    }
+
     /// Binds the target of `Let`/`Set`/`LSet`/`RSet`. `set` selects
     /// `Property Set` / `DISPATCH_PROPERTYPUTREF`.
     pub(crate) fn bind_target(&mut self, e: &Expr, set: bool) -> Option<(BPlace, Type)> {
@@ -201,7 +233,10 @@ impl Binder<'_, '_> {
                 };
                 let receiver_place = (late.member == LateMember::Default
                     && late.receiver.ty == Type::Variant)
-                    .then(|| self.expr_to_place(&late.receiver))
+                    .then(|| {
+                        self.expr_to_place(&late.receiver)
+                            .or_else(|| self.late_element_place(&late.receiver))
+                    })
                     .flatten()
                     .map(Box::new);
                 Some((

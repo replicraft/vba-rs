@@ -248,6 +248,13 @@ impl VbaArray {
         Ok(&self.data[self.offset(idx)?])
     }
 
+    /// Mutable access to an element, without coercion; wrong rank or
+    /// subscript is error 9.
+    pub fn get_mut(&mut self, idx: &[i32]) -> VbaResult<&mut Variant> {
+        let off = self.offset(idx)?;
+        Ok(&mut self.data[off])
+    }
+
     /// Writes an element after coercing it to the element type (type
     /// mismatch/overflow errors as for assignment).
     pub fn set(&mut self, idx: &[i32], value: Variant) -> VbaResult<()> {
