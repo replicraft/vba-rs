@@ -224,6 +224,8 @@ impl<'a> Lexer<'a> {
                 _ => one(self, TokenKind::Lt),
             },
             b'>' if next == Some(b'=') => two(self, TokenKind::Ge),
+            // `><` is the same operator as `<>` (MS-VBAL 5.6.9.5.2).
+            b'>' if next == Some(b'<') => two(self, TokenKind::Ne),
             b'>' => one(self, TokenKind::Gt),
             b'+' => one(self, TokenKind::Plus),
             b'-' => one(self, TokenKind::Minus),
@@ -231,6 +233,10 @@ impl<'a> Lexer<'a> {
             b'/' => one(self, TokenKind::Slash),
             b'\\' => one(self, TokenKind::Backslash),
             b'^' => one(self, TokenKind::Caret),
+            // `=<` and `=>` are the same operators as `<=` and `>=`
+            // (MS-VBAL 5.6.9.5.5, 5.6.9.5.6).
+            b'=' if next == Some(b'<') => two(self, TokenKind::Le),
+            b'=' if next == Some(b'>') => two(self, TokenKind::Ge),
             b'=' => one(self, TokenKind::Eq),
             b',' => one(self, TokenKind::Comma),
             b';' => one(self, TokenKind::Semicolon),
