@@ -191,6 +191,18 @@ impl Line {
         self
     }
 
+    pub fn hex16(mut self, v: u16) -> Self {
+        self.word(Opcode::ConstInt16Hex, 0);
+        self.0.extend_from_slice(&v.to_le_bytes());
+        self
+    }
+
+    pub fn hex32(mut self, v: u32) -> Self {
+        self.word(Opcode::ConstInt32Hex, 0);
+        self.0.extend_from_slice(&v.to_le_bytes());
+        self
+    }
+
     pub fn f64(mut self, v: f64) -> Self {
         self.word(Opcode::ConstFloat64, 0);
         self.0.extend_from_slice(&v.to_bits().to_le_bytes());

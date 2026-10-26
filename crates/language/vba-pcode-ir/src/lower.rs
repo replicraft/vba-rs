@@ -943,12 +943,37 @@ impl Lw<'_> {
             Opcode::ConstInt32Hex => {
                 // The stored value is unsigned; whether a 32-bit hex literal
                 // below 0x10000 is an Integer or a Long is not settled.
+                // The 32-bit form is a `Long` literal: a hexadecimal literal
+                // with up to four digits and no `&` suffix is an `Integer`
+                // and has the 16-bit form, so values below 0x10000 here
+                // were written with the suffix.
                 let v = self.int_operand(ins)?;
-                if !(0x1_0000..=0xFFFF_FFFF).contains(&v) {
-                    return Err(self.no(op, "hex literal whose type is not settled"));
+                if !(0..=0xFFFF_FFFF).contains(&v) {
+                    return Err(self.no(op, "hex literal out of range"));
                 }
                 self.stack
                     .push(Ex::Const(Variant::Long(v as u32 as i32), Type::Long));
+            }
+            Opcode::ConstInt16Hex => {
+                // An `Integer` literal; the digits are the 16 bits.
+                let v = self.int_operand(ins)?;
+                if !(0..=0xFFFF).contains(&v) {
+                    return Err(self.no(op, "hex literal out of range"));
+                }
+                self.stack
+                    .push(Ex::Const(Variant::Integer(v as u16 as i16), Type::Integer));
+            }
+            Opcode::ConvertToType => {
+                // The modifier is the target's `VarType`; only the two
+                // targets that occur in the observed material are lowered.
+                let name = match ins.modifier {
+                    3 => "CLng",
+                    8 => "CStr",
+                    _ => return Err(self.no(op, "conversion target not observed")),
+                };
+                let a = self.pop(ins)?;
+                let c = self.intrinsic_call(ins, name, false, vec![a])?;
+                self.stack.push(c);
             }
             Opcode::ConstFloat64 => match ins.operands.first() {
                 Some(Operand::Float64(v)) => {
@@ -1455,6 +1480,9 @@ impl Lw<'_> {
             // `Resume label`.
             Opcode::ErrResume => ins.modifier == 0,
             Opcode::LabelNamed => true,
+            // Hexadecimal `Integer` literals and the `CLng`/`CStr` family.
+            Opcode::ConstInt16Hex => true,
+            Opcode::ConvertToType => matches!(ins.modifier, 3 | 8),
             // Property reads on the `Err` object.
             Opcode::ReadDot => matches!(self.stack.last(), Some(Ex::LibObj { .. })),
             _ => false,

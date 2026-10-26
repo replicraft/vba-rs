@@ -1210,6 +1210,75 @@ fn error_handler_with_labels_err_object_and_resume() {
 }
 
 #[test]
+fn hexadecimal_literals_and_conversions() {
+    let mut t = Tables::default();
+    let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
+    // H1 = &H8000&  (Long 32768)     H2 = &H8000  (Integer -32768)
+    // H3 = &HFFFF0000                 (Long -65536)
+    let (h1, h2, h3) = (t.name("H1"), t.name("H2"), t.name("H3"));
+    lines.extend(function(
+        &mut t,
+        "H1",
+        T_LONG,
+        &[],
+        vec![Line::new().hex32(0x8000).write(h1)],
+    ));
+    lines.extend(function(
+        &mut t,
+        "H2",
+        T_LONG,
+        &[],
+        vec![Line::new().hex16(0x8000).write(h2)],
+    ));
+    lines.extend(function(
+        &mut t,
+        "H3",
+        T_LONG,
+        &[],
+        vec![Line::new().hex32(0xFFFF_0000).write(h3)],
+    ));
+    // C1 = CLng(2.6)  (3)     C2 = CStr(7) & "!"  ("7!")
+    let (c1, c2) = (t.name("C1"), t.name("C2"));
+    lines.extend(function(
+        &mut t,
+        "C1",
+        T_LONG,
+        &[],
+        vec![Line::new().f64(2.6).opm(Opcode::ConvertToType, 3).write(c1)],
+    ));
+    lines.extend(function(
+        &mut t,
+        "C2",
+        T_STRING,
+        &[],
+        vec![
+            Line::new()
+                .i16(7)
+                .opm(Opcode::ConvertToType, 8)
+                .text("!")
+                .op(Opcode::TextJoin)
+                .write(c2),
+        ],
+    ));
+    // A conversion target that was never observed stays unsupported.
+    let c3 = t.name("C3");
+    lines.extend(function(
+        &mut t,
+        "C3",
+        T_LONG,
+        &[],
+        vec![Line::new().i16(1).opm(Opcode::ConvertToType, 5).write(c3)],
+    ));
+    let lp = lower(&t, &lines);
+    assert_eq!(lp.lowered_count(), 5, "{:?}", lp.procedures);
+    assert_eq!(value(&lp, "H1", &[]), l(32768));
+    assert_eq!(value(&lp, "H2", &[]), l(-32768));
+    assert_eq!(value(&lp, "H3", &[]), l(-65536));
+    assert_eq!(value(&lp, "C1", &[]), l(3));
+    assert_eq!(value(&lp, "C2", &[]), s("7!"));
+}
+
+#[test]
 fn hostile_caches_never_panic() {
     use proptest::prelude::*;
     let mut t = Tables::default();
