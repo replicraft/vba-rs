@@ -204,7 +204,15 @@ impl Vm {
     // ---- operands -------------------------------------------------------------
 
     /// Resolves an object used as a value to its default member's value.
+    #[inline]
     pub(crate) fn value_of(&mut self, v: Variant) -> VResult<Variant> {
+        if !matches!(v, Variant::Object(_)) {
+            return Ok(v);
+        }
+        self.value_of_object(v)
+    }
+
+    fn value_of_object(&mut self, v: Variant) -> VResult<Variant> {
         let mut cur = v;
         for _ in 0..32 {
             match cur {
@@ -571,9 +579,10 @@ impl Vm {
     ) -> VResult<Flow> {
         self.host.budget().charge_step().map_err(Fault::from)?;
         self.poll()?;
-        if self.frames.last().expect("frame").cur_stmt != inst.stmt.0 {
-            self.frames.last_mut().expect("frame").cur_stmt = inst.stmt.0;
-            if !self.frames.last().expect("frame").owned.is_empty() {
+        let frame = self.frames.last_mut().expect("frame");
+        if frame.cur_stmt != inst.stmt.0 {
+            frame.cur_stmt = inst.stmt.0;
+            if !frame.owned.is_empty() {
                 self.release_owned()?;
             }
         }

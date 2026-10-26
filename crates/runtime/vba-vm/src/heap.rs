@@ -366,6 +366,18 @@ impl Vm {
     /// Stores `v` at `loc`: user-defined types and object references are
     /// copied or retained, the previous value is released.
     pub(crate) fn store(&mut self, loc: &Loc, v: Variant) -> VResult<()> {
+        // Shortcut: a value that needs no copying or retaining stored in an
+        // unbound local slot.
+        if let Loc::Local { frame, slot } = loc
+            && !needs_adopt(&v)
+            && let Some(Slot::Val(cur)) = self
+                .frames
+                .get_mut(*frame)
+                .and_then(|f| f.slots.get_mut(*slot as usize))
+        {
+            let old = std::mem::replace(cur, v);
+            return self.release_value(old);
+        }
         let resolved = self.resolve_loc(loc);
         let loc = &resolved;
         let new = self.adopt(v)?;
@@ -373,6 +385,12 @@ impl Vm {
             Loc::Elem { base, idx } => {
                 let res = (|| -> VResult<Variant> {
                     let arr = self.array_mut(base)?;
+                    if !needs_adopt(&new) && !matches!(arr.get(idx)?, Variant::String(_)) && !needs_adopt(arr.get(idx)?) {
+                        // The old value owns nothing to release; a String is excluded so the
+                        // metered copies it makes stay as they were.
+                        arr.set(idx, new.clone())?;
+                        return Ok(Variant::Empty);
+                    }
                     let old = arr.get(idx)?.clone();
                     arr.set(idx, new.clone())?;
                     Ok(old)
@@ -478,6 +496,9 @@ impl Vm {
     /// A failing release does not stop the others; the first failure is
     /// returned.
     pub(crate) fn release_value(&mut self, v: Variant) -> VResult<()> {
+        if !Self::needs_release(&v) {
+            return Ok(());
+        }
         let mut first: VResult<()> = Ok(());
         let mut todo = vec![v];
         while let Some(v) = todo.pop() {
@@ -598,6 +619,15 @@ impl Vm {
         }
         self.gc_threshold = (self.udts.len() * 2).max(4096);
     }
+}
+
+/// Whether storing `v` must copy or retain it (see [`Vm::adopt`]).
+#[inline]
+fn needs_adopt(v: &Variant) -> bool {
+    matches!(
+        v,
+        Variant::UserDefined(_) | Variant::Object(ObjectRef::Handle(_)) | Variant::Array(_)
+    )
 }
 
 /// Deepest nesting of arrays inside arrays (`Array(Array(...))`). Cloning,
