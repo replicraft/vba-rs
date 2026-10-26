@@ -757,16 +757,17 @@ fn late_bound_variant_and_object() {
                 r2 = load.local s0:o
                 invoke.put r2.Name("a")
                 r3 = load.local s1:v
-                r4 = load.local s0:o
-                invoke.putref r4.Parent(r3)
-                r5 = load.local s1:v
-                invoke.get r5.Run(1%, 2%)
+                r4 = call intrinsic SetCheckVariant(r3)
+                r5 = load.local s0:o
+                invoke.putref r5.Parent(r4)
                 r6 = load.local s1:v
-                r7 = invoke.get r6.<default>(3%)
-                store.local s2:x <- r7 [let]
-                r8 = load.local s0:o
-                r9 = invoke.get r8.<default>("key")
-                store.local s2:x <- r9 [let]
+                invoke.get r6.Run(1%, 2%)
+                r7 = load.local s1:v
+                r8 = invoke.get r7.<default>(3%)
+                store.local s2:x <- r8 [let]
+                r9 = load.local s0:o
+                r10 = invoke.get r9.<default>("key")
+                store.local s2:x <- r10 [let]
                 return
         "#]],
     );
