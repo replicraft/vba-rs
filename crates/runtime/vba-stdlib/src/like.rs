@@ -86,6 +86,35 @@ fn parse(pattern: &[u16]) -> VbaResult<Vec<Tok>> {
     Ok(out)
 }
 
+/// The unaccented lower-case base of an accented Latin-1 Supplement or Latin
+/// Extended-A letter; any other code unit (ligatures, eth, thorn and sharp s
+/// have no single base) is returned unchanged.
+fn accent_base(u: u16) -> u16 {
+    let base = match u {
+        0xC0..=0xC5 | 0xE0..=0xE5 | 0x100..=0x105 => 'a',
+        0xC7 | 0xE7 | 0x106..=0x10D => 'c',
+        0x10E..=0x111 => 'd',
+        0xC8..=0xCB | 0xE8..=0xEB | 0x112..=0x11B => 'e',
+        0x11C..=0x123 => 'g',
+        0x124..=0x127 => 'h',
+        0xCC..=0xCF | 0xEC..=0xEF | 0x128..=0x131 => 'i',
+        0x134 | 0x135 => 'j',
+        0x136 | 0x137 => 'k',
+        0x139..=0x142 => 'l',
+        0xD1 | 0xF1 | 0x143..=0x148 => 'n',
+        0xD2..=0xD6 | 0xD8 | 0xF2..=0xF6 | 0xF8 | 0x14C..=0x151 => 'o',
+        0x154..=0x159 => 'r',
+        0x15A..=0x161 => 's',
+        0x162..=0x167 => 't',
+        0xD9..=0xDC | 0xF9..=0xFC | 0x168..=0x173 => 'u',
+        0x174 | 0x175 => 'w',
+        0xDD | 0xFD | 0xFF | 0x176..=0x178 => 'y',
+        0x179..=0x17E => 'z',
+        _ => return u,
+    };
+    base as u16
+}
+
 fn matches_one(tok: &Tok, c: u16, mode: CompareMode) -> bool {
     match tok {
         Tok::Lit(l) => match mode {
@@ -105,7 +134,19 @@ fn matches_one(tok: &Tok, c: u16, mode: CompareMode) -> bool {
                             lo <= x && x <= hi
                         })
                     };
-                    hit(c) || hit(cfold(c)) || hit(upper(c)) || t(cfold(c))
+                    // An accented letter sorts right after its base letter, so
+                    // it lies in `lo-hi` when its base is in `lo..hi` (the
+                    // accented form of `hi` itself is past the end).
+                    let accent = || {
+                        let f = cfold(c);
+                        let b = accent_base(f);
+                        b != f
+                            && items.iter().any(|&(lo, hi)| {
+                                let (lo, hi) = (cfold(lo), cfold(hi));
+                                lo <= b && b < hi
+                            })
+                    };
+                    hit(c) || hit(cfold(c)) || hit(upper(c)) || t(cfold(c)) || accent()
                 }
             };
             found != *negate
@@ -238,10 +279,11 @@ mod tests {
         assert_eq!(l("\u{ea}", "[A-E]", T), Ok(false));
         // Binary: A, B and E only (and not a).
         assert_eq!(l("a", "[A-E]", B), Ok(false));
-        // Known gap: the page says À and à also match [A-E] in text mode
-        // (accents ordered next to their base letter); the en-US
-        // approximation does not reproduce that.
-        assert_eq!(l("\u{c0}", "[A-E]", T), Ok(false));
+        // The page says À and à also match [A-E] in text mode (accents are
+        // ordered next to their base letter).
+        assert_eq!(l("\u{c0}", "[A-E]", T), Ok(true));
+        assert_eq!(l("\u{e0}", "[A-E]", T), Ok(true));
+        assert_eq!(l("\u{c0}", "[A-E]", B), Ok(false));
     }
 
     #[test]
