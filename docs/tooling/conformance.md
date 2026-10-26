@@ -28,7 +28,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | partial | 163 |
 | unsupported | 6 |
 | not-started | 34 |
-| Conformance programs | 2062 |
+| Conformance programs | 2069 |
 | Programs that are known deviations (XFAIL) | 180 |
 
 ## Entries per category and status
@@ -103,7 +103,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-coerce | 187 | 0 | 187 | 0 | 0 | 0 |
 | spec-data | 274 | 0 | 274 | 0 | 0 | 0 |
 | spec-decl | 155 | 0 | 155 | 0 | 0 | 0 |
-| spec-lex | 138 | 0 | 138 | 0 | 0 | 0 |
+| spec-lex | 145 | 0 | 145 | 0 | 0 | 0 |
 | spec-lib-a | 96 | 0 | 96 | 0 | 0 | 0 |
 | spec-lib-b | 61 | 0 | 61 | 0 | 0 | 0 |
 | spec-lib-c | 58 | 0 | 58 | 0 | 0 | 0 |

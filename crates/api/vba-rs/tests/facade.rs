@@ -366,3 +366,14 @@ fn real_errors_stay_errors_by_default() {
     let p = project("Option Explicit\nPublic Sub Main()\n  x = 1\nEnd Sub\n");
     assert!(Engine::new().analyze(&p).has_errors());
 }
+
+#[test]
+fn yearless_date_literals_take_the_year_of_the_engine_clock() {
+    let p = project("Public Function Y() As Long\n  Y = Year(#3/4#)\nEnd Function\n");
+    let at = |y| vba::Date::from_ymd_hms(y, 6, 1, 0, 0, 0).unwrap();
+    for year in [2000, 2031, 2044] {
+        let engine = Engine::new().fixed_clock(at(year));
+        let out = engine.run(&p, "Y", vec![]).unwrap();
+        assert_eq!(out.value, Variant::Long(year), "{year}");
+    }
+}

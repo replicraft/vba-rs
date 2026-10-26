@@ -125,6 +125,15 @@ members, `Do` with a condition on both ends, invalid date literals, float and ra
 out of range, wrong `Exit` kinds, and property
 pairing errors other than the parameter mechanism.
 
+## Date literals without a year
+
+`#3/4#`, `#Mar 4#` and `#4 March 10:30#` name no year. Real VBA uses the year in which the
+code runs, and so does this implementation: analysis validates the literal (the day against a
+leap year, so `#2/29#` is accepted) and keeps it as an unresolved-year constant that is never
+folded; the interpreter gives it the year of the host clock each time it is evaluated
+(`Host` clock; `FixedHost` and the default engine clock give 2000, `Engine::fixed_clock`
+another fixed year). `#2/29#` evaluated in a year that is not a leap year is run-time error 13.
+
 ## Deliberate differences
 
 Where the text and documented VBA behaviour disagree, the documented behaviour is kept (each

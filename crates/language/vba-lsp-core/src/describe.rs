@@ -20,7 +20,9 @@ fn vis_text(v: Visibility) -> &'static str {
 /// Source-like text of a constant value.
 pub(crate) fn constant_text(c: &Constant) -> String {
     match c {
-        Constant::DateText(b) => format!("#{}#", String::from_utf8_lossy(b)),
+        Constant::DateText(b) | Constant::YearlessDate(b) => {
+            format!("#{}#", String::from_utf8_lossy(b))
+        }
         Constant::Value(v) => match v {
             Variant::Empty => "Empty".to_string(),
             Variant::Null => "Null".to_string(),

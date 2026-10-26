@@ -76,7 +76,7 @@ impl Printer<'_> {
         match o {
             Operand::Reg(r) => format!("r{}", r.0),
             Operand::Const(Constant::Value(v)) => fmt_variant(v),
-            Operand::Const(Constant::DateText(t)) => {
+            Operand::Const(Constant::DateText(t) | Constant::YearlessDate(t)) => {
                 format!("#{}#", String::from_utf8_lossy(t))
             }
         }

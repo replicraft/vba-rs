@@ -6,6 +6,7 @@ use vba_automation::{Dispatch, ObjectTable};
 use vba_host::{Capability, HostMetadata, HostResult, Policy, ResourceLimits};
 use vba_profile::{Profile, default_profile};
 use vba_runtime::{MemFs, RealFs, Session, SessionBuilder, SystemHost};
+use vba_value::Date;
 use vba_value::{ObjectRef, Variant};
 use vba_vm::{BufferSink, RunStatus, VmConfig};
 
@@ -66,6 +67,7 @@ pub struct Engine {
     command: String,
     host_members: Vec<String>,
     strict_spec: bool,
+    fixed_clock: Option<Date>,
 }
 
 impl Default for Engine {
@@ -90,6 +92,7 @@ impl Engine {
             command: String::new(),
             host_members: Vec::new(),
             strict_spec: false,
+            fixed_clock: None,
         }
     }
 
@@ -257,6 +260,16 @@ impl Engine {
         self
     }
 
+    /// Fixes the clock (`Now`, `Date`, `Time`, `Timer`, and the year given to
+    /// date literals that name none, such as `#3/4#`) at `now` instead of
+    /// the default 2000-01-01 00:00:00. Ignored after
+    /// [`system_environment`](Engine::system_environment).
+    #[must_use]
+    pub fn fixed_clock(mut self, now: Date) -> Engine {
+        self.fixed_clock = Some(now);
+        self
+    }
+
     /// Names the embedding application provides as members of document and
     /// designer modules (the controls and base-class properties of a form).
     /// Inside such a module an unqualified use of one of them (`Dirty`,
@@ -341,6 +354,9 @@ impl Engine {
             }
             Files::Real => b.vfs(RealFs::new()),
         };
+        if let Some(now) = self.fixed_clock {
+            b = b.std_host(vba_stdlib::FixedHost::new(now));
+        }
         if self.system_environment {
             b = b.std_host(SystemHost::new());
         }

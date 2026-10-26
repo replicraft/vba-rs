@@ -307,6 +307,9 @@ impl<'a> Ops<'a> {
                 }
                 match &info.value {
                     vba_sema::bound::Constant::Value(v) => Ok(v.clone()),
+                    c @ vba_sema::bound::Constant::YearlessDate(_) => {
+                        Ok(self.vm.constant_value(c)?)
+                    }
                     vba_sema::bound::Constant::DateText(_) => Err(Error::Unsupported(format!(
                         "the value of constant `{name}`, a date literal, is not evaluated ahead of use"
                     ))),

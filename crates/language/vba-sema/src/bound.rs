@@ -21,6 +21,10 @@ pub enum Constant {
     /// A date literal whose text could not be evaluated statically; the text
     /// between the `#`s, to be parsed by the run time with its locale.
     DateText(Vec<u8>),
+    /// A date literal without a year (`#3/4#`). Real VBA gives it the year
+    /// in which the code runs, so it is not folded: the text between the
+    /// `#`s is resolved by the run time with its clock.
+    YearlessDate(Vec<u8>),
 }
 
 /// A typed, bound expression.

@@ -8,8 +8,10 @@
 use crate::date::{Date, days_in_month};
 use crate::string::VbaString;
 
-/// The implementation-defined default year (`CY` in §3.3.3) used when a date
-/// literal names no year. A leap year, so that `#2/29#` is valid.
+/// The year (`CY` in §3.3.3) used to *validate* a date literal that names no
+/// year. A leap year, so that `#2/29#` is accepted. Real VBA gives such a
+/// literal the current year; use [`parse_yearless`] and
+/// [`YearlessDate::resolve`] to get the date for a given year.
 pub const DEFAULT_LITERAL_YEAR: i32 = 2000;
 
 const FULL_MONTHS: [&str; 12] = [
@@ -133,11 +135,26 @@ fn date_items(s: &str) -> Option<Vec<Item>> {
     Some(items)
 }
 
-/// Interprets a date-value; `(year, month, day)`.
-fn date_value(s: &str) -> Option<(i32, u32, u32)> {
+/// Interprets a date-value; `(year, month, day, yearless)`. `yearless` is set
+/// when the text names no year and `DEFAULT_LITERAL_YEAR` stands in for it.
+fn date_value(s: &str) -> Option<(i32, u32, u32, bool)> {
     let items = date_items(s)?;
     let cy = DEFAULT_LITERAL_YEAR;
-    match items.as_slice() {
+    let r = date_value_items(&items, cy)?;
+    let yearless = match items.as_slice() {
+        [Item::Num(l, _), Item::Num(m, _)] => {
+            (legal_month(*l) && legal_day(*l, *m, cy)) || (legal_month(*m) && legal_day(*m, *l, cy))
+        }
+        [Item::Month(month), Item::Num(n, _)] | [Item::Num(n, _), Item::Month(month)] => {
+            legal_day(*month, *n, cy)
+        }
+        _ => false,
+    };
+    Some((r.0, r.1, r.2, yearless))
+}
+
+fn date_value_items(items: &[Item], cy: i32) -> Option<(i32, u32, u32)> {
+    match items {
         [Item::Num(l, _), Item::Num(m, md)] => {
             let (l, m, md) = (*l, *m, *md);
             if legal_month(l) && legal_day(l, m, cy) {
@@ -268,10 +285,14 @@ fn time_value(s: &str) -> Option<u32> {
     Some(hour * 3600 + minute * 60 + second)
 }
 
-/// Parses the text between the `#` delimiters of a date literal.
-///
-/// Returns `None` when the literal is not a valid `date-or-time`.
-pub fn parse_date_literal(s: &VbaString) -> Option<Date> {
+/// A parsed date-or-time: the date part (if any, with whether it lacked a
+/// year) and the seconds after midnight.
+struct Parsed {
+    date: Option<(i32, u32, u32, bool)>,
+    secs: u32,
+}
+
+fn parse_core(s: &VbaString) -> Option<Parsed> {
     let text = s.to_string_lossy();
     let t = text.trim_matches(is_wsc);
     if t.is_empty() {
@@ -298,6 +319,10 @@ pub fn parse_date_literal(s: &VbaString) -> Option<Date> {
         }
         found?
     };
+    Some(Parsed { date, secs })
+}
+
+fn assemble(date: Option<(i32, u32, u32)>, secs: u32) -> Option<Date> {
     let (y, m, d) = date.unwrap_or((1899, 12, 30));
     let base = if date.is_none() {
         Date::from_serial(0.0).ok()?
@@ -312,6 +337,51 @@ pub fn parse_date_literal(s: &VbaString) -> Option<Date> {
         serial + frac
     })
     .ok()
+}
+
+/// Parses the text between the `#` delimiters of a date literal.
+///
+/// Returns `None` when the literal is not a valid `date-or-time`. A literal
+/// without a year is read in [`DEFAULT_LITERAL_YEAR`]; use
+/// [`parse_yearless`] to tell such literals apart.
+pub fn parse_date_literal(s: &VbaString) -> Option<Date> {
+    let p = parse_core(s)?;
+    assemble(p.date.map(|(y, m, d, _)| (y, m, d)), p.secs)
+}
+
+/// A date literal that names no year (`#3/4#`, `#Mar 4 10:00#`): real VBA
+/// gives it the year in which the code runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct YearlessDate {
+    /// Month, 1 to 12.
+    pub month: u32,
+    /// Day of the month.
+    pub day: u32,
+    /// Seconds after midnight.
+    pub secs: u32,
+}
+
+impl YearlessDate {
+    /// The date in `year`; `None` when the day does not exist in that year
+    /// (`#2/29#` in a year that is not a leap year).
+    pub fn resolve(self, year: i32) -> Option<Date> {
+        if self.day > days_in_month(i64::from(year), self.month) {
+            return None;
+        }
+        assemble(Some((year, self.month, self.day)), self.secs)
+    }
+}
+
+/// `Some` when `s` is a valid date literal without a year. The day is
+/// validated against a leap year, so `#2/29#` is accepted here.
+pub fn parse_yearless(s: &VbaString) -> Option<YearlessDate> {
+    let p = parse_core(s)?;
+    let (_, month, day, yearless) = p.date?;
+    yearless.then_some(YearlessDate {
+        month,
+        day,
+        secs: p.secs,
+    })
 }
 
 #[cfg(test)]
@@ -334,6 +404,35 @@ mod tests {
         assert_eq!(lit("0:30 pm"), Some(12.5 / 24.0));
         assert_eq!(lit("1.02.03"), Some(3723.0 / 86400.0));
         assert!(lit("1/2/2003 3:04 PM").is_some());
+    }
+
+    fn yl(s: &str) -> Option<YearlessDate> {
+        parse_yearless(&VbaString::from(s))
+    }
+
+    #[test]
+    fn yearless_forms() {
+        let md = |month, day, secs| Some(YearlessDate { month, day, secs });
+        assert_eq!(yl("3/4"), md(3, 4, 0));
+        assert_eq!(yl("13/4"), md(4, 13, 0));
+        assert_eq!(yl("Mar 4"), md(3, 4, 0));
+        assert_eq!(yl("4 March"), md(3, 4, 0));
+        assert_eq!(yl("3/4 10:30"), md(3, 4, 37_800));
+        for s in ["3/4/2020", "Mar 2020", "12/2003", "10:30", "3 p", "x"] {
+            assert_eq!(yl(s), None, "{s}");
+        }
+    }
+
+    #[test]
+    fn yearless_resolves_in_a_year() {
+        let d = yl("3/4 1:00").unwrap();
+        assert_eq!(
+            d.resolve(2025),
+            Date::from_ymd_hms(2025, 3, 4, 1, 0, 0).ok()
+        );
+        let leap = yl("2/29").unwrap();
+        assert!(leap.resolve(2024).is_some());
+        assert_eq!(leap.resolve(2025), None);
     }
 
     #[test]

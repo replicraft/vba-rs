@@ -87,9 +87,14 @@ pub fn literal(lit: &Literal, profile: &Profile) -> Result<(Constant, Type), Str
             let s = decode_bytes(t);
             // MS-VBAL 3.3.3: a date literal that is not a valid date-or-time
             // is a static error.
-            match vba_value::datelit::parse_date_literal(&s) {
-                Some(d) => (Value(Variant::Date(d)), Type::Date),
-                None => return Err("invalid date literal".to_owned()),
+            if vba_value::datelit::parse_yearless(&s).is_some() {
+                // The year is that of the run, not of the analysis.
+                (Constant::YearlessDate(t.clone()), Type::Date)
+            } else {
+                match vba_value::datelit::parse_date_literal(&s) {
+                    Some(d) => (Value(Variant::Date(d)), Type::Date),
+                    None => return Err("invalid date literal".to_owned()),
+                }
             }
         }
         Literal::True => (Value(Variant::Boolean(true)), Type::Boolean),
@@ -370,7 +375,7 @@ pub fn convert_constant(c: &Constant, to: &Type) -> Result<Constant, String> {
     };
     match c {
         Constant::Value(v) => ops_convert(v, vt).map(Constant::Value),
-        Constant::DateText(_) => {
+        Constant::DateText(_) | Constant::YearlessDate(_) => {
             if matches!(to, Type::Date | Type::Variant) {
                 Ok(c.clone())
             } else {
@@ -393,6 +398,6 @@ pub fn constant_to_i32(c: &Constant) -> Result<i32, String> {
         Constant::Value(v) => {
             vba_value::convert::to_long(v).map_err(|e| e.description().to_owned())
         }
-        Constant::DateText(_) => Err("not an integer".to_owned()),
+        Constant::DateText(_) | Constant::YearlessDate(_) => Err("not an integer".to_owned()),
     }
 }

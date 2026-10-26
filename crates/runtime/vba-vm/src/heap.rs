@@ -167,6 +167,12 @@ impl Vm {
 
     // ---- constants and operands -------------------------------------------
 
+    /// The value of a compile-time constant now (a date literal without a
+    /// year takes the year of the host clock).
+    pub fn constant_value(&mut self, c: &Constant) -> Result<Variant, crate::error::VmError> {
+        self.constant(c).map_err(|f| self.fault_to_error(f))
+    }
+
     pub(crate) fn constant(&self, c: &Constant) -> VResult<Variant> {
         match c {
             Constant::Value(v) => Ok(v.clone()),
@@ -176,6 +182,16 @@ impl Vm {
                     &Variant::from_text(&text),
                     VarType::Date,
                 )?)
+            }
+            Constant::YearlessDate(b) => {
+                // Real VBA gives a date literal without a year the year in
+                // which the code runs: the host clock decides.
+                let text = vba_value::VbaString::from(String::from_utf8_lossy(b).as_ref());
+                let year = vba_stdlib::Clock::now(&*self.std_host).parts().year;
+                vba_value::datelit::parse_yearless(&text)
+                    .and_then(|d| d.resolve(year))
+                    .map(Variant::Date)
+                    .ok_or_else(|| VbaError::TYPE_MISMATCH.into())
             }
         }
     }

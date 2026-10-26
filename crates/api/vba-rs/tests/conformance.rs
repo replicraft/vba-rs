@@ -16,6 +16,7 @@
 //!                                or `load` (does not compile), `limit`, `cancelled`, `unsupported`
 //! ' GRANT: file-write            capability grants (repeatable; `name=prefix` scopes it)
 //! ' MAX_STEPS: 100000            step budget
+//! ' CLOCK: 2024-06-15 12:30:00   fix the clock (default 2000-01-01 00:00:00)
 //! ' STRICT_SPEC: true            analyse with `Engine::strict_spec(true)`: the spec-strict
 //!                                diagnostics are errors (default: warnings, the program runs)
 //! ' XFAIL: wrong|unsupported why known deviation: the program must still fail
@@ -89,6 +90,7 @@ struct Program {
     grants: Vec<String>,
     max_steps: Option<u64>,
     strict_spec: bool,
+    clock: Option<(i32, u32, u32, u32, u32, u32)>,
     xfail: Option<(Xfail, String)>,
     raises: Vec<(String, String)>,
     modules: Vec<(String, ModuleKind, String)>,
@@ -128,6 +130,7 @@ fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
         grants: Vec::new(),
         max_steps: None,
         strict_spec: false,
+        clock: None,
         xfail: None,
         raises: Vec::new(),
         modules: Vec::new(),
@@ -203,6 +206,18 @@ fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
                             .parse()
                             .map_err(|_| format!("{id}: bad MAX_STEPS"))?,
                     )
+                }
+                "CLOCK" => {
+                    let n: Vec<u32> = value
+                        .split(|c: char| !c.is_ascii_digit())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.parse().map_err(|_| format!("{id}: bad CLOCK")))
+                        .collect::<Result<_, _>>()?;
+                    if n.len() < 3 || n.len() > 6 {
+                        return Err(format!("{id}: CLOCK is `Y-M-D [h:m:s]`"));
+                    }
+                    let at = |i: usize| n.get(i).copied().unwrap_or(0);
+                    p.clock = Some((n[0] as i32, n[1], n[2], at(3), at(4), at(5)));
                 }
                 "STRICT_SPEC" => p.strict_spec = value.trim() == "true",
                 "XFAIL" => {
@@ -283,6 +298,11 @@ fn run_program(p: &Program) -> Result<(), String> {
             Some((n, prefix)) => engine.grant_prefixes(capability(n), [prefix.to_owned()]),
             None => engine.grant(capability(g)),
         };
+    }
+    if let Some((y, mo, d, h, mi, s)) = p.clock {
+        let now = vba::Date::from_ymd_hms(y, mo, d, h, mi, s)
+            .map_err(|_| format!("{}: bad CLOCK", p.id))?;
+        engine = engine.fixed_clock(now);
     }
     // A program that does not terminate must fail, not hang the suite.
     engine = engine.max_steps(p.max_steps.unwrap_or(20_000_000));
