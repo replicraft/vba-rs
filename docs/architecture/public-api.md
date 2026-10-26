@@ -171,3 +171,21 @@ modules of a project read from a file returns a format error (see
 
 It does not promise full VBA compatibility. How much is measured, and where it
 is not, is in [conformance.md](../tooling/conformance.md).
+
+## Changes to limits and grants
+
+* `ResourceLimits::unlimited()` (what `Default` returns) and `ResourceLimits::untrusted()` (100
+  million steps, 256 MiB, call depth 1000) are new. `Engine::new()` starts from the second;
+  `Engine::unlimited()` and `Engine::max_memory(bytes)` are new. Code that relied on an engine
+  without limits calls `.unlimited()`.
+* `Policy::grant_prefixes` keeps its name and signature, but a scope is matched per capability:
+  whole path segments for files, the program for `ProcessSpawn`, an exact ProgID or `Namespace.*`
+  for `ComCreate`, `library!procedure` or `library!*` for `NativeDeclare`, an action for
+  `UiAutomation` (`AppActivate` is checked as `AppActivate:title`), a host for `Network`. A scope of
+  any other form matches nothing; `vba_host::scope::validate_scope` reports it.
+* `Host::poll_cancel` (default: nothing) is called every `POLL_INTERVAL` steps; hosts that cancel in
+  `idle` should implement it as well. `vba_stdlib::Ctx` has a `work` meter and `charge`;
+  `StdError::WorkExceeded` is new (the enum is not exhaustive for callers matching it).
+* `Vfs::set_memory_meter` (default: nothing) lets an in-memory file system charge `max_memory_bytes`.
+* `VbaString` and `VbaArray` register their allocation with the thread's current `MemoryMeter`
+  (`vba_core::memory`); outside a run nothing is registered.

@@ -158,6 +158,8 @@ error, never a panic.
   `every_single_byte_corruption_is_survivable`, `huge_counts_are_rejected_cheaply`,
   `type_description_cycle_is_cut_by_the_depth_limit` (vba-typelib).
 * P-code: `mutated_valid_cache_never_panics`, `module_parse_never_panics_on_noise` (vba-pcode).
+* `vbars inspect DIR` bounds the sum of all streams as well as each one
+  (`a_directory_of_streams_has_a_total_size_limit`).
 * Wine protocol: `hostile_counts_do_not_allocate_or_panic`, `pseudo_random_garbage_never_panics`.
 * Source: `hostile_nesting_is_reported_not_overflowed`, `long_but_ordinary_chains_still_parse`
   (vba-syntax; nesting is limited to 200 and a chain of operators, member accesses or call

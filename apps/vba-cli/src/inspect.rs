@@ -110,6 +110,18 @@ pub fn run(path: &Path, json: bool) -> Result<String, InspectError> {
 /// components. Symbolic links are not followed.
 fn read_stream_dir(dir: &Path, shown: &str) -> Result<ProjectStreams, InspectError> {
     let limits = Limits::default();
+    read_stream_dir_limited(dir, shown, &limits, limits.max_container_bytes)
+}
+
+/// [`read_stream_dir`] with the limits spelled out; `max_total` bounds the sum
+/// of all stream sizes, as `max_container_bytes` bounds a container file.
+fn read_stream_dir_limited(
+    dir: &Path,
+    shown: &str,
+    limits: &Limits,
+    max_total: u64,
+) -> Result<ProjectStreams, InspectError> {
+    let mut total = 0u64;
     let fail = |message: String| InspectError::Directory {
         path: shown.to_owned(),
         message,
@@ -140,6 +152,12 @@ fn read_stream_dir(dir: &Path, shown: &str) -> Result<ProjectStreams, InspectErr
                     return Err(fail(format!(
                         "{rel}: {len} bytes exceeds the stream limit of {}",
                         limits.max_stream_bytes
+                    )));
+                }
+                total = total.saturating_add(len);
+                if total > max_total {
+                    return Err(fail(format!(
+                        "the streams add up to more than {max_total} bytes"
                     )));
                 }
                 let bytes = std::fs::read(entry.path())
@@ -444,4 +462,24 @@ fn report_project(p: &VbaProject) -> String {
                 .sum::<usize>()
     );
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_directory_of_streams_has_a_total_size_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..4 {
+            std::fs::write(dir.path().join(format!("s{i}")), vec![0u8; 1000]).unwrap();
+        }
+        let limits = Limits::default();
+        assert!(read_stream_dir_limited(dir.path(), "d", &limits, 4000).is_ok());
+        let err = read_stream_dir_limited(dir.path(), "d", &limits, 3999).unwrap_err();
+        assert!(
+            err.to_string().contains("add up to more than 3999"),
+            "{err}"
+        );
+    }
 }
