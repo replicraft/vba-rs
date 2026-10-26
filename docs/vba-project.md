@@ -26,6 +26,16 @@ project. It contains no binary-format knowledge and no dependency on
   `modules_without_source`. `set_module_source` on a compiled-only module
   fails with `ModelError::CompiledOnlyModule`. See
   [compiled-projects.md](compiled-projects.md).
+- `ProjectVersion` (`VbaProject::project_version`): version-related facts: the
+  `_VBA_PROJECT` version word, `SysKind`, code page, LCID, per-reference
+  library facts (`ReferenceHint`) and `compiled_only`, plus a deliberately
+  tiny `profile_hint()` table whose entries are hypotheses. It lives in this
+  crate because it is model-level information; the word is read from the
+  preserved `_VBA_PROJECT` bytes under `VBA_PROJECT_STREAM_KEY` (the only
+  format-specific knowledge it has), so the dependency still points from
+  `vba-format` to `vba-project` and never back. Profile names are plain
+  strings; this crate does not depend on `vba-profile`. See
+  [vba-format.md](vba-format.md) for the limits.
 - Editing helpers on `VbaProject`: `module`, `module_mut` (case-insensitive,
   as VBA compares names), `add_module` (rejects duplicates), `remove_module`,
   `set_module_source`.

@@ -36,14 +36,14 @@ project with preservation.
 
 | Item | What it is |
 | --- | --- |
-| `Project` | modules plus the metadata and preserved bytes of a `vbaProject.bin`; `from_source`, `from_bytes`, `open`, `add_module`, `add_source_file`, `set_module_source`, `to_bytes`, `analyze`; `model()` exposes `vba_project::VbaProject` |
+| `Project` | modules plus the metadata and preserved bytes of a `vbaProject.bin`; `from_source`, `from_bytes`, `from_streams`, `open`, `add_module`, `add_source_file`, `set_module_source`, `to_bytes`, `to_streams`, `version`, `analyze`; `model()` exposes `vba_project::VbaProject` |
 | `Report` | the diagnostics of an analysis (`has_errors`, `errors`, `warnings`, `codes`, `rendered`) |
 | `Engine` | builder: `profile`, `policy`/`grant`/`grant_prefixes`, `limits`/`max_steps`, `class`/`dispatch_class`, `global`/`dispatch_global`, `with_file`, `real_files`, `system_environment`, `command_line`, `cancel_token`, `session_builder`; then `analyze`, `load`, `run` |
 | `Instance` | one loaded session with its `Debug.Print` buffer: `trust`, `run`, `raise_event`, `output`, `shutdown`, `session()` |
 | `Outcome` | `value`, `status` (`Completed`, `Ended`, `Stopped`) and the text printed by that call |
 | `CancelToken` | `Send + Sync + Clone`; `cancel`, `reset`, `is_cancelled` |
 | `Error` | `#[non_exhaustive]`: `Format`, `Model`, `Source`, `Io`, `Run(vba::runtime::Error)`; `kind()` gives a stable short name |
-| Re-exports | profiles (`Profile`, `default_profile`, `find_profile`), values (`Variant`, `Currency`, `Date`, `Decimal`, `VbaString`, `VbaArray`), host contract (`Host`, `Policy`, `Capability`, `ResourceLimits`, `HeadlessHost`, `ScriptedHost`), runtime (`Session`, `SessionBuilder`, `MemFs`, `RealFs`, `SystemHost`, `ShellHook`), project/format (`VbaProject`, `Module`, `ModuleKind`, `ReadLimits`, `WriteOptions`), diagnostics (`Diagnostic`, `Severity`) |
+| Re-exports | profiles (`Profile`, `default_profile`, `find_profile`), values (`Variant`, `Currency`, `Date`, `Decimal`, `VbaString`, `VbaArray`), host contract (`Host`, `Policy`, `Capability`, `ResourceLimits`, `HeadlessHost`, `ScriptedHost`), runtime (`Session`, `SessionBuilder`, `MemFs`, `RealFs`, `SystemHost`, `ShellHook`), project/format (`VbaProject`, `Module`, `ModuleKind`, `Reference`, `SysKind`, `ProjectVersion`, `ReferenceHint`, `ProjectStreams`, `ReadMode`, `ReadLimits`, `WriteOptions`, `WriteReport`, `StaleCache`), diagnostics (`Diagnostic`, `Severity`) |
 | `vba::automation` | the traits an embedder implements to expose host objects: `Dispatch`, `DispId`, `DispParams`, `InvokeFlags`, `MemberInfo`, `ParamInfo`, `ObjectTable`, `DispError`, `ErrInfo`, plus `testing::MemObject` |
 | `vba::runtime` | the whole `vba-runtime` crate, for its `Error` taxonomy and file-system types |
 | `vba::prelude` | the handful of names most embedders need |
@@ -52,6 +52,49 @@ project with preservation.
 Host objects are `Dispatch` implementations registered by ProgID
 (`Engine::dispatch_class("Demo.Greeter", || Greeter)`) or by global name
 (`dispatch_global`). `CreateObject` additionally needs `Capability::ComCreate`.
+
+## Embedding with a container you read yourself
+
+vba-rs does not open database containers. If your application reads a store
+that holds VBA (an Access database keeps the VBA streams as rows of a system
+table), extract the streams and pass them in:
+
+```rust
+use vba::{Project, ProjectStreams, ReadLimits, WriteOptions};
+
+// `rows` is whatever your container reader yields: (stream path, bytes).
+let mut streams = ProjectStreams::new();
+for (path, bytes) in rows {
+    streams.insert(path, bytes); // "VBA/dir", "VBA/_VBA_PROJECT", "VBA/Module1", "PROJECT", ...
+}
+if let Ok(mut project) = Project::from_streams(&streams, &ReadLimits::default()) {
+    // project.version() gives facts; project.analyze(..) / Engine run the code.
+    let _ = project.set_module_source("Module1", "Sub A()\r\nEnd Sub\r\n");
+    if let Ok((out, report)) = project.to_streams(&WriteOptions::default()) {
+        for path in &report.changed_streams {
+            match out.get(path) {
+                Some(bytes) => { let _ = bytes; /* write the row */ }
+                None => { /* delete the row */ }
+            }
+        }
+    }
+}
+```
+
+What crosses the seam is only stream paths and bytes; storage CLSIDs, state
+bits, timestamps and sector layout are neither needed nor produced. A
+write-back stores each changed stream that is in the returned set, deletes each
+changed path that is not (invalidated `VBA/__SRP_n` caches), and leaves all
+other streams as they are: an unedited project returns byte-identical streams
+and an empty `changed_streams`. The same edits and refusals apply as for a
+`vbaProject.bin` (`Error::Format(UnsupportedEdit)`, including for compiled-only
+modules). Details are in [vba-format.md](vba-format.md).
+
+`Project::version()` returns `ProjectVersion`: the `_VBA_PROJECT` version word,
+platform, code page, LCID, reference library facts and `compiled_only`.
+`profile_hint()` is a hypothesis table with a single entry and returns `None`
+for everything else; it names a profile, it does not select one. Pass the
+profile you choose to `Engine::profile`.
 
 ## Features
 

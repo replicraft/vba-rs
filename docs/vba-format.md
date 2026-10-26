@@ -13,6 +13,10 @@ numbers below refer to MS-OVBA unless another specification is named.
 - `write_project(&VbaProject, &WriteOptions) -> Result<Vec<u8>, Error>` and
   `write_project_with_report`, which also returns a `WriteReport` (changed
   streams, signature streams, whether signatures are invalidated)
+- `ProjectStreams`, `read_project_from_streams(&ProjectStreams, ReadMode,
+  &Limits)` and `write_project_streams(&VbaProject, &WriteOptions) ->
+  Result<(ProjectStreams, WriteReport), Error>`: the same reader and writer
+  without a compound file (see "Embedding without a container")
 - Module `container`: `extract_project`, `read_document`,
   `locate_ooxml_project`, `replace_ooxml_project` (VBA projects inside OOXML
   packages and legacy Office documents)
@@ -308,6 +312,143 @@ parsing, no certificate or chain validation, no timestamp validation and no
 content hash (§2.4.2). `signature::is_signed` only means such a stream
 exists. A stream that does not parse is reported with its error and is still
 preserved.
+
+## Embedding without a container: stream sets
+
+vba-rs does not read database containers. An embedding application that
+already reads, for example, an Access database extracts the VBA storage
+itself and hands vba-rs a set of named streams. Access keeps these streams as
+rows of a system table, so nothing that exists only in a compound file may be
+required, and nothing here requires it.
+
+**The flow.**
+
+```text
+container reader (the embedder's)  ->  ProjectStreams  ->  read_project_from_streams
+                                                              |  (model, edits)
+container writer (the embedder's)  <-  ProjectStreams  <-  write_project_streams
+```
+
+**What crosses the seam.** A `ProjectStreams` is an ordered map from stream
+path to bytes. The paths are the ones in MS-OVBA: `VBA/dir`,
+`VBA/_VBA_PROJECT`, `VBA/<module stream name>`, `PROJECT`, and optionally
+`PROJECTwm`, `PROJECTlk`, `VBA/__SRP_n`, signature streams, designer streams
+(`<Form>/f`, `<Form>/o`, ...) and anything else; unknown streams are kept and
+returned unchanged. The bytes are the stream contents exactly as stored (the
+compressed `dir`, the module stream with its performance cache followed by the
+compressed source, and so on). Lookup is ASCII case-insensitive, like stream
+lookup in a compound file; the spelling the embedder used is recorded and
+written back. Separators are `/` (`\` is accepted, a leading `/` is dropped).
+Iteration order is ascending by upper-cased path, so output is deterministic.
+`dir`, `_VBA_PROJECT` and `PROJECT` are required; a module stream named by
+`dir` that is missing is `Error::MissingStream`.
+
+Not required and not produced: storage CLSIDs, state bits, timestamps,
+sector layout, the compound-file version. A project read from a stream set
+carries none of the `ovba:storage:` / `ovba:cfb-version` preserved entries.
+
+**The same code path.** `read_project` opens the compound file, collects its
+streams into a `ProjectStreams` and calls `read_project_from_streams`;
+afterwards it adds only the container metadata. The compound-file writer
+builds the same stream set that `write_project_streams` returns and then
+assembles the file. Tests assert that, for every fixture, reading and writing
+through a stream set equals reading and writing through a compound file.
+Limits (`Limits::max_entries`, `max_stream_bytes`, `max_container_bytes` as the
+total, and the decompression limits) apply to stream sets as well, and
+malformed, truncated or missing streams are typed `Error`s, never panics.
+
+**What a write-back must do.** `write_project_streams` returns the complete
+stream set plus a `WriteReport`.
+
+- A project not edited returns streams byte-identical to the ones read, and
+  `changed_streams` is empty. The embedder need not write anything.
+- `changed_streams` lists the paths whose bytes differ from the project as
+  read, including streams that were dropped. For a project not read from
+  streams (built in memory) it lists every stream.
+- An embedder that writes back only what changed must: store the bytes from
+  the returned set for each listed path that is in the set; **delete** each
+  listed path that is not in the set (with the default
+  `StaleCache::Invalidate`, an edit drops the `VBA/__SRP_n` compiled caches
+  and zeroes the `_VBA_PROJECT` cache so the host recompiles); and leave every
+  other stream alone.
+- The same edits are supported and refused as for compound files
+  (see "Writing: supported edits"), including the compiled-only rules:
+  supplying source for a module that has none, or editing source with
+  `StaleCache::Invalidate` in a project with a compiled-only module, is
+  `Error::UnsupportedEdit`.
+- `WriteReport::signatures_invalidated` still tells the embedder that an
+  existing signature no longer matches what it signs.
+
+## Version detection and its limits
+
+`VbaProject::project_version()` (also `Project::version()` in the facade)
+returns a `ProjectVersion` of facts:
+
+- `version_word`: the 16-bit Version field of the `_VBA_PROJECT` header
+  (§2.3.4.1), read after the two-byte reserved constant `0x61CC`. `None` if
+  the stream is absent, shorter than four bytes or does not start with the
+  constant. `0xFFFF` is the value this crate writes when there is no
+  performance cache.
+- `sys_kind` (Win16, Win32, Mac, Win64 per PROJECTSYSKIND), `code_page`, `lcid`.
+- `reference_hints`: for each registered reference (and each control's
+  twiddled and original library) the parsed `guid`, type library version
+  (hexadecimal, as written), `lcid`, `path`, and `office_dir`, the number in an
+  `Office<N>` path component if there is one. These are raw facts about text in
+  the file; they say which machine last saved the reference, not which Office
+  built the project.
+- `compiled_only`: the project has modules and none has source.
+- `profile_hint()`: a `vba-profile` profile identifier or `None`. The table has
+  one entry: version word `0x0097` with 32-bit Windows gives
+  `vba7.0-excel-win32`. **This is a hypothesis**, to be treated as confirmed
+  only by projects from independently known Office builds. The word `0x0097`
+  has been observed in a project referencing Office 2010 libraries on a 32-bit
+  platform, which suggests VBA 7.0. The host in the returned name is the
+  catalog's representative for that generation, not something the project
+  states. Every other word, a missing word and `0xFFFF` give `None`; nothing
+  is guessed or interpolated.
+
+Limits: the version word is a property of the stream and is not documented by
+MS-OVBA as an Office build number; a project can be saved by an application
+that does not update it; a project whose cache was invalidated reads `0xFFFF`
+and says nothing; the platform is the one the project declares, not the
+machine's. Use the facts to inform a choice of profile, never to override one
+the user made.
+
+## `vbars inspect`
+
+`vbars inspect <path> [--json]` accepts a `vbaProject.bin`, a `.bas` / `.cls`
+/ `.frm` file, or a **directory of exported streams**: every regular file
+below the directory is a stream whose path is its path relative to the
+directory (`VBA/dir`, `VBA/_VBA_PROJECT`, `PROJECT`, `VBA/Module1`, ...).
+Symbolic links are not followed, and file names must be UTF-8. The text report
+adds `Version word`, `Profile hint` (`unknown` when there is none, otherwise
+the name marked `(hypothesis)`) and the reference version hints.
+
+`--json` prints one JSON object on stdout (keys sorted, pretty-printed,
+deterministic). Errors still go to stderr as `error: ...` with exit code 1.
+`schema_version` is `1`; fields are only ever added within a schema version.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | number | layout version, currently `1` |
+| `kind` | string | `project` or `source` |
+| `input` | string | `compound-file` or `directory` (projects only) |
+| `name`, `description` | string | project name and description |
+| `code_page`, `lcid` | number | PROJECTCODEPAGE, PROJECTLCID |
+| `platform` | object | `name` (for example `32-bit Windows`) and `value` (PROJECTSYSKIND) |
+| `project_version` | object | `major`, `minor` of the project's own version |
+| `version_word` | number or null | `_VBA_PROJECT` version word |
+| `version_word_hex` | string or null | the same, as `0x0097` |
+| `profile_hint` | string or null | see above; null when unknown |
+| `reference_hints` | array | objects with `reference` (index), `name`, `libid`, `guid`, `type_lib_version` (`"2.5"`, hexadecimal) , `lcid`, `path`, `office_dir`; absent facts are null |
+| `compiled_only` | bool | modules exist and none has source |
+| `source_availability` | string | `full source`, `mixed` or `compiled-only` |
+| `protection` | object | `user_protected`, `host_protected`, `vbe_protected`, `has_password`, `visible` |
+| `references` | array | `name`, `kind`, `libid` |
+| `modules` | array | `name`, `kind`, `has_source`, `source_availability`, `chars`, `lines`, `performance_cache_bytes` |
+
+For `kind` = `source`: `module` with `name`, `kind`, `has_source`, `chars`,
+`lines` and `export_header_lines` (null if none).
 
 ## Not supported
 
