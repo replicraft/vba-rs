@@ -11,6 +11,12 @@
 use super::{Args, Shim, invalid_parameter};
 use crate::{CallContext, WinApiError};
 use vba_ffi::{CodecError, Codepage, NativeReturn, Unmappable};
+use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_NO_UNICODE_TRANSLATION};
+use windows_sys::Win32::Globalization::{
+    CP_ACP, CP_THREAD_ACP, MB_COMPOSITE, MB_ERR_INVALID_CHARS, MB_PRECOMPOSED, MB_USEGLYPHCHARS,
+    WC_COMPOSITECHECK, WC_DEFAULTCHAR, WC_DISCARDNS, WC_ERR_INVALID_CHARS, WC_NO_BEST_FIT_CHARS,
+    WC_SEPCHARS,
+};
 
 pub(super) const SHIMS: [Shim; 2] = [
     Shim {
@@ -27,15 +33,7 @@ pub(super) const SHIMS: [Shim; 2] = [
     },
 ];
 
-const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
-const ERROR_NO_UNICODE_TRANSLATION: u32 = 1113;
-const MB_PRECOMPOSED: u32 = 0x1;
-const MB_COMPOSITE: u32 = 0x2;
-const MB_USEGLYPHCHARS: u32 = 0x4;
-const MB_ERR_INVALID_CHARS: u32 = 0x8;
-const WC_ERR_INVALID_CHARS: u32 = 0x80;
-const WC_NO_BEST_FIT_CHARS: u32 = 0x400;
-const WC_UNIMPLEMENTED: u32 = 0x10 | 0x20 | 0x40 | 0x200;
+const WC_UNIMPLEMENTED: u32 = WC_DISCARDNS | WC_SEPCHARS | WC_DEFAULTCHAR | WC_COMPOSITECHECK;
 
 fn unsupported(symbol: &str, reason: impl Into<String>) -> WinApiError {
     WinApiError::Unsupported {
@@ -45,7 +43,7 @@ fn unsupported(symbol: &str, reason: impl Into<String>) -> WinApiError {
 }
 
 fn code_page(ctx: &CallContext, symbol: &str, id: u32) -> Result<Codepage, WinApiError> {
-    let id = if id == 0 || id == 3 {
+    let id = if id == CP_ACP || id == CP_THREAD_ACP {
         ctx.ansi_codepage.id()
     } else {
         id

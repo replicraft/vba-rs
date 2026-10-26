@@ -11,6 +11,7 @@ vba-ffi.workspace = true
 vba-profile.workspace = true
 vba-value.workspace = true
 thiserror.workspace = true
+windows-sys.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

@@ -1212,6 +1212,7 @@ dependencies = [
  "proptest",
  "vba-core",
  "vba-value",
+ "windows-sys",
 ]
 
 [[package]]
@@ -1485,6 +1486,7 @@ dependencies = [
  "vba-ffi",
  "vba-profile",
  "vba-value",
+ "windows-sys",
 ]
 
 [[package]]

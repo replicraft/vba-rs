@@ -10,6 +10,7 @@ use bitflags::bitflags;
 use std::rc::Rc;
 use vba_core::VbaError;
 use vba_value::{ObjectHandle, Variant};
+use windows_sys::Win32::System::{Com as com, Ole as ole};
 
 /// A member identifier (`DISPID`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,21 +18,21 @@ pub struct DispId(pub i32);
 
 impl DispId {
     /// `DISPID_VALUE`: the default member.
-    pub const VALUE: DispId = DispId(0);
+    pub const VALUE: DispId = DispId(ole::DISPID_VALUE as i32);
     /// `DISPID_UNKNOWN`: name not resolved.
-    pub const UNKNOWN: DispId = DispId(-1);
+    pub const UNKNOWN: DispId = DispId(ole::DISPID_UNKNOWN);
     /// `DISPID_PROPERTYPUT`: the named argument carrying the assigned value.
-    pub const PROPERTYPUT: DispId = DispId(-3);
+    pub const PROPERTYPUT: DispId = DispId(ole::DISPID_PROPERTYPUT);
     /// `DISPID_NEWENUM`: the `_NewEnum` member used by `For Each`.
-    pub const NEWENUM: DispId = DispId(-4);
+    pub const NEWENUM: DispId = DispId(ole::DISPID_NEWENUM);
     /// `DISPID_EVALUATE`: the `[ ]` evaluate member.
-    pub const EVALUATE: DispId = DispId(-5);
+    pub const EVALUATE: DispId = DispId(ole::DISPID_EVALUATE);
     /// `DISPID_CONSTRUCTOR`.
-    pub const CONSTRUCTOR: DispId = DispId(-6);
+    pub const CONSTRUCTOR: DispId = DispId(ole::DISPID_CONSTRUCTOR);
     /// `DISPID_DESTRUCTOR`.
-    pub const DESTRUCTOR: DispId = DispId(-7);
+    pub const DESTRUCTOR: DispId = DispId(ole::DISPID_DESTRUCTOR);
     /// `DISPID_COLLECT`.
-    pub const COLLECT: DispId = DispId(-8);
+    pub const COLLECT: DispId = DispId(ole::DISPID_COLLECT);
 }
 
 bitflags! {
@@ -41,13 +42,13 @@ bitflags! {
         /// No flags.
         const NONE = 0;
         /// `DISPATCH_METHOD`.
-        const METHOD = 1;
+        const METHOD = com::DISPATCH_METHOD;
         /// `DISPATCH_PROPERTYGET`.
-        const PROPERTY_GET = 2;
+        const PROPERTY_GET = com::DISPATCH_PROPERTYGET;
         /// `DISPATCH_PROPERTYPUT` (Let).
-        const PROPERTY_PUT = 4;
+        const PROPERTY_PUT = com::DISPATCH_PROPERTYPUT;
         /// `DISPATCH_PROPERTYPUTREF` (Set).
-        const PROPERTY_PUT_REF = 8;
+        const PROPERTY_PUT_REF = com::DISPATCH_PROPERTYPUTREF;
     }
 }
 

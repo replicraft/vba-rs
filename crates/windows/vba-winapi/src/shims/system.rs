@@ -50,8 +50,7 @@ pub(super) const SHIMS: [Shim; 6] = [
     },
 ];
 
-const ERROR_BUFFER_OVERFLOW: u32 = 111;
-const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+use windows_sys::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_INSUFFICIENT_BUFFER};
 
 fn get_last_error(ctx: &mut CallContext, _: &Args) -> Result<NativeReturn, WinApiError> {
     Ok(NativeReturn::Int(i64::from(ctx.last_error())))

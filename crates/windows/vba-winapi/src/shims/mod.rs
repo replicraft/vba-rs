@@ -67,7 +67,7 @@ impl Args<'_> {
     }
 }
 
-const ERROR_INVALID_PARAMETER: u32 = 87;
+use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
 
 pub(crate) fn invalid_parameter(ctx: &mut CallContext) -> NativeReturn {
     ctx.set_last_error(ERROR_INVALID_PARAMETER);

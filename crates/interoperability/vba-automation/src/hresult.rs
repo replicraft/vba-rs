@@ -6,77 +6,78 @@
 //! a real host; see `docs/automation.md`.
 
 use crate::error::describe;
+use windows_sys::Win32::Foundation as f;
 
 /// An `HRESULT` as a signed 32-bit integer.
 pub type Hresult = i32;
 
 macro_rules! hr {
     ($($(#[$m:meta])* $name:ident = $v:expr;)*) => {
-        $($(#[$m])* pub const $name: Hresult = $v as u32 as i32;)*
+        $($(#[$m])* pub const $name: Hresult = $v;)*
     };
 }
 
 hr! {
     /// Success.
-    S_OK = 0x0000_0000u32;
+    S_OK = f::S_OK;
     /// Not implemented.
-    E_NOTIMPL = 0x8000_4001u32;
+    E_NOTIMPL = f::E_NOTIMPL;
     /// No such interface.
-    E_NOINTERFACE = 0x8000_4002u32;
+    E_NOINTERFACE = f::E_NOINTERFACE;
     /// Unspecified failure.
-    E_FAIL = 0x8000_4005u32;
+    E_FAIL = f::E_FAIL;
     /// Access denied.
-    E_ACCESSDENIED = 0x8007_0005u32;
+    E_ACCESSDENIED = f::E_ACCESSDENIED;
     /// Out of memory.
-    E_OUTOFMEMORY = 0x8007_000Eu32;
+    E_OUTOFMEMORY = f::E_OUTOFMEMORY;
     /// Invalid argument.
-    E_INVALIDARG = 0x8007_0057u32;
+    E_INVALIDARG = f::E_INVALIDARG;
     /// Unknown interface.
-    DISP_E_UNKNOWNINTERFACE = 0x8002_0001u32;
+    DISP_E_UNKNOWNINTERFACE = f::DISP_E_UNKNOWNINTERFACE;
     /// Member not found.
-    DISP_E_MEMBERNOTFOUND = 0x8002_0003u32;
+    DISP_E_MEMBERNOTFOUND = f::DISP_E_MEMBERNOTFOUND;
     /// Parameter not found.
-    DISP_E_PARAMNOTFOUND = 0x8002_0004u32;
+    DISP_E_PARAMNOTFOUND = f::DISP_E_PARAMNOTFOUND;
     /// Type mismatch.
-    DISP_E_TYPEMISMATCH = 0x8002_0005u32;
+    DISP_E_TYPEMISMATCH = f::DISP_E_TYPEMISMATCH;
     /// Unknown name.
-    DISP_E_UNKNOWNNAME = 0x8002_0006u32;
+    DISP_E_UNKNOWNNAME = f::DISP_E_UNKNOWNNAME;
     /// No named arguments.
-    DISP_E_NONAMEDARGS = 0x8002_0007u32;
+    DISP_E_NONAMEDARGS = f::DISP_E_NONAMEDARGS;
     /// Bad variable type.
-    DISP_E_BADVARTYPE = 0x8002_0008u32;
+    DISP_E_BADVARTYPE = f::DISP_E_BADVARTYPE;
     /// The callee raised an exception (details in EXCEPINFO).
-    DISP_E_EXCEPTION = 0x8002_0009u32;
+    DISP_E_EXCEPTION = f::DISP_E_EXCEPTION;
     /// Overflow.
-    DISP_E_OVERFLOW = 0x8002_000Au32;
+    DISP_E_OVERFLOW = f::DISP_E_OVERFLOW;
     /// Bad index.
-    DISP_E_BADINDEX = 0x8002_000Bu32;
+    DISP_E_BADINDEX = f::DISP_E_BADINDEX;
     /// Unknown LCID.
-    DISP_E_UNKNOWNLCID = 0x8002_000Cu32;
+    DISP_E_UNKNOWNLCID = f::DISP_E_UNKNOWNLCID;
     /// Array is locked.
-    DISP_E_ARRAYISLOCKED = 0x8002_000Du32;
+    DISP_E_ARRAYISLOCKED = f::DISP_E_ARRAYISLOCKED;
     /// Wrong number of arguments.
-    DISP_E_BADPARAMCOUNT = 0x8002_000Eu32;
+    DISP_E_BADPARAMCOUNT = f::DISP_E_BADPARAMCOUNT;
     /// A required parameter was omitted.
-    DISP_E_PARAMNOTOPTIONAL = 0x8002_000Fu32;
+    DISP_E_PARAMNOTOPTIONAL = f::DISP_E_PARAMNOTOPTIONAL;
     /// Bad callee.
-    DISP_E_BADCALLEE = 0x8002_0010u32;
+    DISP_E_BADCALLEE = f::DISP_E_BADCALLEE;
     /// Not a collection.
-    DISP_E_NOTACOLLECTION = 0x8002_0011u32;
+    DISP_E_NOTACOLLECTION = f::DISP_E_NOTACOLLECTION;
     /// Division by zero.
-    DISP_E_DIVBYZERO = 0x8002_0012u32;
+    DISP_E_DIVBYZERO = f::DISP_E_DIVBYZERO;
     /// Buffer too small.
-    DISP_E_BUFFERTOOSMALL = 0x8002_0013u32;
+    DISP_E_BUFFERTOOSMALL = f::DISP_E_BUFFERTOOSMALL;
     /// Type library: type mismatch.
-    TYPE_E_TYPEMISMATCH = 0x8002_8CA0u32;
+    TYPE_E_TYPEMISMATCH = f::TYPE_E_TYPEMISMATCH;
     /// Type library: out of bounds.
-    TYPE_E_OUTOFBOUNDS = 0x8002_8CA1u32;
+    TYPE_E_OUTOFBOUNDS = f::TYPE_E_OUTOFBOUNDS;
     /// Invalid class string.
-    CO_E_CLASSSTRING = 0x8004_01F3u32;
+    CO_E_CLASSSTRING = f::CO_E_CLASSSTRING;
     /// Class not registered.
-    REGDB_E_CLASSNOTREG = 0x8004_0154u32;
+    REGDB_E_CLASSNOTREG = f::REGDB_E_CLASSNOTREG;
     /// Server execution failed.
-    CO_E_SERVER_EXEC_FAILURE = 0x8008_0005u32;
+    CO_E_SERVER_EXEC_FAILURE = f::CO_E_SERVER_EXEC_FAILURE;
 }
 
 /// `vbObjectError`: base of user-defined error numbers (`&H80040000`).
