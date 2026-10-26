@@ -2,6 +2,7 @@
 #![allow(dead_code, missing_docs)]
 
 pub mod builder;
+pub mod libs;
 pub mod pe;
 
 use builder::{

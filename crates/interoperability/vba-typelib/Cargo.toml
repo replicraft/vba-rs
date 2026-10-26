@@ -7,23 +7,31 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-default = ["sema"]
+default = ["sema", "automation"]
 # Adapter implementing `vba_sema::TypeProvider` for a loaded library.
 sema = ["dep:vba-sema", "dep:vba-value"]
+# Per-interface dispatch tables for `vba-automation` objects.
+automation = ["sema", "dep:vba-automation"]
 
 [dependencies]
 bitflags.workspace = true
 encoding_rs.workspace = true
 object.workspace = true
 thiserror.workspace = true
+vba-automation = { workspace = true, optional = true }
 vba-sema = { workspace = true, optional = true }
 vba-value = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
 vba-diagnostics.workspace = true
+vba-host.workspace = true
+vba-ir.workspace = true
 vba-profile.workspace = true
 vba-project.workspace = true
+vba-scripting.workspace = true
+vba-stdlib.workspace = true
+vba-vm.workspace = true
 
 [lints]
 workspace = true

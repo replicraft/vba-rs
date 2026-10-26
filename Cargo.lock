@@ -1514,11 +1514,17 @@ dependencies = [
  "object",
  "proptest",
  "thiserror",
+ "vba-automation",
  "vba-diagnostics",
+ "vba-host",
+ "vba-ir",
  "vba-profile",
  "vba-project",
+ "vba-scripting",
  "vba-sema",
+ "vba-stdlib",
  "vba-value",
+ "vba-vm",
 ]
 
 [[package]]

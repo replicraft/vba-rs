@@ -75,6 +75,13 @@ impl TypelibProvider {
         &self.libs
     }
 
+    /// The VBA members of a type (see [`TypeProvider::member`]), in the
+    /// library's order, or `None` for an unknown type.
+    pub fn all_members(&self, ty: &LibraryType) -> Option<Vec<LibMember>> {
+        let (li, ti) = self.find(ty)?;
+        Some(self.members(li, ti).0.clone())
+    }
+
     fn find(&self, lt: &LibraryType) -> Option<(usize, usize)> {
         self.libs.iter().enumerate().find_map(|(li, l)| {
             if !l.name.eq_ignore_ascii_case(&lt.library) {

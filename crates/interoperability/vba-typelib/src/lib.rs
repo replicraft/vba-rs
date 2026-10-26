@@ -14,8 +14,13 @@
 //! `docs/formats/typelib.md`.
 //!
 //! With the default `sema` feature, [`sema::TypelibProvider`] adapts loaded
-//! libraries to `vba_sema::TypeProvider`.
+//! libraries to `vba_sema::TypeProvider`; with `automation`,
+//! [`automation::InterfaceTable`] gives `vba-automation` objects the
+//! member ids, parameter descriptions and argument conversions of an
+//! interface.
 
+#[cfg(feature = "automation")]
+pub mod automation;
 mod describe;
 pub mod error;
 pub mod model;
