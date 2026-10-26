@@ -16,8 +16,31 @@ fn convert_severity(s: Sev) -> Severity {
 }
 
 impl View<'_> {
+    /// The `SEM###` diagnostics `vba-sema` reports for this document when
+    /// the open documents are analysed as one project. Syntax diagnostics of
+    /// the sema parse are left out; the tolerant parse reports them.
+    fn semantic_diagnostics(&self) -> Vec<vba_diagnostics::Diagnostic> {
+        let Some(proj) = self.ws.project() else {
+            return Vec::new();
+        };
+        let Some(&m) = proj.by_uri.get(&self.uri) else {
+            return Vec::new();
+        };
+        proj.sema
+            .diagnostics
+            .iter()
+            .filter(|d| d.code.0.starts_with("SEM") && proj.module_of_file(d.file) == Some(m))
+            .cloned()
+            .map(|mut d| {
+                d.file = FILE_ID;
+                d
+            })
+            .collect()
+    }
+
     /// All diagnostics of the document: lexer and syntax diagnostics from
-    /// the tolerant parse, then those of every registered
+    /// the tolerant parse, the `vba-sema` diagnostics of the project, then
+    /// those of every registered
     /// [`SemanticDiagnostics`](crate::SemanticDiagnostics) provider,
     /// sorted by position.
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
@@ -30,6 +53,7 @@ impl View<'_> {
         for p in self.providers {
             all.extend(p.diagnose(&input));
         }
+        all.extend(self.semantic_diagnostics());
         let len = self.bytes().len() as u32;
         let mut out: Vec<Diagnostic> = all
             .into_iter()

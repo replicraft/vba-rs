@@ -63,7 +63,9 @@ fn hover_table() {
 #[test]
 fn hover_none_on_whitespace_and_unknown() {
     assert!(hover_text("Sub A()\n  |  x = 1\nEnd Sub\n").is_none());
-    assert!(hover_text("Sub A()\n    unk|nown = 1\nEnd Sub\n").is_none());
+    // An undeclared variable is an implicit Variant for the analysis.
+    let h = hover_text("Sub A()\n    unk|nown = 1\nEnd Sub\n").unwrap();
+    assert!(h.contains("unknown As Variant"), "{h}");
     assert!(hover_text("Sub A()\n    x = 1 ' co|mment\nEnd Sub\n").is_none());
 }
 
@@ -71,7 +73,7 @@ fn hover_none_on_whitespace_and_unknown() {
 fn hover_in_file_declaration_shadows_library() {
     let h =
         hover_text("Function Left(x)\nEnd Function\nSub A()\n    y = Le|ft(1)\nEnd Sub\n").unwrap();
-    assert!(h.contains("Function Left(x)"), "{h}");
+    assert!(h.contains("Function Left(x As Variant) As Variant"), "{h}");
     assert!(!h.contains("VBA.Strings"), "{h}");
 }
 

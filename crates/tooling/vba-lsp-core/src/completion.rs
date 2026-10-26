@@ -103,7 +103,7 @@ const TYPE_KEYWORDS: &[&str] = &[
     "Object", "Single", "String", "Variant",
 ];
 
-const QUALIFIERS: &[&str] = &[
+pub(crate) const QUALIFIERS: &[&str] = &[
     "VBA",
     "Strings",
     "Math",
@@ -248,6 +248,7 @@ impl View<'_> {
         let expression = |items: &mut Vec<CompletionItem>| {
             items.extend(EXPRESSION_KEYWORDS.iter().map(|s| kw(s)));
             add_symbols(items, &|k| k != SymKind::Label);
+            items.extend(self.semantic_global_items(false));
             add_functions(items, None);
         };
         let proc_word = |items: &mut Vec<CompletionItem>| {
@@ -263,7 +264,12 @@ impl View<'_> {
         match prev_kind {
             Some(TokenKind::Dot) => {
                 let q = sig_before.get(1).map(|&k| tokens[k]);
-                if let Some(q) = q.filter(|q| is_word(q.kind())) {
+                let typed = sig_before
+                    .first()
+                    .and_then(|&d| self.semantic_member_items(&tokens, d));
+                if let Some(typed) = typed {
+                    items.extend(typed);
+                } else if let Some(q) = q.filter(|q| is_word(q.kind())) {
                     let name = String::from_utf8_lossy(q.text()).to_string();
                     let enum_sym = scopes
                         .lookup_at(q.span().start, &normalize(q.text()))
@@ -301,6 +307,7 @@ impl View<'_> {
                         .map(|t| kw(t)),
                 );
                 add_symbols(&mut items, &|k| matches!(k, SymKind::Type | SymKind::Enum));
+                items.extend(self.semantic_global_items(true));
             }
             Some(TokenKind::Keyword(Keyword::GoTo | Keyword::GoSub | Keyword::Resume)) => {
                 let proc = scopes.proc_at(offset);
@@ -427,6 +434,7 @@ impl View<'_> {
                             }
                         }
                         add_symbols(&mut items, &|k| k != SymKind::Label);
+                        items.extend(self.semantic_global_items(false));
                         add_functions(&mut items, None);
                     } else {
                         items.extend(MODULE_KEYWORDS.iter().map(|s| kw(s)));

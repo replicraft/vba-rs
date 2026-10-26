@@ -55,6 +55,10 @@ pub enum SymbolKind {
     Struct,
     /// `Event`.
     Event,
+    /// A standard module.
+    Module,
+    /// A class, document or designer module.
+    Class,
 }
 
 /// A symbol in the outline of a document.
@@ -199,6 +203,10 @@ pub enum CompletionKind {
     EnumMember,
     /// A library or module qualifier.
     Module,
+    /// A property of a class module.
+    Property,
+    /// A public variable of a class or a field of a user-defined type.
+    Field,
 }
 
 /// A completion candidate.
@@ -258,6 +266,37 @@ pub struct TextEdit {
     pub range: Range,
     /// Replacement text.
     pub new_text: String,
+}
+
+/// A range in a document of the workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Location {
+    /// URI of the document.
+    pub uri: String,
+    /// The range.
+    pub range: Range,
+}
+
+/// The edits one rename makes to one document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEdit {
+    /// URI of the document.
+    pub uri: String,
+    /// Non-overlapping edits, in source order.
+    pub edits: Vec<TextEdit>,
+}
+
+/// A declaration found by a workspace-wide symbol search.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceSymbol {
+    /// Name as written.
+    pub name: String,
+    /// Kind.
+    pub kind: SymbolKind,
+    /// Declaring module (or enum/type for members and fields).
+    pub container: String,
+    /// Where the name is declared.
+    pub location: Location,
 }
 
 /// A selection range with its enclosing ranges, innermost first.

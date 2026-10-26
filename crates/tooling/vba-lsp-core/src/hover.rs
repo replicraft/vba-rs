@@ -28,6 +28,10 @@ impl View<'_> {
             Some(Hover { contents: s, range })
         };
 
+        if let Some(h) = self.semantic_hover(&tokens, i, range) {
+            return Some(h);
+        }
+
         if let Some(o) = self.scopes().occurrence_at(tok.span().start) {
             let sym = &self.scopes().symbols[o.symbol as usize];
             if o.span.start == tok.span().start {

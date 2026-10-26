@@ -91,7 +91,7 @@ impl View<'_> {
         let (sym, _) = self
             .symbol_at(pos)
             .ok_or_else(|| Error::Invalid("nothing to rename here".into()))?;
-        self.check_new_name(new_name)?;
+        check_new_name(self.profile(), new_name)?;
         let idx = self.scopes();
         let target = &idx.symbols[sym as usize];
         let n = new_name.to_ascii_lowercase();
@@ -129,27 +129,28 @@ impl View<'_> {
             })
             .collect())
     }
+}
 
-    fn check_new_name(&self, name: &str) -> Result<(), Error> {
-        let bytes = name.as_bytes();
-        let out = lex(
-            crate::document::FILE_ID,
-            bytes,
-            LexOptions::for_profile(self.profile()),
-        );
-        let ok = bytes.len() <= 255
-            && out.tokens.len() == 1
-            && out.tokens[0].kind == TokenKind::Ident
-            && out.tokens[0].type_suffix().is_none()
-            && out.tokens[0].span.end as usize == bytes.len()
-            && bytes[0].is_ascii_alphabetic();
-        if ok {
-            Ok(())
-        } else {
-            Err(Error::Invalid(format!(
-                "`{name}` is not a valid VBA identifier (letters, digits and underscores, \
-                 starting with a letter, not a reserved word)"
-            )))
-        }
+/// Checks that `name` is a plain VBA identifier usable as a new name.
+pub(crate) fn check_new_name(profile: &vba_profile::Profile, name: &str) -> Result<(), Error> {
+    let bytes = name.as_bytes();
+    let out = lex(
+        crate::document::FILE_ID,
+        bytes,
+        LexOptions::for_profile(profile),
+    );
+    let ok = bytes.len() <= 255
+        && out.tokens.len() == 1
+        && out.tokens[0].kind == TokenKind::Ident
+        && out.tokens[0].type_suffix().is_none()
+        && out.tokens[0].span.end as usize == bytes.len()
+        && bytes[0].is_ascii_alphabetic();
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::Invalid(format!(
+            "`{name}` is not a valid VBA identifier (letters, digits and underscores, \
+             starting with a letter, not a reserved word)"
+        )))
     }
 }

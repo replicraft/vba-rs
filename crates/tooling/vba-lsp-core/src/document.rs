@@ -53,6 +53,17 @@ pub struct Config {
     pub encoding: SourceEncoding,
     /// Project-level `#Const` values.
     pub constants: Vec<(String, i64)>,
+    /// Whether open documents are analysed as one project by `vba-sema`
+    /// (semantic diagnostics, cross-module navigation, type-aware hover and
+    /// completion). When off, only the syntactic features are available.
+    pub semantic: bool,
+    /// Project name used for `Project.Module.Name` qualification.
+    pub project_name: String,
+    /// Module kind overrides. A pattern is a full URI, a file name or
+    /// `*.ext`; the first match wins. Without a match the kind comes from
+    /// the file extension (`.bas` standard, `.cls` class, `.frm`
+    /// designer) or the export header, and is standard otherwise.
+    pub module_kinds: Vec<(String, crate::ModuleKind)>,
 }
 
 impl Default for Config {
@@ -61,6 +72,9 @@ impl Default for Config {
             profile: *vba_profile::default_profile(),
             encoding: SourceEncoding::Utf8,
             constants: Vec::new(),
+            semantic: true,
+            project_name: "VBAProject".to_string(),
+            module_kinds: Vec::new(),
         }
     }
 }
@@ -111,7 +125,11 @@ pub struct Document {
 impl Document {
     /// Creates a document from editor text, encoded to `encoding`.
     pub fn new(text: &str, version: i32, encoding: SourceEncoding) -> Self {
-        let bytes = encode(text, encoding);
+        Self::from_bytes(encode(text, encoding), version, encoding)
+    }
+
+    /// Creates a document from a buffer already in `encoding`.
+    pub(crate) fn from_bytes(bytes: Vec<u8>, version: i32, encoding: SourceEncoding) -> Self {
         let map = TextMap::new(&bytes, encoding);
         Document {
             version,

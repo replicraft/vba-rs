@@ -8,9 +8,12 @@ license.workspace = true
 
 [dependencies]
 encoding_rs.workspace = true
+vba-ast.workspace = true
 vba-diagnostics.workspace = true
 vba-lexer.workspace = true
 vba-profile.workspace = true
+vba-project.workspace = true
+vba-sema.workspace = true
 vba-source.workspace = true
 vba-stdlib.workspace = true
 vba-syntax.workspace = true

@@ -1,7 +1,8 @@
 //! The document store and the per-document request facade.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use vba_lexer::TokenKind;
 use vba_profile::Profile;
@@ -9,6 +10,7 @@ use vba_source::{FileId, SourceEncoding, Span};
 use vba_syntax::{SyntaxToken, SyntaxTree};
 
 use crate::document::{Analysis, Config, Document, TextChange};
+use crate::project::Project;
 use crate::text::{Position, Range, decode};
 use crate::types::Error;
 
@@ -38,6 +40,11 @@ pub struct Workspace {
     config: Config,
     docs: HashMap<String, Document>,
     providers: Vec<Box<dyn SemanticDiagnostics>>,
+    /// Bumped by every open, edit, close and configuration change; the
+    /// project analysis is cached against it.
+    generation: u64,
+    project: Mutex<Option<(u64, Arc<Project>)>>,
+    runs: AtomicUsize,
 }
 
 impl Workspace {
@@ -55,6 +62,7 @@ impl Workspace {
     /// applies to documents opened afterwards.
     pub fn set_config(&mut self, config: Config) {
         self.config = config;
+        self.generation += 1;
         for d in self.docs.values_mut() {
             d.invalidate();
         }
@@ -78,6 +86,7 @@ impl Workspace {
         version: i32,
         encoding: SourceEncoding,
     ) {
+        self.generation += 1;
         self.docs
             .insert(uri.to_string(), Document::new(text, version, encoding));
     }
@@ -89,12 +98,46 @@ impl Workspace {
             .get_mut(uri)
             .ok_or_else(|| Error::NotOpen(uri.to_string()))?;
         d.apply_changes(version, changes);
+        self.generation += 1;
         Ok(())
     }
 
     /// Closes a document; returns whether it was open.
     pub fn close(&mut self, uri: &str) -> bool {
+        self.generation += 1;
         self.docs.remove(uri).is_some()
+    }
+
+    /// How many times the project analysis has run. It runs at most once
+    /// per workspace state (document set, texts, configuration) and only
+    /// when a semantic feature asks for it.
+    pub fn semantic_runs(&self) -> usize {
+        self.runs.load(Ordering::Relaxed)
+    }
+
+    /// The cached analysis of all open documents as one project, built on
+    /// demand. `None` when semantic analysis is disabled.
+    pub(crate) fn project(&self) -> Option<Arc<Project>> {
+        if !self.config.semantic {
+            return None;
+        }
+        let mut slot = self.project.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((g, p)) = slot.as_ref()
+            && *g == self.generation
+        {
+            return Some(p.clone());
+        }
+        let mut docs: Vec<(&str, &Document)> =
+            self.docs.iter().map(|(u, d)| (u.as_str(), d)).collect();
+        docs.sort_by(|a, b| a.0.cmp(b.0));
+        let p = Arc::new(Project::build(&self.config, &docs));
+        self.runs.fetch_add(1, Ordering::Relaxed);
+        *slot = Some((self.generation, p.clone()));
+        Some(p)
+    }
+
+    pub(crate) fn docs(&self) -> &HashMap<String, Document> {
+        &self.docs
     }
 
     /// The open document, if any.
@@ -118,6 +161,8 @@ impl Workspace {
             analysis: doc.analysis(&self.config),
             config: &self.config,
             providers: &self.providers,
+            ws: self,
+            uri: uri.to_string(),
         })
     }
 }
@@ -128,6 +173,8 @@ pub struct View<'a> {
     pub(crate) analysis: Arc<Analysis>,
     pub(crate) config: &'a Config,
     pub(crate) providers: &'a [Box<dyn SemanticDiagnostics>],
+    pub(crate) ws: &'a Workspace,
+    pub(crate) uri: String,
 }
 
 impl<'a> View<'a> {
