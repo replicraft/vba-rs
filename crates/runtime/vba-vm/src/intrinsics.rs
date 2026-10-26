@@ -510,13 +510,8 @@ impl Vm {
         let mut units = t.as_units().to_vec();
         let start0 = start as usize - 1;
         if start0 >= units.len() {
-            // Past the end: nothing to replace (error 5 for a start beyond
-            // Len + 1 is documented for Mid$ the function, not the
-            // statement; an out-of-range start leaves the string unchanged).
-            if start0 > units.len() {
-                return Err(VbaError::INVALID_PROCEDURE_CALL.into());
-            }
-            return Ok(());
+            // MS-VBAL 5.4.3.5: a start beyond the length is error 5.
+            return Err(VbaError::INVALID_PROCEDURE_CALL.into());
         }
         let n = len
             .map_or(value.len(), |l| l as usize)
@@ -1028,8 +1023,15 @@ impl Vm {
             }
             IoOp::Width { file, width } => {
                 let file = file_no(self, file)?;
-                let w = opt_i64(self, width)?.unwrap_or(0) as i32;
-                svc(self.services.io(IoRequest::Width { file, width: w }))?;
+                let w = opt_i64(self, width)?.unwrap_or(0);
+                // MS-VBAL 5.4.5.7: the width is 0 to 255.
+                if !(0..=255).contains(&w) {
+                    return Err(VbaError::INVALID_PROCEDURE_CALL.into());
+                }
+                svc(self.services.io(IoRequest::Width {
+                    file,
+                    width: w as i32,
+                }))?;
             }
             IoOp::Name { old, new } => {
                 let o = self.val(old)?;
