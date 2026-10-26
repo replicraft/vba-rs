@@ -194,6 +194,11 @@ pub enum ModelError {
     /// No module with this name exists.
     #[error("no module named {0:?}")]
     NoSuchModule(String),
+    /// The module is compiled-only: it has a performance cache but no
+    /// source. Supplying source would create text that does not match the
+    /// cache, so it is refused.
+    #[error("module {0:?} is compiled-only; its source cannot be replaced")]
+    CompiledOnlyModule(String),
 }
 
 /// A VBA project.
@@ -300,6 +305,9 @@ impl VbaProject {
     }
 
     /// Replaces the source text of an existing module and marks it present.
+    ///
+    /// A compiled-only module (performance cache, no source) is refused with
+    /// [`ModelError::CompiledOnlyModule`].
     pub fn set_module_source(
         &mut self,
         name: &str,
@@ -308,6 +316,9 @@ impl VbaProject {
         let m = self
             .module_mut(name)
             .ok_or_else(|| ModelError::NoSuchModule(name.to_owned()))?;
+        if m.source_availability() == crate::SourceAvailability::CompiledOnly {
+            return Err(ModelError::CompiledOnlyModule(m.name.clone()));
+        }
         m.source = source.into();
         m.has_source = true;
         Ok(())

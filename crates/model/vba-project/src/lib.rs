@@ -9,12 +9,14 @@
 //! The model can also represent standalone `.bas`, `.cls` and `.frm` sources;
 //! see [`Module::from_source_file`].
 
+mod availability;
 mod module;
 mod preserved;
 mod project;
 mod reference;
 mod standalone;
 
+pub use availability::{PERFORMANCE_CACHE_KEY, ProjectSourceAvailability, SourceAvailability};
 pub use module::{Module, ModuleKind};
 pub use preserved::Preserved;
 pub use project::{

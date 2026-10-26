@@ -193,8 +193,13 @@ context, read-only and private flags; project name, description, help file,
 help context, constants, version, LCIDs, platform and references.
 
 Rejected with `Error::UnsupportedEdit`: adding, removing, renaming, reordering
-or re-typing modules; removing a module's source; changing the project ID,
-protection, host extenders or workspace.
+or re-typing modules; removing a module's source; **supplying source for a
+module whose stored source is absent** (error names the module; see
+[compiled-projects.md](compiled-projects.md)); editing any module's source
+under `StaleCache::Invalidate` while another module is compiled-only (that
+would force a recompilation it cannot survive; `StaleCache::Keep` is the
+explicit alternative); changing the project ID, protection, host extenders or
+workspace.
 
 A project not read from a file (built in memory) is generated from the model:
 `dir`, `PROJECT` (unprotected unless flags are set), an empty `_VBA_PROJECT`
@@ -307,9 +312,11 @@ preserved.
 ## Not supported
 
 - **Stripped or compiled-only projects**: a module stream with nothing after
-  the cache is read with `has_source == false` and an empty source. Compiled
-  code is not interpreted or decompiled. Source can be supplied for such a
-  module by setting it.
+  the cache is read with `has_source == false` and an empty source, and
+  classified by the model (`Module::source_availability`). Compiled code is
+  not interpreted, decompiled or disassembled, and source is never supplied
+  for such a module. Everything is preserved byte for byte on write. See
+  [compiled-projects.md](compiled-projects.md).
 - **Passwords**: neither verified, recovered nor written.
 - **Writing into legacy documents** (`.doc`, `.xls`, `.ppt`), and **adding a
   project to a package** that has none.

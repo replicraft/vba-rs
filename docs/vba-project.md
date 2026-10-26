@@ -20,6 +20,12 @@ project. It contains no binary-format knowledge and no dependency on
   `is_hidden()` and `notice()` summarize them. They describe the file and are
   **not security**: module source is stored unencrypted in a protected
   project, and the model enforces nothing.
+- Source availability (`SourceAvailability`, `ProjectSourceAvailability`):
+  `Module::source_availability`, `source_is_ambiguous`,
+  `performance_cache_len`; `VbaProject::source_availability` and
+  `modules_without_source`. `set_module_source` on a compiled-only module
+  fails with `ModelError::CompiledOnlyModule`. See
+  [compiled-projects.md](compiled-projects.md).
 - Editing helpers on `VbaProject`: `module`, `module_mut` (case-insensitive,
   as VBA compares names), `add_module` (rejects duplicates), `remove_module`,
   `set_module_source`.

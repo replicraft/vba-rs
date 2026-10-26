@@ -380,7 +380,7 @@ fn streams_of(b: &[u8]) -> BTreeMap<String, Vec<u8>> {
 }
 
 #[test]
-fn project_without_source_is_reported_and_editable() {
+fn project_without_source_is_reported_and_not_editable() {
     let mut modules = spec_modules();
     modules.truncate(2);
     modules[1].offset = 16;
@@ -405,12 +405,14 @@ fn project_without_source_is_reported_and_editable() {
     );
     // Untouched: identical.
     assert_eq!(dump_cfb(&write(&p)), dump_cfb(&bin));
-    // Supplying source for one module works and leaves the other alone.
-    p.set_module_source("Sheet1", "Sub A()\r\nEnd Sub\r\n")
-        .unwrap();
-    let back = read(&write(&p));
-    assert!(back.module("Sheet1").unwrap().has_source);
-    assert!(!back.module("ThisWorkbook").unwrap().has_source);
+    // Source cannot be supplied for a module whose stored source is absent.
+    let m = p.module_mut("Sheet1").unwrap();
+    m.source = "Sub A()\r\nEnd Sub\r\n".into();
+    m.has_source = true;
+    assert!(matches!(
+        write_project(&p, &WriteOptions::default()),
+        Err(Error::UnsupportedEdit(m)) if m.contains("Sheet1")
+    ));
 }
 
 #[test]

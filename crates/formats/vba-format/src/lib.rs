@@ -76,7 +76,7 @@ pub mod keys {
     /// little-endian 32-bit state bits.
     pub const STORAGE_PREFIX: &str = "ovba:storage:";
     /// Module: the performance cache that precedes the compressed source.
-    pub const MODULE_PERFORMANCE_CACHE: &str = "ovba:module/performance-cache";
+    pub const MODULE_PERFORMANCE_CACHE: &str = vba_project::PERFORMANCE_CACHE_KEY;
     /// Module: the original compressed source container.
     pub const MODULE_COMPRESSED_SOURCE: &str = "ovba:module/compressed-source";
 }

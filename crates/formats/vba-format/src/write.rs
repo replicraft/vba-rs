@@ -221,9 +221,40 @@ fn edit_layout(
                 m.name
             )));
         }
+        if !orig_has && (m.has_source || !m.source.is_empty()) {
+            // The stored module has no source container. Creating one would
+            // produce text that does not correspond to the performance
+            // cache (the only representation of the module's code).
+            return Err(Error::UnsupportedEdit(format!(
+                "module {:?} has no source in the file (compiled-only or stripped); \
+                 supplying source would not match its performance cache",
+                m.name
+            )));
+        }
         changed[i] = m.has_source != orig_has || (m.has_source && m.source != orig_text);
     }
     let any_changed = changed.iter().any(|&c| c);
+    if any_changed && options.stale_cache == StaleCache::Invalidate {
+        // Invalidation tells the host to recompile from source, which a
+        // module without source cannot survive.
+        if let Some(m) = project.modules.iter().find(|m| {
+            let cached = m
+                .preserved
+                .get(keys::MODULE_PERFORMANCE_CACHE)
+                .is_some_and(|c| !c.is_empty());
+            let stripped = m
+                .preserved
+                .get(keys::MODULE_COMPRESSED_SOURCE)
+                .is_some_and(<[u8]>::is_empty);
+            cached && stripped
+        }) {
+            return Err(Error::UnsupportedEdit(format!(
+                "editing source with StaleCache::Invalidate would force a recompilation, \
+                 but module {:?} is compiled-only and has no source to recompile",
+                m.name
+            )));
+        }
+    }
     let invalidate = any_changed && options.stale_cache == StaleCache::Invalidate;
 
     // Apply the model to the dir records.
