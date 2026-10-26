@@ -138,14 +138,14 @@ Columns: `#` decimal canonical number; Name; Operands in order; Semantics/stack 
 |---|---|---|---|
 | 31 | READ_TARGET_NAME | name | load identifier used as assignment/loop target (left-hand-side form of a load) |
 | 32 | READ_SIMPLE | name | push value of variable/function/constant; observed: the name word 0xFFFF is the implicit `Me` |
-| 33 | READ_DOT | name | pop object; push `obj.name` |
+| 33 | READ_DOT | name | pop object; push `obj.name` (the receivers the lowering accepts: 4.18) |
 | 34 | READ_BANG | name | pop object; push `obj!name` |
 | 35 | READ_DEFAULT_INDEXED | W | pop object and W args; push default-member indexed result `obj(args)`; W = argument count (inferred) |
 | 36 | READ_SIMPLE_PARAMS | name, W | call/index `name(args)` |
-| 37 | READ_DOT_PARAMS | name, W | `obj.name(args)` |
+| 37 | READ_DOT_PARAMS | name, W | `obj.name(args)`; the W arguments are below the receiver, which is on top (4.18) |
 | 38 | READ_BANG_PARAMS | name, W | `obj!name(args)` |
 | 39 | WRITE_SIMPLE | name | assign |
-| 40 | WRITE_DOT | name | `obj.name = v` |
+| 40 | WRITE_DOT | name | `obj.name = v`; the value is below the receiver, which is on top (4.18) |
 | 41 | WRITE_BANG | name | `obj!name = v` |
 | 42 | WRITE_DEFAULT_INDEXED | W | `obj(args) = v` |
 | 43 | WRITE_SIMPLE_PARAMS | name, W | `name(args) = v` |
@@ -176,13 +176,13 @@ Columns: `#` decimal canonical number; Name; Operands in order; Semantics/stack 
 | # | Name | Ops | Meaning |
 |---|---|---|---|
 | 65 | INVOKE_SIMPLE | name, W | statement-level call of `name` with W pushed args; MOD (3.2) says whether `Call` keyword was written |
-| 66 | INVOKE_DOT | name, W | `obj.name args` call statement |
+| 66 | INVOKE_DOT | name, W | `obj.name args` call statement; the W arguments are below the receiver, which is on top (4.18) |
 | 67 | INVOKE_WITH_DOT | name, W | `.name args` inside With |
 | 68 | ARRAY_ELEMENT_PARAMS | name, W | array element/arguments reference (inferred; unverified) |
 | 73 | ADDRESS_OF_SIMPLE | name | `AddressOf name` |
 | 74 | ADDRESS_OF_DOT | name | `AddressOf obj.name` |
 | 210 | ARG_FORCE_BYVAL | - | next argument forced by value (parenthesised) |
-| 211 | ARG_MISSING | - | an omitted positional argument |
+| 211 | ARG_MISSING | - | an omitted positional argument, as in `F(a, , c)`; it takes the place of the value in the argument list (4.18) |
 | 212 | ARG_NAMED | name | following argument is the named argument `name:=` |
 | 171 | ARG_DEFAULT_PLACEHOLDER | - | default/missing argument placeholder (inferred) |
 
@@ -315,14 +315,14 @@ Multi-word literals are stored low word first (plain little-endian bytes of the 
 | 123 | LEAVE_PROPERTY | - | |
 | 124 | LEAVE_SUB | - | |
 | 153 | BRANCH_SUBROUTINE | name | |
-| 154 | BRANCH_GOTO | name | |
+| 154 | BRANCH_GOTO | name | `GoTo label`; lowered, differential run (4.18) |
 | 233 | BRANCH_RETURN | - | `Return` |
 | 205 | BRANCH_COMPUTED_SUBROUTINE | V | `On expr GoSub l1,l2..`; V holds N/2 identifier-reference words |
 | 206 | BRANCH_COMPUTED_GOTO | V | `On expr GoTo ...`, same trailer |
 | 248 | WITH_OPEN | - | `With` |
 | 260 | WITH_EXPR_OPEN | - | begin of With object expression |
 | 113 | WITH_CLOSE | - | `End With` |
-| 103 | HALT_END | - | `End` statement |
+| 103 | HALT_END | - | `End` statement; lowered, synthetic caches (4.18) |
 | 242 | HALT_STOP | - | `Stop` |
 | 96 | YIELD_EVENTS | - | `DoEvents` |
 | 108 | IMMEDIATE_END | - | end of an immediate-window (non-module) statement sequence (inferred) |
@@ -344,7 +344,7 @@ Multi-word literals are stored low word first (plain little-endian bytes of the 
 | 109 | PROC_END_PROPERTY | - | `End Property` |
 | 90 | PROC_CONTEXT | ctx | context record offset (D on x86; two D on x64; second D meaning unknown) |
 | 104 | PROC_CONTEXT_END | - | end of context |
-| 245 | VAR_DECL | rec [, W] | module/proc variable declaration; rec -> variable record (6.4). Extra W if MOD bit 0x10 |
+| 245 | VAR_DECL | rec [, W] | module/proc variable declaration; rec -> variable record (6.4). Extra W if MOD bit 0x10; the declaration lines of module-level variables and constants: 4.18 |
 | 93 | DIM_MARKER | - | `Dim` marker, scope in MOD |
 | 94 | DIM_MARKER_IMPLICIT | - | implicit declaration |
 | 243 | TYPE_DECL | rec | `Type` header; rec -> record (6.5); scope in MOD |
@@ -423,6 +423,58 @@ Multi-word literals are stored low word first (plain little-endian bytes of the 
 | 85 | DRAW_CIRCLE | W | `Circle`, W = option flags |
 | 225 | DRAW_POINT | W | `PSet` |
 | 235 | DRAW_SCALE | W | `Scale` |
+
+### 4.18 Opcodes accepted by the lowering, and declaration lines
+
+`vba-pcode-ir` lowers the opcodes below although `Opcode::evidence()` reports
+`Inferred`, each only in the form given; every other form stays unsupported
+and the report names the opcode. A form is accepted when hand-assembled caches
+pin it (`tests/synthetic.rs`, `tests/classes.rs`) and, where the local project
+uses it, when the differential run (the lowered cache program against the
+program compiled from the original text, both on `vba-vm`; 868 runs and 112
+whole-module sessions, 0 mismatches) agrees. "Procedures / instructions"
+counts the lowered procedures of the local project that contain the opcode and
+its occurrences in them.
+
+| Opcode | Accepted form | Procedures / instructions | Verification level |
+|---|---|---|---|
+| ERR_HANDLER_SET | MOD 1 (`Resume Next`), MOD 0 with a label name (`GoTo label`), MOD 2 (`GoTo 0`) | 108 / 162 (all MODs) | differential for MOD 0 and 1; MOD 2 synthetic only (its one use in the local project is in a procedure that stays unsupported for another reason) |
+| ERR_RESUME | MOD 0 with a label name | 56 / 131 | differential |
+| LABEL_NAMED | a label definition | 57 / 114 | differential |
+| CONST_INT16_HEX | an `Integer` hexadecimal literal | 0 / 0 in bodies; used by module-level constants | synthetic; constants: differential |
+| CONST_DATE | a `Date` literal | 1 / 1 | differential |
+| CONVERT_TO_TYPE | MOD 3 (`CLng`), MOD 8 (`CStr`) | 3 / 3 | differential |
+| READ_DOT | receiver `Err` (properties without arguments); `Me` (a variable, procedure or property of the module itself, and in a document or designer module any other name, bound late on the host base); a late-bound value (`Me.ctl.Prop`). The receiver is on top of the stack and the result replaces it | 71 / 325 | differential, with a host base object that journals every access |
+| READ_DOT_PARAMS | same receivers; the W arguments are pushed first, the receiver last | 6 / 14 | differential |
+| INVOKE_DOT | same receivers, as a statement; MOD >= 16 is the form without `Call` | 41 / 51 | differential |
+| WRITE_DOT | same receivers; the value is pushed first, the receiver last. The value is evaluated before the receiver | 15 / 56 | differential; swapping the two evaluations produces 5 mismatches |
+| ARG_MISSING | an omitted positional argument; it must meet an `Optional` parameter (project procedure, library or run-time function) or be passed on late bound | 14 / 22 | differential |
+
+Opcodes that were `Verified` and are lowered for the first time: BRANCH_GOTO
+(2 / 2, differential), HALT_END (`End`; synthetic only), and the `Const`
+forms of VAR_DECL below.
+
+Declaration lines `[obs]` (VBA 7.0 x86):
+
+* A module-level variable or constant is one line `DIM_MARKER mod`, optionally
+  a value expression, `VAR_DECL mod rec`. DIM_MARKER MOD (values 0, 1, 8, 16
+  and 17 occur): 0x08 `Public`, 0x10 `Private`, neither = `Dim` (private),
+  0x01 `Const`. VAR_DECL MOD & 3: 1 variable, 2 constant (0x10 adds the layout
+  word, 3.2). Declarations between `TYPE_DECL` and `TYPE_DECL_END` are the
+  fields of the type.
+* For a constant, the instructions between DIM_MARKER and VAR_DECL are its
+  value expression (this corrects the earlier note that the value is not
+  located). In the local project 308 module-level constants have a single,
+  optionally negated literal there and 53 a longer expression (names and
+  operators), which the lowering does not generate. The literal keeps its type:
+  the 32-bit decimal and hexadecimal forms are `Long` (written with `&`), the
+  16-bit forms `Integer`.
+* The type field of a constant without an `As` clause is empty or holds the
+  intrinsic type of its value with the flag 0x40; neither is a declared type.
+* Declarations that share a line (`Dim a As Long, b As String`) stand or fall
+  together: the lowering generates all of them or none.
+* A local `Const` has the same form inside a procedure; the lowering folds
+  its value where the name is read and gives it no slot.
 
 ## 5. Operand shapes (for walking the stream without semantics)
 

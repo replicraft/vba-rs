@@ -2,10 +2,11 @@
 
 Crate: `crates/formats/vba-pcode` (library only, no CLI wiring). Scope reached:
 phase 1 (structure) and phase 2 (opcode decoder and disassembler) of the gates in
-[pcode.md](pcode.md). Phase 3 (other versions and 64-bit) is not started. A first
-lowering of the verified subset to `vba-ir` exists in `crates/language/vba-pcode-ir`;
-its coverage on the local project (95 of the 139 standard-module procedures with a
-body, 68 %) is measured in [pcode-phase3.md](pcode-phase3.md) section 4.
+[pcode.md](pcode.md). Phase 3 (other versions and 64-bit) is not started. A lowering of the
+verified subset to `vba-ir` exists in `crates/language/vba-pcode-ir`; its coverage on
+the local project (99 of the 139 standard-module procedures with a body, 71 %, and 90
+of the 205 procedures with a body of class, document and designer modules, 44 %) is
+measured in [pcode-phase3.md](pcode-phase3.md) sections 4 and 8.
 
 Specifications: [pcode-format.md](pcode-format.md), [pcode-opcodes.md](pcode-opcodes.md),
 [pcode.md](pcode.md) and the public MS-OVBA text. Tags as in those documents: `[spec]`
@@ -129,7 +130,8 @@ unverified (pcode-format.md 5.2). 11 name operands and a number of type names us
   bytes after the line records.
 * The meaning of the member-table record dwords, of the extra word of `VAR_DECL`
   (values 12 to 34 seen), of flag 0x40 of arguments, and of the argument records
-  without a resolvable name (74 in the sample).
+  without a resolvable name (74 in the sample; they are the result records of
+  functions and property getters in class-like modules, pcode-format.md 6.6).
 * 129 opcodes were never seen (including `PROC_CONTEXT`, `PROC_HEADER_ALT`, event,
   `Implements`, preprocessor, file I/O and most operators on `Variant` forms); their
   operand shapes come from the document only. The stack semantics of every opcode are
@@ -151,10 +153,12 @@ unverified (pcode-format.md 5.2). 11 name operands and a number of type names us
    emitted are inferred. Lowering to `vba-ir` needs a differential test of the
    lowered program against the source-derived one, which in turn needs the 129 unseen
    opcodes exercised by purpose-made projects (the test-material list in pcode.md).
-4. Declarations. Arrays (bounds), fixed-length strings, constants, enums,
-   `Declare` details beyond the entry point, event and `Implements` records, and the
-   module-local user type names are not resolved. The indirect table remainder may
-   hold part of this.
+4. Declarations. Arrays (bounds), fixed-length strings, enums, `Declare` details beyond
+   the entry point, event and `Implements` records, and the module-local user type
+   names are not resolved. The indirect table remainder may hold part of this. The
+   value of a constant is located (the expression in front of its `VAR_DECL`,
+   [pcode-opcodes.md](pcode-opcodes.md) 4.18); the lowering generates the ones that are a
+   single literal.
 5. References and members. Early-bound member resolution needs the type libraries; the
    stream carries names only (no dispatch ids), so it belongs to the host/automation
    layer.

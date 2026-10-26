@@ -104,7 +104,7 @@ impl Tables {
                 // `#HEX`: a raw name word (outside the identifier table).
                 Some(n) if n.starts_with('#') => u16::from_str_radix(&n[1..], 16).unwrap_or(0),
                 Some(n) => self.name(n),
-                None => 0xFDFE,
+                None => 0xFFFE,
             };
             let mut r = vec![0u8; 32];
             r[0..2].copy_from_slice(&0x8369u16.to_le_bytes());

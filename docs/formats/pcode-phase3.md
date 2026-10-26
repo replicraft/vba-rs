@@ -97,7 +97,7 @@ declaration-only text generated from the cache records (headers, parameters, loc
 declarations; empty bodies); no source text is read. The bodies are then replaced by the
 lowered ones. `vba-sema` is therefore a dependency (the IR types need it).
 
-Subset: standard modules; `Sub`/`Function` with plain scalar parameters (including
+Subset (class-like modules and module-level names: section 8): standard modules; `Sub`/`Function` with plain scalar parameters (including
 `Optional` ones, with or without a default value) and locals (`ByVal`/`ByRef`); every
 opcode verified; literals (Integer, Long, Double, String, Boolean/Null/Empty, Date,
 hexadecimal Integer and Long), arithmetic, comparison, logic, concatenation, `Like`,
@@ -200,12 +200,12 @@ are separate, structural reasons).
   (14 + 7 + 1 procedures): the cache gives the type reference but not the bounds, the
   fixed length or the module-local user type name (`Unknowns` in
   [pcode-status.md](pcode-status.md)).
-* Module-level variables and constants (9 + 2): the declaration is in the cache but the
-  value of a constant is not located and the IR needs global slots in the shell.
+* Module-level variables and constants (9 + 2): done for scalars in section 8 (the value of a
+  constant is the expression in front of its `VAR_DECL`).
 * `Static` locals (2), `Mid$` assignment (`SUBSTR_ASSIGN`, 2), `Set` (1), `ReDim` (1),
   `Option Base` (1), `LBound` (1), indexing of a variable (1), `ParamArray` (1): each is
   one opcode family whose operand layout is inferred, with a single use in the sample.
-* Class-like modules (229): need instances, members and the object model.
+* Class-like modules (229): lowered in section 8; what is left there is in 8.4.
 * Other versions and bitness: see section 7.
 
 ## 7. Test material that would unblock other versions and bitness
@@ -220,3 +220,121 @@ are separate, structural reasons).
   modifiers, `With`, `For Each`, `New`, `Set`, `Property` procedures.
 * A compiled-only project (no source) to confirm that the cache has the same structure
   when the source part is empty.
+
+## 8. Class-like modules and module-level names
+
+The lowering now covers class, document and designer modules, and module-level
+variables and constants of every module. Counts are for the local project; the
+verification is the differential run of section 5, extended as described in
+8.3.
+
+### 8.1 What was added
+
+* `ModuleInput` carries the module role (`ModuleKind`) instead of a flag. The
+  shell is built with the real role, so the analysis binds members of the
+  module on `Me`, properties, fields and `Class_Initialize`/`Class_Terminate`
+  the way it does for source text.
+* The shell declares the module-level variables and constants found in the
+  cache (scalars; literal constants with the literal's own type) and the
+  procedures as `Public` members, with `Property Get` and `Property Let`
+  (`Property Set` stays unsupported). Declarations that cannot be generated
+  (user types, objects, arrays, `WithEvents`, `New`, constants that are not a
+  literal) are left out and reported; a name that refers to one does not
+  resolve, so the procedure is unsupported.
+* Names resolve like this: local, local constant, module variable or constant
+  (own module, then public ones of standard modules), project procedure (own
+  module first; members of other class-like modules are not reachable by a bare
+  name), library names. A variable of a standard module is a static variable
+  (`LoadGlobal`/`StoreGlobal`), of a class-like module a field of the instance
+  (`Me` then `LoadField`/`StoreField`). `Me.name` reaches the module's own
+  variables, procedures and properties; assignment to a property is a call of
+  its `Property Let` with the value passed by value; a call of a member of the
+  module carries `Me` as receiver.
+* In a document or designer module a member the module does not declare is
+  late bound on the host base object of the instance (`Me.txtName`,
+  `Me.Caption`, `Me.ctl.Prop`, `Me.Refresh`), as the source binding does. A bare
+  unresolved name is a host member only when it is called, used as a statement,
+  or the receiver of a member access; a bare value read needs the name in
+  `LowerOptions::host_members` (the list the embedding application also hands
+  to the source analysis), otherwise the source binding reads an implicit
+  variable or reports an undeclared one. A name the cache declares anywhere
+  (a procedure or variable that is not part of the program) is never taken for
+  a host member.
+* `Class_Initialize`/`Class_Terminate` run when the run time creates and
+  destroys an instance. A module whose one is not lowered offers none of its
+  procedures (reported as such).
+* A `Function` or `Property Get` of a class-like module has a result record at
+  the end of its argument chain (pcode-format.md 6.6); it is not a parameter.
+  A parameter or local whose name the identifier table cannot give keeps its
+  identity under a placeholder spelling.
+* Also lowered: `GoTo label`, `End`, `On Error GoTo 0`, omitted arguments
+  (`F(a, , c)`), local `Const`. Opcodes accepted below `Verified`, with their
+  form and verification level: pcode-opcodes.md 4.18.
+* Two rules found by the differential run: the run time releases the objects
+  held by temporaries when the statement changes, so the comparisons of a
+  `Select Case` belong to the statement of the `Select Case` (the subject can be
+  an object); and the value of an assignment to a member is evaluated before
+  the receiver.
+
+### 8.2 Coverage on the local project
+
+| Metric | Before | After |
+|---|---|---|
+| Procedures in the caches | 430 | 430 |
+| Standard-module procedures with a body (139) lowered | 95 (68 %) | 99 (71 %) |
+| Class-like-module procedures with a body (205) lowered | 0 | 90 (44 %) |
+| Lowered in total | 95 | **189** |
+| Module-level declarations found / left out | not read | 471 / 60 |
+| Differential: procedures executed | 95 | 99 + 90 |
+| Differential: runs | 509 | 524 + 344 (170 end in a run-time error on both sides, identically) |
+| Differential: whole-module sessions | none | 112 |
+| Differential: mismatches | 0 | 0 |
+
+### 8.3 Verification
+
+The embedding application's choices are made in the test, not in the library:
+forms and reports are document modules, and the names the source analysis
+reports as undeclared in them are the host members. Both programs run on
+fresh instances whose host base object accepts every member name, journals
+every get, put and call with its arguments, and answers control-like names with
+child objects; the journals are compared together with the result,
+`Debug.Print` output and error. A session runs every lowered procedure of a
+module one after the other on one VM and instance, so that variables written by
+one are read by the next (4 rounds per module, alternating order).
+
+The run was checked for sensitivity: evaluating the receiver before the value
+of a member assignment gives 5 mismatches. Two stores were also removed to see
+whether the local project exercises them: no lowered procedure of the
+local project writes a module-level variable or a field and reads it back, so
+those stores are covered by the hand-assembled caches only (`tests/classes.rs`:
+a counter in a standard module, a class with fields, `Class_Initialize`, a
+property pair, `Me.field` with a shadowing parameter).
+
+Hand-assembled caches (`tests/classes.rs`, 16 tests): module-level variables
+and constants of both kinds of module, the literal types of constants, a class
+with fields, properties and `Me`, an initializer that is not lowered, the
+result record, placeholder names, host-base members (reads, assignments, calls,
+chains; bare names with and without the list), members the cache declares,
+`GoTo`, omitted arguments, local constants, `End`, `On Error GoTo 0`.
+
+### 8.4 What is left, class-like and standard
+
+Counts are procedures with a body (139 standard, 205 class-like), the first
+reason found is counted: 40 standard and 115 class-like procedures are left.
+
+| Class-like | Standard | Reason |
+|---|---|---|
+| 31 | - | an instance runs `Class_Initialize` or `Class_Terminate`, which is not lowered (the initializer of the one property class of the project calls a procedure that works with library objects, its terminator calls a `Declare`) |
+| 33 | - | calls a procedure of the module that is itself unsupported for the reasons below |
+| 27 | 14 | a local of object, user-defined or array type: `Database`, `Workspace`, `QueryDef`, `TableDef`, `Control`, `Collection` (library types, which the analysis cannot resolve without a type library), Win32 record types used with `Declare`s, and arrays whose descriptor is not decoded |
+| 4 | 8 | a parameter of such a type, or `ParamArray` |
+| 4 | 9 | a name outside the program: a module-level object of a project class (`mc`), `Screen` (library object), a `ListBox` variable, `Erl` |
+| 16 | 9 | an opcode family with one to four uses: `Set` (3 + 1), `Option Base` (4 + 1), `Bang` access (2), `LBound`/`UBound` (2 + 1), `ReDim` (1), `Mid$` assignment (2), `Static` locals (1 + 2), numeric labels (1), a further `CONVERT_TO_TYPE` target, a text-compare intrinsic (1), indexing of a variable (1), assignment to a property without a `Let` (1) |
+
+The object, array and user-type locals asked for in the status document are
+blocked by library and `Declare` dependencies in this project rather than by the
+lowering: every procedure with such a local of a library type calls the library,
+and the Win32 record types only occur in procedures that call `Declare`s, which
+are not lowered. Arrays (bounds, `ReDim`, indexing, `LBound`/`UBound`) would
+unlock a handful of procedures at most and need the array type descriptor
+decoded first.

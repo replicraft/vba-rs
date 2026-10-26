@@ -123,6 +123,7 @@ Name operands in the code and name fields in records are 16-bit words. The low b
 * If `k >= 0x100`: user identifier. Let `j = k - 0x100`. For VBA7 (version word >= 0x97): subtract 4; on x64 subtract 3 more; and if the result then exceeds 0xBE subtract 1 again. The result indexes the identifier list of section 3. These VBA7 adjustments are **unexplained empirical adjustments** (they reconcile indices with sample files; no principled derivation is known). **[M]** for VBA6; **[L]** for the VBA7 adjustments. An out-of-range index means "unknown name".
 
 Observed (VBA 7.0 x86, version word 0x97): only the subtraction of 4 fits every user-identifier operand, including those whose result is above 0xBE; the extra subtraction of 1 is not observed there. The extra step therefore applies only to the other VBA7 layouts, where it stays unverified. **[H]** for word 0x97 on x86; **[L]** for every other VBA7 layout.
+* A reference whose index lies outside the identifier table, or a built-in index with no confirmed spelling, is still an identity: equal words are the same name. The name word of the result record in 6.6 is 0xFFFE (the disassembly shows it as `?ident(32507)`), the same sentinel that the nameless symbol records of the indirect table carry. The lowering gives such a parameter or local a placeholder spelling and resolves nothing else to it.
 * If `k < 0x100`: built-in name from the fixed table in 5.3. For VBA7: if `k >= 0xC3` subtract 1 first (also an unexplained empirical adjustment). **[M]**
 
 ### 5.3 Built-in names
@@ -210,6 +211,8 @@ Reached through the argument chain of a function record. Let `a` = 4 on x64, els
 | 24 + a | 2 | option bits: 0x0004 ByVal, 0x0002 ByRef, 0x0200 Optional, 0x0400 Optional with a default value, 0x0001 ParamArray (observed, VBA 7.0 x86). The default values themselves are instructions on the header line, before the `PROC_HEADER` instruction and after a `CONST_EXPR_WITH_CALL` marker, in reverse argument order (430 of 430 header lines agree with the number of 0x0400 arguments) |
 
 Sanity bound: offset + 26 within the table. **[M]** Observed record size (VBA 7.0 x86): 32 bytes. **[M]**
+
+**Result record `[obs]`.** In class-like modules the argument chain of a `Function` and of a `Property Get` has one more record at its end: the result. Its name word lies outside the identifier table (5.2), its type field is the return type, and the argument-count byte of the function record counts it. 54 of 54 functions and 20 of 20 `Property Get` procedures of the class-like modules of the local project have it (these are the 74 argument records without a resolvable name noted earlier); `Property Let` chains hold only the parameters, and no function of a standard module has the record. A reader that takes the chain for the parameter list sees a phantom last parameter.
 
 ### 6.7 Type descriptor
 U16 flags at +0. If flag 0x02 is set: simple type, id in the byte at +6 (6.8). Otherwise U16 at +2: 0 = no type name; else `(value >> 2)` is an entry index into the object table (6.1; byte offset index*10) whose identifier reference at +6 names the class. **[M]** Observed size (VBA 7.0 x86): 8 bytes. **[M]**
