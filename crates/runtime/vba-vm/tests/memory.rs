@@ -151,6 +151,22 @@ fn a_released_array_and_collection_return_their_memory() {
 }
 
 #[test]
+fn output_kept_by_a_buffer_sink_is_charged() {
+    hits_the_memory_limit(
+        "Sub Main()\nDim i As Long\nFor i = 1 To 200\nDebug.Print String$(100000, \"x\")\nNext\nEnd Sub\n",
+        5_000_000,
+    );
+}
+
+#[test]
+fn saved_settings_are_charged() {
+    hits_the_memory_limit(
+        "Sub Main()\nDim i As Long\nFor i = 1 To 100000\nSaveSetting \"app\", \"sec\", \"key\" & i, \"value\"\nNext\nEnd Sub\n",
+        1_000_000,
+    );
+}
+
+#[test]
 fn small_programs_run_under_a_small_limit() {
     let o = run_limited(
         "Sub Main()\nDim i As Long, s As String\nFor i = 1 To 1000\ns = s & \"x\"\nNext\nDebug.Print Len(s)\nEnd Sub\n",

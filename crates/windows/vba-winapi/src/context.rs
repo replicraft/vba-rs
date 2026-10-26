@@ -54,6 +54,8 @@ impl HostEnv for SystemClock {
 struct ManualState {
     ms: u64,
     slept: Vec<u32>,
+    /// The `slept` list is charged to the run's memory meter.
+    charge: vba_core::Charge,
 }
 
 /// A deterministic clock: time moves only when advanced or slept on.
@@ -95,6 +97,8 @@ impl HostEnv for ManualClock {
     fn sleep_ms(&self, ms: u32) {
         let mut s = self.state.borrow_mut();
         s.slept.push(ms);
+        let bytes = s.slept.capacity() as u64 * 4;
+        s.charge.set(bytes);
         s.ms += u64::from(ms);
     }
 }

@@ -16,6 +16,7 @@ use crate::host::HostResult;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use vba_automation::ErrInfo;
+use vba_core::Charge;
 
 /// Storage for application settings (application -> section -> key -> value).
 pub trait SettingsStore {
@@ -36,7 +37,16 @@ pub trait SettingsStore {
     fn delete(&self, app: &str, section: Option<&str>, key: Option<&str>) -> HostResult<()>;
 }
 
-type Section = BTreeMap<String, (String, String)>;
+/// A stored setting; its bytes are charged to the run's memory meter until
+/// it is deleted.
+#[derive(Debug)]
+struct Item {
+    key: String,
+    value: String,
+    _charge: Charge,
+}
+
+type Section = BTreeMap<String, Item>;
 
 /// An in-memory [`SettingsStore`].
 #[derive(Debug, Default)]
@@ -67,7 +77,16 @@ impl SettingsStore for MemorySettings {
             .or_default()
             .entry(section.to_lowercase())
             .or_default()
-            .insert(key.to_lowercase(), (key.to_owned(), value.to_owned()));
+            .insert(
+                key.to_lowercase(),
+                Item {
+                    key: key.to_owned(),
+                    value: value.to_owned(),
+                    _charge: Charge::new(
+                        (96 + app.len() + section.len() + 3 * key.len() + value.len()) as u64,
+                    ),
+                },
+            );
         Ok(())
     }
 
@@ -78,7 +97,7 @@ impl SettingsStore for MemorySettings {
             .get(&app.to_lowercase())
             .and_then(|a| a.get(&section.to_lowercase()))
             .and_then(|s| s.get(&key.to_lowercase()))
-            .map(|(_, v)| v.clone()))
+            .map(|i| i.value.clone()))
     }
 
     fn get_all(&self, app: &str, section: &str) -> HostResult<Option<Vec<(String, String)>>> {
@@ -87,7 +106,11 @@ impl SettingsStore for MemorySettings {
             .borrow()
             .get(&app.to_lowercase())
             .and_then(|a| a.get(&section.to_lowercase()))
-            .map(|s| s.values().cloned().collect()))
+            .map(|s| {
+                s.values()
+                    .map(|i| (i.key.clone(), i.value.clone()))
+                    .collect()
+            }))
     }
 
     fn delete(&self, app: &str, section: Option<&str>, key: Option<&str>) -> HostResult<()> {

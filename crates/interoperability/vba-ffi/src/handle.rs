@@ -59,6 +59,8 @@ impl Handle {
 struct Entry {
     provider: ProviderId,
     kind: &'static str,
+    /// Charged to the run's memory meter while the handle is live.
+    _charge: vba_core::Charge,
 }
 
 /// Per-process table of live handles.
@@ -89,7 +91,14 @@ impl HandleTable {
     pub fn mint(&mut self, provider: ProviderId, kind: &'static str) -> Handle {
         let token = 0x100 + self.next * 4;
         self.next += 1;
-        self.live.insert(token, Entry { provider, kind });
+        self.live.insert(
+            token,
+            Entry {
+                provider,
+                kind,
+                _charge: vba_core::Charge::new(64),
+            },
+        );
         Handle {
             table: self.id,
             provider,

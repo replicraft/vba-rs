@@ -10,10 +10,13 @@ pub trait DebugSink {
     fn write(&mut self, text: &str);
 }
 
-/// A sink that keeps everything in a shared buffer.
+/// A sink that keeps everything in a shared buffer. The buffer is charged
+/// to the memory budget of the run that writes to it
+/// (`max_memory_bytes`) and credited when the last clone is dropped.
 #[derive(Debug, Clone, Default)]
 pub struct BufferSink {
     buffer: Rc<RefCell<String>>,
+    charge: Rc<RefCell<vba_core::Charge>>,
 }
 
 impl BufferSink {
@@ -36,7 +39,9 @@ impl BufferSink {
 
 impl DebugSink for BufferSink {
     fn write(&mut self, text: &str) {
-        self.buffer.borrow_mut().push_str(text);
+        let mut b = self.buffer.borrow_mut();
+        b.push_str(text);
+        self.charge.borrow_mut().set(b.capacity() as u64);
     }
 }
 

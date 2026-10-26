@@ -8,6 +8,7 @@
 use crate::{Codepage, FfiError, Unmappable};
 use std::collections::BTreeMap;
 use thiserror::Error;
+use vba_core::Charge;
 use vba_profile::Bitness;
 use vba_value::VbaString;
 
@@ -53,6 +54,24 @@ pub enum MemoryError {
     },
 }
 
+/// One live allocation; its bytes are also charged to the run's memory
+/// meter (`max_memory_bytes`) and credited when it is freed.
+#[derive(Debug)]
+struct Region {
+    bytes: Vec<u8>,
+    _charge: Charge,
+}
+
+impl Region {
+    fn new(bytes: Vec<u8>) -> Region {
+        let charge = Charge::new(bytes.len() as u64 + 64);
+        Region {
+            bytes,
+            _charge: charge,
+        }
+    }
+}
+
 /// The emulated address space of one VBA process.
 #[derive(Debug)]
 pub struct Memory {
@@ -60,7 +79,7 @@ pub struct Memory {
     next: u64,
     budget: usize,
     used: usize,
-    regions: BTreeMap<u64, Vec<u8>>,
+    regions: BTreeMap<u64, Region>,
 }
 
 impl Memory {
@@ -99,7 +118,7 @@ impl Memory {
             .ok_or(MemoryError::OutOfMemory)?;
         self.next = end + GUARD;
         self.used += size;
-        self.regions.insert(addr, vec![0; size]);
+        self.regions.insert(addr, Region::new(vec![0; size]));
         Ok(addr)
     }
 
@@ -128,7 +147,7 @@ impl Memory {
     pub fn free(&mut self, addr: u64) -> Result<(), MemoryError> {
         match self.regions.remove(&addr) {
             Some(r) => {
-                self.used -= r.len();
+                self.used -= r.bytes.len();
                 Ok(())
             }
             None => Err(MemoryError::NotABase { addr }),
@@ -150,10 +169,10 @@ impl Memory {
             .next_back()
             .ok_or(MemoryError::Unmapped { addr })?;
         let offset = (addr - base) as usize;
-        if offset >= region.len() {
+        if offset >= region.bytes.len() {
             return Err(MemoryError::Unmapped { addr });
         }
-        if len > region.len() - offset {
+        if len > region.bytes.len() - offset {
             return Err(MemoryError::OutOfBounds { addr, len });
         }
         Ok((*base, offset))
@@ -162,28 +181,28 @@ impl Memory {
     /// Reads `len` bytes at `addr`.
     pub fn read(&self, addr: u64, len: usize) -> Result<&[u8], MemoryError> {
         let (base, off) = self.locate(addr, len)?;
-        Ok(&self.regions[&base][off..off + len])
+        Ok(&self.regions[&base].bytes[off..off + len])
     }
 
     /// Writes `data` at `addr`.
     pub fn write(&mut self, addr: u64, data: &[u8]) -> Result<(), MemoryError> {
         let (base, off) = self.locate(addr, data.len())?;
         let region = self.regions.get_mut(&base).expect("located region exists");
-        region[off..off + data.len()].copy_from_slice(data);
+        region.bytes[off..off + data.len()].copy_from_slice(data);
         Ok(())
     }
 
     /// Bytes from `addr` to the end of its region.
     pub fn remaining(&self, addr: u64) -> Result<usize, MemoryError> {
         let (base, off) = self.locate(addr, 0)?;
-        Ok(self.regions[&base].len() - off)
+        Ok(self.regions[&base].bytes.len() - off)
     }
 
     /// Fills `len` bytes at `addr` with `byte`.
     pub fn fill(&mut self, addr: u64, len: usize, byte: u8) -> Result<(), MemoryError> {
         let (base, off) = self.locate(addr, len)?;
         let region = self.regions.get_mut(&base).expect("located region exists");
-        region[off..off + len].fill(byte);
+        region.bytes[off..off + len].fill(byte);
         Ok(())
     }
 
