@@ -15,6 +15,11 @@ pub const UNTRUSTED_MAX_STEPS: u64 = 100_000_000;
 /// Memory budget of [`ResourceLimits::untrusted`], in bytes.
 pub const UNTRUSTED_MAX_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 
+/// Wall-clock allowance of one call from the embedder that the facade and
+/// `vbars run` give code that is not trusted: a minute, about twice what
+/// [`UNTRUSTED_MAX_STEPS`] steps take.
+pub const UNTRUSTED_CALL_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Limits on one program run. `None` means unlimited.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResourceLimits {
@@ -192,6 +197,11 @@ impl Budget {
         self.step_ceiling.set(token.step_ceiling);
         self.memory.set_limit(token.memory_limit);
         self.deadline.set(token.deadline);
+    }
+
+    /// Whether a call scope set a deadline that is still in force.
+    pub fn has_deadline(&self) -> bool {
+        self.deadline.get().is_some()
     }
 
     /// Whether the deadline of a call scope has passed. A host that wants

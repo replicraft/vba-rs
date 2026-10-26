@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use common::*;
 use vba::runtime::Error as RunError;
-use vba::{CallTarget, Engine, Error, ModuleKind, Project, Variant};
+use vba::{CallLimits, CallTarget, Engine, Error, ModuleKind, Project, Variant};
 
 const FORM: &str = "\
 Public Counter As Long
@@ -205,4 +205,71 @@ fn a_fatal_fault_in_nested_code_leaves_the_instance_usable_after_a_new_allowance
     inst.reset_step_counter();
     inst.call(CallTarget::Project, "Fine", vec![]).unwrap();
     assert_eq!(inst.get_global("Total").unwrap(), Variant::Long(7));
+}
+
+#[test]
+fn engines_allow_a_minute_per_call_unless_unlimited() {
+    assert_eq!(
+        Engine::new().configured_call_timeout(),
+        Some(Duration::from_secs(60))
+    );
+    assert_eq!(Engine::new().unlimited().configured_call_timeout(), None);
+    assert_eq!(
+        Engine::new().call_timeout(None).configured_call_timeout(),
+        None
+    );
+}
+
+#[test]
+fn the_default_time_allowance_ends_a_loop_that_the_step_limit_would_let_run() {
+    // Plenty of steps: only the clock can stop it in good time.
+    let engine = Engine::new()
+        .max_steps(u64::MAX / 2)
+        .call_timeout(Some(Duration::from_millis(100)));
+    let mut inst = engine.load(&engine_project()).unwrap();
+    inst.trust();
+    let form = inst.create_object("Form_Work", None).unwrap();
+    let started = std::time::Instant::now();
+    let err = inst.call_on(form, "Spin", vec![]).unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
+    assert!(started.elapsed() < Duration::from_secs(30));
+    // The allowance belongs to the call: the token is untouched and the next
+    // call gets a fresh one.
+    assert!(inst.is_usable());
+    inst.call_on(form, "Quick", vec![]).unwrap();
+}
+
+#[test]
+fn a_scope_timeout_replaces_the_default_allowance() {
+    let engine = Engine::new()
+        .max_steps(u64::MAX / 2)
+        .call_timeout(Some(Duration::from_millis(1)));
+    let mut inst = engine.load(&engine_project()).unwrap();
+    inst.trust();
+    let form = inst.create_object("Form_Work", None).unwrap();
+    // 200 iterations fit easily in a generous scope even though the default
+    // would be spent in a millisecond.
+    inst.with_call_limits(CallLimits::new().timeout(Duration::from_secs(60)), |i| {
+        i.call_on(form, "Work", vec![])
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_long_library_call_is_cancelled_by_the_time_allowance() {
+    // Each Replace scans 4 million units; the allowance ends the run long
+    // before the 100000 repetitions are done.
+    let project = Project::from_source(
+        "Module1",
+        "Public Sub Main()\n  Dim s As String, x As String, i As Long\n  s = String$(4000000, \"a\")\n  For i = 1 To 100000\n    x = Replace(s, \"a\", \"b\")\n  Next\nEnd Sub\n",
+    );
+    let engine = Engine::new()
+        .max_steps(u64::MAX / 2)
+        .call_timeout(Some(Duration::from_millis(200)));
+    let mut inst = engine.load(&project).unwrap();
+    inst.trust();
+    let started = std::time::Instant::now();
+    let err = inst.run("Main", vec![]).unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
+    assert!(started.elapsed() < Duration::from_secs(30));
 }

@@ -1,9 +1,12 @@
 //! [`Engine`]: the builder-style path from a project to a run.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use vba_automation::{Dispatch, ObjectTable};
-use vba_host::{Capability, HostMetadata, HostResult, Policy, ResourceLimits};
+use vba_host::{
+    Capability, HostMetadata, HostResult, Policy, ResourceLimits, UNTRUSTED_CALL_TIMEOUT,
+};
 use vba_profile::{Profile, default_profile};
 use vba_runtime::{MemFs, RealFs, Session, SessionBuilder, SystemHost};
 use vba_value::Date;
@@ -58,6 +61,7 @@ pub struct Engine {
     profile: Profile,
     policy: Policy,
     limits: ResourceLimits,
+    call_timeout: Option<Duration>,
     vm: VmConfig,
     cancel: CancelToken,
     globals: Vec<(String, Factory)>,
@@ -83,6 +87,7 @@ impl Engine {
             profile: *default_profile(),
             policy: Policy::deny_all(),
             limits: ResourceLimits::untrusted(),
+            call_timeout: Some(UNTRUSTED_CALL_TIMEOUT),
             vm: VmConfig::default(),
             cancel: CancelToken::new(),
             globals: Vec::new(),
@@ -132,7 +137,8 @@ impl Engine {
 
     /// Sets the resource limits (steps, memory, call depth). A new engine
     /// starts from [`ResourceLimits::untrusted`]: 100 million steps, 256 MiB
-    /// and 1000 nested calls.
+    /// and 1000 nested calls, plus a wall-clock allowance per call (see
+    /// [`Engine::call_timeout`]).
     #[must_use]
     pub fn limits(mut self, limits: ResourceLimits) -> Engine {
         self.limits = limits;
@@ -154,12 +160,31 @@ impl Engine {
         self
     }
 
-    /// Removes the step and memory limits (the call depth stays bounded).
-    /// Only for code you trust; the cancellation token still works.
+    /// Removes the step, memory and wall-clock limits (the call depth stays
+    /// bounded). Only for code you trust; the cancellation token still works.
     #[must_use]
     pub fn unlimited(mut self) -> Engine {
         self.limits = ResourceLimits::unlimited();
+        self.call_timeout = None;
         self
+    }
+
+    /// The wall-clock allowance of every call from the embedder (`run`,
+    /// `call`, `call_on`, `raise_event`...): one minute by default, checked
+    /// cooperatively every 1024 steps and inside long library calls. When
+    /// it passes, the call ends with `Error::Run(Cancelled)`; the
+    /// [`CancelToken`] is not touched. A [`CallLimits::timeout`] set by
+    /// [`Instance::with_call_limits`] replaces it for that scope. `None`
+    /// removes the allowance; [`Engine::unlimited`] does too.
+    #[must_use]
+    pub fn call_timeout(mut self, timeout: Option<Duration>) -> Engine {
+        self.call_timeout = timeout;
+        self
+    }
+
+    /// The wall-clock allowance per call this engine gives its instances.
+    pub fn configured_call_timeout(&self) -> Option<Duration> {
+        self.call_timeout
     }
 
     /// Replaces the VM settings (string length, array size, nesting).
@@ -368,7 +393,12 @@ impl Engine {
     pub fn load(&self, project: &Project) -> Result<Instance, Error> {
         let (builder, sink) = self.session_builder();
         let session = builder.build_project(project.model()).map_err(Error::Run)?;
-        Ok(Instance::new(session, sink, self.cancel.clone()))
+        Ok(Instance::new(
+            session,
+            sink,
+            self.cancel.clone(),
+            self.call_timeout,
+        ))
     }
 
     /// Like [`load`](Engine::load), after `configure` adjusted the session
@@ -386,7 +416,12 @@ impl Engine {
         let session = configure(builder)
             .build_project(project.model())
             .map_err(Error::Run)?;
-        Ok(Instance::new(session, sink, self.cancel.clone()))
+        Ok(Instance::new(
+            session,
+            sink,
+            self.cancel.clone(),
+            self.call_timeout,
+        ))
     }
 
     /// Loads, trusts, runs `procedure` and shuts the session down. Calling
@@ -431,15 +466,22 @@ pub struct Instance {
     pub(crate) session: Session,
     pub(crate) sink: BufferSink,
     cancel: CancelToken,
+    call_timeout: Option<Duration>,
     poisoned: Option<String>,
 }
 
 impl Instance {
-    pub(crate) fn new(session: Session, sink: BufferSink, cancel: CancelToken) -> Instance {
+    pub(crate) fn new(
+        session: Session,
+        sink: BufferSink,
+        cancel: CancelToken,
+        call_timeout: Option<Duration>,
+    ) -> Instance {
         Instance {
             session,
             sink,
             cancel,
+            call_timeout,
             poisoned: None,
         }
     }
@@ -447,9 +489,18 @@ impl Instance {
     /// Wraps a session you built yourself (see
     /// [`Engine::session_builder`]). `cancel` is the token the session's
     /// host polls (the engine's own, or a fresh one if your host has none);
-    /// it only feeds [`is_usable`](Instance::is_usable).
+    /// it only feeds [`is_usable`](Instance::is_usable). The instance has no
+    /// wall-clock allowance per call, because the session brings its own host
+    /// and limits; set one with [`Instance::default_call_timeout`].
     pub fn from_session(session: Session, sink: BufferSink, cancel: CancelToken) -> Instance {
-        Instance::new(session, sink, cancel)
+        Instance::new(session, sink, cancel, None)
+    }
+
+    /// Sets the wall-clock allowance of every call from the embedder that
+    /// is not inside a [`CallLimits::timeout`] scope (see
+    /// [`Engine::call_timeout`]); `None` removes it.
+    pub fn default_call_timeout(&mut self, timeout: Option<Duration>) {
+        self.call_timeout = timeout;
     }
 
     /// Refuses to run on a poisoned instance.
@@ -476,7 +527,22 @@ impl Instance {
         f: impl FnOnce(&mut Session) -> Result<T, vba_runtime::Error>,
     ) -> Result<T, Error> {
         self.guard()?;
+        let budget = self.session.host().budget();
+        // The default allowance applies to a call that no scope bounded in
+        // time, and only to the outermost one.
+        let token = match self.call_timeout {
+            Some(timeout) if !budget.has_deadline() => {
+                Some(budget.enter_scope(vba_host::ScopeLimits {
+                    timeout: Some(timeout),
+                    ..Default::default()
+                }))
+            }
+            _ => None,
+        };
         let r = f(&mut self.session);
+        if let Some(t) = token {
+            self.session.host().budget().leave_scope(t);
+        }
         self.conv(r)
     }
 
