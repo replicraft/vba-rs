@@ -66,7 +66,10 @@ session with a trust gate (see `docs/runtime/runtime.md`).
   ownership chains do not nest the native stack). Reference cycles are not
   collected.
 - **Interfaces and events.** Calls through an `Implements` interface dispatch on
-  the receiver's class using the mapping in `ClassInfo::implements`.
+  the receiver's class using the mapping in `ClassInfo::implements`. An access
+  written against the type of a *library* interface the class implements (a
+  late-bound `Invoke` whose `static_receiver` names it) runs `Iface_Member`
+  of the class, even when the class has a public member of the same name.
   `WithEvents` assignment (from inside or outside the class) connects the
   owner as a sink; `RaiseEvent` delivers to sinks in connection order with
   `ByRef` arguments aliased, stops at the first handler error, and a destroyed
@@ -226,6 +229,25 @@ by a test of our own expectation and none was compared with Office.
   with `On Error Resume Next` inside a handler works); an error in an active
   handler without re-arming propagates to the caller.
 - `Resume` re-executes from the first instruction of the statement.
+- `Resume Next` also skips errors raised by `Return` without `GoSub` (3) and by
+  `Resume` without an error (20) and continues with the next statement.
+- `For Each` over an instance of a class runs the member marked
+  `VB_UserMemId = -4` and enumerates what it returns: a `Collection`'s
+  `[_NewEnum]` (the VM models the enumerator as the collection itself, usable
+  only with `For Each`) or a host object's. A class without that member is
+  error 438.
+- `Set x = v` with a `Variant` source checks at run time: a non-object is 13
+  into a `Variant` target and 424 into a class or `Object`.
+- A `Variant` holding a scalar and followed by an argument list is error 9
+  (MS-VBAL 5.6.2.1). A `Variant` holding an object keeps calling the object's
+  default member (a documented deviation from the MS-VBAL text, recorded by an
+  `XFAIL` conformance program).
+- Late-bound calls of class members: a duplicate or unknown named argument and
+  an omitted positional value for a required parameter are error 448; a missing
+  trailing required argument is 449. The embedder-facing call API reports a
+  parameter given twice as 446.
+- `v(i)(j) = x` stores in place when `v` holds arrays (any depth); if `v` holds
+  an object, `v(i)` is evaluated through the default member first.
 - Under `Resume Next` an error in an `If`/`Select`/loop condition continues in
   the first body block (inherited from the IR).
 - Unhandled errors, `Stop`, and resource limits are reported to the embedder;

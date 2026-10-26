@@ -88,7 +88,10 @@ println!("{}", vba_ir::dump_program(&ir, DumpOptions::default()));
   `Erl`.
 - **Clean-up.** Lowering threads empty jump blocks, merges straight-line
   blocks that have a single predecessor (never an error handler, `GoSub` return
-  point or `Resume label` target), drops unreachable blocks and lays blocks out
+  point or `Resume label` target), drops unreachable blocks (except the
+  statement after a `Return` or `Resume` in a procedure that uses
+  `On Error Resume Next`: it is where an error of that statement resumes) and
+  lays blocks out
   in reverse post-order (handler-only flows after the main flow).
 
 ## Instruction set (overview)

@@ -1890,14 +1890,22 @@ fn layout(blocks: &[BlockBuf], stmts: &[StmtInfo]) -> Vec<usize> {
         seen[root] = true;
         let mut first = block_succs(&blocks[root]);
         first.reverse();
-        roots.extend(block_dynamic(&blocks[root], stmts, resumable).iter().map(|h| h.0 as usize));
+        roots.extend(
+            block_dynamic(&blocks[root], stmts, resumable)
+                .iter()
+                .map(|h| h.0 as usize),
+        );
         stack.push((root, first));
         while let Some((b, succs)) = stack.last_mut() {
             if let Some(next) = succs.pop() {
                 let ni = next.0 as usize;
                 if !seen[ni] {
                     seen[ni] = true;
-                    roots.extend(block_dynamic(&blocks[ni], stmts, resumable).iter().map(|h| h.0 as usize));
+                    roots.extend(
+                        block_dynamic(&blocks[ni], stmts, resumable)
+                            .iter()
+                            .map(|h| h.0 as usize),
+                    );
                     let mut s = block_succs(&blocks[ni]);
                     s.reverse();
                     stack.push((ni, s));

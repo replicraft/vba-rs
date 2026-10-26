@@ -138,7 +138,8 @@ impl Vm {
             .map(|i| (None, BoundArg::Val(Variant::Long(*i))))
             .collect();
         self.push_request = None;
-        let v = self.invoke_value_early(holder, &Member::Default, InvokeKind::Get, args, true, None)?;
+        let v =
+            self.invoke_value_early(holder, &Member::Default, InvokeKind::Get, args, true, None)?;
         self.own(&v);
         Ok(Some(v))
     }
