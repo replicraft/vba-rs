@@ -12,6 +12,7 @@
 
 mod cache;
 mod decode;
+mod disasm;
 mod error;
 mod layout;
 mod lines;
@@ -29,6 +30,10 @@ pub use cache::{
 };
 pub use decode::{
     DecodeError, DecodedLine, Instruction, NameRef, ObjRef, Operands, RecRef, decode_line,
+};
+pub use disasm::{
+    ArgInfo, Disassembler, Disassembly, LineListing, Listed, Operand, ProcedureInfo, Radix,
+    ResolvedType, VariableInfo,
 };
 pub use error::{PcodeError, Result, UnsupportedLayout};
 pub use layout::{Bitness, Layout, VERIFIED_VERSION, Verification, VersionFamily};
