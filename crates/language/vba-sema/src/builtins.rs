@@ -96,6 +96,9 @@ const LONG_CONSTANTS: &[(&str, i32)] = &[
     ("vbNarrow", 8),
     ("vbKatakana", 16),
     ("vbHiragana", 32),
+    ("vbSimplifiedChinese", 256),
+    ("vbTraditionalChinese", 512),
+    ("vbLinguisticCasing", 1024),
     ("vbUnicode", 64),
     ("vbFromUnicode", 128),
     ("vbUseDefault", -2),
@@ -642,5 +645,28 @@ impl TypeProvider for BuiltinLibrary {
             ));
         }
         runtime_function(name).map(LibGlobal::Function)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strconv_flag_constants_resolve_as_long() {
+        for (name, value) in [
+            ("vbSimplifiedChinese", 256),
+            ("vbTraditionalChinese", 512),
+            ("vbLinguisticCasing", 1024),
+        ] {
+            for n in [name.to_owned(), name.to_ascii_lowercase()] {
+                match BuiltinLibrary.global(&n) {
+                    Some(LibGlobal::Constant(Variant::Long(v), Type::Long)) => {
+                        assert_eq!(v, value, "{n}");
+                    }
+                    _ => panic!("{n} is not a Long constant"),
+                }
+            }
+        }
     }
 }
