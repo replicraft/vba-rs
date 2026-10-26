@@ -91,6 +91,11 @@ pub struct DirEntry {
 
 /// A file system. All paths are canonical (see [`normalize`]).
 pub trait Vfs {
+    /// Called when the file system joins a run: an implementation that keeps
+    /// contents in memory charges them to `meter` (`max_memory_bytes`) and
+    /// credits them when they are removed. The default does nothing.
+    fn set_memory_meter(&mut self, _meter: &vba_core::MemoryMeter) {}
+
     /// Maps a normalized path to the form the policy is checked against:
     /// an implementation backed by a real file system resolves symbolic
     /// links here so a link cannot escape a scoped grant. The default is the

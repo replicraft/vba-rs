@@ -105,7 +105,8 @@ fn conv<T>(r: Result<T, vba_value::VbaError>) -> R<T> {
 
 impl FileSystem {
     /// A file system over `vfs`, checked against the policy of `host`.
-    pub fn new(host: Rc<dyn Host>, vfs: Box<dyn Vfs>, shell: Box<dyn ShellHook>) -> FileSystem {
+    pub fn new(host: Rc<dyn Host>, mut vfs: Box<dyn Vfs>, shell: Box<dyn ShellHook>) -> FileSystem {
+        vfs.set_memory_meter(host.budget().meter());
         let cwd = vfs.initial_dir();
         FileSystem {
             host,

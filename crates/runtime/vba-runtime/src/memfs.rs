@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+use vba_core::{Charge, MemoryMeter};
+
 use crate::vfs::*;
 
 #[derive(Debug, Clone)]
@@ -17,11 +19,38 @@ enum Node {
     },
 }
 
+/// Bytes charged per entry besides its path and contents (map node, name,
+/// attributes).
+const ENTRY_OVERHEAD: u64 = 128;
+
 #[derive(Debug, Clone)]
 struct Entry {
     /// The path with its original spelling.
     display: String,
     node: Node,
+    /// The memory this entry holds (path, contents, bookkeeping), credited
+    /// when the entry is removed or the file system dropped.
+    charge: Charge,
+}
+
+impl Entry {
+    fn bytes(&self) -> u64 {
+        let data = match &self.node {
+            Node::File { data, .. } => data.capacity() as u64,
+            Node::Dir { .. } => 0,
+        };
+        ENTRY_OVERHEAD + 2 * self.display.len() as u64 + data
+    }
+
+    /// Re-registers the entry's bytes after its path or contents changed.
+    fn recharge(&mut self, fs: &MemFs) {
+        let bytes = self.bytes();
+        if self.charge.bytes() == 0 {
+            self.charge = fs.charge_for(bytes);
+        } else {
+            self.charge.set(bytes);
+        }
+    }
 }
 
 /// An in-memory file system. Drive roots (`c:/`) and `/` always exist.
@@ -32,6 +61,7 @@ pub struct MemFs {
     entries: BTreeMap<String, Entry>,
     time: f64,
     initial_dir: String,
+    meter: Option<MemoryMeter>,
 }
 
 impl Default for MemFs {
@@ -51,7 +81,28 @@ impl MemFs {
             entries: BTreeMap::new(),
             time: 36526.0,
             initial_dir: "/".to_owned(),
+            meter: None,
         }
+    }
+
+    /// A claim of `bytes` on the run's memory meter (see
+    /// [`Vfs::set_memory_meter`]); with no meter set, on the meter current on
+    /// this thread, if any.
+    fn charge_for(&self, bytes: u64) -> Charge {
+        match &self.meter {
+            Some(m) => Charge::on(m, bytes),
+            None => Charge::new(bytes),
+        }
+    }
+
+    fn new_entry(&self, display: String, node: Node) -> Entry {
+        let mut e = Entry {
+            display,
+            node,
+            charge: Charge::none(),
+        };
+        e.recharge(self);
+        e
     }
 
     /// Sets the timestamp given to files and directories from now on.
@@ -89,13 +140,16 @@ impl MemFs {
         let mut cur = prefix.trim_end_matches('/').to_owned();
         for seg in rest.split('/').filter(|s| !s.is_empty()) {
             cur = format!("{cur}/{seg}");
-            self.entries.entry(key(&cur)).or_insert_with(|| Entry {
-                display: cur.clone(),
-                node: Node::Dir {
-                    attributes: ATTR_DIRECTORY,
-                    modified: 36526.0,
-                },
-            });
+            if !self.entries.contains_key(&key(&cur)) {
+                let e = self.new_entry(
+                    cur.clone(),
+                    Node::Dir {
+                        attributes: ATTR_DIRECTORY,
+                        modified: 36526.0,
+                    },
+                );
+                self.entries.insert(key(&cur), e);
+            }
         }
     }
 
@@ -162,6 +216,18 @@ impl MemFs {
 }
 
 impl Vfs for MemFs {
+    fn set_memory_meter(&mut self, meter: &MemoryMeter) {
+        self.meter = Some(meter.clone());
+        // Entries made before the file system joined a run are charged now.
+        let keys: Vec<String> = self.entries.keys().cloned().collect();
+        for k in keys {
+            let mut e = self.entries.remove(&k).expect("listed");
+            let bytes = e.bytes();
+            e.charge = self.charge_for(bytes);
+            self.entries.insert(k, e);
+        }
+    }
+
     fn initial_dir(&self) -> String {
         self.initial_dir.clone()
     }
@@ -213,21 +279,23 @@ impl Vfs for MemFs {
                 }
                 *d = data.to_vec();
                 *modified = self.time;
+                let k = key(path);
+                let mut e = self.entries.remove(&k).expect("just found");
+                e.recharge(self);
+                self.entries.insert(k, e);
                 return Ok(());
             }
             None => {}
         }
-        self.entries.insert(
-            key(path),
-            Entry {
-                display: path.to_owned(),
-                node: Node::File {
-                    data: data.to_vec(),
-                    attributes: ATTR_ARCHIVE,
-                    modified: self.time,
-                },
+        let e = self.new_entry(
+            path.to_owned(),
+            Node::File {
+                data: data.to_vec(),
+                attributes: ATTR_ARCHIVE,
+                modified: self.time,
             },
         );
+        self.entries.insert(key(path), e);
         Ok(())
     }
 
@@ -270,6 +338,7 @@ impl Vfs for MemFs {
             let mut e = self.entries.remove(&k).expect("listed");
             let suffix = e.display[from.len()..].to_owned();
             e.display = format!("{to}{suffix}");
+            e.recharge(self);
             self.entries.insert(key(&e.display), e);
         }
         Ok(())
@@ -288,16 +357,14 @@ impl Vfs for MemFs {
         if !self.dir_exists(&parent) {
             return Err(VfsError::PathNotFound);
         }
-        self.entries.insert(
-            key(path),
-            Entry {
-                display: path.to_owned(),
-                node: Node::Dir {
-                    attributes: ATTR_DIRECTORY,
-                    modified: self.time,
-                },
+        let e = self.new_entry(
+            path.to_owned(),
+            Node::Dir {
+                attributes: ATTR_DIRECTORY,
+                modified: self.time,
             },
         );
+        self.entries.insert(key(path), e);
         Ok(())
     }
 
