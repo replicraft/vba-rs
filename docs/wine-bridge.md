@@ -106,6 +106,15 @@ Through the `Provider` trait, which has no bridge error type, every
   and `i686-pc-windows-msvc`, cross-checked from macOS. Checked only: it was
   not linked and **not executed**.
 
+## Relation to the in-process native stage
+
+`vba-ffi`'s `native-call` feature calls host libraries in-process and refuses
+declarations whose target ABI differs from the host, so a Win64 `Declare` never
+runs on macOS or Linux; running Windows DLLs is this bridge's job. What has
+actually run: the in-process stage (macOS, libc/libm, see ffi.md) and the
+protocol-only helper. What has not: any Windows code path, that is the real
+`native` module here under Wine or Windows, for either bitness.
+
 ## Unverified / not implemented
 
 * **The real Windows path (`apps/vba-wine-host/src/native.rs`) has never been

@@ -208,6 +208,7 @@ fn last_error_is_per_logical_thread() {
     assert_eq!((s.get(LogicalThread(1)), s.get(LogicalThread(2))), (5, 87));
 }
 
+#[cfg(not(feature = "native-call"))]
 #[test]
 fn native_call_is_gated() {
     let d = spec(Target::WIN32, vec![], Some(ParamKind::Long))

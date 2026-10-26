@@ -12,9 +12,13 @@
 //! * [`marshal`]: the argument marshaling plan (prepare before, write back after);
 //! * [`handle`]: opaque, provider-affine handles;
 //! * [`last_error`]: emulated per-logical-thread `GetLastError`;
-//! * [`native`]: the permission-gated, feature-gated dynamic call stage.
+//! * [`native`]: the permission-gated, feature-gated dynamic call stage (the
+//!   only `unsafe` code lives in the private `dispatch` module, compiled only
+//!   with the `native-call` feature).
 
 pub mod codec;
+#[cfg(feature = "native-call")]
+mod dispatch;
 pub mod error;
 pub mod handle;
 pub mod last_error;
@@ -29,9 +33,11 @@ pub use error::FfiError;
 pub use handle::{Handle, HandleError, HandleTable, ProviderId};
 pub use last_error::{LastErrorStore, LogicalThread};
 pub use layout::{FieldValue, UdtFieldType, UdtLayout};
-pub use marshal::{ArgValue, CallOutcome, NativeArg, NativeReturn, PreparedCall};
+pub use marshal::{ArgValue, CallOutcome, NativeArg, NativeArgPlan, NativeReturn, PreparedCall};
 pub use memory::{Memory, MemoryError};
-pub use native::{NativeCallError, NativePermission, call_native};
+#[cfg(feature = "native-call")]
+pub use native::call_prepared;
+pub use native::{NativeCallError, NativePermission, call_native, host_target};
 pub use signature::{
     CallConv, Charset, DeclareSpec, EntryCandidate, EntryName, ParamKind, ParamSpec, Passing,
     ValidatedDeclare,

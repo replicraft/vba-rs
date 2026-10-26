@@ -55,6 +55,34 @@ impl NativeArg {
     }
 }
 
+/// How one native argument must be presented to a real call.
+///
+/// This is derived from the marshaling plan, so the call stage never has to
+/// guess which integers are really emulated-memory addresses.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NativeArgPlan {
+    /// Passed by value (an integer or float class value, never an address).
+    Value(NativeArg),
+    /// An emulated-memory region of `len` bytes; a real call passes the
+    /// address of a real copy and copies it back afterwards.
+    Region {
+        /// Emulated address of the region.
+        addr: u64,
+        /// Length in bytes.
+        len: usize,
+    },
+    /// A `ByRef String`: a pointer-sized cell that holds the address of a
+    /// text region of `text_len` bytes (terminating NUL included).
+    TextCell {
+        /// Emulated address of the cell.
+        cell: u64,
+        /// Emulated address of the text.
+        text: u64,
+        /// Text length including the terminating NUL.
+        text_len: usize,
+    },
+}
+
 /// What a native function returned.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NativeReturn {
@@ -348,6 +376,41 @@ impl PreparedCall {
     /// The native arguments to hand to the callee.
     pub fn args(&self) -> &[NativeArg] {
         &self.args
+    }
+
+    /// Describes each native argument for a real call (see [`NativeArgPlan`]).
+    pub fn native_plan(&self, decl: &ValidatedDeclare) -> Vec<NativeArgPlan> {
+        let target = decl.target();
+        self.slots
+            .iter()
+            .zip(&self.args)
+            .map(|(slot, arg)| match slot {
+                Slot::Value => NativeArgPlan::Value(*arg),
+                Slot::Scalar { kind, addr } => NativeArgPlan::Region {
+                    addr: *addr,
+                    len: kind.value_size(target).expect("scalar"),
+                },
+                Slot::Text { addr, len } => match arg.as_int() {
+                    Some(a) if a as u64 != *addr => NativeArgPlan::TextCell {
+                        cell: a as u64,
+                        text: *addr,
+                        text_len: len + 1,
+                    },
+                    _ => NativeArgPlan::Region {
+                        addr: *addr,
+                        len: len + 1,
+                    },
+                },
+                Slot::Buffer { addr, len } => NativeArgPlan::Region {
+                    addr: *addr,
+                    len: *len,
+                },
+                Slot::Array { elem, count, addr } => NativeArgPlan::Region {
+                    addr: *addr,
+                    len: elem.value_size(target).expect("scalar") * count,
+                },
+            })
+            .collect()
     }
 
     /// Frees all temporaries without reading anything back (error path).

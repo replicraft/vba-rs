@@ -7,19 +7,28 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-# Reserves the dynamic native call stage. Off by default; even when enabled the
-# stage requires a host-issued `NativePermission` and currently reports
-# `NativeCallUnavailable` (see docs/ffi.md).
-native-call = []
+# The dynamic native call stage (libloading + libffi). Off by default; when
+# enabled it still requires a host-issued `NativePermission` (see docs/ffi.md).
+native-call = ["dep:libffi", "dep:libloading"]
 
 [dependencies]
 vba-core.workspace = true
 vba-profile.workspace = true
 vba-value.workspace = true
 thiserror.workspace = true
+libffi = { workspace = true, optional = true }
+libloading = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
 
-[lints]
-workspace = true
+# Not `workspace = true`: the `native-call` feature needs `unsafe` (dynamic
+# loading and a foreign call). `forbid` cannot be relaxed per module, so this
+# crate restates the workspace lints with `unsafe_code = "deny"`; the only
+# `#[allow(unsafe_code)]` is the feature-gated `dispatch` module.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
