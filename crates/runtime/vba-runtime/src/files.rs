@@ -746,6 +746,8 @@ impl FileSystem {
                     .next()
                     .filter(|_| self.cwd.as_bytes().get(1) == Some(&b':'));
                 match (want, cur) {
+                    // MS-VBAL 6.1.2.5.2.2: an empty string leaves the drive unchanged.
+                    (None, _) => Ok(Variant::Empty),
                     (Some(w), Some(c)) if w == c => Ok(Variant::Empty),
                     (Some(_), None) => Ok(Variant::Empty),
                     _ => vba(68),
