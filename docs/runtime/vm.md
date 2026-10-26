@@ -250,9 +250,6 @@ by a test of our own expectation and none was compared with Office.
 
 ## Not implemented / known gaps
 
-- `Resume Next` after an error raised by `Return` (without `GoSub`) or `Resume`
-  (without error) cannot continue: the IR drops the unreachable code after those
-  jumps, so such an error propagates as if unhandled.
 - `AddressOf` is a token for the emulated shims only: no native function can call a VBA procedure (no thunk is generated), and `AddressOf` of a `Declare` is rejected by the analysis.
 - `MidB` statement, `LSet`/`RSet` between user-defined types, `Get`/`Put` of
   dynamic arrays and `Decimal` values are explicit `Unsupported` errors.

@@ -314,7 +314,7 @@ impl<'p> Builder<'p> {
     fn finish(mut self, kind: FuncKind) -> Function {
         let mut blocks = std::mem::take(&mut self.blocks);
         cleanup(&mut blocks, &mut self.stmts);
-        let order = layout(&blocks);
+        let order = layout(&blocks, &self.stmts);
         let n = blocks.len();
         let mut map: Vec<Option<BlockId>> = vec![None; n];
         for (new, old) in order.iter().enumerate() {
@@ -1727,6 +1727,34 @@ fn block_handlers(b: &BlockBuf) -> Vec<BlockId> {
         .collect()
 }
 
+/// Whether the procedure ever sets `On Error Resume Next`.
+fn has_resume_next(blocks: &[BlockBuf]) -> bool {
+    blocks.iter().any(|b| {
+        b.insts.iter().any(|i| {
+            matches!(
+                i.kind,
+                InstKind::SetErrorMode {
+                    mode: ErrMode::ResumeNext
+                }
+            )
+        })
+    })
+}
+
+/// The blocks control can enter dynamically from `b`: error handlers, and the
+/// statement after a `Return` or `Resume` whose own error (3, 20) is skipped by
+/// `Resume Next`.
+fn block_dynamic(b: &BlockBuf, stmts: &[StmtInfo], resumable: bool) -> Vec<BlockId> {
+    let mut v = block_handlers(b);
+    if resumable
+        && let Some((Terminator::ReturnFromGoSub | Terminator::Resume(_), stmt, _)) = &b.term
+        && let Some(p) = stmts[stmt.0 as usize].resume_next
+    {
+        v.push(p.block);
+    }
+    v
+}
+
 /// Jump threading and block merging.
 ///
 /// * a block that only jumps is bypassed;
@@ -1736,6 +1764,7 @@ fn block_handlers(b: &BlockBuf) -> Vec<BlockId> {
 ///   `Resume label` targets).
 fn cleanup(blocks: &mut [BlockBuf], stmts: &mut [StmtInfo]) {
     let n = blocks.len();
+    let resumable = has_resume_next(blocks);
     // Jump threading.
     let mut fwd: Vec<BlockId> = (0..n as u32).map(BlockId).collect();
     for (start, slot) in fwd.iter_mut().enumerate() {
@@ -1770,7 +1799,7 @@ fn cleanup(blocks: &mut [BlockBuf], stmts: &mut [StmtInfo]) {
     reach[0] = true;
     while let Some(i) = stack.pop() {
         let mut next = block_succs(&blocks[i]);
-        next.extend(block_handlers(&blocks[i]));
+        next.extend(block_dynamic(&blocks[i], stmts, resumable));
         for b in next {
             if !reach[b.0 as usize] {
                 reach[b.0 as usize] = true;
@@ -1788,7 +1817,7 @@ fn cleanup(blocks: &mut [BlockBuf], stmts: &mut [StmtInfo]) {
         for s in block_succs(b) {
             preds[s.0 as usize] += 1;
         }
-        for h in block_handlers(b) {
+        for h in block_dynamic(b, stmts, resumable) {
             pinned[h.0 as usize] = true;
         }
         match &b.term {
@@ -1842,8 +1871,9 @@ fn cleanup(blocks: &mut [BlockBuf], stmts: &mut [StmtInfo]) {
 
 /// The order of the reachable blocks: reverse postorder of the main flow
 /// followed by the flows only reachable through error handlers.
-fn layout(blocks: &[BlockBuf]) -> Vec<usize> {
+fn layout(blocks: &[BlockBuf], stmts: &[StmtInfo]) -> Vec<usize> {
     let n = blocks.len();
+    let resumable = has_resume_next(blocks);
     let mut seen = vec![false; n];
     let mut order: Vec<usize> = Vec::new();
     let mut roots: Vec<usize> = vec![0];
@@ -1860,14 +1890,14 @@ fn layout(blocks: &[BlockBuf]) -> Vec<usize> {
         seen[root] = true;
         let mut first = block_succs(&blocks[root]);
         first.reverse();
-        roots.extend(block_handlers(&blocks[root]).iter().map(|h| h.0 as usize));
+        roots.extend(block_dynamic(&blocks[root], stmts, resumable).iter().map(|h| h.0 as usize));
         stack.push((root, first));
         while let Some((b, succs)) = stack.last_mut() {
             if let Some(next) = succs.pop() {
                 let ni = next.0 as usize;
                 if !seen[ni] {
                     seen[ni] = true;
-                    roots.extend(block_handlers(&blocks[ni]).iter().map(|h| h.0 as usize));
+                    roots.extend(block_dynamic(&blocks[ni], stmts, resumable).iter().map(|h| h.0 as usize));
                     let mut s = block_succs(&blocks[ni]);
                     s.reverse();
                     stack.push((ni, s));
