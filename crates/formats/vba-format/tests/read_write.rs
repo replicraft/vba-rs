@@ -559,10 +559,10 @@ fn new_project_rejects_what_it_cannot_write() {
     ));
 
     let mut p = fresh();
-    p.code_page = 437;
+    p.code_page = 10006;
     assert!(matches!(
         write_project(&p, &WriteOptions::default()),
-        Err(Error::UnsupportedCodePage(437))
+        Err(Error::UnsupportedCodePage(10006))
     ));
 }
 
