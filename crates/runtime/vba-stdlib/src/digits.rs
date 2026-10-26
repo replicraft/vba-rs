@@ -316,7 +316,7 @@ mod tests {
                 same(x);
             }
             // Same exponent range as the fast path.
-            let e = 1000 + (next() % 70) as u64; // about 2^-23 .. 2^46
+            let e = 1000 + next() % 70; // about 2^-23 .. 2^46
             same(f64::from_bits((e << 52) | (r & ((1 << 52) - 1))));
         }
         // Short decimals such as the programs write: n / 10^d.
