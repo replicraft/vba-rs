@@ -100,8 +100,9 @@ session with a trust gate (see `docs/runtime/runtime.md`).
   `VmConfig::max_string_units` and arrays larger than `max_array_elements`
   are refused. Nesting of the interpreter on the native stack (`Class_Initialize`
   inside `Class_Initialize`, event handlers raising events, default-member
-  coercions) is limited by `max_native_depth` (48); beyond it the run ends with
-  a call-depth limit error.
+  coercions) is limited by `max_native_depth` (48) and by the native stack the
+  nested runs use, `max_native_stack_bytes` (1 MiB); beyond either the run ends
+  with a call-depth limit error.
 
 ## Embedder calls
 
@@ -131,7 +132,7 @@ for objects that do not declare themselves re-entrant.
 
 * Nested runs share the budget (steps, memory, call depth), `Err`, module state and
   the `Debug.Print` sink. `max_reentrancy_depth` (default 4) bounds them; each also
-  uses a `max_native_depth` level.
+  uses a `max_native_depth` level and counts toward `max_native_stack_bytes`.
 * A nested run does not clear the frames of the outer run. An unhandled VBA error is
   returned (`Err`); `End`, `Stop` and the fatal faults (limits, cancellation,
   unsupported feature, internal error) are returned **and** stored in

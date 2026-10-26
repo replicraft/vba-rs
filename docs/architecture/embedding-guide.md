@@ -411,7 +411,9 @@ assert_eq!(r.output, "checking\nrefused\n");
   `Instance` call; a nested `CallResult::output` is empty. Nothing is queued.
 * **Bounded.** `VmConfig::max_reentrancy_depth` (default 4) bounds how many
   nested runs may be active; the next fails with `RunError::Reentrancy`. Nested
-  runs also count against `VmConfig::max_native_depth`.
+  runs also count against `VmConfig::max_native_depth` and
+  `VmConfig::max_native_stack_bytes`; lower the latter when the session runs on a thread with
+  a stack smaller than 2 MiB.
 * **One budget.** Steps, memory and call depth are charged to the instance's one
   budget, whatever the nesting.
 * **Errors.** An unhandled VBA error in nested code comes back as `Err`. Return

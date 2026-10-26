@@ -116,8 +116,8 @@ All file statements and functions (`Open`, `Close`, `Print #`, `Write #`,
 
 Paths are normalized against a virtual working directory: backslashes become
 slashes, `.` and `..` are resolved lexically (`..` stops at the root), drive
-letters are lower-cased. `CurDir` returns that normalized form (`/dir`,
-`c:/dir`). `ChDir` changes only the virtual directory, never the process's.
+letters are lower-cased; a network path keeps `//server/share`. `CurDir` returns that normalized form (`/dir`,
+`c:/dir`), or `/` while the working directory is not one the policy covers. `ChDir` changes only the virtual directory, never the process's.
 
 **Permissions** (`vba_host::Policy`, deny by default, whole-path-segment scopes
 on the normalized path): reading needs `FileRead` (`Open` for `Input`, `Binary`/

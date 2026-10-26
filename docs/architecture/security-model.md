@@ -32,7 +32,22 @@ to resource prefixes. Denial is error 70 and always happens before the effect.
 * Scoped grants are matched per capability, never as a text prefix (`scope.rs` in
   vba-host has the table). Files: whole path segments, `/data` covers `/data` and
   `/data/x`, not `/data-secret` (`file_prefix_grants_match_whole_path_segments`,
-  `a_directory_grant_without_a_trailing_slash_does_not_cover_a_sibling`).
+  `a_directory_grant_without_a_trailing_slash_does_not_cover_a_sibling`). The
+  comparison follows the file system the path is written for: a POSIX path is
+  compared exactly, case included (`posix_paths_are_case_sensitive`); a drive
+  path (`c:/work`) and a network path (`//server/share`) are compared as Windows
+  does, with case folded and trailing dots and spaces dropped, and a resource
+  never matches when one of its segments is only dots and spaces (a parent
+  reference in disguise), names a stream (`a:b`), a device (`NUL`, `COM1`) or a
+  short name (`PROGRA~1`), or when it is in the `//?/` or `//./` namespace
+  (`windows_names_that_the_system_rewrites_never_match_by_accident`,
+  `unc_and_device_namespaces_need_their_own_scope`,
+  `windows_spellings_never_reach_outside_a_drive_grant`). Network paths keep
+  their server and share when normalised and `..` cannot climb above the share
+  (`unc_paths_keep_their_server_and_share`), so a UNC path is never confused with a
+  local one. A file system that ignores case (`MemFs`) reports the spelling its
+  entries were created with from `Vfs::canonical`, so the exact comparison sees
+  one name for one file.
   Processes: the program (first word of the command line, read by the same reader
   the launcher uses) is the scope, the scope plus `.exe`, or below the scope as a
   directory; `notepad` never admits `notepad-x.exe` or a later word
@@ -55,8 +70,19 @@ to resource prefixes. Denial is error 70 and always happens before the effect.
   policy is checked against the path with symbolic links resolved, including links whose
   target does not exist (`a_symbolic_link_cannot_escape_a_scoped_grant`,
   `a_dangling_link_cannot_be_written_through_out_of_the_grant`,
-  `the_real_file_system_is_scoped_by_the_same_policy`). Both ends of `FileCopy` and `Name` are
+  `the_real_file_system_is_scoped_by_the_same_policy`). The path that was checked is
+  the path that is used, and `RealFs` refuses a path that no longer resolves to
+  itself, so a link swapped in between the check and the use is not followed:
+  every operation re-resolves its path (the directory that holds it, for the
+  operations that act on a final link without following it), and `Open` and
+  `Output` also compare the open handle with the file at the approved path
+  before reading or truncating (`a_link_swapped_in_after_the_check_is_not_followed`). Both ends of `FileCopy` and `Name` are
   checked (`copying_and_renaming_check_both_ends`).
+* `CurDir` and the text of a denial do not reveal a start directory the policy does not
+  cover: the program sees `/` instead, and a denial names the capability but not the
+  resolved path. A directory it may read, or one it entered with `ChDir`, is shown
+  (`curdir_does_not_reveal_the_start_directory_without_a_grant`,
+  `curdir_is_reported_where_the_directory_may_be_read`).
 * A denied `Kill` or `Dir` reveals nothing about files outside the grant
   (`kill_and_dir_do_not_reveal_files_outside_the_grant`). Devices, pipes and sockets are refused
   by the real file system (`devices_are_refused_instead_of_read_to_exhaustion`).
@@ -132,6 +158,20 @@ leave the choice to the embedder. The facade's `Engine::new()` and `vbars run` s
   `Split` (`builders_fail_with_error_7_before_building_an_oversized_string`), concatenation
   (`oversized_arrays_and_strings_are_refused`), file reads (`the_real_file_system_reads_at_most_the_limit`)
   and `Random` records (`a_record_longer_than_any_file_is_refused_before_it_is_buffered`).
+* **Native nesting has one budget.** Every nested run of the interpreter (an initializer
+  inside an initializer, an event handler, a default-member coercion, a late-bound call
+  and a run started from a re-entrant host call) goes through the same entry, which
+  counts the nesting (`VmConfig::max_native_depth`, 48) and measures the native stack
+  between the outermost run and the current one
+  (`VmConfig::max_native_stack_bytes`, 1 MiB); the first limit hit ends the run with the
+  call-depth limit error, whatever `max_call_depth` says. The count alone was not enough:
+  a level costs about 70 KiB in a debug build and a different amount in each path
+  (`initializer_recursion_stays_inside_a_small_stack`,
+  `terminator_recursion_stays_inside_a_small_stack`,
+  `default_member_recursion_stays_inside_a_small_stack`,
+  `late_bound_and_event_recursion_share_the_budget`). `vbars run` compiles and runs on a
+  thread with 64 MiB of stack, so the smaller main thread of some systems does not
+  matter; an embedder that runs on a smaller thread lowers the budget.
 * Recursion ends in a limit error, not a native stack overflow: procedure calls, events,
   `Class_Initialize`, late-bound calls, releasing long object and collection chains and nested
   user-defined types (`late_bound_recursion_is_bounded_by_the_call_depth`,
@@ -164,6 +204,12 @@ error, never a panic.
 * Source: `hostile_nesting_is_reported_not_overflowed`, `long_but_ordinary_chains_still_parse`
   (vba-syntax; nesting is limited to 200 and a chain of operators, member accesses or call
   suffixes to 512), `structured_programs_never_panic`, `token_soup_never_panics` (vba-sema).
+  Long `ElseIf` and `Case` chains and `Case` lists are not recursive in the parser, sema,
+  lowering or the editor features: 100000 clauses go through compile and run on a
+  256 KiB thread (`a_very_long_elseif_chain_does_not_recurse_per_clause`,
+  `a_very_long_case_chain_does_not_recurse_per_clause`,
+  `a_very_long_case_list_does_not_recurse_per_item`; vba-lsp-core
+  `editor_features_survive_a_very_long_elseif_chain` and `..._case_chain`).
 
 ## Not guaranteed
 
@@ -176,17 +222,21 @@ error, never a panic.
   work, not guaranteed: the cost of an allocation, a hash lookup or a collation compare varies by
   machine and by string content (`Option Compare Text` folds through a table). A wall-clock
   deadline needs the cancellation token.
-* **File grants are textual and case-insensitive.** On a case-sensitive file system `/data/`
-  also admits `/DATA/`. The check and the use are two steps, so another process that swaps a
-  link in between can defeat the symbolic-link resolution.
-* **Windows paths are untested here:** reserved device names, short names, alternate data
-  streams and `\\?\` prefixes are not handled specially, and the Windows start of a process
-  (`CreateProcess` through `std::process::Command`) was not run here.
-* `CurDir` returns the host working directory of the real file system; `GetObject(path)` is
-  checked against the path as written, not the resolved path.
-* Very long `ElseIf`/`Case` chains (hundreds of thousands of clauses) may cost native stack on a
-  2 MiB thread.
-* Native recursion remains in sema, IR lowering and the formatter for shapes not listed above;
-  run analysis of untrusted source on a thread with a large stack (for example 64 MiB).
+* **Check and use are still two steps for some operations.** `RealFs` re-resolves the path at
+  the use, and compares the open handle for reading and writing a file, but `Kill`, `Name`,
+  `MkDir`, `RmDir` and `FileCopy` act on a path by name: another process that swaps a
+  directory for a link in the instant between the re-resolution and the system call can
+  still redirect them. Closing that needs `openat`-style calls the standard library does not
+  have. A write through a swapped path may also create an empty file at the new place before
+  the handle is compared. Keep granted directories out of the reach of other writers.
+* **Windows paths follow the rules above, but the Windows file system was not run here.** The
+  matching is tested with Windows spellings on every platform; a short name that exists on
+  disk is refused rather than expanded, `\\?\` verbatim paths are never granted by a
+  drive or UNC grant, and the start of a process (`CreateProcess` through
+  `std::process::Command`) was not run.
+* `GetObject(path)` is checked against the path as written, not the resolved path.
+* Native recursion outside the interpreter (sema, IR lowering and the formatter for shapes
+  not listed above) has no byte budget; the shapes tried are bounded or iterative. Run
+  analysis of untrusted source on a thread with a large stack (for example 64 MiB).
 * The Wine helper executes native code of the library the embedder exports; it is not a sandbox.
 * `Session::vm()` gives an embedder the interpreter without the trust gate.
