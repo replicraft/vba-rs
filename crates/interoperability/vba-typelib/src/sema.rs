@@ -22,9 +22,8 @@
 //!
 //! Unions are not modelled: naming one is an unresolved type.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use vba_sema::{
     LibClass, LibEvent, LibField, LibGlobal, LibMember, LibMemberKind, LibParam, LibRecord,
@@ -38,18 +37,27 @@ use crate::model::{
 };
 
 /// Serves one or more loaded libraries to `vba-sema`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct TypelibProvider {
     libs: Vec<TypeLib>,
     /// Members of a type, by `(library, type)` index; cleared when a library
-    /// is added.
-    cache: RefCell<HashMap<(usize, usize), Rc<Members>>>,
+    /// is added. The provider is `Send + Sync`.
+    cache: Mutex<HashMap<(usize, usize), Arc<Members>>>,
 }
 
 /// The VBA members of a type and whether the list is complete.
 type Members = (Vec<LibMember>, bool);
 
 const MAX_DEPTH: usize = 16;
+
+impl Clone for TypelibProvider {
+    fn clone(&self) -> TypelibProvider {
+        TypelibProvider {
+            libs: self.libs.clone(),
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+}
 
 impl TypelibProvider {
     /// An empty provider.
@@ -67,7 +75,10 @@ impl TypelibProvider {
     /// Adds a library.
     pub fn add_library(&mut self, lib: TypeLib) {
         self.libs.push(lib);
-        self.cache.borrow_mut().clear();
+        self.cache
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 
     /// The loaded libraries.
@@ -176,12 +187,13 @@ impl TypelibProvider {
     }
 
     /// The VBA members of a type and whether the list is complete (cached).
-    fn members(&self, li: usize, ti: usize) -> Rc<Members> {
-        if let Some(m) = self.cache.borrow().get(&(li, ti)) {
+    fn members(&self, li: usize, ti: usize) -> Arc<Members> {
+        let lock = || self.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(m) = lock().get(&(li, ti)) {
             return m.clone();
         }
-        let m = Rc::new(self.compute_members(li, ti));
-        self.cache.borrow_mut().insert((li, ti), m.clone());
+        let m = Arc::new(self.compute_members(li, ti));
+        lock().insert((li, ti), m.clone());
         m
     }
 
@@ -701,5 +713,16 @@ impl TypeProvider for TypelibProvider {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TypelibProvider;
+
+    #[test]
+    fn provider_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<TypelibProvider>();
     }
 }
