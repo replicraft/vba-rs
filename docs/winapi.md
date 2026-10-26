@@ -54,6 +54,60 @@ symbol not in the catalog. `Beep` is deliberately unsupported: a silent no-op
 would be a fake success. `wine-fallback` rows are a plan only; no Wine
 integration exists.
 
+## Win32 function inventory
+
+`crates/windows/vba-winapi/data/win32-functions.csv` lists every function
+Microsoft's Win32 metadata declares as a DLL export. It is generated, never
+hand-edited:
+
+```sh
+cargo run -p vba-winapi-gen --release   # rewrites the data file
+```
+
+`apps/vba-winapi-gen` is a dev tool (not a shipped library). It reads the
+`Windows.Win32.winmd` bundled in the `windows-default` crate (version pinned in
+the root `Cargo.toml`, `0.100.0` when generated) with `windows-metadata`, both
+from Microsoft's windows-rs repository and licensed `MIT OR Apache-2.0`
+(permissive, compatible with this repository's Apache-2.0). The metadata itself
+ships inside that crate under the same license. Output is deterministic for a
+given version.
+
+Columns: `dll,symbol,base,charset,pair,params,ret,conv,arch`. `charset`/`pair`
+carry the A/W pairing (`lstrcpyA` is `base=lstrcpy`, `charset=A`, `pair=AW`);
+`params` is `name:direction:type` joined by `|` (direction `in`/`out`/`inout`/`-`,
+`?` suffix for optional); `conv` is `system` (stdcall) or `C`; `arch` is `all`
+or the architectures the metadata restricts the function to.
+There is no `SetLastError` column: the metadata bundled with windows-rs does not
+carry that flag, so none could be reported truthfully.
+
+Size: 14 567 rows (14 494 distinct `dll!symbol`, 226 DLLs), 2.2 MB (about 310 KB
+gzipped), under the 5 MB threshold, so it stays a single file.
+
+Coverage (inventory vs implemented):
+
+| | Count |
+| --- | --- |
+| Inventory functions (distinct `dll!symbol`) | 14 494 |
+| Implemented shim exports (registry) | 30 |
+| of which present in the inventory | 27 |
+| Coverage of the inventory | 0.2 % |
+
+The three implemented exports absent from the inventory are
+`kernel32!RtlMoveMemory/RtlFillMemory/RtlZeroMemory`: real exports that the SDK
+headers expose as macros, so the metadata omits them (as it does the
+`CopyMemory`/`FillMemory`/`ZeroMemory` macros that the catalog lists as not
+implemented). `tests/inventory.rs` names exactly these exemptions.
+
+`catalog.csv` stays the implemented-shim catalog; `tests/inventory.rs` checks
+that every cataloged DLL/symbol exists in the inventory, that declared
+parameter counts and A/W variants agree with the metadata, and that every
+registered shim is a known export. `vba_winapi::inventory::lookup(dll, symbol)`
+exposes entries read-only. A `Declare` of an unimplemented function the
+inventory knows fails with `Unsupported` whose reason adds `known Win32 export
+per Microsoft's metadata, signature Sleep(dwMilliseconds: in u32) -> void`
+(or names the DLL the metadata places it in); unknown names keep the plain
+"no registered provider" reason.
+
 ## Known gaps
 
 * Collation (`lstrcmp*`) and case tables beyond the cases above.

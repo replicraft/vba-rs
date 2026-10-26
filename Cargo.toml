@@ -66,6 +66,10 @@ libffi = "5.2.0"
 libloading = "0.9.0"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
 
+# Windows metadata
+windows-default = { version = "0.100.0", default-features = false }
+windows-metadata = { version = "0.100.0", default-features = false }
+
 # Language server protocol
 lsp-server = "0.10"
 lsp-types = "0.97"

@@ -1,0 +1,15 @@
+[package]
+name = "vba-winapi-gen"
+description = "Dev tool: generates the Win32 function inventory (win32-functions.csv) from Microsoft's Win32 metadata. Not part of the shipped libraries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+windows-default.workspace = true
+windows-metadata.workspace = true
+
+[lints]
+workspace = true

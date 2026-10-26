@@ -1,10 +1,32 @@
 //! The provider trait and the `Declare` resolution registry.
 
 use crate::catalog::{self, Status};
+use crate::inventory;
 use crate::{CallContext, WinApiError};
 use std::collections::HashMap;
 use vba_ffi::{EntryCandidate, NativeArg, NativeReturn, ProviderId, ValidatedDeclare};
 use vba_profile::OperatingSystem;
+
+/// Describes the first candidate the Win32 inventory knows, as a sentence
+/// fragment for an `Unsupported` reason.
+fn known_signature(lib: &str, candidates: &[EntryCandidate]) -> Option<String> {
+    candidates.iter().find_map(|c| {
+        let EntryCandidate::Symbol(s) = c else {
+            return None;
+        };
+        if let Some(e) = inventory::lookup(lib, s) {
+            return Some(format!(
+                "known Win32 export per Microsoft's metadata, signature {e}"
+            ));
+        }
+        let elsewhere = inventory::lookup_any_dll(s);
+        let e = elsewhere.first()?;
+        Some(format!(
+            "`{s}` is a known Win32 export of `{}` (not `{lib}`) per Microsoft's metadata, signature {e}",
+            e.dll
+        ))
+    })
+}
 
 /// A source of Win32 behavior.
 pub trait Provider {
@@ -165,6 +187,10 @@ impl Registry {
                 }
             })
             .unwrap_or_else(|| "no registered provider exports this symbol".to_string());
+        let reason = match known_signature(&lib, candidates) {
+            Some(known) => format!("{reason}; {known}"),
+            None => reason,
+        };
         Err(WinApiError::unsupported(format!("{lib}!{name}"), reason))
     }
 

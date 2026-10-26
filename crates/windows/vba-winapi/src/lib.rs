@@ -2,6 +2,8 @@
 //!
 //! * [`catalog`]: the machine-readable catalog of Win32 functions, their
 //!   preferred strategy and implementation status;
+//! * [`inventory`]: the read-only inventory of every Win32 export known to
+//!   Microsoft's metadata (generated, never hand-edited);
 //! * [`Provider`] / [`Registry`]: resolution of a `Declare` (library, alias)
 //!   to a provider, with explicit `Unsupported` errors for everything else;
 //! * [`shims::NativeShims`]: portable shims whose behavior is identical on
@@ -13,6 +15,7 @@
 pub mod catalog;
 pub mod context;
 pub mod error;
+pub mod inventory;
 pub mod provider;
 pub mod shims;
 
