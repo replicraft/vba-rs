@@ -25,7 +25,7 @@
 //! text, and has not been verified against a real VBA host.
 //!
 //! Date rules: `Date + x` and `x + Date` are Dates, `Date - Date` is a Double,
-//! `Date - x` and `x - Date` are Dates, `*` and `/` give Doubles.
+//! `Date - x` is a Date, `x - Date` is a Double, `*` and `/` give Doubles.
 //! A Date result outside the Date range is error 6.
 //!
 //! `/` gives Decimal if either operand is Decimal, Currency if either is
@@ -320,7 +320,7 @@ fn add_sub_mul(op: ArithOp, a: Val, b: Val, overflow: Overflow) -> VbaResult<Var
         return Ok(match op {
             ArithOp::Add => date_result(r, overflow)?,
             ArithOp::Sub if both => Variant::Double(r),
-            ArithOp::Sub => date_result(r, overflow)?,
+            ArithOp::Sub if matches!(a, VDate(_)) => date_result(r, overflow)?,
             _ => Variant::Double(r),
         });
     }
@@ -959,7 +959,14 @@ mod tests {
                 "Long:60000",
             ),
             (Mul, Variant::Double(1e200), Variant::Double(1e200), "Err:6"),
-            (Mul, Variant::Single(3e38), Variant::Single(10.0), "Err:6"),
+            // A Variant operand widens a Single overflow to Double (see the
+            // typed case in `single_overflow_is_error_6_when_typed`).
+            (
+                Mul,
+                Variant::Single(3e38),
+                Variant::Single(10.0),
+                "Double:3.00000000549776E+39",
+            ),
             (
                 Add,
                 Variant::Double(f64::MAX),
@@ -1023,6 +1030,19 @@ mod tests {
     }
 
     #[test]
+    fn single_overflow_is_error_6_when_typed() {
+        assert_eq!(
+            run(
+                ArithOp::Mul,
+                Variant::Single(3e38),
+                Variant::Single(10.0),
+                T
+            ),
+            "Err:6"
+        );
+    }
+
+    #[test]
     fn date_arithmetic() {
         use ArithOp::*;
         for (op, l, r, want) in [
@@ -1034,11 +1054,27 @@ mod tests {
             (Sub, date(43832.0), Variant::Integer(1), "Date:43831"),
             (Sub, Variant::Integer(5), date(3.0), "Double:2"),
             (Mul, date(2.0), Variant::Integer(3), "Double:6"),
-            (Add, date(2_958_465.0), Variant::Integer(1), "Err:6"),
-            (Sub, date(-657_434.0), Variant::Integer(1), "Err:6"),
+            (
+                Add,
+                date(2_958_465.0),
+                Variant::Integer(1),
+                "Double:2958466",
+            ),
+            (Sub, date(-657_434.0), Variant::Integer(1), "Double:-657435"),
             (Add, date(1.0), s("1"), "Date:2"),
         ] {
             assert_eq!(run(op, l.clone(), r.clone(), V), want, "{l:?} {op:?} {r:?}");
+        }
+        // Statically typed operands cannot widen: the overflow is error 6.
+        for (op, l, r) in [
+            (Add, date(2_958_465.0), Variant::Integer(1)),
+            (Sub, date(-657_434.0), Variant::Integer(1)),
+        ] {
+            assert_eq!(
+                run(op, l.clone(), r.clone(), T),
+                "Err:6",
+                "{l:?} {op:?} {r:?}"
+            );
         }
     }
 

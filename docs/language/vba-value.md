@@ -83,7 +83,10 @@ arrays only.
 ### Operators (`ops`)
 - Typed operands use `Overflow::Error` (Integer + Integer overflow is error
   6); Variants use `Overflow::Promote` (Byte to Integer to Long to Double;
-  LongLong overflow is error 6) (**doc**).
+  LongLong overflow is error 6) (**doc**). A Date result beyond the Date range
+  and a Single result beyond the Single range also widen to the Double result
+  under `Promote` (MS-VBAL 5.6.9.3), and are error 6 under `Error`; unary minus
+  on a Date follows the same rule.
 - `+ - *` result type: Decimal > Currency > Double/Date > Single > LongLong >
   Long > Integer > Byte; Single with LongLong gives Double. The Currency vs
   Double ordering is the least certain rule.
@@ -97,7 +100,14 @@ arrays only.
 - `^` is always Double; `0 ^ negative` is error 11; a NaN result is error 5.
 - Comparison: Null gives Null; two Variants of number and String order the
   number first; with `StringNumberRule::Coerce` the string is converted
-  (error 13 if not numeric); Empty compares as 0 or `""`; Date versus a
+  (error 13 if not numeric; integral text is read exactly against an integer,
+  so a LongLong compares without rounding, and fractional text is read as an
+  exact Decimal against a Decimal or Currency). The effective type of a
+  Decimal operand is Decimal and of a Currency operand Currency, the other
+  operand being converted to it; an operand that does not fit falls back to
+  Double. A Single compared with a Double compares as Double (MS-VBAL
+  5.6.9.5 says Single; VBA keeps `CSng(0.1) = 0.1` False, see
+  `spec-ops/5_6_9_5_rel_single_double_is_single`); Empty compares as 0 or `""`; Date versus a
   parsable date string compares as dates; NaN is unordered (`<>` true, others
   false). Result is Boolean or Null.
 - Logic: two Booleans give Boolean, otherwise bitwise on the wider integer
@@ -147,7 +157,8 @@ arrays only.
 - Only en-US text formats (decimal point, `m/d/yyyy`, 12-hour clock) exist.
   Dates without a year are rejected (they depend on the current date).
   Parenthesized negatives, trailing type characters and currency symbols other
-  than `$` are not accepted in numeric strings.
+  than `$` are not accepted in numeric strings. Blanks may surround the
+  number and separate the sign from the digits (`" - 5 "` is -5).
 - Operators do not resolve default members of objects, do not handle
   `Variant` arrays, and do not implement `Is` or `Like`.
 - Rules tagged **doc** (especially Currency/Double promotion, Decimal division
