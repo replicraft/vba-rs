@@ -15,7 +15,7 @@
 //!   predefined constants; inactive branches are kept as
 //!   [`NodeKind::InactiveText`] and are not parsed.
 //!
-//! See `docs/syntax.md` for node shapes, recovery and known gaps.
+//! See `docs/language/syntax.md` for node shapes, recovery and known gaps.
 
 mod cc;
 mod kind;

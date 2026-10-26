@@ -112,7 +112,7 @@ covered by explicit tests but remain unverified against Office.
   half unit would have to be preserved or rejected by every unit-based
   operation (concatenation shifts it, comparison, `Mid`, file output), and a
   silent drop is wrong, so each producer of an odd byte count returns the
-  explicit `Unsupported` error instead (see `docs/vba-stdlib.md`), and the
+  explicit `Unsupported` error instead (see `docs/language/vba-stdlib.md`), and the
   conformance program `strings/strconv_unicode_roundtrip` stays an XFAIL with
   that reason. Even byte counts are exact.
 - `b = s` / `s = b` between a String and a dynamic `Byte` array use the

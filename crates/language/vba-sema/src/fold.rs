@@ -13,7 +13,7 @@ use crate::bound::Constant;
 use crate::types::Type;
 
 /// Decodes literal bytes: UTF-8 when valid, otherwise Latin-1 (the code page
-/// is not known at this level; see `docs/sema.md`).
+/// is not known at this level; see `docs/language/sema.md`).
 pub fn decode_bytes(b: &[u8]) -> VbaString {
     match std::str::from_utf8(b) {
         Ok(s) => VbaString::from(s),

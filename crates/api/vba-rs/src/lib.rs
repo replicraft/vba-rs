@@ -178,7 +178,7 @@
 //! The crate re-exports a curated surface at the top level and in the
 //! [`prelude`]. Everything else stays reachable in [`raw`], one module per
 //! workspace crate, with the semver promises of that crate (the facade's own
-//! items are the stable ones). See `docs/public-api.md` for the embedder
+//! items are the stable ones). See `docs/architecture/public-api.md` for the embedder
 //! contract: threading, authority, determinism and the error taxonomy.
 //!
 //! # Features

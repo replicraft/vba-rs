@@ -11,7 +11,7 @@
 //! [`TypelibError::UnsupportedFormat`]. Nothing here loads code or calls
 //! COM; the reader works on bytes only and is bounds checked (see
 //! [`Limits`]). The layout and its verification status are described in
-//! `docs/typelib.md`.
+//! `docs/formats/typelib.md`.
 //!
 //! With the default `sema` feature, [`sema::TypelibProvider`] adapts loaded
 //! libraries to `vba_sema::TypeProvider`.

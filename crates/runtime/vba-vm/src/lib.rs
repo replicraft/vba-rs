@@ -13,7 +13,7 @@
 //! injected seams: the [`vba_host::Host`] (permissions, limits, objects,
 //! UI, `Declare` hooks) and [`Services`] (files, `Shell`, `Command`). The VM
 //! has no ambient authority and no async runtime, and given the same host,
-//! services and clock it is deterministic. See `docs/vm.md`.
+//! services and clock it is deterministic. See `docs/runtime/vm.md`.
 //!
 //! ```
 //! use std::rc::Rc;

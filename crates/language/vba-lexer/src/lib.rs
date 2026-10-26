@@ -11,7 +11,7 @@
 //! * Malformed literals produce an error token plus a diagnostic and lexing
 //!   continues.
 //!
-//! See `docs/lexer.md` for what is and is not implemented.
+//! See `docs/language/lexer.md` for what is and is not implemented.
 
 mod date;
 mod keyword;

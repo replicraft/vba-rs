@@ -12,7 +12,7 @@ name = "vba"
 [features]
 # Nothing is on by default: the default build is the pure interpreter. No
 # feature grants a capability; each still needs an explicit host `Policy`
-# grant at run time (see docs/public-api.md).
+# grant at run time (see docs/architecture/public-api.md).
 default = []
 # The Win32 behavior catalog and portable shims (`vba::raw::winapi`). Off by
 # default to keep the default dependency graph and API surface minimal; it is

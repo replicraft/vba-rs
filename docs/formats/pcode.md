@@ -12,7 +12,7 @@ substantiated. Facts without a tag are not added.
 
 Goal of the research line: execute compiled VBA so that compiled-only projects
 (`.accde`, `.mde`, and documents whose source was stripped) can run on the
-shared `vba-vm`. See [compiled-projects.md](compiled-projects.md) for what the
+shared `vba-vm`. See [compiled-projects.md](../runtime/compiled-projects.md) for what the
 project model does today (store, copy and re-embed the cache as opaque bytes;
 never interpret it).
 

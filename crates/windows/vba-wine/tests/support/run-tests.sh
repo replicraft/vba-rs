@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build vba-wine-host.exe without a Windows SDK and run the Wine-gated tests.
-# See "Reproducing the live tests" in docs/wine-bridge.md.
+# See "Reproducing the live tests" in docs/interop/wine-bridge.md.
 #
 # Environment (all optional):
 #   REPO        vba-rs checkout to test (default: the checkout containing this script)

@@ -16,7 +16,7 @@ let out = vm.run_procedure(main, vec![])?;     // RunOutput { value, status }
 
 `Vm::new` allocates module variables and fixed-size arrays (the standard-module
 initialisers); it never runs a user procedure. `vba-runtime` wraps the VM in a
-session with a trust gate (see `docs/runtime.md`).
+session with a trust gate (see `docs/runtime/runtime.md`).
 
 ## Design
 
@@ -86,7 +86,7 @@ session with a trust gate (see `docs/runtime.md`).
   `CreateObject`, `GetObject`, `MsgBox`, `InputBox`, `DoEvents`, `Beep` (no
   sound; there is nothing to play it), the `Error n` statement, `Debug.Print`
   (zones, `;`, `Tab`, `Spc`) and `Debug.Assert`. File functions, `Shell` and
-  `Command` go to the injected `Services` (see `docs/runtime.md`).
+  `Command` go to the injected `Services` (see `docs/runtime/runtime.md`).
 - **`Declare`.** The statement is validated (`vba-ffi`), the host must grant
   `NativeDeclare` for `library!procedure`, a `vba-winapi` provider is looked up
   and arguments are marshaled (scalars, `String` buffers written back, `As Any`,
@@ -121,8 +121,8 @@ field store; the value is the last argument), `vbSet` (8) a `PutRef`. It works o
 instances (procedures, properties, public fields; a private member is error 438, an
 assumed number), the built-in `Collection`/`Err`, and host objects through the automation
 traits. Any other call type is error 5 (assumed). `Reset`, `Input()` and `FileAttr()` are
-served by the file system layer (`docs/runtime.md`); the settings statements,
-`Date =`/`Time =`, `SendKeys` and `AppActivate` go through host hooks (`docs/host.md`).
+served by the file system layer (`docs/runtime/runtime.md`); the settings statements,
+`Date =`/`Time =`, `SendKeys` and `AppActivate` go through host hooks (`docs/architecture/host.md`).
 `AddressOf` stays an explicit `Unsupported` error: producing a callable address would need
 a native thunk, and a made-up pointer would be a fake; the conformance program
 `language/addressof_without_native` records that.

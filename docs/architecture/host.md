@@ -47,7 +47,7 @@ documented decisions, not claims about real VBA behaviour.
   `CreateObject` / `GetObject`, `check` before every file and process operation, `call_declare`-style
   checks and `declare_hook` for `Declare`, `ui()` for `MsgBox` / `InputBox`, `idle()` at `DoEvents`, and the
   budget for steps, memory and call depth. Limit exhaustion is an untrappable fault in the VM, not
-  the trappable errors 18 / 7 / 28 that `LimitExceeded::into_err_info` describes. See `docs/vm.md`.
+  the trappable errors 18 / 7 / 28 that `LimitExceeded::into_err_info` describes. See `docs/runtime/vm.md`.
 * File and process operations themselves are not provided, only the capability checks for them. Path canonicalisation (symlinks, `.`, drive aliases) is left to the embedder; the policy compares text prefixes.
 * No network or process hooks beyond the capability names; the UI-automation hooks above only forward to the embedder.
 * `MsgBox` help-file and context arguments, `InputBox` position and `DoEvents` form counts are not modelled.

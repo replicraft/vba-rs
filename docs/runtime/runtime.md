@@ -142,7 +142,7 @@ UNC paths and `Open ... Lock` semantics beyond bookkeeping.
 
 Every `Session` answers `CreateObject("Scripting.Dictionary")` and
 `CreateObject("Scripting.FileSystemObject")` with the native objects of `vba-scripting`
-(`docs/scripting.md`), through a `ScriptingHost` that wraps the embedder's host. The
+(`docs/language/scripting.md`), through a `ScriptingHost` that wraps the embedder's host. The
 `FileSystemObject` uses the session's `FileSystem` (`ScriptFsAdapter`), so its file access has the
 same policy checks and scoped grants as the file statements.
 
@@ -157,7 +157,7 @@ same policy checks and scoped grants as the file statements.
   default; `SystemHost` (opt-in) reads the real UTC clock and environment.
 - `MsgBox` / `InputBox` go to the host's `UiHooks` (headless: error 70).
 - `CreateObject` / `GetObject` go to the host (`ComCreate`, `FileRead`
-  checks first); `Declare` as in `docs/vm.md`.
+  checks first); `Declare` as in `docs/runtime/vm.md`.
 - `Debug.Print` goes to the `DebugSink`.
 
 ## CLI

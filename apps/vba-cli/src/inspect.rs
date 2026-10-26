@@ -46,7 +46,7 @@ pub enum InspectError {
     Encoding { path: String },
 }
 
-/// Version of the `--json` output layout (see `docs/vba-format.md`).
+/// Version of the `--json` output layout (see `docs/formats/vba-format.md`).
 pub const JSON_SCHEMA_VERSION: u32 = 1;
 
 /// Inspects `path` and returns the report to print: text, or JSON when
@@ -429,7 +429,7 @@ fn report_project(p: &VbaProject) -> String {
     if !ambiguous.is_empty() {
         let _ = writeln!(
             out,
-            "Note: the source state of {} is ambiguous (see docs/compiled-projects.md).",
+            "Note: the source state of {} is ambiguous (see docs/runtime/compiled-projects.md).",
             ambiguous.join(", ")
         );
     }

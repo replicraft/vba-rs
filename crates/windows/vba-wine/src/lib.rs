@@ -9,7 +9,7 @@
 //! * [`provider`]: [`WineProvider`], an opt-in `vba-winapi` provider gated on
 //!   the `NativeDeclare` capability.
 //!
-//! Nothing starts automatically; Wine is not a sandbox. See `docs/wine-bridge.md`.
+//! Nothing starts automatically; Wine is not a sandbox. See `docs/interop/wine-bridge.md`.
 
 pub mod config;
 pub mod error;

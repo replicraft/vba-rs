@@ -1,4 +1,4 @@
-//! Round trip: libraries built with the test writer (per `docs/typelib.md`)
+//! Round trip: libraries built with the test writer (per `docs/formats/typelib.md`)
 //! are read back into the model.
 
 mod common;

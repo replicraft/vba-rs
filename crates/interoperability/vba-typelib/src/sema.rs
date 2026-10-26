@@ -15,7 +15,7 @@
 //! * A coclass exposes the members of its default interface, and its
 //!   `[source]` interface supplies the events.
 //!
-//! Gaps (also in `docs/typelib.md`): a library enum or an alias of a
+//! Gaps (also in `docs/formats/typelib.md`): a library enum or an alias of a
 //! primitive cannot be named as a declared type (`vba-sema` has no library
 //! enum type), so `resolve_type` answers "unknown" for them; their members
 //! and constants are still available as globals.

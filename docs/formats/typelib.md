@@ -118,7 +118,7 @@ A TYPELIB is stored as a resource whose type is the string name `TYPELIB`
 the id; `vbscript.dll` has ids 1, 2 and 3), level 3 is the language (0
 everywhere observed), the data entry points to the raw typelib bytes by RVA.
 The reader walks that tree with the `object` crate's resource directory
-reader (see `docs/dependencies.md`) and picks the 32/64-bit parser from the
+reader (see `docs/architecture/dependencies.md`) and picks the 32/64-bit parser from the
 optional-header magic. A PE without a resource directory or without a
 `TYPELIB` entry gives `NoTypelibResource`. `.tlb` files from this toolchain
 are themselves PE stubs holding the resource; a raw typelib starts with the

@@ -1,6 +1,6 @@
 //! User-defined type (`Type ... End Type`) layout and byte encoding.
 //!
-//! Rules applied (see docs/ffi.md for provenance and confidence):
+//! Rules applied (see docs/interop/ffi.md for provenance and confidence):
 //! each member is aligned to its natural alignment (capped at 8), nested types
 //! align to their largest member, the total size is rounded up to the type's
 //! alignment, padding bytes are zero, multi-byte values are little-endian,

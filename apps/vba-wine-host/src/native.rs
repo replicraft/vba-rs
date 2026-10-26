@@ -1,6 +1,6 @@
 //! The real Windows call path (cfg(windows) only).
 //!
-//! Verification status is in docs/wine-bridge.md: the x86-64 path has been
+//! Verification status is in docs/interop/wine-bridge.md: the x86-64 path has been
 //! executed under Wine (exact configuration there); the 32-bit path and
 //! genuine Windows hosts have not.
 //!

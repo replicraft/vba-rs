@@ -199,7 +199,7 @@ help context, constants, version, LCIDs, platform and references.
 Rejected with `Error::UnsupportedEdit`: adding, removing, renaming, reordering
 or re-typing modules; removing a module's source; **supplying source for a
 module whose stored source is absent** (error names the module; see
-[compiled-projects.md](compiled-projects.md)); editing any module's source
+[compiled-projects.md](../runtime/compiled-projects.md)); editing any module's source
 under `StaleCache::Invalidate` while another module is compiled-only (that
 would force a recompilation it cannot survive; `StaleCache::Keep` is the
 explicit alternative); changing the project ID, protection, host extenders or
@@ -457,7 +457,7 @@ For `kind` = `source`: `module` with `name`, `kind`, `has_source`, `chars`,
   classified by the model (`Module::source_availability`). Compiled code is
   not interpreted, decompiled or disassembled, and source is never supplied
   for such a module. Everything is preserved byte for byte on write. See
-  [compiled-projects.md](compiled-projects.md).
+  [compiled-projects.md](../runtime/compiled-projects.md).
 - **Passwords**: neither verified, recovered nor written.
 - **Writing into legacy documents** (`.doc`, `.xls`, `.ppt`), and **adding a
   project to a package** that has none.

@@ -66,7 +66,7 @@ Every open document is one module of one `vba_sema::analyze_sources` run
 - **Binding** (`resolve.rs`). An identifier token is bound to a declaration
   (`Decl`: procedure group, `Declare`, variable, constant, type, field, enum,
   enum member, event, parameter/local/`Static`, module) with the declaration
-  tables of the analysis and the rules of docs/sema.md: procedure locals,
+  tables of the analysis and the rules of docs/language/sema.md: procedure locals,
   own module, public members of other standard modules (ambiguity binds
   nothing), module names; type positions; `Mod.Name`, `Enum.Member`,
   `Project.Mod.Name`; member access through the *declared* type of the

@@ -3,7 +3,7 @@
 //! Sources: MS-OAUT (IDispatch return codes) and the Microsoft documentation
 //! of VBA trappable errors. The mapping for codes VBA does not document
 //! precisely follows commonly observed behaviour and is not verified against
-//! a real host; see `docs/automation.md`.
+//! a real host; see `docs/runtime/automation.md`.
 
 use crate::error::describe;
 use windows_sys::Win32::Foundation as f;

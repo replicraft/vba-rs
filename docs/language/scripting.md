@@ -37,7 +37,7 @@ From the Learn pages (Dictionary object, `Add`, `Exists`, `Items`, `Keys`, `Remo
 key equality (numeric subtypes equal by value, a number never equals a string, strings exact in
 `vbBinaryCompare` and by the en-US text collation in `vbTextCompare`, objects by identity, `Empty`
 is `""`), insertion-ordered `Keys`/`Items`, and `Null` keys being error 5. Object keys/items are
-reference counted (also VM-owned class instances, see `docs/automation.md`).
+reference counted (also VM-owned class instances, see `docs/runtime/automation.md`).
 
 ## FileSystemObject and friends
 

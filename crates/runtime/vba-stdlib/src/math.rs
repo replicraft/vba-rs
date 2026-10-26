@@ -6,7 +6,7 @@
 //! `seed = (seed * 1140671485 + 12820163) mod 2^24`, `Rnd = seed / 2^24`,
 //! initial seed `0x50000`. The seeding rules of `Rnd(negative)` and
 //! `Randomize n` follow the Visual Basic runtime and are not verified
-//! against Office (see `docs/vba-stdlib.md`).
+//! against Office (see `docs/language/vba-stdlib.md`).
 
 use crate::call::{Args, Ctx};
 use crate::digits::{Dec, Rounding};

@@ -17,7 +17,7 @@
 //! back to a syntactic walk of the one document.
 //!
 //! Positions are LSP positions (zero-based line, UTF-16 column); see
-//! [`text`]. See `docs/lsp.md`.
+//! [`text`]. See `docs/tooling/lsp.md`.
 
 mod builtin;
 mod completion;

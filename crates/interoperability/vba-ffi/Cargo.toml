@@ -8,7 +8,7 @@ license.workspace = true
 
 [features]
 # The dynamic native call stage (libloading + libffi). Off by default; when
-# enabled it still requires a host-issued `NativePermission` (see docs/ffi.md).
+# enabled it still requires a host-issued `NativePermission` (see docs/interop/ffi.md).
 native-call = ["dep:libffi", "dep:libloading"]
 
 [dependencies]

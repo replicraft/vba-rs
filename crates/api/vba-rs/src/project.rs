@@ -61,7 +61,7 @@ impl Project {
     /// Reads a project from named streams (`VBA/dir`, `VBA/_VBA_PROJECT`,
     /// `VBA/<module>`, `PROJECT`, ...) that the embedding application
     /// extracted itself, for example from a database table. No container is
-    /// involved; see `docs/vba-format.md`.
+    /// involved; see `docs/formats/vba-format.md`.
     pub fn from_streams(streams: &ProjectStreams, limits: &Limits) -> Result<Project, Error> {
         Ok(Project {
             model: vba_format::read_project_from_streams(streams, ReadMode::Strict, limits)

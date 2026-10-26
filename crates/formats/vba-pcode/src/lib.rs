@@ -1,8 +1,8 @@
 //! Decoder and disassembler for the compiled-code ("p-code") cache that
 //! precedes the source text in the module streams of a VBA project.
 //!
-//! Facts come from the repository documents `docs/pcode-format.md`,
-//! `docs/pcode-opcodes.md` and `docs/pcode.md`, the public MS-OVBA
+//! Facts come from the repository documents `docs/formats/pcode-format.md`,
+//! `docs/formats/pcode-opcodes.md` and `docs/formats/pcode.md`, the public MS-OVBA
 //! specification, and direct observation of a test project. The crate takes
 //! plain byte slices; reading the container is the caller's job.
 //!

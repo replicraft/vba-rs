@@ -13,7 +13,7 @@
 //! * [`lower`] converts any CST, erroneous ones included, and reports
 //!   error nodes as diagnostics; [`parse_module`] is the one-call helper.
 //!
-//! See `docs/syntax.md`.
+//! See `docs/language/syntax.md`.
 
 mod ast;
 mod lower;

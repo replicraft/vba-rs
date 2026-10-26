@@ -3,7 +3,7 @@
 //!
 //! Provenance: argument ranges, result types and error numbers follow the
 //! Microsoft language reference (**doc**); MS-VBAL only lists these functions
-//! by signature (**spec**). Rules marked "unverified" in `docs/vba-stdlib.md`
+//! by signature (**spec**). Rules marked "unverified" in `docs/language/vba-stdlib.md`
 //! have not been compared against a real host.
 
 use crate::call::{Args, Ctx, compare_arg, text};

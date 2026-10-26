@@ -25,7 +25,7 @@ project. It contains no binary-format knowledge and no dependency on
   `performance_cache_len`; `VbaProject::source_availability` and
   `modules_without_source`. `set_module_source` on a compiled-only module
   fails with `ModelError::CompiledOnlyModule`. See
-  [compiled-projects.md](compiled-projects.md).
+  [compiled-projects.md](../runtime/compiled-projects.md).
 - `ProjectVersion` (`VbaProject::project_version`): version-related facts: the
   `_VBA_PROJECT` version word, `SysKind`, code page, LCID, per-reference
   library facts (`ReferenceHint`) and `compiled_only`, plus a deliberately

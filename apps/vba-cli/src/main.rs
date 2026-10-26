@@ -30,7 +30,7 @@ enum Command {
     Inspect {
         /// The file or directory to inspect.
         file: PathBuf,
-        /// Print machine-readable JSON (schema in docs/vba-format.md).
+        /// Print machine-readable JSON (schema in docs/formats/vba-format.md).
         #[arg(long)]
         json: bool,
     },

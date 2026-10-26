@@ -10,7 +10,7 @@
 //! its source span and statement.
 //!
 //! [`dump_program`] produces the text form used by the snapshot tests and
-//! [`verify`] checks the IR invariants. See `docs/ir.md`.
+//! [`verify`] checks the IR invariants. See `docs/language/ir.md`.
 
 mod ir;
 mod lower;

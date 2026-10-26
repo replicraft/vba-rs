@@ -1,6 +1,6 @@
 //! Hand-built, fully synthetic cache and project-stream bytes for tests.
 //!
-//! The builders follow `docs/pcode-format.md` for the VBA 7.0 x86 layout;
+//! The builders follow `docs/formats/pcode-format.md` for the VBA 7.0 x86 layout;
 //! nothing here is derived from any real project.
 
 #![allow(dead_code, missing_docs)]

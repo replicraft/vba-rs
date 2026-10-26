@@ -14,7 +14,7 @@
 //!
 //! A genuinely empty module still stores a container (a signature byte plus
 //! an empty chunk list), so "no container" is distinguishable from "a
-//! container that decompresses to nothing". See `docs/compiled-projects.md`
+//! container that decompresses to nothing". See `docs/runtime/compiled-projects.md`
 //! for the limits of this heuristic.
 
 use crate::{Module, VbaProject};

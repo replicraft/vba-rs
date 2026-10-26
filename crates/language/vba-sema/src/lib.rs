@@ -11,7 +11,7 @@
 //!
 //! Library types (host object models, COM libraries) come from an injected
 //! [`TypeProvider`]; anything the provider cannot answer is reported
-//! explicitly, never guessed. See `docs/sema.md`.
+//! explicitly, never guessed. See `docs/language/sema.md`.
 
 pub mod bound;
 pub mod builtins;

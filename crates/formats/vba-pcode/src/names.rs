@@ -9,7 +9,7 @@ use crate::project_stream::IdentTable;
 /// every instruction whose name operand has this built-in index sits on a
 /// source line that contains the spelling as a token, and no other
 /// candidate token is shared by all such lines. Entries observed fewer than
-/// twice are noted in `docs/pcode-status.md`. Indices are the value `k`
+/// twice are noted in `docs/formats/pcode-status.md`. Indices are the value `k`
 /// (`word >> 1`) after the VBA7 adjustment of section 5.2 of the format
 /// document; no confirmed entry lies in the adjusted range.
 ///

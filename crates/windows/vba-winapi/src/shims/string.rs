@@ -214,7 +214,7 @@ fn map_unit(u: u16, upper: bool) -> u16 {
 /// `CharUpper` convention) and the converted character is returned; otherwise
 /// the string is converted in place and the pointer is returned. Case mapping
 /// uses Unicode simple mappings of the Rust standard library; Windows' own
-/// tables may differ for rare characters (see docs/winapi.md).
+/// tables may differ for rare characters (see docs/interop/winapi.md).
 fn char_case(
     ctx: &mut CallContext,
     a: &Args,

@@ -1,5 +1,5 @@
 //! A minimal MSFT type library writer used only by tests. It emits the
-//! layout documented in `docs/typelib.md` (not byte-identical to any
+//! layout documented in `docs/formats/typelib.md` (not byte-identical to any
 //! compiler's output: hash tables are zero, unknown header words are fixed).
 
 use std::collections::HashMap;

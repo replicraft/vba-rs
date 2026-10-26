@@ -88,7 +88,7 @@ changed path that is not (invalidated `VBA/__SRP_n` caches), and leaves all
 other streams as they are: an unedited project returns byte-identical streams
 and an empty `changed_streams`. The same edits and refusals apply as for a
 `vbaProject.bin` (`Error::Format(UnsupportedEdit)`, including for compiled-only
-modules). Details are in [vba-format.md](vba-format.md).
+modules). Details are in [vba-format.md](../formats/vba-format.md).
 
 `Project::version()` returns `ProjectVersion`: the `_VBA_PROJECT` version word,
 platform, code page, LCID, reference library facts and `compiled_only`.
@@ -164,9 +164,9 @@ names:
 interpret; `to_bytes` reproduces it. Supported edits are module source and
 module/project metadata held in the `dir` stream; adding, removing or renaming
 modules of a project read from a file returns a format error (see
-`vba-format.md`).
+`../formats/vba-format.md`).
 
 ## What the facade does not promise
 
 It does not promise full VBA compatibility. How much is measured, and where it
-is not, is in [conformance.md](conformance.md).
+is not, is in [conformance.md](../tooling/conformance.md).

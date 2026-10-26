@@ -208,7 +208,7 @@ CRLF, on three profiles (`tests/corpus.rs`).
   extracts only top-level `name = value` lines. Form designer binary data
   (`.frx`) is out of scope.
 - Non-Latin identifier forms and non-ASCII whitespace follow the lexer's
-  limits (`docs/lexer.md`).
+  limits (`docs/language/lexer.md`).
 - `Else` followed by a statement on the same line of a block `If` and
   indented labels are accepted with a warning because VBE behaviour was not
   verified; they may be accepted or rejected differently by the real editor.

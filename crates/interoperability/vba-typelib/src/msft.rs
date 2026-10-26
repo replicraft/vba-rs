@@ -1,4 +1,4 @@
-//! Reader for the MSFT-format type library (see `docs/typelib.md` for the
+//! Reader for the MSFT-format type library (see `docs/formats/typelib.md` for the
 //! layout, the verification and the open unknowns).
 
 use std::collections::HashMap;

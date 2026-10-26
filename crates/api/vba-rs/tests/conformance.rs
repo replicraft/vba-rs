@@ -3,7 +3,7 @@
 //! Runs every program under `tests/vba/` through the public facade and
 //! compares its output with the expectation embedded in the program, then
 //! checks that `tests/inventory.csv` is well-formed, agrees with the programs
-//! and that `docs/conformance.md` is the summary of that inventory.
+//! and that `docs/tooling/conformance.md` is the summary of that inventory.
 //!
 //! Program format (comment lines at the top of a `.bas` file):
 //!
@@ -21,7 +21,7 @@
 //!
 //! A line `'#MODULE Name standard|class` starts another module in the same file.
 //!
-//! Regenerate the derived inventory columns and `docs/conformance.md` with
+//! Regenerate the derived inventory columns and `docs/tooling/conformance.md` with
 //! `VBA_BLESS=1 cargo test -p vba-rs --test conformance`.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -785,7 +785,7 @@ fn conformance_doc_is_current() {
     let progs = programs();
     let entries = blessed_inventory();
     let doc = summary(&entries, &progs);
-    let path = root().join("docs/conformance.md");
+    let path = root().join("docs/tooling/conformance.md");
     if bless() {
         std::fs::write(&path, &doc).unwrap();
         return;
@@ -793,6 +793,6 @@ fn conformance_doc_is_current() {
     let have = std::fs::read_to_string(&path).unwrap_or_default();
     assert!(
         have == doc,
-        "docs/conformance.md is stale (run with VBA_BLESS=1 cargo test -p vba-rs --test conformance)"
+        "docs/tooling/conformance.md is stale (run with VBA_BLESS=1 cargo test -p vba-rs --test conformance)"
     );
 }

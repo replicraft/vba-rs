@@ -114,7 +114,7 @@ impl Default for LexOptions {
 /// [`Lexer::diagnostics`] once the iteration is done.
 ///
 /// The lexer is context free. Where the grammar needs context, it applies the
-/// heuristics documented in `docs/lexer.md` (whether a `&` starts a radix
+/// heuristics documented in `docs/language/lexer.md` (whether a `&` starts a radix
 /// literal, whether `&`, `^` or `!` directly after a name is a type suffix).
 #[derive(Debug)]
 pub struct Lexer<'a> {
