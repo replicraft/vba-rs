@@ -1,0 +1,21 @@
+[package]
+name = "vba-lsp"
+description = "Language server (stdio) for VBA, built on vba-lsp-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vba-lsp"
+path = "src/main.rs"
+
+[dependencies]
+lsp-server.workspace = true
+lsp-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+vba-lsp-core.workspace = true
+
+[lints]
+workspace = true
