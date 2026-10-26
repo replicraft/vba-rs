@@ -30,7 +30,11 @@ documented decisions, not claims about real VBA behaviour.
 
 ## Not implemented
 
-* The interpreter does not call these hooks yet; `vba-host` defines the contract only.
+* `vba-vm` calls these hooks: `lookup_global` for library globals, `create_object` / `get_object` for
+  `CreateObject` / `GetObject`, `check` before every file and process operation, `call_declare`-style
+  checks and `declare_hook` for `Declare`, `ui()` for `MsgBox` / `InputBox`, `idle()` at `DoEvents`, and the
+  budget for steps, memory and call depth. Limit exhaustion is an untrappable fault in the VM, not
+  the trappable errors 18 / 7 / 28 that `LimitExceeded::into_err_info` describes. See `docs/vm.md`.
 * File and process operations themselves are not provided, only the capability checks for them. Path canonicalisation (symlinks, `.`, drive aliases) is left to the embedder; the policy compares text prefixes.
 * No network, process or UI-automation hooks beyond the capability names.
 * `MsgBox` help-file and context arguments, `InputBox` position and `DoEvents` form counts are not modelled.

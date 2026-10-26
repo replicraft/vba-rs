@@ -101,4 +101,5 @@ Not exercised / gaps:
 * UDT alignment and `ByRef String` pointer-to-pointer semantics are
   community-documented, not specified by MS-VBAL.
 * `Err.LastDllError` capture after each `Declare` call is the runtime's job
-  (it reads `LastErrorStore`); it is not wired here.
+  (it reads `LastErrorStore`); `vba-vm` does this after every call that goes through a
+  `vba-winapi` provider.

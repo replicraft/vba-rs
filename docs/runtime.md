@@ -1,0 +1,172 @@
+# vba-runtime
+
+`crates/runtime/vba-runtime` orchestrates a VBA program on top of `vba-vm`: it
+loads a project, applies the trust gate, provides the file system behind the
+file statements and gives the embedder by-name invocation and a classified
+error type. It has no dependency on any host application.
+
+```rust
+let mut session = Session::builder()
+    .host(host)                    // permissions, limits, objects, UI (default: headless, deny all)
+    .vfs(MemFs::new())             // or RealFs::new()
+    .debug_sink(sink)
+    .build_project(&project)?;     // parse -> sema -> IR -> VM; nothing runs
+session.trust();                   // the embedder's explicit decision
+session.run_procedure("Module1.Main", vec![])?;
+```
+
+## Session
+
+- **Loading** (`build_project`, `build_sources`): parse, semantic analysis with
+  the injected `TypeProvider`, IR lowering and verification, then a `Vm`.
+  Errors are `Error::Load` with the rendered diagnostics; warnings are kept
+  (`Session::warnings`). Project conditional-compilation constants and the
+  project name (`Err.Source` default) come from the `VbaProject`.
+- **Trust gate.** A session never runs anything by itself, not even
+  `Auto_Open`, `Workbook_Open` or `Class_Initialize` of default instances.
+  `run_procedure`, `raise_event` and `shutdown` return `Error::NotTrusted` until
+  the embedder calls `Session::trust`.
+- **Invocation by name** (`Application.Run`-like): `Proc` (standard modules,
+  case-insensitive) or `Module.Proc`. Ambiguous bare names, private procedures,
+  procedures of class modules without a default instance and properties are
+  rejected with distinct errors. A procedure of a document or designer module
+  runs on the module's default instance. `raise_event("Workbook", "Open", args)`
+  runs `Workbook_Open` of a document module (`Ok(None)` when nothing handles
+  it).
+- **Isolation.** Each session owns its VM: module variables, default
+  instances, `Err`, the random generator and open files are per session.
+- `shutdown` releases module-level objects (running `Class_Terminate` in
+  declaration order) and closes files, writing them back.
+
+## Error taxonomy
+
+| `Error` | Who is responsible |
+| --- | --- |
+| `Load` | the project does not compile (rendered diagnostics) |
+| `NotTrusted`, `NoSuchProcedure`, `AmbiguousProcedure`, `NotCallable` | the embedder's request |
+| `Vba` | an unhandled error raised by the program or the language (with procedure, line, stack) |
+| `Host` | an unhandled error reported by a host hook or host object |
+| `PermissionDenied` | a capability the policy refused (error 70) |
+| `Bridge` | the `Declare` bridge could not make a call |
+| `Limit` | steps, memory, call depth, string length or array size |
+| `Cancelled` | the host's idle hook asked to stop |
+| `Unsupported` | a feature this implementation lacks |
+| `Internal` | a broken invariant (a bug) |
+
+Only `Vba`, `Host` and `PermissionDenied` start as trappable VBA errors
+(`On Error` sees them as numbers such as 70 or the host's number); the others
+end the run regardless of `On Error`.
+
+## File system layer
+
+All file statements and functions (`Open`, `Close`, `Print #`, `Write #`,
+`Input #`, `Line Input #`, `Get`, `Put`, `Seek`, `Lock`, `Unlock`, `Width`,
+`Name`, `Kill`, `MkDir`, `RmDir`, `ChDir`, `ChDrive`, `CurDir`, `Dir`,
+`FileCopy`, `FileLen`, `FileDateTime`, `GetAttr`, `SetAttr`, `FreeFile`, `EOF`,
+`LOF`, `Loc`, `Seek()`) run against a `Vfs`:
+
+- `MemFs`: in memory, case-insensitive and case-preserving, drive roots and `/`,
+  deterministic timestamps (2000-01-01 unless `set_time`).
+- `RealFs`: the real file system, opt-in. Paths are resolved with symbolic
+  links *before* the policy is asked (`Vfs::canonical`), so a link inside a
+  granted directory cannot reach outside it. Hidden/system attributes cannot be
+  set.
+
+Paths are normalized against a virtual working directory: backslashes become
+slashes, `.` and `..` are resolved lexically (`..` stops at the root), drive
+letters are lower-cased. `CurDir` returns that normalized form (`/dir`,
+`c:/dir`). `ChDir` changes only the virtual directory, never the process's.
+
+**Permissions** (`vba_host::Policy`, deny by default, textual prefixes on the
+normalized path): reading needs `FileRead` (`Open` for `Input`, `Binary`/
+`Random` with read access, `Dir`, `ChDir`, `FileLen`, `GetAttr`, `FileDateTime`,
+`FileCopy` source); anything that creates, changes or deletes needs `FileWrite`
+(`Open` for `Output`/`Append`/write access, `Kill`, `MkDir`, `RmDir`, `Name`,
+`FileCopy` target, `SetAttr`). `Binary`/`Random` without `Access` need both.
+Operations on a directory itself check the path with a trailing slash, so the
+grant `/data/` covers `ChDir "/data"`. Denial is error 70 with the resource in
+`Err.Source`. A path that leaves a scoped grant through `..` is denied because
+the policy sees the normalized path.
+
+**Semantics** (documented VBA behavior, not verified against Office):
+
+- Open files are loaded into memory and written back at `Close`, `Close` with no
+  arguments, `End`, `Reset` and when the file system is dropped; the memory is
+  charged to the host budget and a file larger than `max_file_bytes` (64 MiB) is
+  error 61. Text is Windows-1252 with CR LF line ends.
+- `Open`: `Input` needs the file (53); `Output` truncates; `Append` positions at
+  the end; `Binary`/`Random` create a missing file when writing. A second `Open`
+  of a path that is open with write access, or of an open file number, is error
+  55; file numbers outside 1..511 are 52.
+- `Print #` uses the `Debug.Print` layout (leading/trailing space on numbers,
+  14-column zones, `Tab`, `Spc`, `Width`). `Write #` writes `"text"`, numbers
+  without padding, `#TRUE#`/`#FALSE#`, `#NULL#`, dates as `#yyyy-mm-dd#`,
+  `#hh:mm:ss#` or both, `#ERROR n#`, and a comma between items; embedded quotes
+  are not escaped.
+- `Input #` skips leading blanks and line breaks, reads quoted or comma/line
+  delimited tokens and converts them to the target type (numbers like `Val`);
+  into a `Variant` the token decides the subtype. `Line Input #` accepts CR, LF
+  and CR LF. Reading past the end is error 62.
+- `Get`/`Put` layout: scalars little endian, `Boolean` -1/0 in two bytes,
+  `String * n` space padded ANSI, variable strings raw in binary mode and with a
+  two-byte length in random mode, `Variant` with a two-byte type tag, UDTs and
+  fixed arrays as the concatenation of their members; random records are padded
+  to `Len` (error 59 if larger). Unknown `Variant` tags are error 321.
+- `Dir` supports `*` and `?`, the `vbDirectory`/`vbHidden`/`vbSystem`
+  attributes, and a plain name to test existence. `Kill` accepts wildcards.
+- `Lock`/`Unlock` validate the file number only; there is no other process to
+  lock against.
+
+**Not implemented:** the `Reset` statement (the analysis does not bind it),
+shared/exclusive `Lock` conflicts between files, `ChDrive` to another drive
+(error 68), `Get`/`Put` of `Decimal` and of variants holding arrays or objects,
+UNC paths and `Open ... Lock` semantics beyond bookkeeping.
+
+## Other services
+
+- `Shell` needs the `ProcessSpawn` grant for the command line **and** a
+  `ShellHook` in the builder; without one it is an `Unsupported` error even when
+  granted. `StdShell` (opt-in) starts `sh -c` / `cmd /C`, detached.
+- `Command` returns the configured command line (empty by default).
+- `Environ`, `Now`, `Date`, `Timer` come from the injected
+  `vba_stdlib::Host`: a fixed clock (2000-01-01) and an empty environment by
+  default; `SystemHost` (opt-in) reads the real UTC clock and environment.
+- `MsgBox` / `InputBox` go to the host's `UiHooks` (headless: error 70).
+- `CreateObject` / `GetObject` go to the host (`ComCreate`, `FileRead`
+  checks first); `Declare` as in `docs/vm.md`.
+- `Debug.Print` goes to the `DebugSink`.
+
+## CLI
+
+`vbars` (crate `vba-cli`):
+
+| Command | Result |
+| --- | --- |
+| `lex FILE [--trivia] [--profile ID]` | tokens with positions, lexer diagnostics; exit 1 on errors |
+| `parse FILE [--tree] [--profile ID]` | summary or tree, parser diagnostics; exit 1 on errors |
+| `check FILE... [--profile ID]` | semantic analysis of the files (or a `vbaProject.bin`) as one project; exit 1 on errors |
+| `fmt-check FILE` | losslessness of the syntax tree and whitespace findings; exit 1 on findings |
+| `profiles` | the language profiles |
+| `inspect FILE` | project/module listing (unchanged) |
+| `run FILE... [--entry P] [--arg V]... [--grant CAP[=PATH]]... [--profile ID] [--memfs] [--max-steps N] [--max-memory B] [--max-call-depth N] [--system-env] [--allow-shell] [--command T]` | runs a procedure |
+
+`run` is an explicit opt-in and denies everything by default: with no
+`--grant` the program computes and prints (`Debug.Print` to standard output).
+Capabilities are `file-read`, `file-write`, `process-spawn`, `network`,
+`com-create`, `native-declare`, `ui-automation`; `=PATH` scopes a grant to a
+path prefix (an existing directory gets a trailing slash). The file system is
+the real one unless `--memfs`. Exit codes: 0 success (also `Stop`), 1 bad input
+or the project does not compile, 2 unhandled run-time error (VBA or host),
+3 permission denied, 4 resource limit or cancelled, 5 unsupported feature,
+bridge failure or internal error.
+
+## Tests
+
+`tests/fileio.rs` (about 35 programs over the in-memory file system: text,
+binary and random access, directory functions, error numbers),
+`tests/permissions.rs` (deny by default, read-only, prefix scoping, traversal,
+backslashes, symbolic links with the real file system, memory accounting),
+`tests/session.rs` (trust gate, by-name invocation, isolation, loading, the
+error taxonomy, `Shell`, environment, shutdown) and `tests/properties.rs`
+(`Write`/`Input`, `Print`/`Line Input`, `Put`/`Get` round trips; arbitrary file
+contents never panic; path normalization invariants).
