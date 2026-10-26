@@ -71,6 +71,9 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 clap_mangen = "0.3"
 
+# Operating system access
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
+
 # Native interop
 libffi = "5.2.0"
 libloading = "0.9.0"

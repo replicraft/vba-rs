@@ -6,11 +6,16 @@
 //! link inside a granted directory cannot reach outside it.
 
 use std::fs;
-use std::io::{ErrorKind, Read, Write};
+#[cfg(not(unix))]
+use std::io::Write;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::vfs::*;
+
+#[cfg(unix)]
+use crate::realfs_unix as sys;
 
 /// The real file system, starting in the process working directory.
 #[derive(Debug, Clone)]
@@ -40,7 +45,7 @@ fn to_canonical_text(p: &Path) -> String {
     }
 }
 
-fn map_err(e: &std::io::Error) -> VfsError {
+pub(crate) fn map_err(e: &std::io::Error) -> VfsError {
     match e.kind() {
         ErrorKind::NotFound => VfsError::NotFound,
         ErrorKind::AlreadyExists => VfsError::AlreadyExists,
@@ -55,6 +60,7 @@ fn map_err(e: &std::io::Error) -> VfsError {
 /// Refuses devices, pipes and sockets (`/dev/zero` never ends, a FIFO blocks
 /// the interpreter). A missing path and a directory pass; callers deal with
 /// them.
+#[cfg(not(unix))]
 fn ensure_not_special(path: &str) -> VfsResult<()> {
     match fs::metadata(path) {
         Ok(m) if !m.is_file() && !m.is_dir() => Err(VfsError::Denied),
@@ -155,16 +161,32 @@ impl RealFs {
     }
 }
 
-/// Whether the open `file` is the file now found at `path`.
-#[cfg(unix)]
-fn is_same_file(file: &fs::File, path: &str) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (file.metadata(), fs::metadata(path)) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
+#[cfg(test)]
+type Hook = Box<dyn FnMut(&str)>;
+
+#[cfg(test)]
+thread_local! {
+    static HOOK: std::cell::RefCell<Option<Hook>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A point between the check of a path and its use, where a test can play
+/// the part of another process: `"checked"` after the path was re-resolved,
+/// `"opened"` after the directories were opened and before the system call.
+#[cfg(test)]
+pub(crate) fn checkpoint(stage: &str) {
+    let hook = HOOK.with(|h| h.borrow_mut().take());
+    if let Some(mut f) = hook {
+        f(stage);
+        HOOK.with(|h| *h.borrow_mut() = Some(f));
     }
 }
 
+#[cfg(not(test))]
+#[inline]
+pub(crate) fn checkpoint(_stage: &str) {}
+
+/// Whether the open `file` is the file now found at `path`. Without
+/// directory handles (not Unix) this cannot be checked and holds.
 #[cfg(not(unix))]
 fn is_same_file(_file: &fs::File, _path: &str) -> bool {
     true
@@ -203,20 +225,29 @@ impl Vfs for RealFs {
 
     fn read_limited(&mut self, path: &str, max: usize) -> VfsResult<Vec<u8>> {
         self.exact(path)?;
-        if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
-            return Err(VfsError::IsADirectory);
-        }
-        ensure_not_special(path)?;
-        let file = fs::File::open(path).map_err(|e| map_err(&e))?;
+        checkpoint("checked");
+        #[cfg(unix)]
+        let file = sys::open_read(path)?;
+        #[cfg(not(unix))]
+        let file = {
+            if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
+                return Err(VfsError::IsADirectory);
+            }
+            ensure_not_special(path)?;
+            fs::File::open(path).map_err(|e| map_err(&e))?
+        };
         // Checked on the open handle too, so a swap after the test above
         // cannot turn the read into a device read, and the handle must be
         // the file that the approved path names now.
-        if !file.metadata().map_err(|e| map_err(&e))?.is_file() {
-            return Err(VfsError::Denied);
-        }
-        self.exact(path)?;
-        if !is_same_file(&file, path) {
-            return Err(VfsError::Denied);
+        #[cfg(not(unix))]
+        {
+            if !file.metadata().map_err(|e| map_err(&e))?.is_file() {
+                return Err(VfsError::Denied);
+            }
+            self.exact(path)?;
+            if !is_same_file(&file, path) {
+                return Err(VfsError::Denied);
+            }
         }
         let mut out = Vec::new();
         file.take(max as u64 + 1)
@@ -230,76 +261,125 @@ impl Vfs for RealFs {
 
     fn write(&mut self, path: &str, data: &[u8]) -> VfsResult<()> {
         self.exact(path)?;
-        let (parent, _) = split_parent(path);
-        if !fs::metadata(&parent).is_ok_and(|m| m.is_dir()) {
-            return Err(VfsError::PathNotFound);
+        checkpoint("checked");
+        #[cfg(unix)]
+        {
+            sys::write(path, data)
         }
-        if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
-            return Err(VfsError::IsADirectory);
+        #[cfg(not(unix))]
+        {
+            let (parent, _) = split_parent(path);
+            if !fs::metadata(&parent).is_ok_and(|m| m.is_dir()) {
+                return Err(VfsError::PathNotFound);
+            }
+            if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
+                return Err(VfsError::IsADirectory);
+            }
+            ensure_not_special(path)?;
+            // Opened without truncating: nothing is destroyed until the
+            // handle is known to be the approved file. A file may still be
+            // created at a swapped place here; see the security model.
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(path)
+                .map_err(|e| map_err(&e))?;
+            self.exact(path)?;
+            if !file.metadata().map_err(|e| map_err(&e))?.is_file() || !is_same_file(&file, path) {
+                return Err(VfsError::Denied);
+            }
+            file.set_len(0).map_err(|e| map_err(&e))?;
+            file.write_all(data).map_err(|e| map_err(&e))
         }
-        ensure_not_special(path)?;
-        // Opened without truncating: nothing is destroyed until the handle
-        // is known to be the approved file.
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)
-            .map_err(|e| map_err(&e))?;
-        self.exact(path)?;
-        if !file.metadata().map_err(|e| map_err(&e))?.is_file() || !is_same_file(&file, path) {
-            return Err(VfsError::Denied);
-        }
-        file.set_len(0).map_err(|e| map_err(&e))?;
-        file.write_all(data).map_err(|e| map_err(&e))
     }
 
     fn remove_file(&mut self, path: &str) -> VfsResult<()> {
         self.exact_parent(path)?;
-        if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
-            return Err(VfsError::IsADirectory);
+        checkpoint("checked");
+        #[cfg(unix)]
+        {
+            sys::remove_file(path)
         }
-        fs::remove_file(path).map_err(|e| map_err(&e))
+        #[cfg(not(unix))]
+        {
+            if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
+                return Err(VfsError::IsADirectory);
+            }
+            fs::remove_file(path).map_err(|e| map_err(&e))
+        }
     }
 
     fn rename(&mut self, from: &str, to: &str) -> VfsResult<()> {
         self.exact_parent(from)?;
         self.exact_parent(to)?;
-        if fs::symlink_metadata(to).is_ok() {
-            return Err(VfsError::AlreadyExists);
+        checkpoint("checked");
+        #[cfg(unix)]
+        {
+            sys::rename(from, to)
         }
-        fs::rename(from, to).map_err(|e| map_err(&e))
+        #[cfg(not(unix))]
+        {
+            if fs::symlink_metadata(to).is_ok() {
+                return Err(VfsError::AlreadyExists);
+            }
+            fs::rename(from, to).map_err(|e| map_err(&e))
+        }
     }
 
     fn copy(&mut self, from: &str, to: &str) -> VfsResult<()> {
         self.exact(from)?;
         self.exact(to)?;
-        if fs::metadata(from).is_ok_and(|m| m.is_dir()) {
-            return Err(VfsError::IsADirectory);
+        checkpoint("checked");
+        #[cfg(unix)]
+        {
+            sys::copy(from, to)
         }
-        ensure_not_special(from)?;
-        ensure_not_special(to)?;
-        fs::copy(from, to).map(|_| ()).map_err(|e| map_err(&e))
+        #[cfg(not(unix))]
+        {
+            if fs::metadata(from).is_ok_and(|m| m.is_dir()) {
+                return Err(VfsError::IsADirectory);
+            }
+            ensure_not_special(from)?;
+            ensure_not_special(to)?;
+            fs::copy(from, to).map(|_| ()).map_err(|e| map_err(&e))
+        }
     }
 
     fn create_dir(&mut self, path: &str) -> VfsResult<()> {
         self.exact_parent(path)?;
-        let (parent, _) = split_parent(path);
-        if fs::symlink_metadata(path).is_ok() {
-            return Err(VfsError::AlreadyExists);
+        checkpoint("checked");
+        #[cfg(unix)]
+        {
+            sys::create_dir(path)
         }
-        if !fs::metadata(&parent).is_ok_and(|m| m.is_dir()) {
-            return Err(VfsError::PathNotFound);
+        #[cfg(not(unix))]
+        {
+            let (parent, _) = split_parent(path);
+            if fs::symlink_metadata(path).is_ok() {
+                return Err(VfsError::AlreadyExists);
+            }
+            if !fs::metadata(&parent).is_ok_and(|m| m.is_dir()) {
+                return Err(VfsError::PathNotFound);
+            }
+            fs::create_dir(path).map_err(|e| map_err(&e))
         }
-        fs::create_dir(path).map_err(|e| map_err(&e))
     }
 
     fn remove_dir(&mut self, path: &str) -> VfsResult<()> {
         self.exact_parent(path)?;
-        match fs::metadata(path) {
-            Ok(m) if m.is_dir() => fs::remove_dir(path).map_err(|e| map_err(&e)),
-            Ok(_) => Err(VfsError::NotADirectory),
-            Err(e) => Err(map_err(&e)),
+        checkpoint("checked");
+        #[cfg(unix)]
+        {
+            sys::remove_dir(path)
+        }
+        #[cfg(not(unix))]
+        {
+            match fs::metadata(path) {
+                Ok(m) if m.is_dir() => fs::remove_dir(path).map_err(|e| map_err(&e)),
+                Ok(_) => Err(VfsError::NotADirectory),
+                Err(e) => Err(map_err(&e)),
+            }
         }
     }
 
@@ -329,10 +409,18 @@ impl Vfs for RealFs {
             ));
         }
         self.exact(path)?;
-        let m = fs::metadata(path).map_err(|e| map_err(&e))?;
-        let mut perm = m.permissions();
-        perm.set_readonly(attributes & ATTR_READONLY != 0);
-        fs::set_permissions(path, perm).map_err(|e| map_err(&e))
+        checkpoint("checked");
+        #[cfg(unix)]
+        {
+            sys::set_readonly(path, attributes & ATTR_READONLY != 0)
+        }
+        #[cfg(not(unix))]
+        {
+            let m = fs::metadata(path).map_err(|e| map_err(&e))?;
+            let mut perm = m.permissions();
+            perm.set_readonly(attributes & ATTR_READONLY != 0);
+            fs::set_permissions(path, perm).map_err(|e| map_err(&e))
+        }
     }
 }
 
@@ -422,6 +510,191 @@ mod tests {
         assert!(!Path::new(&format!("{base}/allowed/c")).exists());
         assert!(!Path::new(&format!("{base}/allowed/r")).exists());
         assert!(!Path::new(&format!("{base}/outside/sub")).exists());
+    }
+
+    /// A scratch tree: `allowed/dir/` (real directory with `file`, `sub/`)
+    /// and `outside/` with a `secret` file and a `keep/` directory.
+    #[cfg(unix)]
+    struct Tree {
+        _guard: tempfile::TempDir,
+        base: String,
+    }
+
+    #[cfg(unix)]
+    impl Tree {
+        fn new() -> Tree {
+            let dir = tempfile::tempdir().unwrap();
+            let base = to_canonical_text(&fs::canonicalize(dir.path()).unwrap());
+            fs::create_dir_all(format!("{base}/allowed/dir/sub")).unwrap();
+            fs::write(format!("{base}/allowed/dir/file"), "inside").unwrap();
+            fs::create_dir_all(format!("{base}/outside/keep")).unwrap();
+            fs::write(format!("{base}/outside/file"), "outside").unwrap();
+            fs::write(format!("{base}/outside/other"), "other").unwrap();
+            fs::create_dir(format!("{base}/outside/sub")).unwrap();
+            fs::write(format!("{base}/allowed/loose"), "loose").unwrap();
+            Tree { _guard: dir, base }
+        }
+
+        fn p(&self, rel: &str) -> String {
+            format!("{}/{rel}", self.base)
+        }
+
+        /// Nothing under `outside` was created, changed or removed.
+        fn assert_outside_untouched(&self, what: &str) {
+            let mut names: Vec<_> = fs::read_dir(self.p("outside"))
+                .unwrap()
+                .map(|e| e.unwrap().file_name().into_string().unwrap())
+                .collect();
+            names.sort();
+            assert_eq!(names, ["file", "keep", "other", "sub"], "{what}");
+            let read = |n: &str| fs::read_to_string(self.p(n)).unwrap();
+            assert_eq!(read("outside/file"), "outside", "{what}");
+            assert_eq!(read("outside/other"), "other", "{what}");
+            assert!(Path::new(&self.p("outside/sub")).is_dir(), "{what}");
+        }
+    }
+
+    /// Moves `allowed/dir` away and puts a link to `outside` in its place.
+    #[cfg(unix)]
+    fn swap_dir_for_link(base: &str) {
+        fs::rename(
+            format!("{base}/allowed/dir"),
+            format!("{base}/allowed/moved"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(format!("{base}/outside"), format!("{base}/allowed/dir"))
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    fn on_stage(stage: &'static str, f: impl Fn() + 'static) {
+        HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |s: &str| {
+                if s == stage {
+                    f();
+                }
+            }));
+        });
+    }
+
+    #[cfg(unix)]
+    fn clear_hook() {
+        HOOK.with(|h| *h.borrow_mut() = None);
+    }
+
+    /// A parent directory swapped for a link between the re-resolution and
+    /// the use must not redirect any operation.
+    #[cfg(unix)]
+    #[test]
+    fn a_parent_swapped_after_the_check_does_not_redirect_an_operation() {
+        type Op = Box<dyn Fn(&mut RealFs, &Tree) -> VfsResult<()>>;
+        let ops: Vec<(&str, Op)> = vec![
+            (
+                "kill",
+                Box::new(|f, t| f.remove_file(&t.p("allowed/dir/file"))),
+            ),
+            (
+                "name from",
+                Box::new(|f, t| f.rename(&t.p("allowed/dir/file"), &t.p("allowed/renamed"))),
+            ),
+            (
+                "name to",
+                Box::new(|f, t| f.rename(&t.p("allowed/loose"), &t.p("allowed/dir/file2"))),
+            ),
+            (
+                "mkdir",
+                Box::new(|f, t| f.create_dir(&t.p("allowed/dir/new"))),
+            ),
+            (
+                "rmdir",
+                Box::new(|f, t| f.remove_dir(&t.p("allowed/dir/sub"))),
+            ),
+            (
+                "copy from",
+                Box::new(|f, t| f.copy(&t.p("allowed/dir/file"), &t.p("allowed/copy"))),
+            ),
+            (
+                "copy to",
+                Box::new(|f, t| f.copy(&t.p("allowed/loose"), &t.p("allowed/dir/copy"))),
+            ),
+            (
+                "write",
+                Box::new(|f, t| f.write(&t.p("allowed/dir/created"), b"x")),
+            ),
+            (
+                "write over",
+                Box::new(|f, t| f.write(&t.p("allowed/dir/file"), b"x")),
+            ),
+            (
+                "read",
+                Box::new(|f, t| f.read(&t.p("allowed/dir/file")).map(|_| ())),
+            ),
+            (
+                "setattr",
+                Box::new(|f, t| f.set_attributes(&t.p("allowed/dir/file"), 1)),
+            ),
+        ];
+        for stage in ["checked", "opened"] {
+            for (name, op) in &ops {
+                let t = Tree::new();
+                let base = t.base.clone();
+                on_stage(stage, move || swap_dir_for_link(&base));
+                let mut f = RealFs::new();
+                let _ = op(&mut f, &t);
+                clear_hook();
+                t.assert_outside_untouched(&format!("{name} at {stage}"));
+            }
+        }
+    }
+
+    /// The same swap, played for a final component: a link to a name that
+    /// does not exist yet must not make a write create it.
+    #[cfg(unix)]
+    #[test]
+    fn a_write_through_a_swapped_name_creates_nothing_outside() {
+        for stage in ["checked", "opened"] {
+            let t = Tree::new();
+            let (link, target) = (t.p("allowed/new"), t.p("outside/created"));
+            on_stage(stage, move || {
+                let _ = std::os::unix::fs::symlink(&target, &link);
+            });
+            let mut f = RealFs::new();
+            let r = f.write(&t.p("allowed/new"), b"x");
+            clear_hook();
+            assert!(r.is_err(), "{stage}");
+            t.assert_outside_untouched(stage);
+        }
+    }
+
+    /// A swap between the opening of the directory and the system call
+    /// lands on the directory that was verified.
+    #[cfg(unix)]
+    #[test]
+    fn an_operation_acts_on_the_directory_that_was_verified() {
+        let t = Tree::new();
+        let base = t.base.clone();
+        on_stage("opened", move || swap_dir_for_link(&base));
+        let mut f = RealFs::new();
+        assert_eq!(f.remove_file(&t.p("allowed/dir/file")), Ok(()));
+        clear_hook();
+        assert!(!Path::new(&t.p("allowed/moved/file")).exists());
+        t.assert_outside_untouched("opened");
+    }
+
+    /// A swap of the parent while a write is pending leaves no empty file
+    /// at the new place either.
+    #[cfg(unix)]
+    #[test]
+    fn a_swapped_parent_leaves_no_stray_empty_file() {
+        let t = Tree::new();
+        let base = t.base.clone();
+        on_stage("checked", move || swap_dir_for_link(&base));
+        let mut f = RealFs::new();
+        let r = f.write(&t.p("allowed/dir/stray"), b"data");
+        clear_hook();
+        assert!(r.is_err());
+        t.assert_outside_untouched("stray");
+        assert!(!Path::new(&t.p("allowed/moved/stray")).exists());
     }
 
     #[test]

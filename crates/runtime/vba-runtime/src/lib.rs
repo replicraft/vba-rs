@@ -43,6 +43,8 @@ mod members;
 mod memfs;
 mod ops;
 mod realfs;
+#[cfg(unix)]
+mod realfs_unix;
 mod records;
 mod session;
 mod shell;

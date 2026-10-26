@@ -24,6 +24,9 @@ vba-value.workspace = true
 vba-vm.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
