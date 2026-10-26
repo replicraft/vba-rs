@@ -247,6 +247,7 @@ pub fn lower_project_with_options(
     let mut index = lower::ProcIndex::default();
     let mut by_id: HashMap<ProcId, (usize, usize)> = HashMap::new();
     for m in &models {
+        index.module_names.insert(m.name.to_ascii_lowercase());
         let names: std::collections::HashSet<String> = m
             .procs
             .iter()

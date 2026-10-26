@@ -38,6 +38,10 @@ pub(crate) struct ProcIndex {
     /// `[module index]`: lower-case names of all procedures and module-level
     /// declarations of the module, lowered or not.
     pub members: Vec<std::collections::HashSet<String>>,
+    /// Lower-case names of the modules of the project: a name that is the
+    /// name of a module is that module (its default instance), never a
+    /// member of the host base.
+    pub module_names: std::collections::HashSet<String>,
 }
 
 /// An expression tree built from the stack; IR is emitted when a statement
@@ -659,6 +663,11 @@ impl Lw<'_> {
             && (!bare_read || self.cx.host_members.contains(&name.to_ascii_lowercase()))
             && self.module_symbol(name).is_none()
             && !self.cx.index.known_std.contains(&name.to_ascii_lowercase())
+            && !self
+                .cx
+                .index
+                .module_names
+                .contains(&name.to_ascii_lowercase())
             && !self.cx.index.members[self.cx.module].contains(&name.to_ascii_lowercase())
             && vba_stdlib::lookup(name).is_none()
             && BuiltinLibrary.global(name).is_none()
@@ -1435,9 +1444,11 @@ impl Lw<'_> {
             Opcode::ErrResume => {
                 let (name, _) = self.name_of(ins)?;
                 let b = self.label_block(&name);
-                // No resume point: the code after a jump is unreachable, and
-                // error 20 (`Resume` without an error) propagates.
+                // The code after the jump is reached only through
+                // `On Error Resume Next`, which skips error 20 (`Resume`
+                // without an error) and continues with the next statement.
                 self.terminate_and_continue(Terminator::Resume(ResumeKind::Block(b)));
+                self.close_stmt();
             }
             Opcode::LabelNamed => {
                 let (name, _) = self.name_of(ins)?;

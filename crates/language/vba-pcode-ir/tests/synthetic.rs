@@ -1210,6 +1210,41 @@ fn error_handler_with_labels_err_object_and_resume() {
 }
 
 #[test]
+fn resume_without_an_error_is_skipped_by_resume_next() {
+    let mut t = Tables::default();
+    let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
+    // Function Skip() As Long: On Error Resume Next
+    //   Skip = 1: Resume Done: Skip = 7
+    // Done:
+    // The Resume raises error 20, which Resume Next skips.
+    let r = t.name("Skip");
+    let done = t.name("Done");
+    let f = t.function("Skip", Some(T_LONG), &[]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(on_error(1));
+    lines.push(Line::new().i16(1).write(r));
+    lines.push(named_with_modifier(Opcode::ErrResume, 0, done));
+    lines.push(Line::new().i16(7).write(r));
+    lines.push(Line::new().name(Opcode::LabelNamed, done));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    // The same without Resume Next: error 20 propagates.
+    let r2 = t.name("Plain");
+    let f = t.function("Plain", Some(T_LONG), &[]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(Line::new().i16(1).write(r2));
+    lines.push(named_with_modifier(Opcode::ErrResume, 0, done));
+    lines.push(Line::new().i16(7).write(r2));
+    lines.push(Line::new().name(Opcode::LabelNamed, done));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    let lp = lower(&t, &lines);
+    assert_eq!(lp.lowered_count(), 2, "{:?}", lp.procedures);
+    assert_eq!(value(&lp, "Skip", &[]), l(7));
+    let (r, _) = run(&lp, "Plain", &[]);
+    let e = format!("{:?}", r.expect_err("error 20"));
+    assert!(e.contains("number: 20"), "{e}");
+}
+
+#[test]
 fn hexadecimal_literals_and_conversions() {
     let mut t = Tables::default();
     let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
