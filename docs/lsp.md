@@ -1,6 +1,6 @@
 # Language server (`vba-lsp-core`, `vba-lsp`)
 
-`crates/tooling/vba-lsp-core` is the editor-agnostic language intelligence: no
+`crates/language/vba-lsp-core` is the editor-agnostic language intelligence: no
 protocol transport, no async runtime, no dependency on `lsp-types`.
 `apps/vba-lsp` is the executable `vba-lsp`, a thin stdio server (`lsp-server`
 + `lsp-types`, synchronous) that maps requests onto the core. Everything is
