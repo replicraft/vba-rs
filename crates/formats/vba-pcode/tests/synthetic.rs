@@ -194,3 +194,76 @@ fn x64_context_instruction_has_two_dwords() {
         Operands::Ctx(1, None)
     );
 }
+
+/// The 64-bit arrangement end to end: declaration table length at 0x3F, the
+/// indirect table length 12 bytes after its base, function record fields at
+/// their 64-bit offsets, the argument chain through the pointer at +24,
+/// type descriptors and `obj` operands scaled by the pointer size, and the
+/// result-record sentinel `0xFFFF`.
+#[test]
+fn x64_arrangement_end_to_end() {
+    let project = synth::build_project_stream(0xB5, &["Hello", "Count", "Widget"]);
+    let pc = ProjectCache::parse(&project, 3).unwrap();
+    assert_eq!(pc.layout.bitness, Bitness::X64);
+    assert_eq!(pc.layout.verification(), Verification::Verified);
+    assert_eq!(pc.idents.names.len(), 3);
+
+    // Indirect table: function (88) | argument (32) | result record (32) |
+    // descriptor naming object entry 1 (8).
+    let word = |b: [u8; 2]| u16::from_le_bytes(b);
+    let mut ind = synth::function_record64(word(synth::user_name64(0)), 88, 2);
+    ind.extend(synth::argument_record64(
+        word(synth::user_name64(1)),
+        152,
+        120,
+    ));
+    ind.extend(synth::argument_record64(0xFFFF, 0xFFFF_0008, 0));
+    let mut desc = vec![0u8; 8];
+    desc[2..4].copy_from_slice(&8u16.to_le_bytes()); // entry 1, times 8
+    ind.extend(desc);
+    let mut obj1 = [0u8; 10];
+    obj1[6..8].copy_from_slice(&synth::user_name64(2));
+    let mut spec = CacheSpec {
+        x64: true,
+        indirect: ind,
+        objects: vec![[0; 10], obj1],
+        ..CacheSpec::default()
+    };
+    let mut l0 = synth::word(150, 6).to_vec();
+    l0.extend_from_slice(&0u32.to_le_bytes());
+    let mut l1 = synth::word(201, 0).to_vec(); // NEW_OBJECT
+    l1.extend_from_slice(&8u16.to_le_bytes()); // entry 1, times 8
+    spec.lines = vec![l0, l1];
+    let bytes = synth::build_cache(&spec);
+    let cache = ModuleCache::parse(&bytes, &pc.layout).unwrap();
+    assert_eq!(cache.tables.indirect.len(), 88 + 32 + 32 + 8);
+    assert_eq!(cache.tables.declarations.len(), 0);
+
+    let dis = Disassembler::new(&cache, &pc.idents);
+    let l0 = dis.line(0);
+    assert!(l0.error.is_none());
+    let Operand::Procedure(p) = &l0.instructions[0].operands[0] else {
+        panic!("procedure expected");
+    };
+    assert_eq!(p.name, Name::User("Hello".into()));
+    assert_eq!(p.record.arg_count, 2);
+    assert!(p.record.is_public());
+    assert!(!p.is_declare);
+    assert_eq!(p.args.len(), 2);
+    assert_eq!(p.args[0].name, Name::User("Count".into()));
+    assert_eq!(
+        p.args[0].ty,
+        ResolvedType::Named(Name::User("Widget".into()))
+    );
+    assert!(p.args[0].by_val);
+    // The result record: its name is outside the identifier table, not `Me`.
+    assert!(matches!(p.args[1].name, Name::OutOfRange(_)));
+    let l1 = dis.line(1);
+    assert_eq!(
+        l1.instructions[0].operands[0],
+        Operand::Object {
+            offset: 8,
+            class: Some(Name::User("Widget".into())),
+        }
+    );
+}

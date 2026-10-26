@@ -273,7 +273,7 @@ fn phase1_records_agree_with_source() {
                         {
                             var_name_ok += 1;
                         }
-                        if let Ok(TypeRef::Intrinsic(t)) = variable_type(&v, ind, obj)
+                        if let Ok(TypeRef::Intrinsic(t)) = variable_type(&v, ind, obj, &c.layout)
                             && let Some(w) = t.intrinsic.name().map(str::to_lowercase)
                         {
                             intrinsic_vars += 1;

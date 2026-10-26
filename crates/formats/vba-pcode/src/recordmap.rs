@@ -24,18 +24,20 @@ pub enum RecordKind {
 }
 
 impl RecordKind {
-    /// Size in bytes of a record of this kind in the verified layout.
+    /// Size in bytes of a record of this kind.
     ///
-    /// `[obs]` (VBA 7.0 x86): the modal distance between consecutive
-    /// reachable records of the kind in observed material; the
-    /// specification only gives minimum sizes. Returns `None` for layouts
-    /// without observed sizes.
+    /// `[obs]` (VBA 6 and 7, x86 and x64): the modal distance between
+    /// consecutive reachable records of the kind in observed material; the
+    /// specification only gives minimum sizes. Only the function record
+    /// differs between the bitnesses (64 bytes on x86, 88 on x64). Returns
+    /// `None` for VBA 5, which has no observed sizes.
     pub fn size(self, cache: &ModuleCache<'_>) -> Option<usize> {
         let l = &cache.layout;
-        if l.family != VersionFamily::Vba7 || l.bitness != Bitness::X86 {
+        if l.family == VersionFamily::Vba5 {
             return None;
         }
         Some(match self {
+            RecordKind::Function if l.bitness == Bitness::X64 => 88,
             RecordKind::Function => 64,
             RecordKind::Argument => 32,
             RecordKind::Variable | RecordKind::UserType => 24,

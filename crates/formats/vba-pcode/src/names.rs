@@ -97,11 +97,10 @@ impl<'a> Resolver<'a> {
     /// Maps the user-identifier part `j = k - 0x100` to a table index, or
     /// `None` when the adjustment underflows.
     ///
-    /// Section 5.2 of the format document: for VBA7 subtract 4 (x64: 3 more)
-    /// and, above 0xBE, one more. Observation (VBA
-    /// 7.0 x86, version word 0x97) shows only the subtraction of 4; the
-    /// extra step is therefore applied only to layouts other than that
-    /// verified one, where it is unverified.
+    /// `[obs]` (section 5.2 of the format document): for VBA7 subtract 4,
+    /// and 3 more on x64, at every index. The extra step above 0xBE that
+    /// older text described does not occur: in VBA 7 projects of 32-bit
+    /// and 64-bit builds with up to 1,100 identifiers the delta is constant.
     fn user_index(&self, j: usize) -> Option<usize> {
         if self.layout.family != VersionFamily::Vba7 {
             return Some(j);
@@ -110,15 +109,19 @@ impl<'a> Resolver<'a> {
         if self.layout.bitness == Bitness::X64 {
             i = i.checked_sub(3)?;
         }
-        let verified = self.layout.version == crate::layout::VERIFIED_VERSION
-            && self.layout.bitness == Bitness::X86;
-        if !verified && i > 0xBE {
-            i -= 1;
-        }
         Some(i)
     }
 
-    /// Resolves a name word.
+    /// Resolves a name word stored in a record (procedure, argument,
+    /// variable, type or library name). Records have no `Me`: the result
+    /// record of a function (pcode-format.md 6.6) carries the sentinel
+    /// `0xFFFE` on x86 and `0xFFFF` on x64, and the second resolves like the
+    /// first, to a name outside the identifier table.
+    pub fn resolve_symbol(&self, word: u16) -> Name {
+        self.resolve(if word == ME_WORD { word - 1 } else { word })
+    }
+
+    /// Resolves a name word of an instruction operand.
     pub fn resolve(&self, word: u16) -> Name {
         if word == ME_WORD {
             return Name::Me;
@@ -195,6 +198,27 @@ mod tests {
         assert_eq!(r.resolve(35 << 1), Name::UnknownBuiltin(35));
         assert_eq!(r.resolve(0xFFFF), Name::Me);
         assert_eq!(r.resolve(0), Name::None);
+    }
+
+    #[test]
+    fn x64_user_index_and_record_sentinel() {
+        let t = table(400);
+        let r = Resolver::new(&t, Layout::select(0xB5, 3).unwrap());
+        // 4 + 3 at the first index and far above 0xBE.
+        assert_eq!(r.resolve((0x100 + 7) << 1), Name::User("id0".into()));
+        assert_eq!(
+            r.resolve((0x100 + 7 + 0xC0) << 1),
+            Name::User("id192".into())
+        );
+        let r86 = Resolver::new(&t, Layout::select(0xAF, 1).unwrap());
+        assert_eq!(
+            r86.resolve((0x100 + 4 + 0xC0) << 1),
+            Name::User("id192".into())
+        );
+        // Records have no `Me`; the result sentinel is a name outside the table.
+        assert_eq!(r.resolve(0xFFFF), Name::Me);
+        assert!(matches!(r.resolve_symbol(0xFFFF), Name::OutOfRange(_)));
+        assert_eq!(r.resolve_symbol(0xFFFE), r.resolve_symbol(0xFFFF));
     }
 
     #[test]

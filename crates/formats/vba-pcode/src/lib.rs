@@ -6,8 +6,9 @@
 //! specification, and direct observation. The crate takes
 //! plain byte slices; reading the container is the caller's job.
 //!
-//! Only VBA 7.0 on 32-bit Windows is verified against real material. Every
-//! other layout is implemented from the specification text and reported as
+//! The layouts listed in [`VERIFIED_LAYOUTS`] (VBA 6 and 7, 32-bit and 64-bit
+//! Windows) are verified against real material. Every other combination is
+//! implemented from the specification text and reported as
 //! [`Verification::SpecUnverified`].
 
 mod cache;
@@ -38,7 +39,9 @@ pub use disasm::{
 };
 pub use error::{PcodeError, Result, UnsupportedLayout};
 pub use indirect::{IndirectCoverage, IndirectKind, IndirectMap};
-pub use layout::{Bitness, Layout, VERIFIED_VERSION, Verification, VersionFamily};
+pub use layout::{
+    Bitness, Layout, VERIFIED_LAYOUTS, VERIFIED_VERSION, Verification, VersionFamily,
+};
 pub use lines::{
     CODE_ALIGNMENT, LINE_MARKER, LINE_RECORD_SIZE, LINE_TRAILER_SIZE, LineRecord, LineTable,
 };

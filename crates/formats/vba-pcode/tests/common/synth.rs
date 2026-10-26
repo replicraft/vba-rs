@@ -20,6 +20,9 @@ pub struct CacheSpec {
     pub references: Vec<String>,
     /// Number of member-table records (None = standard module layout).
     pub members: Option<usize>,
+    /// Build the 64-bit arrangement (the indirect-table length sits two
+    /// bytes further from its base).
+    pub x64: bool,
 }
 
 impl Default for CacheSpec {
@@ -31,6 +34,7 @@ impl Default for CacheSpec {
             decl: Vec::new(),
             references: vec!["*\\Rtest".into()],
             members: None,
+            x64: false,
         }
     }
 }
@@ -62,7 +66,7 @@ pub fn build_cache(spec: &CacheSpec) -> Vec<u8> {
     v.extend_from_slice(&[0u8; 24]);
     // Indirect table.
     let p = v.len();
-    v.extend_from_slice(&[0u8; 10]);
+    v.extend_from_slice(&vec![0u8; if spec.x64 { 12 } else { 10 }]);
     v.extend_from_slice(&(spec.indirect.len() as u32).to_le_bytes());
     v.extend_from_slice(&spec.indirect);
     v.extend_from_slice(&[0u8; 8]);
@@ -168,6 +172,38 @@ pub fn word(stored: u16, modifier: u16) -> [u8; 2] {
 /// The name word for user identifier `index` in the verified layout.
 pub fn user_name(index: u16) -> [u8; 2] {
     ((index + 4 + 0x100) << 1).to_le_bytes()
+}
+
+/// The name word for user identifier `index` in the 64-bit layout.
+pub fn user_name64(index: u16) -> [u8; 2] {
+    ((index + 7 + 0x100) << 1).to_le_bytes()
+}
+
+/// An 88-byte 64-bit function record: public function with a declared
+/// `String` return type, `args` arguments, the first argument record at
+/// `first_arg`.
+pub fn function_record64(name_word: u16, first_arg: u32, args: u8) -> Vec<u8> {
+    let mut r = vec![0u8; 88];
+    r[0..2].copy_from_slice(&0x1020u16.to_le_bytes());
+    r[2..4].copy_from_slice(&name_word.to_le_bytes());
+    r[56..60].copy_from_slice(&first_arg.to_le_bytes());
+    r[60..64].copy_from_slice(&0xFFFF_0008u32.to_le_bytes());
+    r[64..66].copy_from_slice(&0xFFFFu16.to_le_bytes());
+    r[80] = 0x8C;
+    r[81] = args;
+    r[83] = 0x02;
+    r
+}
+
+/// A 32-byte 64-bit argument record with a type field and a next pointer.
+pub fn argument_record64(name_word: u16, type_field: u32, next: u32) -> Vec<u8> {
+    let mut r = vec![0u8; 32];
+    r[0..2].copy_from_slice(&0x0020u16.to_le_bytes());
+    r[2..4].copy_from_slice(&name_word.to_le_bytes());
+    r[16..20].copy_from_slice(&type_field.to_le_bytes());
+    r[24..28].copy_from_slice(&next.to_le_bytes());
+    r[28..30].copy_from_slice(&0x0004u16.to_le_bytes());
+    r
 }
 
 /// A 70-byte function record: public function with a declared `String`

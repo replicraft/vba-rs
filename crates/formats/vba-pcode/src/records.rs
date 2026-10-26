@@ -210,6 +210,9 @@ impl FunctionRecord {
     pub fn parse(indirect: &[u8], offset: u32, layout: &Layout) -> Result<Self> {
         let o = offset as usize;
         let base = fn_base(layout);
+        // On x64 the three trailing fields sit 6 bytes further than the
+        // pointer-widening shift of the leading ones.
+        let late = base + if layout.bitness == Bitness::X64 { 6 } else { 0 };
         let first_arg = u32_at(indirect, o + 36 + base, "function first argument")?;
         Ok(Self {
             offset,
@@ -218,12 +221,12 @@ impl FunctionRecord {
             first_arg: (first_arg != 0 && first_arg != u32::MAX).then_some(first_arg),
             return_type: u32_at(indirect, o + 40 + base, "function return type")?,
             decl_offset: u16_at(indirect, o + 44 + base, "function declaration offset")?,
-            option: slice(indirect, o + 54 + base, 1, "function option")?[0],
-            arg_count: slice(indirect, o + 55 + base, 1, "function argument count")?[0],
+            option: slice(indirect, o + 54 + late, 1, "function option")?[0],
+            arg_count: slice(indirect, o + 55 + late, 1, "function argument count")?[0],
             flags6: if layout.family == VersionFamily::Vba5 {
                 0
             } else {
-                slice(indirect, o + 57 + base, 1, "function flags6")?[0]
+                slice(indirect, o + 57 + late, 1, "function flags6")?[0]
             },
         })
     }
@@ -234,11 +237,16 @@ impl FunctionRecord {
     /// # Errors
     ///
     /// Bounds errors when a type descriptor lies outside the tables.
-    pub fn return_type_ref(&self, indirect: &[u8], objects: &[u8]) -> Result<TypeRef> {
+    pub fn return_type_ref(
+        &self,
+        indirect: &[u8],
+        objects: &[u8],
+        layout: &Layout,
+    ) -> Result<TypeRef> {
         if !self.has_return_type() {
             return Ok(TypeRef::None);
         }
-        type_from_field(self.return_type, indirect, objects)
+        type_from_field(self.return_type, indirect, objects, layout)
     }
 
     /// The kind flags.
@@ -439,7 +447,7 @@ impl ArgumentRecord {
     pub fn parse(indirect: &[u8], offset: u32, layout: &Layout) -> Result<Self> {
         let o = offset as usize;
         let a = if layout.bitness == Bitness::X64 { 4 } else { 0 };
-        let next = u32_at(indirect, o + 20, "argument next")?;
+        let next = u32_at(indirect, o + 20 + a, "argument next")?;
         Ok(Self {
             offset,
             flags: u16_at(indirect, o, "argument flags")?,
@@ -488,11 +496,11 @@ impl ArgumentRecord {
     /// # Errors
     ///
     /// Bounds errors when a type descriptor lies outside the tables.
-    pub fn type_ref(&self, indirect: &[u8], objects: &[u8]) -> Result<TypeRef> {
+    pub fn type_ref(&self, indirect: &[u8], objects: &[u8], layout: &Layout) -> Result<TypeRef> {
         if !self.has_as_clause() {
             return Ok(TypeRef::None);
         }
-        type_from_field(self.type_raw, indirect, objects)
+        type_from_field(self.type_raw, indirect, objects, layout)
     }
 }
 
@@ -539,13 +547,18 @@ pub fn argument_chain(
 /// # Errors
 ///
 /// Bounds errors when the descriptor lies outside the tables.
-pub fn type_from_field(raw: u32, indirect: &[u8], objects: &[u8]) -> Result<TypeRef> {
+pub fn type_from_field(
+    raw: u32,
+    indirect: &[u8],
+    objects: &[u8],
+    layout: &Layout,
+) -> Result<TypeRef> {
     if raw == u32::MAX {
         Ok(TypeRef::None)
     } else if raw >> 16 == 0xFFFF {
         Ok(TypeRef::Intrinsic(TypeId::parse(raw as u8)))
     } else {
-        type_descriptor(indirect, objects, raw)
+        type_descriptor(indirect, objects, raw, layout)
     }
 }
 
@@ -555,11 +568,16 @@ pub fn type_from_field(raw: u32, indirect: &[u8], objects: &[u8]) -> Result<Type
 /// # Errors
 ///
 /// Bounds errors when the referenced bytes lie outside the tables.
-pub fn variable_type(rec: &VariableRecord, indirect: &[u8], objects: &[u8]) -> Result<TypeRef> {
+pub fn variable_type(
+    rec: &VariableRecord,
+    indirect: &[u8],
+    objects: &[u8],
+    layout: &Layout,
+) -> Result<TypeRef> {
     if !rec.has_as_clause() {
         return Ok(TypeRef::None);
     }
-    type_from_field(rec.type_pos, indirect, objects)
+    type_from_field(rec.type_pos, indirect, objects, layout)
 }
 
 /// Resolves a type descriptor stored at `offset` in the indirect table
@@ -568,20 +586,24 @@ pub fn variable_type(rec: &VariableRecord, indirect: &[u8], objects: &[u8]) -> R
 /// # Errors
 ///
 /// Bounds errors.
-pub fn type_descriptor(indirect: &[u8], objects: &[u8], offset: u32) -> Result<TypeRef> {
+pub fn type_descriptor(
+    indirect: &[u8],
+    objects: &[u8],
+    offset: u32,
+    layout: &Layout,
+) -> Result<TypeRef> {
     let o = offset as usize;
     let flags = u16_at(indirect, o, "type descriptor flags")?;
     if flags & 0x02 != 0 {
         let id = slice(indirect, o + 6, 1, "type descriptor id")?[0];
         return Ok(TypeRef::Intrinsic(TypeId::parse(id)));
     }
+    // `[obs]`: the word at +2 is the index of the object-table entry times the
+    // pointer size of the producing build (4 on x86, 8 on x64); index 0 is a
+    // valid entry.
     let v = u16_at(indirect, o + 2, "type descriptor object")?;
-    if v == 0 {
-        // `[obs]`: types declared in the same module (and a few others) have
-        // no object entry; their name is not in the descriptor.
-        return Ok(TypeRef::Unknown(offset));
-    }
-    let idx = usize::from(v >> 2);
+    let shift = if layout.bitness == Bitness::X64 { 3 } else { 2 };
+    let idx = usize::from(v >> shift);
     let e = object_entry(objects, idx * OBJECT_ENTRY_SIZE)?;
     if e.is_qualified() || e.name == 0 || e.name == 0xFFFF {
         return Ok(TypeRef::Unknown(offset));
@@ -638,6 +660,57 @@ mod tests {
     }
 
     #[test]
+    fn x64_record_offsets() {
+        let l64 = Layout::select(0xB5, 3).unwrap();
+        // Function record: first argument at +56, return type at +60,
+        // declaration offset at +64, option, count and flags at +80.
+        let mut f = vec![0u8; 100];
+        f[0..2].copy_from_slice(&0x1020u16.to_le_bytes());
+        f[56..60].copy_from_slice(&0x40u32.to_le_bytes());
+        f[60..64].copy_from_slice(&0xFFFF_0008u32.to_le_bytes());
+        f[64..66].copy_from_slice(&0xFFFFu16.to_le_bytes());
+        f[80] = 0x8C;
+        f[81] = 3;
+        f[83] = 0x02;
+        let r = FunctionRecord::parse(&f, 0, &l64).unwrap();
+        assert_eq!(r.first_arg, Some(0x40));
+        assert_eq!(r.return_type, 0xFFFF_0008);
+        assert_eq!((r.option, r.arg_count, r.flags6), (0x8C, 3, 0x02));
+        assert!(!r.is_declare());
+        // Argument record: type at +16, next at +24, options at +28.
+        let mut a = vec![0u8; 40];
+        a[16..20].copy_from_slice(&0xFFFF_0003u32.to_le_bytes());
+        a[24..28].copy_from_slice(&0x20u32.to_le_bytes());
+        a[28..30].copy_from_slice(&0x0004u16.to_le_bytes());
+        let r = ArgumentRecord::parse(&a, 0, &l64).unwrap();
+        assert_eq!(r.type_raw, 0xFFFF_0003);
+        assert_eq!(r.next, Some(0x20));
+        assert!(r.is_by_val());
+    }
+
+    #[test]
+    fn descriptor_index_is_scaled_by_pointer_size() {
+        let mut ind = vec![0u8; 16];
+        ind[2..4].copy_from_slice(&16u16.to_le_bytes());
+        let mut obj = vec![0u8; 40];
+        obj[26..28].copy_from_slice(&0x0123u16.to_le_bytes()); // entry 2
+        obj[6..8].copy_from_slice(&0x0456u16.to_le_bytes()); // entry 0
+        // x64: 16 / 8 = entry 2.
+        assert_eq!(
+            type_descriptor(&ind, &obj, 0, &Layout::select(0xB5, 3).unwrap()).unwrap(),
+            TypeRef::Named(0x0123)
+        );
+        // x86: 16 / 4 = entry 4, outside the 4 entries of the table.
+        assert!(type_descriptor(&ind, &obj, 0, &l()).is_err());
+        // Index 0 is the first entry, not "no type".
+        ind[2..4].copy_from_slice(&0u16.to_le_bytes());
+        assert_eq!(
+            type_descriptor(&ind, &obj, 0, &l()).unwrap(),
+            TypeRef::Named(0x0456)
+        );
+    }
+
+    #[test]
     fn type_ids() {
         let t = TypeId::parse(0x88);
         assert_eq!(t.intrinsic, IntrinsicType::String);
@@ -654,7 +727,7 @@ mod tests {
         ind[6] = 3;
         let obj = vec![0u8; 20];
         assert_eq!(
-            type_descriptor(&ind, &obj, 0).unwrap(),
+            type_descriptor(&ind, &obj, 0, &l()).unwrap(),
             TypeRef::Intrinsic(TypeId::parse(3))
         );
         // named: flags 0, value 1<<2 -> entry 1 (offset 10), name at +6
@@ -663,9 +736,9 @@ mod tests {
         let mut obj2 = vec![0u8; 20];
         obj2[16..18].copy_from_slice(&0x0123u16.to_le_bytes());
         assert_eq!(
-            type_descriptor(&ind2, &obj2, 0).unwrap(),
+            type_descriptor(&ind2, &obj2, 0, &l()).unwrap(),
             TypeRef::Named(0x0123)
         );
-        assert!(type_descriptor(&ind2, &obj2[..12], 0).is_err());
+        assert!(type_descriptor(&ind2, &obj2[..12], 0, &l()).is_err());
     }
 }

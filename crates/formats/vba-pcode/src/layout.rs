@@ -25,9 +25,13 @@ pub enum Bitness {
 /// How well a layout is backed by test material.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Verification {
-    /// Checked against real material (VBA 7.0, 32-bit).
+    /// Checked against real material with the source side by side: the
+    /// version word and platform kind were observed in compiled projects
+    /// whose decoded names, literals, records and line structure agree with
+    /// their source ([`VERIFIED_LAYOUTS`]).
     Verified,
-    /// Implemented from the specification text only; no test material.
+    /// Implemented from the specification text only, or structurally the
+    /// same as a verified layout but not seen with this version word.
     SpecUnverified,
 }
 
@@ -42,12 +46,30 @@ pub struct Layout {
     pub bitness: Bitness,
 }
 
-/// Version word of the one verified layout (Office 2010, VBA 7.0).
+/// Version word of the layout that was verified first (Office 2010, VBA 7.0,
+/// 32-bit).
 pub const VERIFIED_VERSION: u16 = 0x0097;
 
+/// The (family, bitness, version word) combinations that were observed in
+/// real projects and verified against their source. The bitness is the
+/// `PROJECTSYSKIND` of the project, not a function of the version word: the
+/// same version word occurs with both platform kinds (`0xB2` was seen on
+/// 32-bit and on 64-bit Windows).
+pub const VERIFIED_LAYOUTS: &[(VersionFamily, Bitness, u16)] = &[
+    (VersionFamily::Vba6, Bitness::X86, 0x79),
+    (VersionFamily::Vba6, Bitness::X86, 0x88),
+    (VersionFamily::Vba7, Bitness::X86, 0x97),
+    (VersionFamily::Vba7, Bitness::X86, 0xAF),
+    (VersionFamily::Vba7, Bitness::X86, 0xB2),
+    (VersionFamily::Vba7, Bitness::X64, 0x9A),
+    (VersionFamily::Vba7, Bitness::X64, 0xA6),
+    (VersionFamily::Vba7, Bitness::X64, 0xB2),
+    (VersionFamily::Vba7, Bitness::X64, 0xB5),
+];
 impl Layout {
     /// Selects the layout from the project-stream version word and the
-    /// `PROJECTSYSKIND` value of the directory stream.
+    /// `PROJECTSYSKIND` value of the directory stream. The platform kind
+    /// alone selects the bitness; the version word selects the family.
     ///
     /// # Errors
     ///
@@ -89,10 +111,7 @@ impl Layout {
 
     /// Whether this layout has been checked against real material.
     pub fn verification(&self) -> Verification {
-        if self.family == VersionFamily::Vba7
-            && self.bitness == Bitness::X86
-            && self.version == VERIFIED_VERSION
-        {
+        if VERIFIED_LAYOUTS.contains(&(self.family, self.bitness, self.version)) {
             Verification::Verified
         } else {
             Verification::SpecUnverified
@@ -157,13 +176,30 @@ mod tests {
         assert_eq!(l.family, VersionFamily::Vba7);
         assert_eq!(l.bitness, Bitness::X86);
         assert_eq!(l.verification(), Verification::Verified);
+        // The platform kind, not the version word, selects the bitness.
+        let b2_32 = Layout::select(0xB2, 1).unwrap();
+        let b2_64 = Layout::select(0xB2, 3).unwrap();
+        assert_eq!(b2_32.bitness, Bitness::X86);
+        assert_eq!(b2_64.bitness, Bitness::X64);
+        assert_eq!(b2_32.verification(), Verification::Verified);
+        assert_eq!(b2_64.verification(), Verification::Verified);
+        // A combination never observed stays unverified.
         assert_eq!(
-            Layout::select(0xB2, 1).unwrap().verification(),
+            Layout::select(0xB5, 1).unwrap().verification(),
+            Verification::SpecUnverified
+        );
+        assert_eq!(
+            Layout::select(0x97, 3).unwrap().verification(),
+            Verification::SpecUnverified
+        );
+        assert_eq!(
+            Layout::select(0x6A, 1).unwrap().verification(),
             Verification::SpecUnverified
         );
         assert_eq!(Layout::select(0x6A, 1).unwrap().family, VersionFamily::Vba5);
         assert_eq!(Layout::select(0x6B, 1).unwrap().family, VersionFamily::Vba6);
         assert_eq!(Layout::select(0xD7, 3).unwrap().bitness, Bitness::X64);
+        assert_eq!(Layout::select(0xD7, 1).unwrap().bitness, Bitness::X86);
         assert_eq!(Layout::select(0xFFFF, 1), Err(PcodeError::CacheNotUsable));
         assert!(matches!(
             Layout::select(0x97, 2),
@@ -182,7 +218,7 @@ mod tests {
         assert_eq!(x86.canonical_opcode(205), Some(208));
         assert_eq!(x86.canonical_opcode(260), Some(263));
         assert_eq!(x86.canonical_opcode(261), None);
-        let x64 = Layout::select(0xD7, 3).unwrap();
+        let x64 = Layout::select(0xB5, 3).unwrap();
         assert_eq!(x64.canonical_opcode(174), Some(174));
         assert_eq!(x64.canonical_opcode(264), None);
     }

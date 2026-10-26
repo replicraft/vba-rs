@@ -37,8 +37,8 @@ use crate::names::{Name, Resolver, name_suffix};
 use crate::opcode::Opcode;
 use crate::project_stream::IdentTable;
 use crate::records::{
-    ArgumentRecord, DeclarationRecord, FunctionRecord, ProcKind, TypeId, TypeRef, UdtRecord,
-    VariableRecord, argument_chain, object_entry, variable_type,
+    ArgumentRecord, DeclarationRecord, FunctionRecord, OBJECT_ENTRY_SIZE, ProcKind, TypeId,
+    TypeRef, UdtRecord, VariableRecord, argument_chain, object_entry, variable_type,
 };
 
 /// Radix an integer literal was written in.
@@ -170,7 +170,8 @@ pub enum Operand {
     NameList(Vec<Name>),
     /// An object-table reference.
     Object {
-        /// Byte offset in the object table.
+        /// The operand as stored. On x86 it is the byte offset of the entry;
+        /// on x64 it is the entry index times 8.
         offset: u16,
         /// Class name, when the entry is in range.
         class: Option<Name>,
@@ -313,6 +314,15 @@ impl<'a> Disassembler<'a> {
         }
     }
 
+    /// Byte offset in the object table of the entry an `obj` operand names.
+    fn object_entry_offset(&self, operand: u16) -> usize {
+        if self.cache.layout.bitness == Bitness::X64 {
+            usize::from(operand >> 3) * OBJECT_ENTRY_SIZE
+        } else {
+            usize::from(operand)
+        }
+    }
+
     /// Resolves the operands of one instruction.
     pub fn list(&self, ins: &Instruction) -> Listed {
         Listed {
@@ -383,10 +393,10 @@ impl<'a> Disassembler<'a> {
             }
             Operands::Obj(o) => vec![Operand::Object {
                 offset: o.0,
-                class: object_entry(self.objects, usize::from(o.0))
+                class: object_entry(self.objects, self.object_entry_offset(o.0))
                     .ok()
                     .filter(|e| !e.is_qualified())
-                    .map(|e| self.resolver.resolve(e.name)),
+                    .map(|e| self.resolver.resolve_symbol(e.name)),
             }],
             Operands::Rec(r) => vec![self.record(ins, *r)],
             Operands::VarDecl(r, extra) => {
@@ -458,7 +468,7 @@ impl<'a> Disassembler<'a> {
         match t {
             TypeRef::None => ResolvedType::None,
             TypeRef::Intrinsic(i) => ResolvedType::Intrinsic(i),
-            TypeRef::Named(w) => ResolvedType::Named(self.resolver.resolve(w)),
+            TypeRef::Named(w) => ResolvedType::Named(self.resolver.resolve_symbol(w)),
             TypeRef::Unknown(u) => ResolvedType::Unknown(u),
         }
     }
@@ -474,12 +484,12 @@ impl<'a> Disassembler<'a> {
             }
             Opcode::VarDecl => match VariableRecord::parse(self.indirect, r.0, layout) {
                 Ok(v) => {
-                    let ty = match variable_type(&v, self.indirect, self.objects) {
+                    let ty = match variable_type(&v, self.indirect, self.objects, layout) {
                         Ok(t) => self.resolve_type(t),
                         Err(_) => ResolvedType::Unknown(v.type_pos),
                     };
                     Operand::Variable(VariableInfo {
-                        name: self.resolver.resolve(v.name),
+                        name: self.resolver.resolve_symbol(v.name),
                         ty,
                         is_new: v.is_new(),
                     })
@@ -488,7 +498,7 @@ impl<'a> Disassembler<'a> {
             },
             Opcode::TypeDecl => match UdtRecord::parse(self.indirect, r.0) {
                 Ok(u) => Operand::UserType {
-                    name: self.resolver.resolve(u.name),
+                    name: self.resolver.resolve_symbol(u.name),
                     private: u.is_private(),
                 },
                 Err(_) => Operand::BadRecord(r.0),
@@ -508,11 +518,13 @@ impl<'a> Disassembler<'a> {
             .is_declare()
             .then(|| DeclarationRecord::parse(self.declarations, f.decl_offset).ok())
             .flatten();
-        let library = decl.as_ref().map(|d| self.resolver.resolve(d.library));
+        let library = decl
+            .as_ref()
+            .map(|d| self.resolver.resolve_symbol(d.library));
         let entry_point = decl.and_then(|d| d.entry_point);
         let m = ins.modifier & 0x3F;
         ProcedureInfo {
-            name: self.resolver.resolve(f.name),
+            name: self.resolver.resolve_symbol(f.name),
             kind: f.kind(),
             is_function: m & 0x07 == 2 || m & 0x07 == 6,
             public: m & 0x04 != 0,
@@ -527,7 +539,7 @@ impl<'a> Disassembler<'a> {
     }
 
     fn return_type(&self, f: &FunctionRecord) -> ResolvedType {
-        match f.return_type_ref(self.indirect, self.objects) {
+        match f.return_type_ref(self.indirect, self.objects, &self.cache.layout) {
             Ok(t) => self.resolve_type(t),
             Err(_) => ResolvedType::Unknown(f.return_type),
         }
@@ -535,12 +547,12 @@ impl<'a> Disassembler<'a> {
 
     fn arg(&self, a: &ArgumentRecord) -> ArgInfo {
         ArgInfo {
-            name: self.resolver.resolve(a.name),
+            name: self.resolver.resolve_symbol(a.name),
             by_val: a.is_by_val(),
             optional: a.is_optional(),
             has_default: a.has_default(),
             param_array: a.is_param_array(),
-            ty: match a.type_ref(self.indirect, self.objects) {
+            ty: match a.type_ref(self.indirect, self.objects, &self.cache.layout) {
                 Ok(t) => self.resolve_type(t),
                 Err(_) => ResolvedType::Unknown(a.type_raw),
             },

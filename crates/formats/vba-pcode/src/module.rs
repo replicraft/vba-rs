@@ -95,8 +95,9 @@ impl TableLocations {
             VersionFamily::Vba5 => Self::locate_vba5(cache, limit),
             _ => {
                 let x64 = layout.bitness == Bitness::X64;
-                let decl_len_at = if x64 { 0x43 } else { 0x3F };
-                let declarations_len_at = decl_len_at;
+                // The declaration table length sits at 0x3F in every layout
+                // observed, 64-bit ones included.
+                let declarations_len_at = 0x3F;
                 let declarations = table(cache, declarations_len_at, "declaration table")?;
                 let p = to_usize(
                     u32_at(cache, 0x11, "indirect base")?,

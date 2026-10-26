@@ -118,11 +118,11 @@ proptest! {
             let _ = VariableRecord::parse(&bytes, off, &l);
             let _ = ArgumentRecord::parse(&bytes, off, &l);
             let _ = argument_chain(&bytes, Some(off), &l, 16);
+            let _ = type_descriptor(&bytes, &bytes, off, &l);
+            let _ = type_from_field(off, &bytes, &bytes, &l);
         }
         let _ = UdtRecord::parse(&bytes, off);
         let _ = DeclarationRecord::parse(&bytes, off as u16);
-        let _ = type_descriptor(&bytes, &bytes, off);
-        let _ = type_from_field(off, &bytes, &bytes);
         let _ = object_entry(&bytes, off as usize);
     }
 
