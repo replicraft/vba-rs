@@ -16,9 +16,11 @@ mod error;
 mod layout;
 mod lines;
 mod module;
+mod names;
 mod opcode;
 mod project_stream;
 mod reader;
+mod records;
 mod sections;
 
 pub use cache::{
@@ -33,8 +35,14 @@ pub use lines::{
     CODE_ALIGNMENT, LINE_MARKER, LINE_RECORD_SIZE, LINE_TRAILER_SIZE, LineRecord, LineTable,
 };
 pub use module::{Span, TableLocations};
+pub use names::{CONFIRMED_BUILTINS, ME_WORD, Name, Resolver, builtin_name, name_suffix};
 pub use opcode::{Opcode, Shape};
 pub use project_stream::{IdentTable, ProjectCache, SIGNATURE, parse_identifiers, version_word};
+pub use records::{
+    ArgumentRecord, DeclarationRecord, FunctionRecord, IntrinsicType, OBJECT_ENTRY_SIZE,
+    ObjectEntry, ProcKind, TypeId, TypeRef, UdtRecord, VariableRecord, argument_chain,
+    object_entry, type_descriptor, type_from_field, variable_type,
+};
 pub use sections::{
     MEMBER_RECORD_SIZE, MemberRecord, MemberTable, REFERENCE_LIST_END, REFERENCE_LIST_MAGIC,
     ReferenceList,
