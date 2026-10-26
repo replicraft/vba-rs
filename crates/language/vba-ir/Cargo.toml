@@ -19,7 +19,6 @@ expect-test.workspace = true
 proptest.workspace = true
 vba-profile.workspace = true
 vba-project.workspace = true
-vba-syntax.workspace = true
 
 [lints]
 workspace = true

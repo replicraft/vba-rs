@@ -293,3 +293,20 @@ fn string_comparison_modes_follow_option_compare() {
     };
     assert_eq!(*compare, vba_ast::CompareMode::Text);
 }
+
+#[test]
+fn analyses_a_project_with_conditional_compilation_constants() {
+    use vba_project::{Module, VbaProject};
+    let mut p = VbaProject::new("Demo");
+    p.constants = "FLAG = 1 : OTHER = 0".to_owned();
+    p.modules.push(Module::new(
+        "Main",
+        ModuleKind::Standard,
+        "Option Explicit\n#If FLAG Then\nPublic Const Mode As Long = 1\n#Else\nPublic Const Mode As String = \"x\"\n#End If\n#If OTHER Then\nSub Broken()\nUndefinedThing\nEnd Sub\n#End If\nSub Run()\nDim n As Long\nn = Mode\nn = Demo.Main.Mode\nEnd Sub\n",
+    ));
+    let a = vba_sema::analyze_project(&p, &profile64(), &test_library());
+    assert_clean(&a);
+    let c = &a.program.consts[0];
+    assert_eq!(c.ty, Type::Long);
+    assert!(a.program.find_proc("Main", "Broken").is_none());
+}
