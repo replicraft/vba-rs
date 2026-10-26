@@ -1,0 +1,21 @@
+[package]
+name = "vba-bench"
+description = "Dev tool: timing harness for the interpreter hot paths (plain binary, no benchmark dependency). Not part of the shipped libraries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+vba-host.workspace = true
+vba-ir.workspace = true
+vba-profile.workspace = true
+vba-project.workspace = true
+vba-sema.workspace = true
+vba-stdlib.workspace = true
+vba-vm.workspace = true
+
+[lints]
+workspace = true

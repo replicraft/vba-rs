@@ -1250,6 +1250,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-bench"
+version = "0.1.0"
+dependencies = [
+ "vba-host",
+ "vba-ir",
+ "vba-profile",
+ "vba-project",
+ "vba-sema",
+ "vba-stdlib",
+ "vba-vm",
+]
+
+[[package]]
 name = "vba-cli"
 version = "0.1.0"
 dependencies = [
