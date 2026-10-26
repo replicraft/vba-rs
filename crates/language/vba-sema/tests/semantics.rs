@@ -312,6 +312,22 @@ fn analyses_a_project_with_conditional_compilation_constants() {
 }
 
 #[test]
+fn instr_without_start_binds_the_strings() {
+    let a = analyze(&[bas(
+        "M",
+        "Sub P()\nDim n As Long\nn = InStr(\"hello\", \"l\")\nn = InStr(2, \"hello\", \"l\")\nn = InStr(1, \"hello\", \"L\", vbTextCompare)\nEnd Sub\n",
+    )]);
+    assert_clean(&a);
+    let p = a.program.find_proc("M", "P").unwrap();
+    // The first call passes the strings as `String1`/`String2` and omits `Start`.
+    let found = p.body.iter().any(|s| {
+        format!("{s:?}").contains("Intrinsic { name: \"InStr\"")
+            && format!("{s:?}").matches("Missing").count() >= 2
+    });
+    assert!(found, "{:?}", p.body);
+}
+
+#[test]
 fn file_system_and_shell_functions_are_run_time_intrinsics() {
     let a = analyze(&[bas(
         "M",

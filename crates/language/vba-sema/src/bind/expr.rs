@@ -517,6 +517,28 @@ impl Binder<'_, '_> {
         args: Option<&[Arg]>,
     ) -> BExpr {
         let sig = Sig::of_intrinsic(r.info, r.dollar);
+        // `InStr([start,] string1, string2[, compare])`: the two-argument form
+        // has no `start`, which the declared signature cannot express.
+        let shifted;
+        let args = match args {
+            Some(a)
+                if matches!(r.info.name, "InStr" | "InStrB")
+                    && a.len() == 2
+                    && a.iter().all(|x| x.name.is_none() && x.value.is_some()) =>
+            {
+                shifted = vec![
+                    Arg {
+                        span: Span::empty(a[0].span.start),
+                        name: None,
+                        value: None,
+                    },
+                    a[0].clone(),
+                    a[1].clone(),
+                ];
+                Some(shifted.as_slice())
+            }
+            other => other,
+        };
         let bargs = self.match_args(&sig, args.unwrap_or(&[]), span);
         let ty = sig.ret.clone().unwrap_or(Type::Variant);
         self.call_expr(
