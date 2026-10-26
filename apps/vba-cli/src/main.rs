@@ -211,8 +211,15 @@ enum Command {
         /// Largest call depth (default 1000).
         #[arg(long)]
         max_call_depth: Option<u32>,
-        /// Remove the default step and memory limits (only for code you
-        /// trust; --max-steps and --max-memory still apply when given).
+        /// Wall-clock seconds the run (and the shutdown) may take (default 60;
+        /// 0 removes the limit). Checked every 1024 steps and inside long
+        /// library calls, so it is not exact; a stuck host call is not
+        /// interrupted.
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// Remove the default step, memory and time limits (only for code you
+        /// trust; --max-steps, --max-memory and --timeout still apply when
+        /// given).
         #[arg(long)]
         unlimited: bool,
         /// Let `Now`, `Timer`, `Environ` read the real clock (UTC) and
@@ -362,6 +369,7 @@ fn main() -> ExitCode {
             max_steps,
             max_memory,
             max_call_depth,
+            timeout,
             unlimited,
             system_env,
             allow_shell,
@@ -379,6 +387,7 @@ fn main() -> ExitCode {
                 max_steps,
                 max_memory,
                 max_call_depth,
+                timeout,
                 unlimited,
                 system_env,
                 allow_shell,

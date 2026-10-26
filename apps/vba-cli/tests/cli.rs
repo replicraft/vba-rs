@@ -31,6 +31,30 @@ fn run_from_standard_input_reports_runtime_errors_with_exit_code_2() {
 }
 
 #[test]
+fn run_has_a_wall_clock_limit_that_unlimited_and_zero_remove() {
+    let spin = "Sub Main()\n    Dim i As Long\n    For i = 1 To 30000\n        DoEvents\n    Next\n    Debug.Print \"end\"\nEnd Sub\n";
+    // A short allowance ends a run that has steps left (exit code 4).
+    let long = "Sub Main()\n    Do\n    Loop\nEnd Sub\n";
+    let out = vbars()
+        .args(["run", "-", "--timeout", "1", "--max-steps", "100000000000"])
+        .write_stdin(long)
+        .assert()
+        .code(4);
+    let err = text(&out.get_output().stderr);
+    assert!(err.contains("allowance") || err.contains("cancel"), "{err}");
+    // A program that finishes is unaffected, with or without a limit.
+    for extra in [&["--timeout", "0"][..], &["--unlimited"][..], &[][..]] {
+        let out = vbars()
+            .args(["run", "-"])
+            .args(extra)
+            .write_stdin(spin)
+            .assert()
+            .success();
+        assert_eq!(text(&out.get_output().stdout), "end\n");
+    }
+}
+
+#[test]
 fn check_reads_standard_input_and_names_it_in_diagnostics() {
     vbars()
         .args(["check", "-"])

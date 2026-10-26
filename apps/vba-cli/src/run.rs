@@ -4,7 +4,12 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use vba_host::{Capability, HeadlessHost, HostMetadata, Policy, ResourceLimits};
+use std::time::Duration;
+
+use vba_host::{
+    Capability, HeadlessHost, Host, HostMetadata, Policy, ResourceLimits, ScopeLimits,
+    UNTRUSTED_CALL_TIMEOUT,
+};
 use vba_runtime::{Error, MemFs, RealFs, Session, StdShell, SystemHost};
 use vba_value::Variant;
 use vba_vm::{DebugSink, RunStatus};
@@ -42,6 +47,7 @@ pub struct RunArgs {
     pub max_steps: Option<u64>,
     pub max_memory: Option<u64>,
     pub max_call_depth: Option<u32>,
+    pub timeout: Option<u64>,
     pub unlimited: bool,
     pub system_env: bool,
     pub allow_shell: bool,
@@ -181,16 +187,26 @@ pub fn run(a: RunArgs) -> u8 {
         max_memory_bytes: a.max_memory.or(base.max_memory_bytes),
         max_call_depth: a.max_call_depth.unwrap_or(base.max_call_depth),
     };
-    let host = HeadlessHost::new()
-        .with_metadata(HostMetadata::new(
-            "vbars",
-            env!("CARGO_PKG_VERSION"),
-            profile,
-        ))
-        .with_policy(policy)
-        .with_limits(limits);
+    let host = Rc::new(
+        HeadlessHost::new()
+            .with_metadata(HostMetadata::new(
+                "vbars",
+                env!("CARGO_PKG_VERSION"),
+                profile,
+            ))
+            .with_policy(policy)
+            .with_limits(limits),
+    );
+    // Wall-clock allowance of the run and of the shutdown, each: a minute for
+    // code that is not trusted, none with --unlimited unless --timeout is given.
+    let timeout = match a.timeout {
+        Some(0) => None,
+        Some(s) => Some(Duration::from_secs(s)),
+        None if a.unlimited => None,
+        None => Some(UNTRUSTED_CALL_TIMEOUT),
+    };
     let mut builder = Session::builder()
-        .host(Rc::new(host))
+        .host(host.clone())
         .debug_sink(StdoutSink)
         .command_line(a.command.as_deref().unwrap_or(""));
     builder = if a.memfs {
@@ -226,8 +242,18 @@ pub fn run(a: RunArgs) -> u8 {
     // trusts the code it was told to run.
     session.trust();
     let args: Vec<Variant> = a.args.iter().map(|s| guess(s)).collect();
+    let scope = |t: Option<Duration>| {
+        host.budget().enter_scope(ScopeLimits {
+            timeout: t,
+            ..ScopeLimits::default()
+        })
+    };
+    let token = scope(timeout);
     let result = session.run_procedure(&a.entry, args);
+    host.budget().leave_scope(token);
+    let token = scope(timeout);
     let shutdown = session.shutdown();
+    host.budget().leave_scope(token);
     let mut code = exit::OK;
     match result {
         Ok(out) => {
