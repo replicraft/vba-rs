@@ -9,7 +9,7 @@
 //! parsing it. Directives nested inside inactive text are part of that
 //! text; their nesting is still tracked so that `#End If` pairs correctly.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use vba_diagnostics::{Code, Diagnostic};
 use vba_lexer::{Keyword, Token, TokenKind};
@@ -32,6 +32,8 @@ pub(crate) struct CcInfo {
     /// exclusive end index.
     pub regions: HashMap<usize, usize>,
     pub diagnostics: Vec<Diagnostic>,
+    /// Names defined by `#Const` in this module (lower case, no suffix).
+    defined: HashSet<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -110,10 +112,11 @@ pub(crate) fn analyze(
         match t.kind {
             TokenKind::HashIf => {
                 effective = cur_active;
+                // 3.4.2: every condition must conform, even in excluded blocks.
+                let c = eval_cond(&mut info.diagnostics, file, t.span, &line, &consts, profile);
                 let v = if effective {
-                    let v = eval_cond(&mut info.diagnostics, file, t.span, &line, &consts, profile);
-                    value = Some(v);
-                    v
+                    value = Some(c);
+                    c
                 } else {
                     false
                 };
@@ -132,9 +135,8 @@ pub(crate) fn analyze(
                     if f.seen_else {
                         unmatched(&mut info, file, t.span, "`#ElseIf` after `#Else`");
                     }
+                    let v = eval_cond(&mut info.diagnostics, file, t.span, &line, &consts, profile);
                     if f.parent_active && !f.taken {
-                        let v =
-                            eval_cond(&mut info.diagnostics, file, t.span, &line, &consts, profile);
                         value = Some(v);
                         f.active = v;
                         f.taken = v;
@@ -161,9 +163,15 @@ pub(crate) fn analyze(
             },
             TokenKind::HashConst => {
                 effective = cur_active;
-                if effective {
-                    define_const(&mut info, &mut consts, file, t.span, &line, profile);
-                }
+                define_const(
+                    &mut info,
+                    &mut consts,
+                    file,
+                    t.span,
+                    &line,
+                    profile,
+                    effective,
+                );
             }
             _ => unreachable!(),
         }
@@ -217,8 +225,8 @@ fn eval_cond(
             line
         }
     };
-    match eval_expr(body, consts, profile) {
-        Ok(v) => truthy(&v),
+    match eval_expr(body, consts, profile).and_then(|v| as_boolean(&v)) {
+        Ok(b) => b,
         Err(m) => {
             let sp = match (body.first(), body.last()) {
                 (Some(f), Some(l)) => Span::new(f.span.start, l.span.end),
@@ -242,6 +250,7 @@ fn define_const(
     at: Span,
     line: &[Token<'_>],
     profile: &Profile,
+    report: bool,
 ) {
     let ok = line.len() >= 3 && line[0].kind == TokenKind::Ident && line[1].kind == TokenKind::Eq;
     if !ok {
@@ -253,24 +262,49 @@ fn define_const(
         ));
         return;
     }
+    // The type suffix of the name is ignored (3.4.1).
+    let name = strip_suffix(line[0].text).to_ascii_lowercase();
+    // Names are distinct within a module, including those in excluded blocks.
+    if !info.defined.insert(name.clone()) {
+        info.diagnostics.push(Diagnostic::error(
+            CC_BAD_EXPR,
+            file,
+            line[0].span,
+            "duplicate `#Const` name",
+        ));
+    }
     match eval_expr(&line[2..], consts, profile) {
         Ok(v) => {
-            consts.insert(line[0].text.to_ascii_lowercase(), v);
+            consts.insert(name, v);
         }
         Err(m) => {
-            let sp = Span::new(line[2].span.start, line[line.len() - 1].span.end);
-            info.diagnostics
-                .push(Diagnostic::error(CC_BAD_EXPR, file, sp, m));
+            if report {
+                let sp = Span::new(line[2].span.start, line[line.len() - 1].span.end);
+                info.diagnostics
+                    .push(Diagnostic::error(CC_BAD_EXPR, file, sp, m));
+            }
+            consts.insert(name, Value::Empty);
         }
     }
 }
 
-fn truthy(v: &Value) -> bool {
+/// Let-coercion to Boolean (3.4.2): strings coerce only when they spell
+/// `True`/`False` or a number.
+fn as_boolean(v: &Value) -> Result<bool, String> {
     match v {
-        Value::Empty => false,
-        Value::Int(i) => *i != 0,
-        Value::Float(f) => *f != 0.0,
-        Value::Str(s) => !s.is_empty(),
+        Value::Empty => Ok(false),
+        Value::Int(i) => Ok(*i != 0),
+        Value::Float(f) => Ok(*f != 0.0),
+        Value::Str(s) => {
+            let t = String::from_utf8_lossy(s).trim().to_ascii_lowercase();
+            match t.as_str() {
+                "true" => Ok(true),
+                "false" => Ok(false),
+                _ => t.parse::<f64>().map(|f| f != 0.0).map_err(|_| {
+                    "conditional compilation expression is not coercible to Boolean".to_owned()
+                }),
+            }
+        }
     }
 }
 
@@ -392,7 +426,7 @@ impl Eval<'_, '_> {
                 Ok(Value::Empty)
             }
             TokenKind::Ident => {
-                let name = t.text.to_ascii_lowercase();
+                let name = strip_suffix(t.text).to_ascii_lowercase();
                 if let Some(v) = self.consts.get(&name) {
                     return Ok(v.clone());
                 }
@@ -410,7 +444,7 @@ impl Eval<'_, '_> {
 
 fn strip_suffix(text: &[u8]) -> &[u8] {
     match text.last() {
-        Some(b'%' | b'&' | b'^' | b'!' | b'#' | b'@') => &text[..text.len() - 1],
+        Some(b'%' | b'&' | b'^' | b'!' | b'#' | b'@' | b'$') => &text[..text.len() - 1],
         _ => text,
     }
 }

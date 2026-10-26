@@ -1,6 +1,5 @@
 ' INV: vbal.3.4.2, cc.if
 ' SOURCE: spec ms-vbal 3.4.2 conditional compilation if directives, an #ElseIf expression is checked even when an earlier branch is selected
-' XFAIL: wrong pending
 ' ERROR: load
 Public Sub Main()
 #If True Then

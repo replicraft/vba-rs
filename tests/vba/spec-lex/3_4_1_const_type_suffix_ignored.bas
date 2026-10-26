@@ -1,6 +1,5 @@
 ' INV: vbal.3.4.1, cc.const
 ' SOURCE: spec ms-vbal 3.4.1 conditional compilation const directive, a type suffix on the constant name is ignored
-' XFAIL: wrong pending
 ' EXPECT: yes
 #Const N% = 3
 #Const T$ = "text"

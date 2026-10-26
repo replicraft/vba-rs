@@ -137,13 +137,15 @@ fn const_directive_defines_names_for_later_conditions() {
 }
 
 #[test]
-fn const_inside_inactive_branch_is_not_defined() {
+fn const_inside_inactive_branch_is_defined() {
+    // MS-VBAL 3.4.1: all `#Const` directives are processed, including those
+    // in excluded blocks.
     let src =
         "#If False Then\n#Const X = True\n#End If\n#If X Then\nDim a\n#Else\nDim b\n#End If\n";
     let p = parse_str(src);
     assert!(p.diagnostics.is_empty(), "{:?}", diag_lines(&p));
     assert_eq!(inactive_texts(&p).len(), 2);
-    assert!(inactive_texts(&p)[1].contains("Dim a"));
+    assert!(inactive_texts(&p)[1].contains("Dim b"));
 }
 
 #[test]
