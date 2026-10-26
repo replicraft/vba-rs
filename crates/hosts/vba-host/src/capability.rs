@@ -6,6 +6,7 @@ use vba_automation::ErrInfo;
 
 /// Something a VBA program may ask the host for beyond pure computation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Capability {
     /// Reading files (`Open ... For Input`, `Dir`, `FileLen`, `GetObject(path)`).
     FileRead,

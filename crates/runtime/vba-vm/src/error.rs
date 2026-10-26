@@ -137,6 +137,7 @@ impl From<ErrInfo> for RtErr {
 
 /// Which resource limit stopped the run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LimitKind {
     /// The step budget (`ResourceLimits::max_steps`).
     Steps,

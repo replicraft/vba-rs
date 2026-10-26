@@ -82,6 +82,8 @@ impl From<&Error> for DispError {
                     LimitKind::Steps => 18,
                     LimitKind::Memory | LimitKind::StringLength | LimitKind::ArraySize => 7,
                     LimitKind::CallDepth => 28,
+                    // Any limit added later is an out-of-resource condition too.
+                    _ => 7,
                 };
                 DispError::raise(n, l.to_string(), "vba")
             }

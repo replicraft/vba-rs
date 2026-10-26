@@ -231,11 +231,11 @@ pub fn run(a: RunArgs) -> u8 {
     let mut code = exit::OK;
     match result {
         Ok(out) => match out.status {
-            RunStatus::Completed | RunStatus::Ended => {}
             RunStatus::Stopped => {
                 let why = session.vm().stop_reason().unwrap_or("Stop").to_owned();
                 eprintln!("stopped: {why}");
             }
+            _ => {}
         },
         Err(e) => {
             eprintln!("error: {e}");

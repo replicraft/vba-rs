@@ -17,6 +17,7 @@ use crate::state::*;
 
 /// How a run finished when it did not fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RunStatus {
     /// The procedure returned.
     Completed,

@@ -53,6 +53,7 @@ impl Limits {
 
 /// How strictly the `dir` stream grammar is enforced when reading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ReadMode {
     /// A record identifier outside the MS-OVBA grammar is
     /// [`Error::DirUnexpectedRecord`](crate::Error::DirUnexpectedRecord).
@@ -69,6 +70,7 @@ pub enum ReadMode {
 /// The performance cache holds a compiled form of the source. A host that
 /// trusts a stale cache runs the *old* code, so by default it is invalidated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum StaleCache {
     /// Remove the edited module's cache, mark the `_VBA_PROJECT` stream as
     /// carrying no usable cache (version `0xFFFF`, no cache bytes) and drop
