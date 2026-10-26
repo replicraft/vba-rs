@@ -864,7 +864,12 @@ impl Vm {
     pub(crate) fn exec_io(&mut self, func: &Function, op: &IoOp) -> VResult<()> {
         let file_no = |vm: &mut Vm, o: &vba_ir::Operand| -> VResult<i32> {
             let v = vm.val(o)?;
-            vm.long_of(v)
+            let v = vm.value_of(v)?;
+            // MS-VBAL 5.4.5.1.1: a value that does not coerce to Integer is
+            // error 52, not a type mismatch.
+            convert::to_integer(&v)
+                .map(i32::from)
+                .map_err(|_| VbaError::new(52).into())
         };
         let opt_i64 = |vm: &mut Vm, o: &Option<vba_ir::Operand>| -> VResult<Option<i64>> {
             match o {

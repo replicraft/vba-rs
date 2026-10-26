@@ -485,6 +485,24 @@ impl Binder<'_, '_> {
 
     fn file_num(&mut self, e: &Expr) -> BExpr {
         let b = self.bind_expr(e);
+        let b = self.rvalue(b);
+        // A scalar that does not convert to Integer is error 52 at run time
+        // (MS-VBAL 5.4.5.1.1), which the file statement itself raises.
+        if matches!(
+            b.ty,
+            Type::String
+                | Type::FixedString(_)
+                | Type::Variant
+                | Type::Boolean
+                | Type::Date
+                | Type::Single
+                | Type::Double
+                | Type::Currency
+                | Type::Decimal
+                | Type::LongLong
+        ) {
+            return b;
+        }
         self.coerce_index(b, Type::Integer)
     }
 

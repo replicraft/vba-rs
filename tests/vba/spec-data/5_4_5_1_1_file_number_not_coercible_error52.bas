@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.1.1, stmt.open
 ' SOURCE: spec ms-vbal 5.4.5.1.1 non-numeric file number is error 52
-' XFAIL: wrong not implemented: error 52 for a non-numeric file number (13 is raised)
 ' ERROR: 52
 ' GRANT: file-read
 ' GRANT: file-write
