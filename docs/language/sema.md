@@ -125,7 +125,7 @@ length|missing, value)` (`MidBStatement` for `MidB`).
 | SEM006 | type mismatch (assignment, operands, conditions) |
 | SEM007 | `Set`/`Let` misuse, missing `Property Let/Set` |
 | SEM008 | argument list errors (count, unknown/duplicate named, missing required) |
-| SEM009 | not callable / not a Sub in value position / not indexable |
+| SEM009 | not callable / not a Sub in value position / not indexable / `AddressOf` operand that is not a callback target |
 | SEM010 | constant expression required / evaluation error / cycle |
 | SEM011 | `Implements` incomplete, mismatched, duplicated, self, wrong module kind |
 | SEM012 | `Property Get/Let/Set` pairing (arity, parameter types, value type) |
@@ -189,6 +189,17 @@ events, or the provider's `events`) and its parameter types must match.
   use instead of binding a reference.
 - Profile gating covers `LongPtr`, `LongLong`, `Implements`, `Events`,
   `AddressOf`; the Access95 profile has no additional rules.
+- `AddressOf` (MS-VBAL 5.6.16.8, AddressOf Expressions; the repository has no
+  normative text beyond the section title, so the shape rules follow the
+  Microsoft documentation of the operator) takes a plain or module-qualified
+  name (`Proc`, `Module.Proc`, `Project.Module.Proc`) that denotes a `Sub` or
+  `Function` of a **standard module** without `Optional` or `ParamArray`
+  parameters. A `Declare`, a property procedure, a variable, a procedure of a
+  class, document or designer module, an expression or a local shadowing the
+  name is SEM009; a private procedure of another module is SEM028. The result
+  is a `LongPtr`. Whether the parameters fit the function that receives the
+  pointer is only known to that function; the VM checks it when the pointer
+  is used (docs/runtime/vm.md, "Callbacks").
 
 ## Tests
 

@@ -519,6 +519,70 @@ const CASES: &[Case] = &[
         mods: &[("A", Standard, ""), ("a", Standard, "")],
         expect: &["SEM001@1"],
     },
+    // ---- AddressOf (MS-VBAL 5.6.16.8) ---------------------------------
+    Case {
+        name: "AddressOf a Sub or Function of a standard module",
+        mods: &[
+            (
+                "M",
+                Standard,
+                "Declare PtrSafe Function Cb Lib \"k\" (ByVal f As LongPtr) As Long\nPublic Function Tgt(ByVal a As Long, ByRef b As Long) As Long\nEnd Function\nSub S()\nEnd Sub\nSub F()\nDim n As Long, p As LongPtr\nn = Cb(AddressOf Tgt)\np = AddressOf S\np = AddressOf Other.Hi\nEnd Sub\n",
+            ),
+            ("Other", Standard, "Public Sub Hi()\nEnd Sub\n"),
+        ],
+        expect: &[],
+    },
+    Case {
+        name: "AddressOf a private procedure of another module",
+        mods: &[
+            ("Other", Standard, "Private Sub Hi()\nEnd Sub\n"),
+            (
+                "M",
+                Standard,
+                "Sub F()\nDim p As LongPtr\np = AddressOf Other.Hi\nEnd Sub\n",
+            ),
+        ],
+        expect: &["SEM028@3"],
+    },
+    Case {
+        name: "AddressOf a procedure of a class module",
+        mods: &[
+            ("C", Class, "Public Sub Hi()\nEnd Sub\n"),
+            (
+                "M",
+                Standard,
+                "Sub F()\nDim p As LongPtr\nDim o As New C\np = AddressOf o.Hi\nEnd Sub\n",
+            ),
+        ],
+        expect: &["SEM009@4"],
+    },
+    Case {
+        name: "AddressOf inside a class module for its own procedure",
+        mods: &[(
+            "C",
+            Class,
+            "Public Sub Hi()\nEnd Sub\nPublic Sub F()\nDim p As LongPtr\np = AddressOf Hi\nEnd Sub\n",
+        )],
+        expect: &["SEM009@5"],
+    },
+    Case {
+        name: "AddressOf a Declare, a property, a variable, an expression",
+        mods: &[(
+            "M",
+            Standard,
+            "Declare PtrSafe Function Cb Lib \"k\" () As Long\nDim v As Long\nProperty Get Pr() As Long\nEnd Property\nSub F()\nDim p As LongPtr\np = AddressOf Cb\np = AddressOf Pr\np = AddressOf v\np = AddressOf (F)\nEnd Sub\n",
+        )],
+        expect: &["SEM009@7", "SEM009@8", "SEM009@9", "SEM009@10"],
+    },
+    Case {
+        name: "AddressOf a procedure with Optional or ParamArray parameters",
+        mods: &[(
+            "M",
+            Standard,
+            "Sub A(Optional x As Long)\nEnd Sub\nSub B(ParamArray x())\nEnd Sub\nSub F()\nDim p As LongPtr\np = AddressOf A\np = AddressOf B\nEnd Sub\n",
+        )],
+        expect: &["SEM009@7", "SEM009@8"],
+    },
 ];
 
 #[test]

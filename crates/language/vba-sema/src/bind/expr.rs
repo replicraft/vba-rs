@@ -269,34 +269,82 @@ impl Binder<'_, '_> {
             );
         }
         let ty = long_ptr(self.sema.profile());
-        let ExprKind::Name(id) = &inner.kind else {
-            self.err(
-                codes::NOT_CALLABLE,
-                span,
-                "`AddressOf` requires the name of a procedure",
-            );
-            return self.error_expr(span);
+        let (name, name_span, target) = match &inner.kind {
+            ExprKind::Name(id) => {
+                let found = if self.scope.contains_key(&id.name) {
+                    None
+                } else {
+                    Some(self.sema.lookup_module_scope(self.module, &id.name))
+                };
+                match found {
+                    Some(Found::Ambiguous(ms)) => {
+                        self.sema
+                            .ambiguous(self.module, id.span, &id.name.to_string(), &ms);
+                        return self.error_expr(span);
+                    }
+                    Some(Found::Sym(_, sym)) => (&id.name, id.span, Some(sym)),
+                    _ => (&id.name, id.span, None),
+                }
+            }
+            // `Module.Proc` and `Project.Module.Proc`.
+            ExprKind::Member {
+                target: Some(q),
+                name,
+            } => match self.try_namespace(q) {
+                Some(Namespace::Module(m)) => {
+                    let mi = &self.sema.program.modules[m.index()];
+                    let sym = mi.symbols.get(&name.name).map(|(s, _)| *s);
+                    match sym {
+                        Some(s) if m != self.module && !self.sema.symbol_public(s) => {
+                            self.err(
+                                codes::NOT_ACCESSIBLE,
+                                name.span,
+                                format!("`{}` is private to module `{}`", name.name, mi.name),
+                            );
+                            return self.error_expr(span);
+                        }
+                        _ => (&name.name, name.span, sym),
+                    }
+                }
+                _ => (&name.name, name.span, None),
+            },
+            _ => {
+                self.err(
+                    codes::NOT_CALLABLE,
+                    span,
+                    "`AddressOf` requires the name of a procedure",
+                );
+                return self.error_expr(span);
+            }
         };
         let sema = self.sema;
-        match sema.lookup_module_scope(self.module, &id.name) {
-            Found::Sym(_, Symbol::Proc(p)) => {
+        match target {
+            Some(Symbol::Proc(p)) => {
+                if let Some(why) = callback_restriction(sema, p) {
+                    self.err(
+                        codes::NOT_CALLABLE,
+                        name_span,
+                        format!("`AddressOf {name}` is not allowed: {why}"),
+                    );
+                    return self.error_expr(span);
+                }
                 BExpr::new(span, ty, BExprKind::AddressOf(AddressTarget::Proc(p)))
             }
-            Found::Sym(_, Symbol::Declare(d)) => {
-                BExpr::new(span, ty, BExprKind::AddressOf(AddressTarget::Declare(d)))
-            }
-            Found::Ambiguous(ms) => {
-                sema.ambiguous(self.module, id.span, &id.name.to_string(), &ms);
+            Some(Symbol::Declare(_)) => {
+                self.err(
+                    codes::NOT_CALLABLE,
+                    name_span,
+                    format!(
+                        "`AddressOf {name}` is not allowed: a Declare names an external procedure, not a Sub or Function of this project"
+                    ),
+                );
                 self.error_expr(span)
             }
             _ => {
                 self.err(
                     codes::NOT_CALLABLE,
-                    id.span,
-                    format!(
-                        "`AddressOf` requires a Sub or Function, but `{}` is not one",
-                        id.name
-                    ),
+                    name_span,
+                    format!("`AddressOf` requires a Sub or Function, but `{name}` is not one"),
                 );
                 self.error_expr(span)
             }
@@ -1579,4 +1627,45 @@ impl Binder<'_, '_> {
             None => b,
         }
     }
+}
+
+/// Why `AddressOf` cannot name this procedure, or `None` when it can.
+///
+/// The operand must be a `Sub` or `Function` of a standard module (MS-VBAL
+/// 5.6.16.8, AddressOf Expressions, tracked in `docs/language/spec-coverage.md`;
+/// the repository records no further normative text for it, so the shape rules
+/// follow the Microsoft documentation of the `AddressOf` operator). A callback
+/// has a fixed native signature, so `Optional` and `ParamArray` parameters have
+/// no meaning for it. Whether the parameter list fits the function that
+/// receives the pointer is known only to that function and is checked when the
+/// pointer is used.
+fn callback_restriction(sema: &crate::sema::Sema<'_>, p: ProcId) -> Option<String> {
+    let info = &sema.program.procs[p.index()];
+    if !matches!(
+        info.kind,
+        vba_ast::ProcKind::Sub | vba_ast::ProcKind::Function
+    ) {
+        return Some(format!(
+            "`{}` is a property procedure, not a Sub or Function",
+            info.name
+        ));
+    }
+    if sema.program.module(info.module).is_class_like() {
+        return Some(format!(
+            "`{}` belongs to a class, document or designer module; the procedure must be in a standard module",
+            info.name
+        ));
+    }
+    if let Some(q) = info.params.iter().find(|q| q.optional || q.param_array) {
+        return Some(format!(
+            "parameter `{}` is {}, and a callback has a fixed signature",
+            q.name,
+            if q.param_array {
+                "a ParamArray"
+            } else {
+                "Optional"
+            }
+        ));
+    }
+    None
 }
