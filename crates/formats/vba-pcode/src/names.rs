@@ -5,7 +5,7 @@ use crate::project_stream::IdentTable;
 
 /// Built-in names confirmed by observation.
 ///
-/// Evidence kind for every entry: in the reference project (VBA 7.0, x86),
+/// Evidence kind for every entry: in observed VBA 7.0 x86 material,
 /// every instruction whose name operand has this built-in index sits on a
 /// source line that contains the spelling as a token, and no other
 /// candidate token is shared by all such lines. Entries observed fewer than
@@ -95,7 +95,7 @@ impl<'a> Resolver<'a> {
     /// `None` when the adjustment underflows.
     ///
     /// Section 5.2 of the format document: for VBA7 subtract 4 (x64: 3 more)
-    /// and, above 0xBE, one more. Observation of the reference project (VBA
+    /// and, above 0xBE, one more. Observation (VBA
     /// 7.0 x86, version word 0x97) shows only the subtraction of 4; the
     /// extra step is therefore applied only to layouts other than that
     /// verified one, where it is unverified.

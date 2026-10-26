@@ -1,5 +1,6 @@
-//! Shared helpers for tests that use the local, uncommitted reference
-//! project. Nothing here embeds project content.
+//! Shared helpers for tests that use a local, uncommitted project named by
+//! the `VBA_PCODE_PROJECT` environment variable. Nothing here embeds project
+//! content.
 
 #![allow(dead_code, missing_docs)]
 
@@ -11,9 +12,8 @@ use vba_lexer::{LexOptions, TokenKind, lex};
 use vba_profile::LanguageGeneration;
 use vba_source::FileId;
 
-/// Where the reference project is expected (local only, never committed).
-pub const PROJECT_PATH: &str =
-    ".cache/pcode/vbaProject.bin";
+/// Environment variable naming the local project file (never committed).
+pub const PROJECT_ENV: &str = "VBA_PCODE_PROJECT";
 
 pub struct Mod {
     pub name: String,
@@ -27,10 +27,11 @@ pub struct Project {
     pub modules: Vec<Mod>,
 }
 
-/// Loads the reference project, or `None` when the file is absent.
+/// Loads the local project, or `None` when it is not configured or absent.
 pub fn load() -> Option<Project> {
-    let bytes = std::fs::read(PROJECT_PATH).ok()?;
-    let p = read_project(&bytes, &Limits::default()).expect("reference project reads");
+    let path = std::env::var_os(PROJECT_ENV)?;
+    let bytes = std::fs::read(path).ok()?;
+    let p = read_project(&bytes, &Limits::default()).expect("local project reads");
     let project_stream = p
         .preserved
         .get(vba_format::keys::VBA_PROJECT_STREAM)?

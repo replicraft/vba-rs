@@ -1,91 +1,72 @@
-# Compiled VBA ("p-code") research notes
+# Compiled VBA ("p-code") cache: observations
 
-Status: phase 0 (observation only). Nothing here is executable yet, and no
-crate exists for it. This document records what is known about the module
-performance cache and what is still hypothesis.
+Status: observations and verification plan. This document records what is known about the
+module performance cache and what is still hypothesis. The structure and opcode
+specifications are [pcode-format.md](pcode-format.md) and [pcode-opcodes.md](pcode-opcodes.md);
+the implementation status is [pcode-status.md](pcode-status.md).
 
-Tags: `[spec]` stated by the public MS-OVBA text; `[obs]` observed directly in a
-real project that carries both source and cache; `[hyp]` hypothesis, not
-substantiated. Facts without a tag are not added.
+Tags: `[spec]` stated by the public MS-OVBA text; `[obs]` observed directly in a project that
+carries both source and cache; `[hyp]` hypothesis, not substantiated. Facts without a tag are
+not added.
 
 ## Scope
 
 Goal of the research line: execute compiled VBA so that compiled-only projects
-(`.accde`, `.mde`, and documents whose source was stripped) can run on the
+(compiled-only database files and documents whose source was stripped) can run on the
 shared `vba-vm`. See [compiled-projects.md](../runtime/compiled-projects.md) for what the
 project model does today (store, copy and re-embed the cache as opaque bytes;
 never interpret it).
 
-Priority target: VBA 7.0, 32-bit, as found in Access 2010 (the version of the
-reference project below). VBA 7.1 and 64-bit variants come next, per fixture
-availability; layout statements are not assumed to carry over between them.
+Priority target: VBA 7.0, 32-bit (the Office 2010 generation). VBA 7.1 and 64-bit variants
+come next, as material becomes available; layout statements are not assumed to carry over
+between them.
 
-Out of scope for phase 0: any opcode table, any decoder, any interpreter, any
-database container reader.
+Test material: extracted projects are local-only and never committed, and no bytes derived
+from them (hex dumps, identifier lists) are committed either. This document contains
+structure, counts and offsets only.
 
-Test material: extracted projects are local-only and never committed, and no
-bytes derived from them (hex dumps, identifier lists) are committed either. This
-document contains structure, counts and offsets only.
+## Observed material
 
-## Reference project used for observation
+Projects with full source and cache side by side (33 modules: 11 standard, 22 class), so the
+source pipeline is usable as an oracle: source decompresses from `MODULEOFFSET` onward in
+every module `[obs]`.
 
-One real Access project with full source and a cache side by side.
-
-* 33 modules (11 standard, 22 class), all with source and cache, so the
-  source pipeline is usable as an oracle: source decompresses from
-  `MODULEOFFSET` onward in every module `[obs]`.
 * Code page 1252, LCID 1033. `PROJECTSYSKIND` is 1 (32-bit Windows) `[obs]`.
-* References include `stdole`, `ADODB`, `VBIDE`, an Outlook library and DAO, with
-  paths indicating an Office 2010 era installation `[obs]`.
-* `_VBA_PROJECT` starts with the reserved constant `CC 61`, then the 16-bit
-  version field, here `0x0097` `[spec: layout; obs: value]`. The specification
-  calls the value implementation-specific; mapping it to a VBA release is
-  `[hyp]` (VBA 7.x, consistent with the Office 2010 paths and with the
-  conditional-compilation name `Win64` appearing in the project-level cache).
-* Every layout statement below was observed in this one project; it must be
-  re-verified against other versions and 64-bit projects before it is trusted for
-  them.
+* `_VBA_PROJECT` starts with the reserved constant `CC 61`, then the 16-bit version field,
+  here `0x0097` `[spec: layout; obs: value]`. The specification calls the value
+  implementation-specific; mapping it to a VBA release is `[hyp]` (VBA 7.x, consistent with
+  the conditional-compilation name `Win64` appearing in the project-level cache).
+* Every layout statement below was observed on VBA 7.0 x86; it must be re-verified against
+  other versions and 64-bit projects before it is trusted for them.
 
-### Which version made it
+### Version identification
 
-Evidence found inside the project, strongest first:
+1. `PROJECTSYSKIND` = 1 (32-bit Windows) `[obs]`.
+2. The conditional-compilation name `Win64` in the project-level cache, which exists only
+   from VBA 7 on `[obs]`; Office 2010 shipped VBA 7.0 `[hyp]`.
+3. The `_VBA_PROJECT` version word `0x0097` `[obs]`: this is the field that identifies the
+   compiler release which produced the cache, so it is the one that matters for decoding.
+   Its mapping to a release stays `[hyp]` until material from an independently known Office
+   build confirms it.
 
-1. References pointing into an `Office14` installation, a DAO reference to the
-   ACE DAO library under `OFFICE14`, and an Outlook type library at version 9.4
-   (the Outlook 2010 library) `[obs]`. Together: Office 2010 (14.0), 32-bit on a
-   64-bit OS. High confidence.
-2. `PROJECTSYSKIND` = 1 (32-bit Windows) `[obs]`.
-3. The conditional-compilation name `Win64` in the project-level cache, which
-   exists only from VBA 7 on `[obs]`; Office 2010 shipped VBA 7.0 `[hyp]`.
-4. The `_VBA_PROJECT` version word `0x0097` `[obs]`: this is the field that
-   identifies the compiler release which produced the cache, so it is the one that
-   matters for decoding. Its mapping to a release stays `[hyp]` until a project
-   from an independently known Office build confirms it.
-5. Database level: file format "ACE 2007", subversion 0, 4096-byte pages, and a
-   database property `AccessVersion` = `09.50` `[obs]`. These describe the file
-   format and are long-lived markers, so they confirm "Access 2007 format or
-   later" but do not distinguish releases.
-
-Caveat: the cache is produced by whichever Access last compiled the project, which
-can differ from the one that created the file. The version word, not the file
-properties, decides how to decode it.
+Caveat: the cache is produced by whichever host application last compiled the project, which
+can differ from the one that created the file. The version word, not the file properties,
+decides how to decode it.
 
 Sizes `[obs]`:
 
-* Source lengths 350 to 60,292 characters; cache lengths (`MODULEOFFSET`
-  values) 1,102 to 95,625 bytes; total cache about 691 KB.
-* `_VBA_PROJECT` is 51,580 bytes (a large project-level cache, not the usual
-  few bytes of header).
-* Streams named `__SRP_<hex>`: exactly two per module, plus two for the
-  project. Module stream names are scrambled by the host application.
+* Source lengths 350 to 60,292 characters; cache lengths (`MODULEOFFSET` values) 1,102 to
+  95,625 bytes; total cache about 691 KB.
+* `_VBA_PROJECT` is 51,580 bytes (a large project-level cache, not the usual few bytes of
+  header).
+* Streams named `__SRP_<hex>`: exactly two per module, plus two for the project.
 
-How Access stores the project: the VBA storage hierarchy (`VBA/`, `PROJECT`,
-`PROJECTwm`) is held as rows of a system table, one row per storage or stream,
-with the stream bytes in a long-value column. The stream bytes are exactly the
-stream contents: `dir` decompresses as an MS-OVBA container and all module
-sources decompress `[obs; spec: MS-OVBA 2.4.1]`. Reading that table belongs to
-the database container layer, not to this project. Whether `.accde` files use the
-same layout with empty source parts is unchecked (no fixture).
+In a database container the VBA storage hierarchy (`VBA/`, `PROJECT`, `PROJECTwm`) is held
+as rows of a system table, one row per storage or stream, with the stream bytes in a
+long-value column. The stream bytes are exactly the stream contents: `dir` decompresses as
+an MS-OVBA container and all module sources decompress `[obs; spec: MS-OVBA 2.4.1]`.
+Reading that table belongs to a database container layer, not to this project. Whether
+compiled-only database files use the same layout with empty source parts is unchecked.
 
 ## Findings on the module stream and cache
 
@@ -108,7 +89,7 @@ majority, with understood exceptions; low = pattern seen, not tested broadly.
 | 9 | Each module owns exactly two `__SRP_*` streams starting `72 55`; the first correlates with code size, the second is small. Their role is unknown. | high for the count; role unknown |
 | 10 | The `_VBA_PROJECT` cache section contains the reference descriptions (UTF-16 type-library strings), conditional-compilation names and ASCII names of modules, declared procedures and `Declare` targets. | medium |
 
-### Alignment experiment (reproducible locally)
+### Alignment experiment
 
 Source oracle: for each module, decompress the source at `MODULEOFFSET`; split
 lines; separate the comment from the code with a quote-aware splitter; extract
@@ -139,64 +120,51 @@ Procedure counts come from a header-matching pattern and are a lower bound.
   members of document-class modules rather than user procedures (their count
   did not match the procedure count in the module examined). `[hyp]`
 
-## Test material still needed
+## Verification material still needed
 
-All as pairs (source version + compiled-only version), with the exact Office
-build noted, and with known expected output (a small `Debug.Print`/`MsgBox`
-transcript or a table, written down at creation time):
+All as pairs (source version + compiled-only version), with the exact Office build noted, and
+with known expected output (a small `Debug.Print`/`MsgBox` transcript or a table, written down
+at creation time):
 
-1. Windows + Office produced, minimal projects: an empty module, one `Sub`
-   with `Debug.Print 1+2`, one of each statement kind (If/Select/For/Do/
-   With/Call/GoTo/On Error), each literal type, each operator, each data type
-   and `Declare` forms. Small enough to diff mentally.
-2. The same project saved by (a) VBA 7.0 32-bit (Access 2010, the target),
-   (b) VBA 7.1 32-bit, (c) VBA 7.1 64-bit, (d) VBA 6 (Office 2003/2007 era),
-   and as (e) a project in a document (`vbaProject.bin` from an `.xlsm`) and
-   one in Access. Note the exact Office build for each.
-3. An `.accdb`/`.accde` pair of the same Access project (the compile-to-
-   `accde` step strips the source), including at least one form with an event
-   handler and one standard module.
-4. Projects with referenced type libraries, plus the `.tlb`/`.olb` files
-   (or their versions and GUIDs) so that member resolution can be studied.
-5. For every fixture: a statement of license/provenance that allows local use
-   (and ideally permits committing the file, which would let tests run in CI).
-6. A project with `Option Explicit`, one with conditional compilation
-   (`#If VBA7 Then`, `Win64`), one with classes (`Implements`, `WithEvents`,
-   `Property` pairs) and one with a user-defined type and an enum.
+1. Minimal projects: an empty module, one `Sub` with `Debug.Print 1+2`, one of each statement
+   kind (If/Select/For/Do/With/Call/GoTo/On Error), each literal type, each operator, each
+   data type and `Declare` forms. Small enough to diff mentally.
+2. The same project saved by (a) VBA 7.0 32-bit (the target), (b) VBA 7.1 32-bit, (c) VBA 7.1
+   64-bit, (d) VBA 6, and as (e) a project in a document (`vbaProject.bin` from an `.xlsm`)
+   and one in a database.
+3. A database file and its compiled-only counterpart (compiling strips the source), including
+   at least one form with an event handler and one standard module.
+4. Projects with referenced type libraries, plus the library files (or their versions and
+   GUIDs) so that member resolution can be studied.
+5. For every sample: a statement of license/provenance that allows local use (and ideally
+   permits committing the file, which would let tests run in CI).
+6. A project with `Option Explicit`, one with conditional compilation (`#If VBA7 Then`,
+   `Win64`), one with classes (`Implements`, `WithEvents`, `Property` pairs) and one with a
+   user-defined type and an enum.
 
-Without Office the pairs in (1) and (2) cannot be generated here; this is the
-main blocker for any decoder that can be validated.
+## Crate layout
 
-## Planned crate layout
-
-* `crates/formats/vba-pcode` (new): read-only access helpers over the
-  performance cache: parse the cache header, expose the raw bytes of sections
-  and records, scan for length-prefixed names and literals. No execution.
-  Depends on `vba-project` and `vba-format` for module bytes and on nothing
-  Windows specific. The skeleton is deliberately **not** created in phase 0:
-  with only the single generic observation above, a crate would be an empty
-  shell with an unstable surface, and adding it later costs one line in the
-  lockfile.
-* `crates/language/vba-pcode-ir` (new): lowers decoded records into the
-  existing `vba-ir`, so the shared `vba-vm` executes both source-derived and
-  cache-derived programs through one path.
-* Execution stays on `vba-vm`; no second interpreter. Name resolution
-  (references, type libraries) is shared with the source pipeline.
-* A source-vs-cache differential harness (the oracle) is the first
-  consumer: for fixtures with both, the cache-derived IR must agree with the
-  source-derived IR modulo comments and formatting.
+* `crates/formats/vba-pcode`: read-only decoder and disassembler over the performance cache
+  (see pcode-status.md). No execution.
+* A later crate would lower decoded records into the existing `vba-ir`, so the shared
+  `vba-vm` executes both source-derived and cache-derived programs through one path.
+* Execution stays on `vba-vm`; no second interpreter. Name resolution (references, type
+  libraries) is shared with the source pipeline.
+* A source-vs-cache differential harness (the oracle) is the first consumer: for projects with
+  both, the cache-derived IR must agree with the source-derived IR modulo comments and
+  formatting.
 
 ## Phase gates and success metrics
 
 | Phase | Gate | Metric |
 |-------|------|--------|
-| 0 | Fixture access, container extraction path, first structural facts, docs | done when this document exists; at least one fixture with source and cache |
+| 0 | Material access, container extraction path, first structural facts, docs | done; at least one project with source and cache |
 | 1 | Header and section map: parse the header, locate every section, enumerate records without interpreting them | 100% of module caches parse into a gap-free sequence of known-size regions (no unexplained bytes in sections, tolerated in an `unknown` bucket below a stated size); property test: re-encode the region map |
-| 2 | Token/record decoder for expressions and statements on the reference project; opcode table derived by diffing against source | per-record round trip: decoded records re-render the source statements of the oracle (modulo whitespace and case) for >= 95% of statements in the reference project |
+| 2 | Token/record decoder for expressions and statements on the observed material; opcode table derived by diffing against source | per-record round trip: decoded records re-render the source statements of the oracle (modulo whitespace and case) for >= 95% of statements of the observed material |
 | 3 | Same on the other versions and on 64-bit (needs new test material) | same metric, on each added version |
 | 4 | Lower decoded procedures to `vba-ir`, run a small program on `vba-vm` | outputs of the compiled-only project equal the source version on a conformance subset; errors raised for unsupported records, never silent |
-| 5 | Compiled-only `.accde` with referenced libraries | the first real `.accde` fixture runs end to end |
+| 5 | Compiled-only `.accde` with referenced libraries | the first real compiled-only database project runs end to end |
 
 Policy gates: no phase merges unless its metric is measured by a committed
 test that uses only committed (non-extracted) synthetic or user-approved
-fixtures; tests that need extracted projects stay ignored and are run locally.
+material; tests that need extracted projects stay ignored and are run locally.

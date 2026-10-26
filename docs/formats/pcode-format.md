@@ -263,7 +263,7 @@ Offsets for lines need not be monotonic or contiguous; bound-check against the s
 
 ## 10. Verification checklist
 
-Run against real fixture files (one per version/bitness if possible):
+Run against real compiled projects (one per version/bitness if possible):
 
 1. Directory stream: after decompression, record ids walk cleanly to the end; PROJECTSYSKIND is 1 (x86) or 3 (x64) as expected; exactly one MODULESTREAMNAME record (with its 0x0032 sub-record) appears per module.
 2. Project stream: first word 0x61CC; version word matches the Office build (e.g. 0xB2 / 0xD7); after the walk in section 3.2, the cursor must end close to the stream end (the identifier area is the tail); the number of text entries read must equal `nIdents` minus zero-length entries.

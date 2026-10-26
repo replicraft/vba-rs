@@ -3,7 +3,7 @@
 //!
 //! Facts come from the repository documents `docs/formats/pcode-format.md`,
 //! `docs/formats/pcode-opcodes.md` and `docs/formats/pcode.md`, the public MS-OVBA
-//! specification, and direct observation of a test project. The crate takes
+//! specification, and direct observation. The crate takes
 //! plain byte slices; reading the container is the caller's job.
 //!
 //! Only VBA 7.0 on 32-bit Windows is verified against real material. Every

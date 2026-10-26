@@ -1,8 +1,9 @@
-//! Metrics against the local reference project (VBA 7.0, 32-bit).
+//! Metrics against a local VBA 7.0, 32-bit project.
 //!
 //! The project is local only and never committed, so every test here is
-//! `#[ignore]`d and returns early when the file is absent. Run with
-//! `cargo test -p vba-pcode --test real_project -- --ignored --nocapture`.
+//! `#[ignore]`d and returns early when `VBA_PCODE_PROJECT` is unset or the
+//! file is absent. Run with
+//! `VBA_PCODE_PROJECT=<file> cargo test -p vba-pcode --test real_project -- --ignored --nocapture`.
 //! The tests print numbers only, never project content beyond short
 //! failure samples.
 
@@ -72,7 +73,7 @@ fn is_proc_header(l: &SrcLine) -> bool {
 }
 
 #[test]
-#[ignore = "needs the local reference project"]
+#[ignore = "needs a local project (VBA_PCODE_PROJECT)"]
 fn phase1_structure() {
     let Some(c) = ctx() else { return };
     assert_eq!(c.layout.verification(), Verification::Verified);
@@ -200,7 +201,7 @@ fn phase1_structure() {
 }
 
 #[test]
-#[ignore = "needs the local reference project"]
+#[ignore = "needs a local project (VBA_PCODE_PROJECT)"]
 fn phase1_records_agree_with_source() {
     let Some(c) = ctx() else { return };
     let res = Resolver::new(&c.idents, c.layout);
@@ -302,7 +303,7 @@ fn phase1_records_agree_with_source() {
 }
 
 #[test]
-#[ignore = "needs the local reference project"]
+#[ignore = "needs a local project (VBA_PCODE_PROJECT)"]
 fn phase2_decode_and_consistency() {
     let Some(c) = ctx() else { return };
     let user: BTreeSet<String> = c

@@ -27,7 +27,7 @@ impl RecordKind {
     /// Size in bytes of a record of this kind in the verified layout.
     ///
     /// `[obs]` (VBA 7.0 x86): the modal distance between consecutive
-    /// reachable records of the kind in the reference project; the
+    /// reachable records of the kind in observed material; the
     /// specification only gives minimum sizes. Returns `None` for layouts
     /// without observed sizes.
     pub fn size(self, cache: &ModuleCache<'_>) -> Option<usize> {
