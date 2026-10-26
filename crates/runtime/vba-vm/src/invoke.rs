@@ -654,7 +654,12 @@ impl Vm {
                 let idx = self.bound_value(b)?.ok_or(VbaError::new(449))?;
                 let pos = self.coll_position(id, &idx)?;
                 if name == "item" {
-                    let v = self.coll_items(id)?.get(pos).ok_or(VbaError::new(91))?.value.clone();
+                    let v = self
+                        .coll_items(id)?
+                        .get(pos)
+                        .ok_or(VbaError::new(91))?
+                        .value
+                        .clone();
                     self.retain_value(&v);
                     Ok(v)
                 } else {

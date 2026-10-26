@@ -483,7 +483,9 @@ mod date_format_tests {
             let s: String = (0..len).map(|_| alphabet[next(alphabet.len())]).collect();
             assert_eq!(is_date_format(&s), is_date_format_chars(&s), "{s:?}");
         }
-        for s in ["", "am/pm", "AM/PM", "a/p", "AMPM", "a", "0.00", "x\"d\"", "[h]0"] {
+        for s in [
+            "", "am/pm", "AM/PM", "a/p", "AMPM", "a", "0.00", "x\"d\"", "[h]0",
+        ] {
             assert_eq!(is_date_format(s), is_date_format_chars(s), "{s:?}");
         }
     }
