@@ -13,6 +13,7 @@ use crate::{
     math, misc, strings as st,
 };
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::OnceLock;
 use vba_value::{VarType, Variant};
 
@@ -1293,10 +1294,31 @@ pub fn functions() -> &'static [FunctionInfo] {
     FUNCTIONS
 }
 
-fn index() -> &'static HashMap<String, usize> {
-    static INDEX: OnceLock<HashMap<String, usize>> = OnceLock::new();
+/// FNV-1a: the keys are short function names, for which the default
+/// hasher's setup cost dominates, and nothing here is attacker-chosen.
+#[derive(Default)]
+struct Fnv(u64);
+
+impl Hasher for Fnv {
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = if self.0 == 0 { 0xcbf2_9ce4_8422_2325 } else { self.0 };
+        for b in bytes {
+            h = (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3);
+        }
+        self.0 = h;
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+type Index = HashMap<String, usize, BuildHasherDefault<Fnv>>;
+
+fn index() -> &'static Index {
+    static INDEX: OnceLock<Index> = OnceLock::new();
     INDEX.get_or_init(|| {
-        let mut m = HashMap::new();
+        let mut m = Index::default();
         for (i, f) in FUNCTIONS.iter().enumerate() {
             let n = f.name.to_ascii_lowercase();
             let module = f.module.to_ascii_lowercase();
@@ -1313,10 +1335,22 @@ fn index() -> &'static HashMap<String, usize> {
 /// `VBA.Left` and `VBA.Strings.Left` (and the `$` forms of each). A `$`
 /// suffix on a function without a `$` form does not resolve.
 pub fn lookup(name: &str) -> Option<Resolved> {
-    let lower = name.trim().to_ascii_lowercase();
+    // Names are short: lower-case into a stack buffer instead of allocating.
+    let name = name.trim();
+    let mut buf = [0u8; 48];
+    let owned;
+    let lower: &str = if name.len() <= buf.len() && name.is_ascii() {
+        let b = &mut buf[..name.len()];
+        b.copy_from_slice(name.as_bytes());
+        b.make_ascii_lowercase();
+        std::str::from_utf8(b).ok()?
+    } else {
+        owned = name.to_ascii_lowercase();
+        &owned
+    };
     let (base, dollar) = match lower.strip_suffix('$') {
         Some(b) => (b, true),
-        None => (lower.as_str(), false),
+        None => (lower, false),
     };
     let info = &FUNCTIONS[*index().get(base)?];
     if dollar && !info.dollar {

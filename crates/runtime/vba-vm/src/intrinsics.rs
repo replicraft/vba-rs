@@ -203,8 +203,19 @@ impl Vm {
         dollar: bool,
         args: &[CallArg],
     ) -> VResult<RegVal> {
-        let lname = name.to_ascii_lowercase();
-        match lname.as_str() {
+        // Lower-case into a stack buffer: this runs for every intrinsic call.
+        let mut buf = [0u8; 32];
+        let owned;
+        let lname: &str = if name.len() <= buf.len() && name.is_ascii() {
+            let b = &mut buf[..name.len()];
+            b.copy_from_slice(name.as_bytes());
+            b.make_ascii_lowercase();
+            std::str::from_utf8(b).unwrap_or_default()
+        } else {
+            owned = name.to_ascii_lowercase();
+            &owned
+        };
+        match lname {
             "tab" | "spc" => {
                 let a = self.intrinsic_args(args, true)?;
                 let h = if lname == "tab" {
@@ -227,9 +238,9 @@ impl Vm {
             "lbound" | "ubound" => return self.exec_bound(&lname, args).map(RegVal::V),
             _ => {}
         }
-        let raw = RAW_OBJECT_ARGS.contains(&lname.as_str());
+        let raw = RAW_OBJECT_ARGS.contains(&lname);
         let a = self.intrinsic_args(args, !raw)?;
-        let v = match lname.as_str() {
+        let v = match lname {
             "ismissing" => {
                 Variant::Boolean(matches!(a.first(), Some(Some(v)) if is_missing_marker(v)))
             }
