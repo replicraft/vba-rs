@@ -24,12 +24,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 505 |
-| partial | 163 |
+| implemented | 507 |
+| partial | 161 |
 | unsupported | 6 |
 | not-started | 34 |
-| Conformance programs | 2077 |
-| Programs that are known deviations (XFAIL) | 180 |
+| Conformance programs | 2082 |
+| Programs that are known deviations (XFAIL) | 177 |
 
 ## Entries per category and status
 
@@ -63,7 +63,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-organization | 3 | 1 | 0 | 0 | 2 |
 | spec-declarations | 21 | 11 | 10 | 0 | 0 |
 | spec-procedures | 12 | 6 | 5 | 0 | 1 |
-| spec-statements | 55 | 32 | 22 | 0 | 1 |
+| spec-statements | 55 | 34 | 20 | 0 | 1 |
 | spec-coercion | 18 | 9 | 8 | 0 | 1 |
 | spec-expressions | 53 | 22 | 26 | 0 | 5 |
 | spec-library | 193 | 145 | 24 | 0 | 24 |
@@ -109,7 +109,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-lib-c | 58 | 0 | 58 | 0 | 0 | 0 |
 | spec-lib-d | 74 | 0 | 74 | 0 | 0 | 0 |
 | spec-ops | 131 | 0 | 131 | 0 | 0 | 0 |
-| spec-proc | 209 | 0 | 209 | 0 | 0 | 0 |
+| spec-proc | 214 | 0 | 214 | 0 | 0 | 0 |
 | statements | 88 | 0 | 74 | 13 | 1 | 0 |
 | strings | 71 | 0 | 33 | 14 | 8 | 16 |
 
@@ -213,8 +213,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.3.1.11` | spec-procedures | Procedure Invocation Argument Processing | partial |  |
 | `vbal.5.4.1.1` | spec-statements | Statement Labels | partial |  |
 | `vbal.5.4.2.1` | spec-statements | Call Statement | partial |  |
-| `vbal.5.4.2.3` | spec-statements | For Statement | partial |  |
-| `vbal.5.4.2.4` | spec-statements | For Each Statement | partial |  |
 | `vbal.5.4.2.11` | spec-statements | Stop Statement | not-started |  |
 | `vbal.5.4.3.1` | spec-statements | Local Variable Declarations | partial |  |
 | `vbal.5.4.3.3` | spec-statements | ReDim Statement | partial |  |
@@ -505,7 +503,4 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-proc/5_3_1_typed_name_with_function_type_invalid` | wrong | not implemented: a typed function name with an As clause |
 | `spec-proc/5_4_1_1_label_named_randomize_invalid` | wrong | not implemented: statement keywords as label names |
 | `spec-proc/5_4_2_1_call_object_default_property_error_450` | wrong | not implemented: error 450 for Call on an object whose default member is a property |
-| `spec-proc/5_4_2_3_for_explicit_init_in_body_still_error_92` | wrong | not implemented: error 92 when control enters a For body without initialisation |
-| `spec-proc/5_4_2_3_for_goto_into_body_without_init_error_92` | wrong | not implemented: error 92 when control enters a For body without initialisation |
-| `spec-proc/5_4_2_4_for_each_goto_into_body_error_92` | wrong | not implemented: error 92 when control enters a For Each body (fails IR verification instead) |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |

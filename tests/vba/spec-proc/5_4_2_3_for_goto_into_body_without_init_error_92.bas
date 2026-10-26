@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.2.3
 ' SOURCE: spec ms-vbal 5.4.2.3 jumping into a For body, then reaching Next without initialisation, raises error 92
-' XFAIL: wrong not implemented: error 92 when control enters a For body without initialisation
 ' EXPECT: in body
 ' ERROR: 92
 ' MAX_STEPS: 100000

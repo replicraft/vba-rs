@@ -362,6 +362,11 @@ pub enum InstKind {
         lhs: Operand,
         /// Right operand.
         rhs: Operand,
+        /// The increment of a `For` loop names a register that only the
+        /// loop's initialisation defines: reaching `Next` without it (a
+        /// `GoTo` into the body) is error 92. `None` for every other
+        /// operation.
+        guard: Option<Reg>,
     },
     /// Converts to a declared type as an assignment or `Cxxx` would
     /// (`vba_value::convert::convert_to`); to an object type it is a checked
@@ -583,6 +588,15 @@ pub enum InstKind {
         dst: Reg,
         /// The array or collection.
         src: Operand,
+    },
+    /// Defines `dst` without giving it a value. Emitted at the entry of a
+    /// function for the registers a `For` or `For Each` statement
+    /// initialises when that initialisation is unreachable and the body can
+    /// only be entered through a label (`GoTo` into the body): `Next` then
+    /// finds the register unset and raises error 92.
+    Undefined {
+        /// The register.
+        dst: Reg,
     },
     /// Tests the loop condition of a `For` loop: true when
     /// `step >= 0 ? counter <= end : counter >= end`.

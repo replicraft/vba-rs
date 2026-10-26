@@ -193,6 +193,9 @@ struct Builder<'p> {
     label_blocks: HashMap<LabelId, BlockId>,
     loops: Vec<LoopFrame>,
     line: Option<u64>,
+    /// Registers a `For`/`For Each` initialisation defines and its head
+    /// uses (see [`InstKind::Undefined`]).
+    loop_witnesses: Vec<Reg>,
 }
 
 impl<'p> Builder<'p> {
@@ -210,6 +213,7 @@ impl<'p> Builder<'p> {
             cur_span: Span::empty(0),
             label_blocks: HashMap::new(),
             loops: Vec::new(),
+            loop_witnesses: Vec::new(),
             line: None,
         };
         b.new_block();
@@ -341,6 +345,45 @@ impl<'p> Builder<'p> {
                     index: p.index,
                 })
             });
+        }
+        // A loop whose initialisation is unreachable (only its body is
+        // entered, through a label) lost the definitions of the registers
+        // its head uses: define them as unset so `Next` raises error 92.
+        let mut defined = vec![false; self.regs.len()];
+        for b in &out {
+            for i in &b.insts {
+                if let Some(d) = crate::verify::inst_def(&i.kind) {
+                    defined[d.0 as usize] = true;
+                }
+            }
+            if let Terminator::ForEachNext { item, .. } = &b.term {
+                defined[item.0 as usize] = true;
+            }
+        }
+        let mut missing: Vec<Reg> = Vec::new();
+        for r in std::mem::take(&mut self.loop_witnesses) {
+            if !defined[r.0 as usize] && !missing.contains(&r) {
+                missing.push(r);
+            }
+        }
+        if !missing.is_empty() && !out.is_empty() {
+            let k = missing.len() as u32;
+            let undefined: Vec<Inst> = missing
+                .iter()
+                .map(|r| Inst {
+                    span: Span::empty(0),
+                    stmt: StmtId(0),
+                    kind: InstKind::Undefined { dst: *r },
+                })
+                .collect();
+            out[0].insts.splice(0..0, undefined);
+            for s in &mut self.stmts {
+                if let Some(p) = &mut s.resume_next
+                    && p.block == BlockId(0)
+                {
+                    p.index += k;
+                }
+            }
         }
         // Slots mirror the sema locals.
         let slots = match self.proc {
@@ -884,6 +927,7 @@ impl<'p> Builder<'p> {
             overflow: overflow_for(lt, rt),
             lhs: l.clone(),
             rhs: r,
+            guard: None,
         });
         Operand::Reg(dst)
     }
@@ -905,6 +949,25 @@ impl<'p> Builder<'p> {
             Some(x) => self.lower_expr(x)?,
             None => Self::const_op(Variant::Integer(1)),
         };
+        // Error 92 when `Next` is reached without this initialisation: a
+        // register only the initialisation defines is the witness.
+        let guard = match (&e, &st, &s) {
+            (Operand::Reg(r), _, _) | (_, Operand::Reg(r), _) | (_, _, Operand::Reg(r)) => *r,
+            _ => {
+                let g = self.reg(Type::Boolean);
+                self.emit(InstKind::Copy {
+                    dst: g,
+                    src: Self::const_op(Variant::Boolean(true)),
+                });
+                g
+            }
+        };
+        for o in [&e, &st, &s] {
+            if let Operand::Reg(r) = o {
+                self.loop_witnesses.push(*r);
+            }
+        }
+        self.loop_witnesses.push(guard);
         self.store(counter, s, StoreMode::Let)?;
         let head = self.new_block();
         let body_b = self.new_block();
@@ -950,6 +1013,7 @@ impl<'p> Builder<'p> {
             },
             lhs: cur,
             rhs: st,
+            guard: Some(guard),
         });
         self.store(counter, Operand::Reg(nv), StoreMode::Let)?;
         self.terminate(Terminator::Jump(head));
@@ -989,6 +1053,7 @@ impl<'p> Builder<'p> {
         let c = self.lower_expr(collection)?;
         let it = self.reg(Type::Variant);
         self.emit(InstKind::IterInit { dst: it, src: c });
+        self.loop_witnesses.push(it);
         let head = self.new_block();
         let body_b = self.new_block();
         let exit = self.new_block();
@@ -1473,6 +1538,7 @@ impl<'p> Builder<'p> {
                     overflow: overflow_for(&lhs.ty, &rhs.ty),
                     lhs: l,
                     rhs: r,
+                    guard: None,
                 });
                 Operand::Reg(dst)
             }

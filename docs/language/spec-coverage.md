@@ -125,6 +125,16 @@ members, `Do` with a condition on both ends, invalid date literals, float and ra
 out of range, wrong `Exit` kinds, and property
 pairing errors other than the parameter mechanism.
 
+## GoTo into a For or For Each body
+
+Control that enters the body of a `For` or `For Each` statement through a label, without the
+statement's initialisation having run, raises the trappable run-time error 92 ("For loop not
+initialized") when `Next` is reached (5.4.2.3, 5.4.2.4); it is no longer an internal error at
+load. The loop state is "initialised" when the registers its initialisation defines are set in
+the current activation, so a loop whose initialisation ran earlier in the same procedure call
+(and was left by `Exit For` or `GoTo`) is entered again without error; real VBA is assumed to
+behave the same but there is no oracle result for it yet.
+
 ## Date literals without a year
 
 `#3/4#`, `#Mar 4#` and `#4 March 10:30#` name no year. Real VBA uses the year in which the
@@ -168,8 +178,7 @@ object variables without a default member are analysis errors rather than run-ti
   (5.2.3.6); forward references between Enum members; uniqueness of public type names across
   modules; reserved words as `Type` member names; `Dim a&(n)` at module level; `#ordinal`
   alias checks of `Declare`; `VB_GlobalNameSpace` classes.
-* GoTo into a `For`/`For Each` body does not raise error 92 (a `For Each` fails IR
-  verification at load); `Call` on an object whose default member is a property is not error 450;
+* `Call` on an object whose default member is a property is not error 450;
   late-bound named-argument error numbers (448/449); trailing `Static` in a procedure header;
   event-handler declaration rules; private types as result types; Variant overflow promotion
   for Date and Single operands.

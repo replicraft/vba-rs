@@ -142,7 +142,8 @@ pub fn inst_uses(k: &InstKind) -> Vec<Reg> {
         | InstKind::AddressOf { .. }
         | InstKind::SetErrorMode { .. }
         | InstKind::ClearError
-        | InstKind::SetLine { .. } => {}
+        | InstKind::SetLine { .. }
+        | InstKind::Undefined { .. } => {}
         InstKind::StoreLocal { src, .. } | InstKind::StoreGlobal { src, .. } => {
             op_regs(src, &mut u)
         }
@@ -295,6 +296,7 @@ pub fn inst_def(k: &InstKind) -> Option<Reg> {
         | InstKind::AddressOf { dst, .. }
         | InstKind::TypeOfIs { dst, .. }
         | InstKind::IterInit { dst, .. }
+        | InstKind::Undefined { dst }
         | InstKind::ForTest { dst, .. } => Some(*dst),
         InstKind::Call { dst, .. } | InstKind::Invoke { dst, .. } => *dst,
         _ => None,
@@ -429,12 +431,18 @@ fn verify_function(p: &IrProgram, f: &Function, errs: &mut Vec<VerifyError>) {
             cx.err(Some(bid), "branch condition must be Boolean or Variant");
         }
         if let Terminator::ForEachNext { iter, .. } = &b.term {
-            let defined_by_iter = f
-                .blocks
-                .iter()
-                .flat_map(|b| &b.insts)
-                .any(|i| matches!(&i.kind, InstKind::IterInit { dst, .. } if dst == iter));
-            if !defined_by_iter {
+            // The iterator is defined by `iter.init`. The definition may be
+            // missing altogether when the `For Each` statement is only
+            // reachable through a label in its body (`GoTo` into the body);
+            // the run time then raises error 92 at `Next`.
+            let defined_otherwise = f.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+                inst_def(&i.kind) == Some(*iter)
+                    && !matches!(
+                        i.kind,
+                        InstKind::IterInit { .. } | InstKind::Undefined { .. }
+                    )
+            });
+            if defined_otherwise {
                 cx.err(
                     Some(bid),
                     "foreach.next iterator is not defined by iter.init",

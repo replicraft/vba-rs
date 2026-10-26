@@ -365,14 +365,16 @@ impl Printer<'_> {
                 overflow,
                 lhs,
                 rhs,
+                guard,
             } => format!(
-                "r{} = {}.{}:{} {}, {}",
+                "r{} = {}.{}:{} {}, {}{}",
                 dst.0,
                 self.binop(op),
                 Self::overflow(*overflow),
                 self.ty(ty),
                 self.operand(lhs),
-                self.operand(rhs)
+                self.operand(rhs),
+                guard.map_or_else(String::new, |g| format!(" guard r{}", g.0))
             ),
             InstKind::Convert { dst, src, to } => {
                 format!("r{} = convert:{} {}", dst.0, self.ty(to), self.operand(src))
@@ -562,6 +564,7 @@ impl Printer<'_> {
                     .join(", ")
             ),
             InstKind::Erase { r } => format!("erase r{}", r.0),
+            InstKind::Undefined { dst } => format!("r{} = undefined", dst.0),
             InstKind::IterInit { dst, src } => {
                 format!("r{} = iter.init {}", dst.0, self.operand(src))
             }

@@ -561,7 +561,17 @@ impl Vm {
                 overflow,
                 lhs,
                 rhs,
+                guard,
             } => {
+                if let Some(g) = guard
+                    && matches!(
+                        self.frames.last().expect("frame").regs[g.0 as usize],
+                        RegVal::Empty
+                    )
+                {
+                    // `Next` without the `For` initialisation (MS-VBAL 5.4.2.3).
+                    return Err(VbaError::new(92).into());
+                }
                 let l = self.val(lhs)?;
                 let r = self.val(rhs)?;
                 let out = self.binary(op, ty, *overflow, l, r)?;
@@ -739,6 +749,7 @@ impl Vm {
                 *slot = Variant::Array(Box::new(a));
             }
             InstKind::Erase { r } => self.exec_erase(func, *r)?,
+            InstKind::Undefined { .. } => {}
             InstKind::IterInit { dst, src } => {
                 let v = self.val(src)?;
                 let it = self.iter_init(v)?;
@@ -1128,6 +1139,9 @@ impl Vm {
                     &mut self.frames.last_mut().expect("frame").regs[iter.0 as usize],
                 ) {
                     RegVal::Iter(it) => it,
+                    // `Next` of a `For Each` whose enumeration was never started
+                    // (control entered the body with a `GoTo`; MS-VBAL 5.4.2.4).
+                    RegVal::Empty => return Err(VbaError::new(92).into()),
                     _ => return Err(Fault::Internal("iterator expected".into())),
                 };
                 let r = self.iter_next(&mut it);

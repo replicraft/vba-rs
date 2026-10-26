@@ -216,22 +216,23 @@ fn for_next_step() {
               slot s0 i : Long (local)
               slot s1 s : Long (local)
               b0:
+                r0 = copy True
                 store.local s0:i <- 10& [let]
                 jump b1
               b1:
-                r0 = load.local s0:i
-                r1 = for.test r0, 1&, -2&
-                branch r1 ? b3 : b2
+                r1 = load.local s0:i
+                r2 = for.test r1, 1&, -2&
+                branch r2 ? b3 : b2
               b2:
                 return
               b3:
-                r2 = load.local s1:s
-                r3 = load.local s0:i
-                r4 = add.typed:Long r2, r3
-                store.local s1:s <- r4 [let]
-                r5 = load.local s0:i
-                r6 = add.typed:Long r5, -2&
-                store.local s0:i <- r6 [let]
+                r3 = load.local s1:s
+                r4 = load.local s0:i
+                r5 = add.typed:Long r3, r4
+                store.local s1:s <- r5 [let]
+                r6 = load.local s0:i
+                r7 = add.typed:Long r6, -2& guard r0
+                store.local s0:i <- r7 [let]
                 jump b1
         "#]],
     );
@@ -246,20 +247,21 @@ fn for_next_variant_counter() {
             func M.P
               slot s0 v : Variant (local)
               b0:
+                r0 = copy True
                 store.local s0:v <- 1% [let]
                 jump b1
               b1:
-                r0 = load.local s0:v
-                r1 = for.test r0, 3%, 1%
-                branch r1 ? b3 : b2
+                r1 = load.local s0:v
+                r2 = for.test r1, 3%, 1%
+                branch r2 ? b3 : b2
               b2:
                 return
               b3:
-                r2 = load.local s0:v
-                debug.print r2
                 r3 = load.local s0:v
-                r4 = add.variant:Variant r3, 1%
-                store.local s0:v <- r4 [let]
+                debug.print r3
+                r4 = load.local s0:v
+                r5 = add.variant:Variant r4, 1% guard r0
+                store.local s0:v <- r5 [let]
                 jump b1
         "#]],
     );
@@ -425,20 +427,21 @@ fn exit_for_inside_do() {
             func M.P
               slot s0 i : Long (local)
               b0:
+                r0 = copy True
                 store.local s0:i <- 1& [let]
                 jump b1
               b1:
-                r0 = load.local s0:i
-                r1 = for.test r0, 3&, 1%
-                branch r1 ? b2 : b4
+                r1 = load.local s0:i
+                r2 = for.test r1, 3&, 1%
+                branch r2 ? b2 : b4
               b2:
-                r2 = load.local s0:i
-                r3 = eq[bin].typed:Boolean r2, 2%
-                branch r3 ? b4 : b3
+                r3 = load.local s0:i
+                r4 = eq[bin].typed:Boolean r3, 2%
+                branch r4 ? b4 : b3
               b3:
-                r4 = load.local s0:i
-                r5 = add.typed:Long r4, 1%
-                store.local s0:i <- r5 [let]
+                r5 = load.local s0:i
+                r6 = add.typed:Long r5, 1% guard r0
+                store.local s0:i <- r6 [let]
                 jump b1
               b4:
                 return

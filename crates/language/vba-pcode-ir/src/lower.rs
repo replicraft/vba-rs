@@ -664,6 +664,7 @@ impl Lw<'_> {
                     overflow: overflow_for(&lt, &rt),
                     lhs: lo,
                     rhs: ro,
+                    guard: None,
                 });
                 IrOperand::Reg(dst)
             }
@@ -758,6 +759,7 @@ impl Lw<'_> {
             overflow: overflow_for(lt, rt),
             lhs: l.clone(),
             rhs: r,
+            guard: None,
         });
         IrOperand::Reg(dst)
     }
@@ -1474,6 +1476,7 @@ impl Lw<'_> {
                     },
                     lhs: IrOperand::Reg(cur),
                     rhs: step,
+                    guard: None,
                 });
                 self.emit(InstKind::StoreLocal {
                     slot: counter,
