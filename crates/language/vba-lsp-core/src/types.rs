@@ -313,6 +313,11 @@ pub struct FormatOptions {
     pub tab_size: u32,
     /// Indent with spaces (true) or tabs.
     pub insert_spaces: bool,
+    /// Rewrite reserved words to their canonical spelling (`elseif` becomes
+    /// `ElseIf`). Only the case of letters changes; VBA is case-insensitive.
+    /// Words after `.` or `!`, attribute names and inactive text are left
+    /// alone.
+    pub keyword_case: bool,
 }
 
 impl Default for FormatOptions {
@@ -320,6 +325,7 @@ impl Default for FormatOptions {
         FormatOptions {
             tab_size: 4,
             insert_spaces: true,
+            keyword_case: false,
         }
     }
 }

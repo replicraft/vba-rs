@@ -512,5 +512,9 @@ fn format_options(o: &lsp::FormattingOptions) -> core::FormatOptions {
     core::FormatOptions {
         tab_size: o.tab_size.clamp(1, 16),
         insert_spaces: o.insert_spaces,
+        keyword_case: matches!(
+            o.properties.get("keywordCase"),
+            Some(lsp::FormattingProperty::Bool(true))
+        ),
     }
 }

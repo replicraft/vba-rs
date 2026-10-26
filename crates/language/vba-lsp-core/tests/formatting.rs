@@ -207,6 +207,7 @@ fn tabs_option_and_tab_size() {
         FormatOptions {
             tab_size: 4,
             insert_spaces: false,
+            ..FormatOptions::default()
         },
     );
     assert_eq!(tabs, "Sub A()\n\tIf x Then\n\t\ty = 1\n\tEnd If\nEnd Sub\n");
@@ -215,6 +216,7 @@ fn tabs_option_and_tab_size() {
         FormatOptions {
             tab_size: 2,
             insert_spaces: true,
+            ..FormatOptions::default()
         },
     );
     assert_eq!(two, "Sub A()\n  If x Then\n    y = 1\n  End If\nEnd Sub\n");

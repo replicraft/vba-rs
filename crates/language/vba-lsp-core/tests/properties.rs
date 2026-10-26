@@ -194,7 +194,7 @@ proptest! {
         let edits = ws2.view(URI).unwrap().format(FormatOptions::default());
         prop_assert!(edits.is_empty(), "second pass changed {:?}\n{}", edits, once);
         // tabs variant is idempotent too
-        let tabs = FormatOptions { tab_size: 4, insert_spaces: false };
+        let tabs = FormatOptions { insert_spaces: false, ..FormatOptions::default() };
         let t1 = apply_edits(&src, &ws.view(URI).unwrap().format(tabs));
         prop_assert_eq!(strip(&t1), strip(&src));
         let ws3 = open(&t1);

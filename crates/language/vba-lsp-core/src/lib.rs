@@ -44,9 +44,9 @@ mod workspace;
 
 pub use document::{Analysis, Config, Document, FILE_ID, TextChange, parse_encoding};
 pub use format::apply_edits;
+pub use project::SharedProvider;
 pub use semantic_tokens::encode_semantic_tokens;
 pub use text::{Position, Range, TextMap};
 pub use types::*;
-pub use project::SharedProvider;
 pub use vba_project::ModuleKind;
 pub use workspace::{SemanticDiagnostics, SemanticInput, View, Workspace};

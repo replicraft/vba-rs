@@ -314,8 +314,10 @@ impl<'a> Ctx<'a> {
                 let b = self.member_binding(node);
                 if b == Binding::Unknown
                     && let Some(name) = Self::name_token(node)
-                    && let Some((_, m)) = self
-                        .lib_member(&self.receiver_ty(node), &String::from_utf8_lossy(name.text()))
+                    && let Some((_, m)) = self.lib_member(
+                        &self.receiver_ty(node),
+                        &String::from_utf8_lossy(name.text()),
+                    )
                 {
                     return Ty::Known(m.ty);
                 }

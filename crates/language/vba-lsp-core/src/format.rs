@@ -1,14 +1,16 @@
-//! The formatter: re-indents block structure and nothing else.
+//! The formatter: re-indents block structure and, when asked, normalizes
+//! the case of reserved words ([`FormatOptions::keyword_case`]).
 //!
-//! Only the leading whitespace of a line may change. Token text, blank
+//! Only the leading whitespace of a line and, with that option, the letter
+//! case of reserved words may change. Token text, blank
 //! lines, trailing whitespace, line continuations (the lines after a
 //! continuation keep their indentation), line numbers, inactive
 //! conditional-compilation text and exported-module headers are left
 //! exactly as written. The indentation of a line is the nesting depth of
 //! its first token in the syntax tree, so formatting is idempotent.
 
-use vba_lexer::TokenKind;
-use vba_syntax::NodeKind;
+use vba_lexer::{KeywordClass, TokenKind};
+use vba_syntax::{NodeKind, SyntaxToken};
 
 use crate::text::{Position, Range};
 use crate::types::{FormatOptions, TextEdit};
@@ -171,7 +173,72 @@ impl View<'_> {
                 new_text: wanted,
             });
         }
+        if opts.keyword_case {
+            self.keyword_edits(&tokens, first, last, &mut out);
+            out.sort_by_key(|e| (e.range.start.line, e.range.start.character));
+        }
         out
+    }
+
+    /// Edits that spell reserved words canonically. An edit that starts where
+    /// the indent edit of its line ends is merged into it so that edits
+    /// never touch.
+    fn keyword_edits(
+        &self,
+        tokens: &[SyntaxToken<'_>],
+        first: u32,
+        last: u32,
+        out: &mut Vec<TextEdit>,
+    ) {
+        for (k, t) in tokens.iter().enumerate() {
+            let TokenKind::Keyword(kw) = t.kind() else {
+                continue;
+            };
+            if matches!(
+                kw.class(),
+                KeywordClass::ImplementationUse | KeywordClass::FutureReserved
+            ) {
+                continue;
+            }
+            let canonical = format!("{kw:?}");
+            if t.text() == canonical.as_bytes()
+                || !t.text().eq_ignore_ascii_case(canonical.as_bytes())
+            {
+                continue;
+            }
+            if matches!(
+                t.parent().kind(),
+                NodeKind::InactiveText | NodeKind::HeaderBlock | NodeKind::VersionLine
+            ) {
+                continue;
+            }
+            let prev = tokens[..k].iter().rev().find(|p| {
+                !matches!(
+                    p.kind(),
+                    TokenKind::Whitespace | TokenKind::LineContinuation
+                )
+            });
+            if prev.is_some_and(|p| matches!(p.kind(), TokenKind::Dot | TokenKind::Bang)) {
+                continue;
+            }
+            let range = self.range(t.span());
+            if range.start.line < first || range.start.line > last {
+                continue;
+            }
+            match out
+                .iter_mut()
+                .find(|e| e.range.start.line == range.start.line && e.range.end == range.start)
+            {
+                Some(e) => {
+                    e.range.end = range.end;
+                    e.new_text.push_str(&canonical);
+                }
+                None => out.push(TextEdit {
+                    range,
+                    new_text: canonical,
+                }),
+            }
+        }
     }
 }
 

@@ -636,3 +636,31 @@ fn two_module_project() {
     c.notify("exit", Value::Null);
     assert_eq!(c.exit_code(), Some(0));
 }
+
+#[test]
+fn formatting_normalizes_keyword_case_on_request() {
+    let mut c = Client::spawn();
+    initialize(&mut c, false);
+    open_doc(&mut c, URI, 1, "sub a()\ndim x as long\nend sub\n");
+    let opts = json!({"tabSize": 4, "insertSpaces": true, "keywordCase": true});
+    let edits = c.request(
+        "textDocument/formatting",
+        json!({"textDocument": {"uri": URI}, "options": opts}),
+    );
+    let texts: Vec<&str> = edits
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["newText"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, ["Sub", "    Dim", "As", "Long", "End", "Sub"]);
+    // Without the option only the indentation is touched.
+    let plain = c.request(
+        "textDocument/formatting",
+        json!({"textDocument": {"uri": URI}, "options": {"tabSize": 4, "insertSpaces": true}}),
+    );
+    assert_eq!(plain.as_array().unwrap().len(), 1);
+    assert_eq!(c.request("shutdown", Value::Null), Value::Null);
+    c.notify("exit", Value::Null);
+    assert_eq!(c.exit_code(), Some(0));
+}
