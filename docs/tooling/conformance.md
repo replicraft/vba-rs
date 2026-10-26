@@ -24,12 +24,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 507 |
+| implemented | 508 |
 | partial | 161 |
 | unsupported | 6 |
-| not-started | 34 |
-| Conformance programs | 2082 |
-| Programs that are known deviations (XFAIL) | 177 |
+| not-started | 33 |
+| Conformance programs | 2084 |
+| Programs that are known deviations (XFAIL) | 176 |
 
 ## Entries per category and status
 
@@ -66,18 +66,18 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-statements | 55 | 34 | 20 | 0 | 1 |
 | spec-coercion | 18 | 9 | 8 | 0 | 1 |
 | spec-expressions | 53 | 22 | 26 | 0 | 5 |
-| spec-library | 193 | 145 | 24 | 0 | 24 |
+| spec-library | 193 | 146 | 24 | 0 | 23 |
 
 ## Entries per provenance
 
 | Provenance | Entries |
 | --- | ---: |
 | oracle | 0 |
-| spec | 444 |
-| doc | 95 |
-| derived | 38 |
-| unverified | 97 |
-| (no program) | 34 |
+| spec | 443 |
+| doc | 97 |
+| derived | 39 |
+| unverified | 96 |
+| (no program) | 33 |
 
 ## Programs per area and provenance
 
@@ -93,7 +93,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | errors | 26 | 0 | 18 | 6 | 0 | 2 |
 | events | 7 | 0 | 6 | 0 | 1 | 0 |
 | file-io | 47 | 0 | 19 | 19 | 3 | 6 |
-| financial | 12 | 0 | 0 | 2 | 10 | 0 |
+| financial | 13 | 0 | 0 | 2 | 11 | 0 |
 | host | 34 | 0 | 3 | 15 | 10 | 6 |
 | language | 18 | 0 | 6 | 4 | 0 | 8 |
 | logic | 10 | 0 | 7 | 3 | 0 | 0 |
@@ -111,7 +111,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-ops | 131 | 0 | 131 | 0 | 0 | 0 |
 | spec-proc | 214 | 0 | 214 | 0 | 0 | 0 |
 | statements | 88 | 0 | 74 | 13 | 1 | 0 |
-| strings | 71 | 0 | 33 | 14 | 8 | 16 |
+| strings | 72 | 0 | 33 | 16 | 8 | 15 |
 
 ## Gaps
 
@@ -286,7 +286,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.6.1.2.5.1.3` | spec-library | EOF | partial |  |
 | `vbal.6.1.2.5.1.6` | spec-library | FileLen | partial |  |
 | `vbal.6.1.2.5.2.7` | spec-library | SetAttr | partial |  |
-| `vbal.6.1.2.6.1.1` | spec-library | DDB | not-started |  |
 | `vbal.6.1.2.7.1.1` | spec-library | IMEStatus | not-started |  |
 | `vbal.6.1.2.7.1.8` | spec-library | IsNumeric | partial |  |
 | `vbal.6.1.2.8.1.3` | spec-library | Command | not-started |  |
@@ -439,7 +438,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-lib-a/6_1_2_3_1_15_error_no_argument` | wrong | not implemented: Error$ with no argument and the 0..65535 range |
 | `spec-lib-a/6_1_2_3_1_15_error_range` | wrong | not implemented: Error$ with no argument and the 0..65535 range |
 | `spec-lib-a/6_1_2_3_1_17_hex_long_minus_one` | wrong | VBA behaviour kept where MS-VBAL text differs: Hex of a negative Long has 8 digits |
-| `spec-lib-a/6_1_2_3_1_20_str_date_error` | unsupported | Str of a Date value |
 | `spec-lib-a/6_1_2_3_1_20_str_null_returns_null` | wrong | VBA behaviour kept where MS-VBAL text differs: Str(Null) is error 94 |
 | `spec-lib-a/6_1_2_3_1_2_cbyte_boolean_true` | wrong | VBA behaviour kept where MS-VBAL text differs: CByte(True) is error 6 |
 | `spec-lib-a/6_1_2_3_1_5_cdbl_sign_whitespace` | wrong | not implemented: whitespace between a sign and the digits of a numeric string |

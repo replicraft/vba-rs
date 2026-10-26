@@ -21,7 +21,7 @@ pub enum DateOrder {
 /// built by filling the same fields.
 ///
 /// The named date formats are format strings in the `Format` date language
-/// (for example `"dddd, mmmm dd, yyyy"`).
+/// (for example `"dddd, mmmm d, yyyy"`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Locale {
     /// Decimal separator.
@@ -127,7 +127,7 @@ impl Locale {
             first_week_of_year: 1,
             short_date: "m/d/yyyy".into(),
             medium_date: "dd-mmm-yy".into(),
-            long_date: "dddd, mmmm dd, yyyy".into(),
+            long_date: "dddd, mmmm d, yyyy".into(),
             short_time: "hh:mm".into(),
             medium_time: "hh:mm AM/PM".into(),
             long_time: "h:mm:ss AM/PM".into(),

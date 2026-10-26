@@ -889,7 +889,7 @@ fn format_functions() {
         (
             "FormatDateTime",
             vec![dt.clone(), n(1)],
-            st("Tuesday, March 05, 2024"),
+            st("Tuesday, March 5, 2024"),
         ),
         ("FormatDateTime", vec![dt.clone(), n(2)], st("3/5/2024")),
         ("FormatDateTime", vec![dt.clone(), n(3)], st("2:07:09 PM")),

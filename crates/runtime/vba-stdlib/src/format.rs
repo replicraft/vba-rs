@@ -1232,7 +1232,7 @@ mod tests {
         assert_eq!(df("ww"), "10");
         assert_eq!(df("w"), "3");
         assert_eq!(df("General Date"), "3/5/2024 2:07:09 PM");
-        assert_eq!(df("Long Date"), "Tuesday, March 05, 2024");
+        assert_eq!(df("Long Date"), "Tuesday, March 5, 2024");
         assert_eq!(df("Medium Date"), "05-Mar-24");
         assert_eq!(df("Short Date"), "3/5/2024");
         assert_eq!(df("Long Time"), "2:07:09 PM");
