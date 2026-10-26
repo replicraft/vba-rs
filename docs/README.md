@@ -30,6 +30,7 @@ are. Statements about behavior carry a confidence marker (`spec`, `doc`, `derive
 * [lexer](language/lexer.md): tokens, code pages, lexical heuristics.
 * [syntax](language/syntax.md): the lossless syntax tree, the parser, the AST.
 * [sema](language/sema.md): name resolution, types, constant folding, diagnostics.
+* [spec-coverage](language/spec-coverage.md): status against MS-VBAL 3.0, by chapter.
 * [ir](language/ir.md): the intermediate representation and its verifier.
 * [vba-value](language/vba-value.md): `Variant`, `Currency`, `Decimal`, strings, arrays.
 * [vba-stdlib](language/vba-stdlib.md): the built-in function library and its verification status.

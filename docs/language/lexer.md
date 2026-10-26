@@ -69,10 +69,9 @@ Operators and punctuation: `+ - * / \ ^ & = < > <= >= <> := , ; . ! # ( ) : ?`.
 
 ## Not implemented
 
-- Static semantics of literals: integer range/type table (section 3.3.2),
-  date range checks (legal month/day, hour 0-23), `Currency` rounding.
-  The lexer only checks the lexical shape. Out-of-range hex such as
-  `&H1FFFFFFFF` is lexed as a hex literal.
+- Unicode line terminators and space characters (the lexer is byte-based). Literal
+  range and date validity are checked in `vba-sema`/`vba-value`; see
+  `docs/language/spec-coverage.md`.
 - `Attribute` lines are lexed as ordinary tokens; there is no module-header
   handling.
 - Non-Latin identifier grammars (CP932/936/949/950) beyond accepting high
