@@ -84,7 +84,8 @@ Through the `Provider` trait, which has no bridge error type, every
   32-bit `Declare` needs a 32-bit helper build, run with a 32-bit capable Wine).
 * Build the helper for Windows, for example
   `cargo build -p vba-wine-host --target x86_64-pc-windows-gnu` (or `-msvc`,
-  `i686-` for 32-bit).
+  `i686-` for 32-bit). Producing the PE on a machine without a Windows or
+  mingw SDK is possible (see "Verified under Wine").
 
 ## Implemented and tested (on Linux/macOS CI)
 
@@ -100,36 +101,93 @@ Through the `Provider` trait, which has no bridge error type, every
 * Client against the real `vba-wine-host` binary in protocol-only mode:
   hello, ping, `Unsupported` for library operations, version mismatch, helper
   exit, hang with timeout and kill, garbage output, missing files, kill on drop.
-* The Windows code path (Win32 bindings from `windows-sys`, features
-  `Win32_Foundation` and `Win32_System_LibraryLoader`) type-checks and passes
-  `cargo clippy --all-targets -- -D warnings` for both `x86_64-pc-windows-msvc`
-  and `i686-pc-windows-msvc`, cross-checked from macOS. Checked only: it was
-  not linked and **not executed**.
+* The Windows code path type-checks and passes `cargo clippy --all-targets -- -D
+  warnings` for `x86_64-pc-windows-msvc` and `i686-pc-windows-msvc`,
+  cross-checked from macOS (the i686 build is checked only).
+* Wine-gated tests (`crates/windows/vba-wine/tests/wine_live.rs`) run only
+  when `VBA_WINE` (path to `wine`) and `VBA_WINE_HELPER` (path to a Windows
+  build of the helper) are set, optionally `VBA_WINE_PREFIX`; otherwise each
+  test returns immediately and the default `cargo test --workspace` is
+  unaffected.
+
+## Verified under Wine
+
+Executed once, by hand, on this configuration:
+
+* Host: Apple Silicon (arm64) macOS 14. The bundled Wine Stable 10.0
+  (`wine_get_version` reports it) is an **x86_64 Mach-O executable, so it ran
+  under Rosetta 2 emulation**; the helper is a 64-bit PE and the DLLs are Wine's
+  builtin PE DLLs. Nothing was run on genuine Windows, on real x86 hardware, or
+  with a 32-bit helper.
+* The helper was built as `x86_64-pc-windows-msvc` with `rust-lld` (no
+  Microsoft SDK, no mingw): import libraries for `kernel32`, `ntdll`, `userenv`,
+  `ws2_32`, `dbghelp`, `msvcrt` and `ucrtbase` were generated from the export
+  tables of Wine's own PE DLLs with `llvm-dlltool`, `-C panic=abort`, and a
+  ~15-line C object supplying the entry point, the TLS directory and one
+  data symbol in place of the MS CRT. This is a test-only build recipe, not a
+  supported release configuration; a normal MSVC or mingw build was not tried.
+* Passing, through the real `vba-wine` client against that PE: Hello (OS
+  `windows`, 64-bit, Wine version string present), Ping, Shutdown;
+  `LoadLibrary` by name with and without `.dll`; `GetProcAddress` by name;
+  stdcall calls (`GetTickCount`, `lstrlenA`, `MultiByteToWideChar`,
+  `WideCharToMultiByte` with an eight-argument signature and null pointers,
+  `SetLastError`, `GetFileAttributesA`); cdecl calls (`strlen`, `abs`, variadic
+  `sprintf` including a 16-argument call that spills to the stack); in and out
+  buffers copied correctly; `GetLastError` captured (1234 from `SetLastError`,
+  2 or 3 from a missing file, 0 after a call that sets none); missing library
+  (`LibraryNotFound`, Win32 error 126), missing name (`SymbolNotFound`, 127) and
+  missing ordinal; `FreeLibrary` invalidating procedure handles; and a helper
+  that dies inside a call (`ExitProcess`) reported as `HelperCrashed`.
+* Floating point now works on x86-64 (see below) and is verified for
+  `pow(double,double)`, `ldexp(double,int)` (float then int positions),
+  `sqrtf(float)` and `lround(double)` (integer return, float argument).
+
+Findings: the helper's stdout stayed clean (Wine and MoltenVK write their
+diagnostics to stderr, which the client discards). Wine creates symlinks from
+the prefix to the user's real Desktop/Documents/etc. and `/Volumes` drive
+letters; for the test prefix they were replaced by empty directories, but a
+prefix made by default exposes them (and `Z:` always maps `/`), another reason
+Wine is not a sandbox. An `int`/`DWORD` return leaves the upper half of `RAX`
+unspecified and the bridge returns the full register, so callers must narrow to
+the declared width (the tests mask to 32 bits).
+
+### Float arguments and returns (x86-64 only)
+
+Win64 puts argument `i < 4` in `rcx/rdx/r8/r9` *or* `xmm0..3` by its type. The
+helper calls through a *variadic* function pointer with every argument passed as
+an `f64` carrying the argument's 64 bits: for variadic calls Win64 places each
+of the first four in both registers, and later ones in 8-byte stack slots, so a
+non-variadic callee finds its integer or float where it expects it. `f32`
+travels as bits in the low half. Returns are read from `rax` or `xmm0` by the
+declared return kind. This is only used when a float is involved; on a 32-bit
+helper floats remain `Unsupported`.
 
 ## Relation to the in-process native stage
 
 `vba-ffi`'s `native-call` feature calls host libraries in-process and refuses
 declarations whose target ABI differs from the host, so a Win64 `Declare` never
 runs on macOS or Linux; running Windows DLLs is this bridge's job. What has
-actually run: the in-process stage (macOS, libc/libm, see ffi.md) and the
-protocol-only helper. What has not: any Windows code path, that is the real
-`native` module here under Wine or Windows, for either bitness.
+actually run: the in-process stage (macOS, libc/libm, see ffi.md), the
+protocol-only helper, and the real `native` module under Wine (64-bit, Rosetta).
+What has not: that module on genuine Windows, or a 32-bit helper.
 
 ## Unverified / not implemented
 
-* **The real Windows path (`apps/vba-wine-host/src/native.rs`) has never been
-  run**, under Wine or on Windows. LoadLibrary/GetProcAddress/FreeLibrary and the
-  stdcall/cdecl trampoline are written from the Win32 documentation only. Do
-  not rely on it until it has been exercised.
-* The trampoline passes integer-class arguments only (up to 16) and returns
-  integers. Float arguments/returns return `Unsupported`; x64 needs per-position
-  XMM selection, and x86 float returns need `st0` handling.
+* Anything on genuine Windows, on x86 hardware without Rosetta, or on Linux Wine.
+* The 32-bit helper (`i686`): only type-checked. The 32-bit stdcall/cdecl
+  trampoline, `st0` float returns and 32-bit float arguments have never run.
+* Builds other than the Wine-derived `rust-lld` recipe above (the stock
+  `*-pc-windows-gnu`/`msvc` toolchains were not available here).
+* Calls with more than 16 arguments are refused; 8-argument and 16-argument
+  calls were exercised, intermediate arities only by construction.
 * A fault inside the called DLL (access violation) takes the helper down; the
-  client reports `HelperCrashed`. There is no structured exception guard, so
-  `CallFault` only covers faults the helper detects before calling.
+  client reports `HelperCrashed` (verified for `ExitProcess`, not for a real
+  access violation). There is no structured exception guard: recovering from an
+  SEH fault inside an arbitrary foreign call cannot be done soundly from Rust, so
+  this stays a documented limit.
 * No `ByRef String` pointer-to-pointer or UDT marshaling over the bridge, no
   callbacks, no automatic `vba-ffi` plan to `WireArg` conversion.
-* `GetLastError` is read straight after the call; nothing in the helper runs in
-  between, but this is unverified under Wine.
+* `GetLastError` is read straight after the call; this worked in every case
+  tried under Wine, but nothing prevents the Rust runtime from clobbering it.
 * The `--inject` and `--advertise-version` helper switches exist only for the
   tests.

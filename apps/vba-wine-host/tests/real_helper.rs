@@ -2,7 +2,8 @@
 //!
 //! On non-Windows hosts the helper runs in protocol-only mode, so these tests
 //! exercise the real process loop, framing, timeouts and crash handling, but
-//! never a real library load (that path is cfg(windows) and unverified).
+//! never a real library load (that path is cfg(windows); the Wine-gated `wine_live` tests in
+//! vba-wine cover it).
 
 use std::time::{Duration, Instant};
 use vba_wine::protocol::{CAP_NATIVE_CALLS, PROTOCOL_VERSION, ProcRef, RetKind, WireConv};
