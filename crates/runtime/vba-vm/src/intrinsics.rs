@@ -22,6 +22,7 @@ fn svc<T>(r: Result<T, ServiceError>) -> VResult<T> {
     r.map_err(|e| match e {
         ServiceError::Vba(i) => Fault::Err(RtErr::from(i)),
         ServiceError::Unsupported(s) => Fault::Unsupported(s),
+        ServiceError::Limit(l) => Fault::Limit(l),
     })
 }
 
@@ -714,6 +715,10 @@ impl Vm {
                     vba_ir::Operand::Const(_) => Type::Variant,
                 };
                 let shape = match (&ty, &v) {
+                    (Type::Variant, _) if matches!(value, vba_ir::Operand::Reg(_)) => {
+                        // A Variant variable is written with its type tag.
+                        Shape::Scalar(VarType::Variant)
+                    }
                     (Type::Variant, v)
                         if !matches!(v, Variant::UserDefined(_) | Variant::Array(_)) =>
                     {

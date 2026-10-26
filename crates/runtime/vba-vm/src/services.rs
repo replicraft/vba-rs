@@ -189,6 +189,8 @@ pub enum ServiceError {
     /// A feature that is not implemented; surfaced as an untrappable,
     /// explicit error.
     Unsupported(String),
+    /// A resource limit was exceeded (memory); untrappable.
+    Limit(crate::LimitKind),
 }
 
 impl From<ErrInfo> for ServiceError {

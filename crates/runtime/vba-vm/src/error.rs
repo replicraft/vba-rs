@@ -8,7 +8,6 @@
 use std::fmt;
 
 use vba_automation::ErrInfo;
-use vba_automation::error::describe;
 use vba_host::LimitExceeded;
 use vba_value::VbaError;
 
@@ -25,6 +24,48 @@ pub enum ErrOrigin {
     Denied,
     /// The `Declare` bridge (vba-winapi / vba-ffi) reported a failure.
     Bridge,
+}
+
+/// The standard description of a VBA run-time error number (the text of
+/// `Err.Description` when the error is raised without one).
+pub fn describe(number: i32) -> String {
+    let s = match number {
+        16 => "Expression too complex",
+        17 => "Can't perform requested operation",
+        18 => "User interrupt occurred",
+        20 => "Resume without error",
+        52 => "Bad file name or number",
+        54 => "Bad file mode",
+        55 => "File already open",
+        57 => "Device I/O error",
+        58 => "File already exists",
+        59 => "Bad record length",
+        61 => "Disk full",
+        62 => "Input past end of file",
+        63 => "Bad record number",
+        67 => "Too many files",
+        68 => "Device unavailable",
+        71 => "Disk not ready",
+        74 => "Can't rename with different drive",
+        75 => "Path/File access error",
+        76 => "Path not found",
+        321 => "Invalid file format",
+        380 => "Invalid property value",
+        381 => "Invalid property array index",
+        382 => "Set not supported at runtime",
+        383 => "Set not supported (read-only property)",
+        385 => "Need property array index",
+        387 => "Set not permitted",
+        393 => "Get not supported at runtime",
+        394 => "Get not supported (write-only property)",
+        422 => "Property not found",
+        423 => "Property or method not found",
+        440 => "Automation error",
+        443 => "Automation object does not have a default value",
+        459 => "Object or class does not support the set of events",
+        n => return vba_automation::error::describe(n),
+    };
+    s.to_owned()
 }
 
 /// A VBA run-time error with the contents of the `Err` object.
@@ -146,6 +187,9 @@ pub enum Fault {
     Cancelled(String),
     /// A feature this implementation does not provide; never trappable.
     Unsupported(String),
+    /// The `Declare` bridge (vba-ffi / vba-winapi) cannot carry out a call;
+    /// never trappable.
+    Bridge(String),
     /// An internal inconsistency (a bug or malformed IR).
     Internal(String),
 }
@@ -227,6 +271,10 @@ pub enum VmError {
     Cancelled(String),
     /// A feature that is not implemented (distinct from a VBA error).
     Unsupported(String),
+    /// A `Declare` call that the native bridge cannot carry out: the symbol
+    /// has no provider, an argument cannot be marshaled, or the target does
+    /// not match.
+    Bridge(String),
     /// A broken invariant; indicates a bug.
     Internal(String),
 }
@@ -238,6 +286,7 @@ impl fmt::Display for VmError {
             VmError::Limit(l) => write!(f, "resource limit: {l}"),
             VmError::Cancelled(s) => write!(f, "cancelled: {s}"),
             VmError::Unsupported(s) => write!(f, "unsupported: {s}"),
+            VmError::Bridge(s) => write!(f, "native bridge: {s}"),
             VmError::Internal(s) => write!(f, "internal error: {s}"),
         }
     }

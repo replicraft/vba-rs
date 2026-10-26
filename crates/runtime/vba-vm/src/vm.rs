@@ -212,6 +212,7 @@ impl Vm {
             Fault::Limit(l) => VmError::Limit(l),
             Fault::Cancelled(s) => VmError::Cancelled(s),
             Fault::Unsupported(s) => VmError::Unsupported(s),
+            Fault::Bridge(s) => VmError::Bridge(s),
             Fault::Internal(s) => VmError::Internal(s),
         }
     }
@@ -317,6 +318,20 @@ impl Vm {
                     status: RunStatus::Stopped,
                 })
             }
+            Err(f) => {
+                self.frames.clear();
+                Err(self.fault_to_error(f))
+            }
+        }
+    }
+
+    /// The predeclared default instance of a class-like module, created (and
+    /// `Class_Initialize` run) on first use.
+    pub fn default_instance_object(&mut self, module: ModuleId) -> Result<ObjectRef, VmError> {
+        self.last_site = None;
+        let r = self.default_instance(module);
+        match r {
+            Ok(id) => Ok(ObjectRef::Handle(vm_handle(id))),
             Err(f) => {
                 self.frames.clear();
                 Err(self.fault_to_error(f))

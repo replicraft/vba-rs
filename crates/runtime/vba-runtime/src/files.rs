@@ -1,0 +1,1028 @@
+//! The VBA file statements and file system functions over a [`Vfs`].
+//!
+//! Every operation that touches a path first normalizes it against the
+//! virtual working directory, resolves it with [`Vfs::canonical`] and asks
+//! the host policy: reading needs `FileRead`, anything that creates,
+//! changes or deletes needs `FileWrite`. There is no other way to reach the
+//! file system.
+//!
+//! Open files are held in memory (loaded at `Open`, written back at `Close`,
+//! `End`, `Reset` and when the [`FileSystem`] is dropped). Sequential text is
+//! Windows-1252 with CR LF line ends. Rules marked **doc** follow the
+//! documentation of the VBA statements and are not verified against Office.
+
+use std::collections::{BTreeMap, VecDeque};
+use std::rc::Rc;
+
+use vba_ast::{OpenAccess, OpenLock, OpenMode};
+use vba_ffi::{Codepage, Unmappable};
+use vba_host::{Capability, Host};
+use vba_value::{Date, VarType, Variant, VbaString, convert};
+use vba_vm::{
+    IoReply, IoRequest, LimitKind, PrintItem, RecordValue, ServiceError, Services, Shape,
+    format_print_width,
+};
+
+use crate::error::FsError;
+use crate::records::{self, Reader};
+use crate::shell::ShellHook;
+use crate::vfs::*;
+
+type R<T> = Result<T, FsError>;
+
+/// Largest in-memory size of one open file (error 61 beyond it).
+pub const DEFAULT_MAX_FILE_BYTES: usize = 64 << 20;
+
+#[derive(Debug)]
+struct OpenFile {
+    path: String,
+    mode: OpenMode,
+    readable: bool,
+    writable: bool,
+    data: Vec<u8>,
+    pos: usize,
+    dirty: bool,
+    record_len: usize,
+    last_record: i64,
+    width: usize,
+    col: usize,
+}
+
+/// The state behind the file statements of one session.
+pub struct FileSystem {
+    host: Rc<dyn Host>,
+    vfs: Box<dyn Vfs>,
+    cwd: String,
+    files: BTreeMap<i32, OpenFile>,
+    dir_iter: Option<VecDeque<String>>,
+    command: String,
+    shell: Box<dyn ShellHook>,
+    max_file_bytes: usize,
+}
+
+fn encode_text(s: &VbaString) -> Vec<u8> {
+    Codepage::Windows1252
+        .encode(s.as_units(), Unmappable::Replace(b'?'), false)
+        .map(|e| e.bytes)
+        .unwrap_or_default()
+}
+
+fn decode_text(b: &[u8]) -> VbaString {
+    VbaString::from_units(Codepage::Windows1252.decode(b, false).unwrap_or_default())
+}
+
+fn map_vfs(e: VfsError) -> FsError {
+    match e {
+        VfsError::NotFound => FsError::Vba(53),
+        VfsError::PathNotFound => FsError::Vba(76),
+        VfsError::AlreadyExists => FsError::Vba(58),
+        VfsError::IsADirectory | VfsError::NotADirectory | VfsError::NotEmpty => FsError::Vba(75),
+        VfsError::Denied => FsError::Vba(70),
+        VfsError::Unsupported(s) => FsError::Unsupported(s),
+        VfsError::Other(_) => FsError::Vba(57),
+    }
+}
+
+/// The policy resource for an operation on a directory itself: with a
+/// trailing slash, so that a grant `/data/` covers `ChDir "/data"`.
+fn dir_resource(p: &str) -> String {
+    if p.ends_with('/') {
+        p.to_owned()
+    } else {
+        format!("{p}/")
+    }
+}
+
+fn vba<T>(n: i32) -> R<T> {
+    Err(FsError::Vba(n))
+}
+
+fn conv<T>(r: Result<T, vba_value::VbaError>) -> R<T> {
+    r.map_err(|e| FsError::Vba(e.number()))
+}
+
+impl FileSystem {
+    /// A file system over `vfs`, checked against the policy of `host`.
+    pub fn new(host: Rc<dyn Host>, vfs: Box<dyn Vfs>, shell: Box<dyn ShellHook>) -> FileSystem {
+        let cwd = vfs.initial_dir();
+        FileSystem {
+            host,
+            vfs,
+            cwd,
+            files: BTreeMap::new(),
+            dir_iter: None,
+            command: String::new(),
+            shell,
+            max_file_bytes: DEFAULT_MAX_FILE_BYTES,
+        }
+    }
+
+    /// Sets the string `Command` returns.
+    pub fn set_command(&mut self, command: &str) {
+        self.command = command.to_owned();
+    }
+
+    /// Sets the largest size of an open file.
+    pub fn set_max_file_bytes(&mut self, n: usize) {
+        self.max_file_bytes = n;
+    }
+
+    /// The underlying file system.
+    pub fn vfs(&mut self) -> &mut dyn Vfs {
+        &mut *self.vfs
+    }
+
+    /// The current virtual directory.
+    pub fn current_dir(&self) -> &str {
+        &self.cwd
+    }
+
+    /// File numbers currently open.
+    pub fn open_files(&self) -> Vec<i32> {
+        self.files.keys().copied().collect()
+    }
+
+    fn allow(&self, cap: Capability, path: &str) -> R<()> {
+        self.host.check(cap, path).map_err(FsError::Info)
+    }
+
+    fn resolve(&mut self, path: &str) -> R<String> {
+        if path.is_empty() || path.contains('\0') {
+            return vba(53);
+        }
+        let n = normalize(&self.cwd, path);
+        Ok(self.vfs.canonical(&n))
+    }
+
+    fn file(&mut self, n: i32) -> R<&mut OpenFile> {
+        self.files.get_mut(&n).ok_or(FsError::Vba(52))
+    }
+
+    fn charge(&self, bytes: usize) -> R<()> {
+        self.host
+            .budget()
+            .alloc(bytes as u64)
+            .map_err(|_| FsError::Limit(LimitKind::Memory))
+    }
+
+    // ---- Open and Close -------------------------------------------------------
+
+    fn open(
+        &mut self,
+        path: &str,
+        mode: OpenMode,
+        access: Option<OpenAccess>,
+        _lock: Option<OpenLock>,
+        file: i32,
+        record_len: Option<i32>,
+    ) -> R<()> {
+        if !(1..=511).contains(&file) {
+            return vba(52);
+        }
+        if self.files.contains_key(&file) {
+            return vba(55);
+        }
+        let (readable, writable) = match (mode, access) {
+            (OpenMode::Input, None | Some(OpenAccess::Read)) => (true, false),
+            (OpenMode::Output | OpenMode::Append, None | Some(OpenAccess::Write)) => (false, true),
+            (OpenMode::Binary | OpenMode::Random, None | Some(OpenAccess::ReadWrite)) => {
+                (true, true)
+            }
+            (OpenMode::Binary | OpenMode::Random, Some(OpenAccess::Read)) => (true, false),
+            (OpenMode::Binary | OpenMode::Random, Some(OpenAccess::Write)) => (false, true),
+            _ => return vba(54),
+        };
+        let p = self.resolve(path)?;
+        if readable {
+            self.allow(Capability::FileRead, &p)?;
+        }
+        if writable {
+            self.allow(Capability::FileWrite, &p)?;
+        }
+        for f in self.files.values() {
+            if f.path.eq_ignore_ascii_case(&p) && (writable || f.writable) {
+                return vba(55);
+            }
+        }
+        let record_len = match (mode, record_len) {
+            (OpenMode::Random, None) => 128,
+            (OpenMode::Random, Some(n)) if n > 0 => n as usize,
+            (OpenMode::Random, Some(_)) => return vba(59),
+            _ => 128,
+        };
+        let st = self.vfs.stat(&p).map_err(map_vfs)?;
+        if st.as_ref().is_some_and(|s| s.is_dir) {
+            return vba(75);
+        }
+        let data = match mode {
+            OpenMode::Input => {
+                if st.is_none() {
+                    return vba(53);
+                }
+                self.vfs.read(&p).map_err(map_vfs)?
+            }
+            OpenMode::Output => {
+                self.vfs.write(&p, &[]).map_err(map_vfs)?;
+                Vec::new()
+            }
+            OpenMode::Append => {
+                if st.is_some() {
+                    self.vfs.read(&p).map_err(map_vfs)?
+                } else {
+                    self.vfs.write(&p, &[]).map_err(map_vfs)?;
+                    Vec::new()
+                }
+            }
+            OpenMode::Binary | OpenMode::Random => {
+                if st.is_some() {
+                    self.vfs.read(&p).map_err(map_vfs)?
+                } else if writable {
+                    self.vfs.write(&p, &[]).map_err(map_vfs)?;
+                    Vec::new()
+                } else {
+                    return vba(53);
+                }
+            }
+        };
+        if data.len() > self.max_file_bytes {
+            return vba(61);
+        }
+        self.charge(data.len())?;
+        let pos = if mode == OpenMode::Append {
+            data.len()
+        } else {
+            0
+        };
+        self.files.insert(
+            file,
+            OpenFile {
+                path: p,
+                mode,
+                readable,
+                writable,
+                data,
+                pos,
+                dirty: false,
+                record_len,
+                last_record: 0,
+                width: 0,
+                col: 0,
+            },
+        );
+        Ok(())
+    }
+
+    fn flush(&mut self, n: i32) -> R<()> {
+        let Some(f) = self.files.get_mut(&n) else {
+            return Ok(());
+        };
+        if f.dirty && f.writable {
+            let path = f.path.clone();
+            let data = std::mem::take(&mut f.data);
+            let r = self.vfs.write(&path, &data).map_err(map_vfs);
+            if let Some(f) = self.files.get_mut(&n) {
+                f.data = data;
+                if r.is_ok() {
+                    f.dirty = false;
+                }
+            }
+            r?;
+        }
+        Ok(())
+    }
+
+    fn close_one(&mut self, n: i32) -> R<()> {
+        let r = self.flush(n);
+        if let Some(f) = self.files.remove(&n) {
+            self.host.budget().free(f.data.len() as u64);
+        }
+        r
+    }
+
+    /// Closes every file, writing back what changed; the first failure is
+    /// reported after all files are closed.
+    pub fn close_all(&mut self) -> Result<(), ServiceError> {
+        let nums: Vec<i32> = self.files.keys().copied().collect();
+        let mut first = None;
+        for n in nums {
+            if let Err(e) = self.close_one(n)
+                && first.is_none()
+            {
+                first = Some(e);
+            }
+        }
+        match first {
+            Some(e) => Err(e.into()),
+            None => Ok(()),
+        }
+    }
+
+    // ---- sequential output --------------------------------------------------------
+
+    fn put_bytes(&mut self, n: i32, bytes: &[u8]) -> R<()> {
+        let max = self.max_file_bytes;
+        let host = self.host.clone();
+        let f = self.file(n)?;
+        let end = f.pos + bytes.len();
+        if end > max {
+            return vba(61);
+        }
+        if end > f.data.len() {
+            host.budget()
+                .alloc((end - f.data.len()) as u64)
+                .map_err(|_| FsError::Limit(LimitKind::Memory))?;
+            f.data.resize(end, 0);
+        }
+        f.data[f.pos..end].copy_from_slice(bytes);
+        f.pos = end;
+        f.dirty = true;
+        Ok(())
+    }
+
+    fn print(&mut self, n: i32, items: &[PrintItem]) -> R<()> {
+        let f = self.file(n)?;
+        if !f.writable || f.mode == OpenMode::Binary {
+            return vba(54);
+        }
+        let text = format_print_width(items, &mut f.col, f.width);
+        let text = text.replace('\n', "\r\n");
+        let bytes = encode_text(&VbaString::from(text));
+        self.put_bytes(n, &bytes)
+    }
+
+    fn write_stmt(&mut self, n: i32, items: &[PrintItem]) -> R<()> {
+        let f = self.file(n)?;
+        if !f.writable || f.mode == OpenMode::Binary {
+            return vba(54);
+        }
+        let mut parts = Vec::new();
+        for it in items {
+            if let PrintItem::Value(v) = it {
+                parts.push(write_value(v));
+            }
+        }
+        let mut line = parts.join(",");
+        line.push_str("\r\n");
+        let bytes = encode_text(&VbaString::from(line));
+        self.put_bytes(n, &bytes)
+    }
+
+    // ---- sequential input -------------------------------------------------------------
+
+    fn line_input(&mut self, n: i32) -> R<VbaString> {
+        let f = self.file(n)?;
+        if !f.readable || f.mode == OpenMode::Random {
+            return vba(54);
+        }
+        if f.pos >= f.data.len() {
+            return vba(62);
+        }
+        let rest = &f.data[f.pos..];
+        let end = rest
+            .iter()
+            .position(|b| *b == b'\r' || *b == b'\n')
+            .unwrap_or(rest.len());
+        let text = decode_text(&rest[..end]);
+        let mut next = end;
+        if rest.get(next) == Some(&b'\r') {
+            next += 1;
+        }
+        if rest.get(next) == Some(&b'\n') {
+            next += 1;
+        }
+        f.pos += next;
+        Ok(text)
+    }
+
+    fn input_items(&mut self, n: i32, kinds: &[VarType]) -> R<Vec<Variant>> {
+        let f = self.file(n)?;
+        if !f.readable || f.mode != OpenMode::Input {
+            return vba(54);
+        }
+        let mut out = Vec::new();
+        for k in kinds {
+            out.push(read_token(f, *k)?);
+        }
+        Ok(out)
+    }
+
+    // ---- Get and Put ---------------------------------------------------------------------
+
+    fn record_pos(f: &OpenFile, record: Option<i64>) -> R<usize> {
+        match record {
+            None => Ok(f.pos),
+            Some(r) if r >= 1 => {
+                let r = (r - 1) as usize;
+                if f.mode == OpenMode::Random {
+                    r.checked_mul(f.record_len).ok_or(FsError::Vba(63))
+                } else {
+                    Ok(r)
+                }
+            }
+            Some(_) => vba(63),
+        }
+    }
+
+    fn get(&mut self, n: i32, record: Option<i64>, shape: &Shape) -> R<RecordValue> {
+        let f = self.file(n)?;
+        if !f.readable || !matches!(f.mode, OpenMode::Binary | OpenMode::Random) {
+            return vba(54);
+        }
+        let random = f.mode == OpenMode::Random;
+        let pos = Self::record_pos(f, record)?;
+        if random {
+            if pos >= f.data.len() {
+                return vba(62);
+            }
+            let end = (pos + f.record_len).min(f.data.len());
+            let mut buf = f.data[pos..end].to_vec();
+            buf.resize(f.record_len, 0);
+            let mut r = Reader::new(&buf, 0);
+            let v = records::decode(shape, &mut r, true)?;
+            f.last_record = (pos / f.record_len + 1) as i64;
+            f.pos = pos + f.record_len;
+            Ok(v)
+        } else {
+            let mut r = Reader::new(&f.data, pos);
+            let v = records::decode(shape, &mut r, false)?;
+            f.pos = r.pos();
+            Ok(v)
+        }
+    }
+
+    fn put(&mut self, n: i32, record: Option<i64>, shape: &Shape, value: &RecordValue) -> R<()> {
+        let max = self.max_file_bytes;
+        let host = self.host.clone();
+        let f = self.file(n)?;
+        if !f.writable || !matches!(f.mode, OpenMode::Binary | OpenMode::Random) {
+            return vba(54);
+        }
+        let random = f.mode == OpenMode::Random;
+        let pos = Self::record_pos(f, record)?;
+        let mut buf = Vec::new();
+        records::encode(shape, value, random, &mut buf)?;
+        if random {
+            if buf.len() > f.record_len {
+                return vba(59);
+            }
+            buf.resize(f.record_len, 0);
+        }
+        let end = pos + buf.len();
+        if end > max {
+            return vba(61);
+        }
+        if end > f.data.len() {
+            host.budget()
+                .alloc((end - f.data.len()) as u64)
+                .map_err(|_| FsError::Limit(LimitKind::Memory))?;
+            f.data.resize(end, 0);
+        }
+        f.data[pos..end].copy_from_slice(&buf);
+        f.pos = end;
+        f.dirty = true;
+        if random {
+            f.last_record = (pos / f.record_len + 1) as i64;
+        }
+        Ok(())
+    }
+
+    fn seek(&mut self, n: i32, position: i64) -> R<()> {
+        let f = self.file(n)?;
+        if position < 1 {
+            return vba(63);
+        }
+        let p = (position - 1) as usize;
+        f.pos = if f.mode == OpenMode::Random {
+            p.checked_mul(f.record_len).ok_or(FsError::Vba(63))?
+        } else {
+            p
+        };
+        Ok(())
+    }
+
+    // ---- path functions -----------------------------------------------------------------
+
+    fn path_arg(&mut self, v: &Option<Variant>) -> R<String> {
+        match v {
+            Some(v) => Ok(conv(convert::to_vba_string(v))?.to_string_lossy()),
+            None => vba(449),
+        }
+    }
+
+    fn stat_checked(&mut self, p: &str) -> R<Stat> {
+        self.vfs.stat(p).map_err(map_vfs)?.ok_or(FsError::Vba(53))
+    }
+
+    fn split_pattern(&mut self, pattern: &str) -> R<(String, String)> {
+        let n = normalize(&self.cwd, pattern);
+        let (dir, name) = split_parent(&n);
+        Ok((self.vfs.canonical(&dir), name))
+    }
+
+    fn kill(&mut self, pattern: &str) -> R<()> {
+        let (dir, name) = self.split_pattern(pattern)?;
+        let entries = match self.vfs.list(&dir) {
+            Ok(e) => e,
+            Err(e) => return Err(map_vfs(e)),
+        };
+        let mut any = false;
+        for e in entries {
+            if !e.stat.is_dir && wildcard(&name, &e.name) {
+                any = true;
+                let p = join(&dir, &e.name);
+                self.allow(Capability::FileWrite, &p)?;
+                if self.files.values().any(|f| f.path.eq_ignore_ascii_case(&p)) {
+                    return vba(55);
+                }
+                self.vfs.remove_file(&p).map_err(map_vfs)?;
+            }
+        }
+        if any { Ok(()) } else { vba(53) }
+    }
+
+    fn dir(&mut self, pattern: Option<String>, attrs: i32) -> R<String> {
+        if let Some(pat) = pattern {
+            let (dir, name) = self.split_pattern(&pat)?;
+            self.allow(Capability::FileRead, &dir_resource(&dir))?;
+            let mut names = VecDeque::new();
+            if name.contains(['*', '?']) {
+                let entries = match self.vfs.list(&dir) {
+                    Ok(e) => e,
+                    Err(VfsError::PathNotFound) => return vba(52),
+                    Err(e) => return Err(map_vfs(e)),
+                };
+                for e in entries {
+                    let a = i32::from(e.stat.attributes);
+                    let wants_dir = e.stat.is_dir;
+                    let ok = wildcard(&name, &e.name)
+                        && (!wants_dir || attrs & 16 != 0)
+                        && (a & 2 == 0 || attrs & 2 != 0)
+                        && (a & 4 == 0 || attrs & 4 != 0);
+                    if ok {
+                        names.push_back(e.name);
+                    }
+                }
+            } else {
+                let p = join(&dir, &name);
+                if let Some(st) = self.vfs.stat(&p).map_err(map_vfs)?
+                    && (!st.is_dir || attrs & 16 != 0)
+                {
+                    names.push_back(name);
+                }
+            }
+            self.dir_iter = Some(names);
+        }
+        match self.dir_iter.as_mut() {
+            Some(it) => Ok(it.pop_front().unwrap_or_default()),
+            None => vba(5),
+        }
+    }
+
+    fn chdir(&mut self, path: &str) -> R<()> {
+        let p = self.resolve(path)?;
+        self.allow(Capability::FileRead, &dir_resource(&p))?;
+        match self.vfs.stat(&p).map_err(map_vfs)? {
+            Some(s) if s.is_dir => {
+                self.cwd = p;
+                Ok(())
+            }
+            _ => vba(76),
+        }
+    }
+
+    fn name(&mut self, old: &str, new: &str) -> R<()> {
+        let o = self.resolve(old)?;
+        let n = self.resolve(new)?;
+        self.allow(Capability::FileWrite, &o)?;
+        self.allow(Capability::FileWrite, &n)?;
+        if self.files.values().any(|f| f.path.eq_ignore_ascii_case(&o)) {
+            return vba(55);
+        }
+        if self.vfs.stat(&o).map_err(map_vfs)?.is_none() {
+            return vba(53);
+        }
+        self.vfs.rename(&o, &n).map_err(map_vfs)
+    }
+
+    fn call_fn(&mut self, name: &str, a: &[Option<Variant>]) -> R<Variant> {
+        let num = |a: &[Option<Variant>], i: usize| -> R<i32> {
+            match a.get(i) {
+                Some(Some(v)) => conv(convert::to_long(v)),
+                _ => vba(449),
+            }
+        };
+        match name {
+            "freefile" => {
+                let range = match a.first() {
+                    Some(Some(v)) => conv(convert::to_long(v))?,
+                    _ => 0,
+                };
+                let (lo, hi) = match range {
+                    0 => (1, 255),
+                    1 => (256, 511),
+                    _ => return vba(5),
+                };
+                match (lo..=hi).find(|n| !self.files.contains_key(n)) {
+                    Some(n) => Ok(Variant::Integer(n as i16)),
+                    None => vba(67),
+                }
+            }
+            "eof" => {
+                let n = num(a, 0)?;
+                let f = self.file(n)?;
+                if !f.readable {
+                    return vba(54);
+                }
+                Ok(Variant::Boolean(f.pos >= f.data.len()))
+            }
+            "lof" => {
+                let n = num(a, 0)?;
+                Ok(Variant::Long(self.file(n)?.data.len() as i32))
+            }
+            "loc" => {
+                let n = num(a, 0)?;
+                let f = self.file(n)?;
+                Ok(Variant::Long(match f.mode {
+                    OpenMode::Random => f.last_record as i32,
+                    OpenMode::Binary => f.pos as i32,
+                    _ => (f.pos / 128) as i32,
+                }))
+            }
+            "seek" => {
+                let n = num(a, 0)?;
+                let f = self.file(n)?;
+                Ok(Variant::Long(if f.mode == OpenMode::Random {
+                    (f.pos / f.record_len + 1) as i32
+                } else {
+                    f.pos as i32 + 1
+                }))
+            }
+            "kill" => {
+                let p = self.path_arg(a.first().unwrap_or(&None))?;
+                self.kill(&p)?;
+                Ok(Variant::Empty)
+            }
+            "mkdir" => {
+                let p = self.path_arg(a.first().unwrap_or(&None))?;
+                let p = self.resolve(&p)?;
+                self.allow(Capability::FileWrite, &p)?;
+                match self.vfs.create_dir(&p) {
+                    Ok(()) => Ok(Variant::Empty),
+                    Err(VfsError::AlreadyExists) => vba(75),
+                    Err(e) => Err(map_vfs(e)),
+                }
+            }
+            "rmdir" => {
+                let p = self.path_arg(a.first().unwrap_or(&None))?;
+                let p = self.resolve(&p)?;
+                self.allow(Capability::FileWrite, &p)?;
+                self.vfs.remove_dir(&p).map_err(map_vfs)?;
+                Ok(Variant::Empty)
+            }
+            "chdir" => {
+                let p = self.path_arg(a.first().unwrap_or(&None))?;
+                self.chdir(&p)?;
+                Ok(Variant::Empty)
+            }
+            "chdrive" => {
+                // There is one virtual working directory; a drive change is
+                // only accepted when it names the drive already current.
+                let d = self.path_arg(a.first().unwrap_or(&None))?;
+                let want = d.chars().next().map(|c| c.to_ascii_lowercase());
+                let cur = self
+                    .cwd
+                    .chars()
+                    .next()
+                    .filter(|_| self.cwd.as_bytes().get(1) == Some(&b':'));
+                match (want, cur) {
+                    (Some(w), Some(c)) if w == c => Ok(Variant::Empty),
+                    (Some(_), None) => Ok(Variant::Empty),
+                    _ => vba(68),
+                }
+            }
+            "curdir" => Ok(Variant::from_text(&self.cwd)),
+            "dir" => {
+                let pat = match a.first() {
+                    Some(Some(Variant::Empty)) | Some(None) | None => None,
+                    Some(Some(v)) => Some(conv(convert::to_vba_string(v))?.to_string_lossy()),
+                };
+                let attrs = match a.get(1) {
+                    Some(Some(v)) => conv(convert::to_long(v))?,
+                    _ => 0,
+                };
+                Ok(Variant::from_text(&self.dir(pat, attrs)?))
+            }
+            "filecopy" => {
+                let s = self.path_arg(a.first().unwrap_or(&None))?;
+                let d = self.path_arg(a.get(1).unwrap_or(&None))?;
+                let s = self.resolve(&s)?;
+                let d = self.resolve(&d)?;
+                self.allow(Capability::FileRead, &s)?;
+                self.allow(Capability::FileWrite, &d)?;
+                if self.files.values().any(|f| {
+                    f.path.eq_ignore_ascii_case(&d)
+                        || (f.path.eq_ignore_ascii_case(&s) && f.writable)
+                }) {
+                    return vba(55);
+                }
+                self.stat_checked(&s)?;
+                self.vfs.copy(&s, &d).map_err(map_vfs)?;
+                Ok(Variant::Empty)
+            }
+            "filelen" => {
+                let p = self.path_arg(a.first().unwrap_or(&None))?;
+                let p = self.resolve(&p)?;
+                self.allow(Capability::FileRead, &p)?;
+                let st = self.stat_checked(&p)?;
+                // An open file reports its current size, as it would on disk.
+                let open = self
+                    .files
+                    .values()
+                    .find(|f| f.path.eq_ignore_ascii_case(&p))
+                    .map(|f| f.data.len() as u64);
+                Ok(Variant::Long(open.unwrap_or(st.len) as i32))
+            }
+            "filedatetime" => {
+                let p = self.path_arg(a.first().unwrap_or(&None))?;
+                let p = self.resolve(&p)?;
+                self.allow(Capability::FileRead, &p)?;
+                let st = self.stat_checked(&p)?;
+                Ok(Variant::Date(conv(Date::from_serial(st.modified))?))
+            }
+            "getattr" => {
+                let p = self.path_arg(a.first().unwrap_or(&None))?;
+                let p = self.resolve(&p)?;
+                self.allow(Capability::FileRead, &p)?;
+                let st = self.stat_checked(&p)?;
+                Ok(Variant::Integer(i16::from(st.attributes)))
+            }
+            "setattr" => {
+                let p = self.path_arg(a.first().unwrap_or(&None))?;
+                let attrs = num(a, 1)?;
+                let p = self.resolve(&p)?;
+                self.allow(Capability::FileWrite, &p)?;
+                self.stat_checked(&p)?;
+                self.vfs
+                    .set_attributes(&p, (attrs & 0xFF) as u8)
+                    .map_err(map_vfs)?;
+                Ok(Variant::Empty)
+            }
+            "shell" => {
+                let cmd = self.path_arg(a.first().unwrap_or(&None))?;
+                let style = match a.get(1) {
+                    Some(Some(v)) => conv(convert::to_integer(v))?,
+                    _ => 1,
+                };
+                self.allow(Capability::ProcessSpawn, &cmd)?;
+                match self.shell.spawn(&cmd, style) {
+                    Ok(pid) => Ok(Variant::Double(f64::from(pid))),
+                    Err(e) => Err(e),
+                }
+            }
+            "command" => Ok(Variant::from_text(&self.command)),
+            other => Err(FsError::Unsupported(format!(
+                "the run-time function `{other}`"
+            ))),
+        }
+    }
+
+    fn io_request(&mut self, req: IoRequest) -> R<IoReply> {
+        match req {
+            IoRequest::Open {
+                path,
+                mode,
+                access,
+                lock,
+                file,
+                record_len,
+            } => {
+                self.open(&path, mode, access, lock, file, record_len)?;
+                Ok(IoReply::Done)
+            }
+            IoRequest::Close(files) => {
+                if files.is_empty() {
+                    self.close_all().map_err(|e| match e {
+                        ServiceError::Vba(i) => FsError::Info(i),
+                        ServiceError::Unsupported(s) => FsError::Unsupported(s),
+                        ServiceError::Limit(l) => FsError::Limit(l),
+                    })?;
+                } else {
+                    for n in files {
+                        self.close_one(n)?;
+                    }
+                }
+                Ok(IoReply::Done)
+            }
+            IoRequest::Print { file, items } => {
+                self.print(file, &items)?;
+                Ok(IoReply::Done)
+            }
+            IoRequest::Write { file, items } => {
+                self.write_stmt(file, &items)?;
+                Ok(IoReply::Done)
+            }
+            IoRequest::Input { file, targets } => {
+                Ok(IoReply::Values(self.input_items(file, &targets)?))
+            }
+            IoRequest::LineInput { file } => Ok(IoReply::Line(self.line_input(file)?)),
+            IoRequest::Get {
+                file,
+                record,
+                shape,
+            } => Ok(IoReply::Record(self.get(file, record, &shape)?)),
+            IoRequest::Put {
+                file,
+                record,
+                shape,
+                value,
+            } => {
+                self.put(file, record, &shape, &value)?;
+                Ok(IoReply::Done)
+            }
+            IoRequest::Seek { file, position } => {
+                self.seek(file, position)?;
+                Ok(IoReply::Done)
+            }
+            IoRequest::Lock { file, .. } | IoRequest::Unlock { file, .. } => {
+                // Locks only matter between processes; within one session a
+                // single table of open files is the only user. Validate.
+                self.file(file)?;
+                Ok(IoReply::Done)
+            }
+            IoRequest::Width { file, width } => {
+                let f = self.file(file)?;
+                f.width = width.max(0) as usize;
+                Ok(IoReply::Done)
+            }
+            IoRequest::Name { old, new } => {
+                self.name(&old, &new)?;
+                Ok(IoReply::Done)
+            }
+        }
+    }
+}
+
+impl Drop for FileSystem {
+    fn drop(&mut self) {
+        let _ = self.close_all();
+    }
+}
+
+/// The text `Write #` produces for one value.
+pub fn write_value(v: &Variant) -> String {
+    match v {
+        Variant::Empty => String::new(),
+        Variant::Null => "#NULL#".to_owned(),
+        Variant::Boolean(b) => if *b { "#TRUE#" } else { "#FALSE#" }.to_owned(),
+        Variant::String(s) => format!("\"{}\"", s.to_string_lossy()),
+        Variant::Error(e) => format!("#ERROR {}#", e.number()),
+        Variant::Date(d) => {
+            let p = d.parts();
+            let date = format!("{:04}-{:02}-{:02}", p.year, p.month, p.day);
+            let time = format!("{:02}:{:02}:{:02}", p.hour, p.minute, p.second);
+            let (has_date, has_time) = (d.serial().trunc() != 0.0, d.serial().fract() != 0.0);
+            match (has_date, has_time) {
+                (true, true) => format!("#{date} {time}#"),
+                (false, true) => format!("#{time}#"),
+                _ => format!("#{date}#"),
+            }
+        }
+        other => convert::to_vba_string(other)
+            .map(|s| s.to_string_lossy())
+            .unwrap_or_default(),
+    }
+}
+
+fn read_token(f: &mut OpenFile, kind: VarType) -> R<Variant> {
+    let d = &f.data;
+    let mut i = f.pos;
+    while i < d.len() && matches!(d[i], b' ' | b'\t' | b'\r' | b'\n') {
+        i += 1;
+    }
+    if i >= d.len() {
+        f.pos = i;
+        return vba(62);
+    }
+    let quoted = d[i] == b'"';
+    let text: Vec<u8>;
+    if quoted {
+        i += 1;
+        let mut t = Vec::new();
+        while i < d.len() {
+            if d[i] == b'"' {
+                if d.get(i + 1) == Some(&b'"') {
+                    t.push(b'"');
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+                break;
+            }
+            t.push(d[i]);
+            i += 1;
+        }
+        text = t;
+        while i < d.len() && d[i] == b' ' {
+            i += 1;
+        }
+    } else {
+        let start = i;
+        while i < d.len() && !matches!(d[i], b',' | b'\r' | b'\n') {
+            i += 1;
+        }
+        text = d[start..i].to_vec();
+    }
+    // Consume one delimiter.
+    match d.get(i) {
+        Some(b',') => i += 1,
+        Some(b'\r') => {
+            i += 1;
+            if d.get(i) == Some(&b'\n') {
+                i += 1;
+            }
+        }
+        Some(b'\n') => i += 1,
+        _ => {}
+    }
+    f.pos = i;
+    let s = decode_text(&text);
+    let trimmed = decode_text(text.trim_ascii());
+    let upper = trimmed.to_string_lossy().to_uppercase();
+    match kind {
+        VarType::String => Ok(Variant::String(s)),
+        VarType::Boolean => match upper.as_str() {
+            "#TRUE#" => Ok(Variant::Boolean(true)),
+            "#FALSE#" => Ok(Variant::Boolean(false)),
+            _ => {
+                let n = conv(vba_stdlib::conversion::val(&trimmed))?;
+                Ok(Variant::Boolean(n != 0.0))
+            }
+        },
+        VarType::Date => {
+            let inner = upper.trim_matches('#');
+            let d = conv(vba_value::text::parse_date(&VbaString::from(inner)))?;
+            Ok(Variant::Date(d))
+        }
+        VarType::Variant | VarType::Empty => {
+            if quoted {
+                return Ok(Variant::String(s));
+            }
+            match upper.as_str() {
+                "#NULL#" => Ok(Variant::Null),
+                "#TRUE#" => Ok(Variant::Boolean(true)),
+                "#FALSE#" => Ok(Variant::Boolean(false)),
+                u if u.starts_with('#') && u.ends_with('#') && u.len() > 2 => {
+                    let inner = u.trim_matches('#');
+                    if let Some(n) = inner.strip_prefix("ERROR ") {
+                        let n = n.trim().parse::<i32>().unwrap_or(0);
+                        Ok(Variant::Error(vba_value::VbaError::new(n)))
+                    } else {
+                        let d = conv(vba_value::text::parse_date(&VbaString::from(inner)))?;
+                        Ok(Variant::Date(d))
+                    }
+                }
+                _ => {
+                    let n = conv(vba_stdlib::conversion::val(&trimmed))?;
+                    if n.fract() == 0.0 && n.abs() < 32768.0 && !upper.contains(['.', 'E']) {
+                        Ok(Variant::Integer(n as i16))
+                    } else if n.fract() == 0.0
+                        && n.abs() < 2_147_483_648.0
+                        && !upper.contains(['.', 'E'])
+                    {
+                        Ok(Variant::Long(n as i32))
+                    } else {
+                        Ok(Variant::Double(n))
+                    }
+                }
+            }
+        }
+        _ => {
+            if upper == "#NULL#" {
+                return Err(FsError::Vba(94));
+            }
+            let n = conv(vba_stdlib::conversion::val(&trimmed))?;
+            conv(convert::convert_to(&Variant::Double(n), kind))
+        }
+    }
+}
+
+/// The services handed to the VM.
+pub struct FsServices(pub Rc<std::cell::RefCell<FileSystem>>);
+
+impl Services for FsServices {
+    fn io(&mut self, req: IoRequest) -> Result<IoReply, ServiceError> {
+        self.0.borrow_mut().io_request(req).map_err(Into::into)
+    }
+
+    fn call(&mut self, name: &str, args: &[Option<Variant>]) -> Result<Variant, ServiceError> {
+        let lname = name.to_ascii_lowercase();
+        self.0
+            .borrow_mut()
+            .call_fn(&lname, args)
+            .map_err(Into::into)
+    }
+
+    fn reset(&mut self) {
+        let _ = self.0.borrow_mut().close_all();
+    }
+}

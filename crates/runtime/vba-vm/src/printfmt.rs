@@ -51,8 +51,14 @@ pub fn print_value(v: &Variant) -> String {
 
 /// Formats a `Print` list starting at 0-based column `*col`; returns the
 /// text (including the final newline when the list ends the line) and
-/// updates `*col`.
+/// updates `*col`. Lines end with `\n`.
 pub fn format_print(items: &[PrintItem], col: &mut usize) -> String {
+    format_print_width(items, col, 0)
+}
+
+/// Like [`format_print`] with a line width (`Width #n, w`): a value that
+/// would cross `width` columns starts a new line first. `0` means no limit.
+pub fn format_print_width(items: &[PrintItem], col: &mut usize, width: usize) -> String {
     let mut out = String::new();
     let mut newline = true;
     for it in items {
@@ -60,7 +66,12 @@ pub fn format_print(items: &[PrintItem], col: &mut usize) -> String {
         match it {
             PrintItem::Value(v) => {
                 let t = print_value(v);
-                *col += t.chars().count();
+                let len = t.chars().count();
+                if width > 0 && *col > 0 && *col + len > width {
+                    out.push('\n');
+                    *col = 0;
+                }
+                *col += len;
                 out.push_str(&t);
             }
             PrintItem::Semicolon => newline = false,
@@ -78,7 +89,7 @@ pub fn format_print(items: &[PrintItem], col: &mut usize) -> String {
             PrintItem::Tab(Some(n)) => {
                 let target = (*n).max(1) as usize - 1;
                 if target < *col {
-                    out.push_str("\r\n");
+                    out.push('\n');
                     *col = 0;
                 }
                 out.extend(std::iter::repeat_n(' ', target - *col));

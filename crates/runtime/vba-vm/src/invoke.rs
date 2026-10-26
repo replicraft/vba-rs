@@ -368,7 +368,7 @@ impl Vm {
         };
         Err(Fault::Err(RtErr {
             number,
-            description: description.unwrap_or_else(|| vba_automation::error::describe(number)),
+            description: description.unwrap_or_else(|| crate::error::describe(number)),
             source: source.unwrap_or_default(),
             help_file: help_file.unwrap_or_default(),
             help_context,

@@ -45,7 +45,7 @@ fn lossy(b: &[u8]) -> String {
 }
 
 fn bridge(msg: impl Into<String>) -> Fault {
-    Fault::Unsupported(msg.into())
+    Fault::Bridge(msg.into())
 }
 
 impl Vm {
@@ -546,7 +546,7 @@ impl Vm {
                 }
                 Ok(v)
             }
-            Err(e) if e.number == 48 => Err(Fault::Unsupported(format!(
+            Err(e) if e.number == 48 => Err(Fault::Bridge(format!(
                 "Declare {symbol} is not implemented: {reason}"
             ))),
             Err(e) => Err(Fault::Err(RtErr::from(e).with_origin(ErrOrigin::Bridge))),

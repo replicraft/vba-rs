@@ -332,8 +332,8 @@ fn unimplemented_declare_is_an_explicit_unsupported_error() {
         host,
     );
     match &o.result {
-        Err(VmError::Unsupported(m)) => assert!(m.contains("MessageBoxA"), "{m}"),
-        other => panic!("expected Unsupported, got {other:?}"),
+        Err(VmError::Bridge(m)) => assert!(m.contains("MessageBoxA"), "{m}"),
+        other => panic!("expected a bridge error, got {other:?}"),
     }
     assert_eq!(o.out, "", "an unsupported call must not be trappable");
 }
