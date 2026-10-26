@@ -95,15 +95,18 @@ pub fn bound(v: &Variant, dim: i32, upper: bool) -> VbaResult<i32> {
 }
 
 /// `Array(...)`: a zero-based (or `Option Base 1`) `Variant` array. With no
-/// arguments the result is an unallocated dynamic array because `vba-value`
-/// cannot represent an allocated empty array.
+/// arguments the result is an allocated array without elements.
 pub fn array_of(items: &[Variant], base: i32) -> VbaResult<Variant> {
+    if items.is_empty() {
+        return Ok(Variant::Array(Box::new(VbaArray::new_empty(
+            VarType::Variant,
+            base,
+        ))));
+    }
     let mut a = VbaArray::new_dynamic(VarType::Variant);
-    if !items.is_empty() {
-        a.redim(&[Bounds::new(base, base + items.len() as i32 - 1)], false)?;
-        for (i, v) in items.iter().enumerate() {
-            a.set(&[base + i as i32], v.clone())?;
-        }
+    a.redim(&[Bounds::new(base, base + items.len() as i32 - 1)], false)?;
+    for (i, v) in items.iter().enumerate() {
+        a.set(&[base + i as i32], v.clone())?;
     }
     Ok(Variant::Array(Box::new(a)))
 }

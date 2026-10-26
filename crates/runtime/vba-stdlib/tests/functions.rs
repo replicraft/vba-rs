@@ -259,11 +259,12 @@ fn split_join_filter() {
     let whole = e.call("Split", &[s("abc"), s("")]).unwrap();
     let Variant::Array(a) = &whole else { panic!() };
     assert_eq!(a.ubound(1), Ok(0));
-    // Empty input: no elements (represented as an unallocated array).
+    // Empty input: an allocated array without elements.
     let Variant::Array(a) = e.call("Split", &[s("")]).unwrap() else {
         panic!()
     };
-    assert!(!a.is_allocated());
+    assert!(a.is_allocated());
+    assert_eq!((a.lbound(1), a.ubound(1)), (Ok(0), Ok(-1)));
     // Text-compare delimiter.
     let t = e.call("Split", &[s("aXbxc"), s("x"), n(-1), n(1)]).unwrap();
     let Variant::Array(a) = &t else { panic!() };

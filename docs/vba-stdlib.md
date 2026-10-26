@@ -62,10 +62,10 @@ against a real VBA host.
 - `TypeName` of objects and user-defined types, `IsMissing`: `VmRequired`.
 - Windows LCID collation: `Option Compare Text` is a simple per-code-unit case
   fold (inherited from `vba-value`).
-- `vba-value` cannot represent an allocated array with zero elements. Empty
-  `Split`/`Filter`/`Array()` results are therefore unallocated dynamic arrays
-  (`UBound` is error 9 instead of -1). The typed API (`strings::split`,
-  `strings::filter`) returns a `Vec` so a VM can build the exact value.
+- Empty `Split`/`Filter`/`Array()` results are allocated arrays without
+  elements (`LBound` 0, `UBound` -1; `Option Base 1` gives 1 and 0), built with
+  `VbaArray::new_empty`. A user `ReDim` to an upper bound below the lower bound
+  remains error 9.
 - `Format`: fraction formats, `*` fill and `[color]`/`[condition]` sections are
   skipped, not interpreted; locale-dependent calendars (non-Gregorian) are not
   supported.

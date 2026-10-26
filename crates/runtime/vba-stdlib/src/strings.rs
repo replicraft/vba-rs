@@ -376,15 +376,18 @@ pub fn chr_w(n: i32) -> VbaResult<VbaString> {
 }
 
 /// Builds a one-dimensional zero-based `String` array; an empty list becomes
-/// an unallocated dynamic array because `vba-value` cannot represent an
-/// allocated array without elements (documented limitation).
+/// an allocated array without elements (`UBound` is -1), as `Split("")` does.
 pub fn string_array(items: Vec<VbaString>) -> VbaResult<Variant> {
+    if items.is_empty() {
+        return Ok(Variant::Array(Box::new(VbaArray::new_empty(
+            VarType::String,
+            0,
+        ))));
+    }
     let mut a = VbaArray::new_dynamic(VarType::String);
-    if !items.is_empty() {
-        a.redim(&[Bounds::new(0, items.len() as i32 - 1)], false)?;
-        for (i, s) in items.into_iter().enumerate() {
-            a.set(&[i as i32], Variant::String(s))?;
-        }
+    a.redim(&[Bounds::new(0, items.len() as i32 - 1)], false)?;
+    for (i, s) in items.into_iter().enumerate() {
+        a.set(&[i as i32], Variant::String(s))?;
     }
     Ok(Variant::Array(Box::new(a)))
 }

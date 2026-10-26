@@ -95,6 +95,19 @@ impl VbaArray {
         }
     }
 
+    /// Creates an allocated array without elements, as returned by `Split("")`
+    /// or `Array()`: one dimension whose upper bound is `lower - 1`. `ReDim`
+    /// with a user-written upper bound below the lower bound stays error 9;
+    /// only library functions produce this shape.
+    pub fn new_empty(elem: VarType, lower: i32) -> Self {
+        Self {
+            elem,
+            fixed: false,
+            dims: vec![Bounds::new(lower, lower.wrapping_sub(1))],
+            data: Vec::new(),
+        }
+    }
+
     /// The declared element type.
     pub fn element_type(&self) -> VarType {
         self.elem
@@ -242,6 +255,23 @@ mod tests {
 
     fn b(l: i32, u: i32) -> Bounds {
         Bounds::new(l, u)
+    }
+
+    #[test]
+    fn empty_allocated_array() {
+        let mut a = VbaArray::new_empty(VarType::String, 0);
+        assert!(a.is_allocated() && a.is_empty());
+        assert_eq!((a.lbound(1), a.ubound(1)), (Ok(0), Ok(-1)));
+        assert_eq!(a.get(&[0]), Err(VbaError::SUBSCRIPT_OUT_OF_RANGE));
+        assert_eq!(a.iter().count(), 0);
+        a.redim(&[b(0, 1)], true).unwrap();
+        assert_eq!(a.len(), 2);
+        let mut a = VbaArray::new_empty(VarType::Variant, 1);
+        assert_eq!((a.lbound(1), a.ubound(1)), (Ok(1), Ok(0)));
+        assert_eq!(
+            a.redim(&[b(1, 0)], false),
+            Err(VbaError::SUBSCRIPT_OUT_OF_RANGE)
+        );
     }
 
     #[test]
