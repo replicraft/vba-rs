@@ -28,7 +28,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | partial | 129 |
 | unsupported | 5 |
 | not-started | 33 |
-| Conformance programs | 2117 |
+| Conformance programs | 2120 |
 | Programs that are known deviations (XFAIL) | 135 |
 
 ## Entries per category and status
@@ -75,8 +75,8 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | oracle | 0 |
 | spec | 436 |
 | doc | 99 |
-| derived | 43 |
-| unverified | 97 |
+| derived | 41 |
+| unverified | 99 |
 | (no program) | 33 |
 
 ## Programs per area and provenance
@@ -101,7 +101,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operators | 66 | 0 | 59 | 1 | 5 | 1 |
 | procedures | 34 | 0 | 23 | 2 | 4 | 5 |
 | spec-coerce | 187 | 0 | 187 | 0 | 0 | 0 |
-| spec-data | 286 | 0 | 279 | 0 | 6 | 1 |
+| spec-data | 289 | 0 | 279 | 0 | 8 | 2 |
 | spec-decl | 155 | 0 | 155 | 0 | 0 | 0 |
 | spec-lex | 145 | 0 | 145 | 0 | 0 | 0 |
 | spec-lib-a | 96 | 0 | 96 | 0 | 0 | 0 |

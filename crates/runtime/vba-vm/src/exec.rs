@@ -533,11 +533,8 @@ impl Vm {
                                     .zip(ir.program.udt_fields(nu))
                                     .all(|(a, b)| a.ty == b.ty));
                         if !same {
-                            return Err(Fault::Unsupported(
-                                "LSet/RSet between user-defined types with different member \
-                                 layouts"
-                                    .into(),
-                            ));
+                            let copy = self.lset_byte_image(*c, cu, *n, nu)?;
+                            return self.store(loc, copy);
                         }
                         let copy = self.adopt(v)?;
                         if let Variant::UserDefined(h) = &copy

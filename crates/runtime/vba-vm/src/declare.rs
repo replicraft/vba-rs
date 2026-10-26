@@ -273,6 +273,45 @@ impl Vm {
         })
     }
 
+    /// `LSet target = source` between user-defined types of different member
+    /// layouts: the source's bytes (the layout of a `Declare` user-defined
+    /// type: natural alignment, zero padding) are copied over the start of the
+    /// target's, and the shorter of the two decides how many. Bytes of the
+    /// target beyond the source's size keep their value. **Unverified:** the
+    /// padding and the treatment of the tail were not compared with VBA.
+    /// Types with variable-length strings, `Variant`, object or dynamic array
+    /// members have no byte image and are refused.
+    pub(crate) fn lset_byte_image(
+        &mut self,
+        th: UdtHandle,
+        target_udt: UdtId,
+        sh: UdtHandle,
+        source_udt: UdtId,
+    ) -> VResult<Variant> {
+        let ir = self.ir.clone();
+        let refuse = |f: Fault| match f {
+            Fault::Bridge(m) => Fault::Unsupported(format!(
+                "LSet between user-defined types of different layouts needs a byte image: {m}"
+            )),
+            other => other,
+        };
+        let src_layout = self.udt_layout(&ir, source_udt).map_err(refuse)?;
+        let tgt_layout = self.udt_layout(&ir, target_udt).map_err(refuse)?;
+        let cp = vba_ffi::Codepage::Windows1252;
+        let src = src_layout
+            .encode(&self.udt_to_fields(sh)?, cp)
+            .map_err(|e| bridge(e.to_string()))?;
+        let mut tgt = tgt_layout
+            .encode(&self.udt_to_fields(th)?, cp)
+            .map_err(|e| bridge(e.to_string()))?;
+        let n = src.len().min(tgt.len());
+        tgt[..n].copy_from_slice(&src[..n]);
+        let fv = tgt_layout
+            .decode(&tgt, cp)
+            .map_err(|e| bridge(e.to_string()))?;
+        self.fields_to_udt(target_udt, &fv)
+    }
+
     fn udt_to_fields(&self, h: UdtHandle) -> VResult<Vec<FieldValue>> {
         let u = self
             .udts
