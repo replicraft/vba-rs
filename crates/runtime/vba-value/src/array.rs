@@ -247,6 +247,14 @@ impl VbaArray {
     pub fn iter(&self) -> impl Iterator<Item = &Variant> {
         self.data.iter()
     }
+
+    /// Iterates mutably over the elements in storage order. Elements are not
+    /// coerced: the caller keeps them valid for the element type (a VM uses
+    /// this to materialize user-defined-type elements and to release or copy
+    /// object references).
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Variant> {
+        self.data.iter_mut()
+    }
 }
 
 #[cfg(test)]
@@ -272,6 +280,16 @@ mod tests {
             a.redim(&[b(1, 0)], false),
             Err(VbaError::SUBSCRIPT_OUT_OF_RANGE)
         );
+    }
+
+    #[test]
+    fn iter_mut_visits_every_element_in_storage_order() {
+        let mut a = VbaArray::new_fixed(VarType::Long, &[b(1, 2), b(1, 2)]).unwrap();
+        for (i, e) in a.iter_mut().enumerate() {
+            *e = Variant::Long(i as i32);
+        }
+        assert_eq!(a.get(&[2, 1]).unwrap(), &Variant::Long(1));
+        assert_eq!(a.get(&[1, 2]).unwrap(), &Variant::Long(2));
     }
 
     #[test]
