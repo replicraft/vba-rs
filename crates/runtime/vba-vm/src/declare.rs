@@ -422,6 +422,19 @@ impl Vm {
         self.host
             .check(Capability::NativeDeclare, &format!("{library}!{procedure}"))
             .map_err(Fault::from)?;
+        // The provider is chosen by the normalized library name (directory and
+        // `.dll` dropped), so the grant must cover that spelling too: a `Lib`
+        // such as "user32!/kernel32" starts with a granted prefix but resolves
+        // to kernel32.
+        let normalized = vba_winapi::normalize_library(&library);
+        if normalized != library {
+            self.host
+                .check(
+                    Capability::NativeDeclare,
+                    &format!("{normalized}!{procedure}"),
+                )
+                .map_err(Fault::from)?;
+        }
         if args.len() != info.params.len() {
             return Err(VbaError::new(450).into());
         }
