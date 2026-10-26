@@ -104,6 +104,25 @@ impl Parser<'_> {
                 }
             }
         }
+        // `Go To` and `Go Sub` are spelled as two words (MS-VBAL 5.4.2.12, 5.4.2.14).
+        if self.at(TokenKind::Ident)
+            && self
+                .tok(0)
+                .is_some_and(|t| t.text.eq_ignore_ascii_case(b"go"))
+            && (self.kw_at(1, K::To) || self.kw_at(1, K::Sub))
+        {
+            let kind = if self.kw_at(1, K::To) {
+                NodeKind::GoToStmt
+            } else {
+                NodeKind::GoSubStmt
+            };
+            self.start(kind);
+            self.bump();
+            self.bump();
+            self.label_token();
+            self.finish();
+            return;
+        }
         match self.cur() {
             Some(TokenKind::Keyword(k)) => match k {
                 K::Dim | K::Static | K::Private | K::Public | K::Global => {
@@ -514,9 +533,23 @@ impl Parser<'_> {
     }
 
     fn parse_case_item(&mut self) {
-        if self.at_kw(Keyword::Is) {
+        // `Case < 5` without `Is` is the same comparison clause (MS-VBAL 5.4.2.10).
+        let bare_operator = matches!(
+            self.cur(),
+            Some(
+                TokenKind::Eq
+                    | TokenKind::Ne
+                    | TokenKind::Lt
+                    | TokenKind::Gt
+                    | TokenKind::Le
+                    | TokenKind::Ge
+            )
+        );
+        if self.at_kw(Keyword::Is) || bare_operator {
             self.start(NodeKind::CaseIsItem);
-            self.bump();
+            if !bare_operator {
+                self.bump();
+            }
             if matches!(
                 self.cur(),
                 Some(
@@ -590,7 +623,9 @@ impl Parser<'_> {
     fn parse_do(&mut self) {
         self.start(NodeKind::DoStmt);
         self.bump();
+        let mut has_condition = false;
         if self.at_kw(Keyword::While) || self.at_kw(Keyword::Until) {
+            has_condition = true;
             self.bump();
             self.parse_expr(0);
         }
@@ -598,6 +633,14 @@ impl Parser<'_> {
         if self.at_kw(Keyword::Loop) {
             self.bump();
             if self.at_kw(Keyword::While) || self.at_kw(Keyword::Until) {
+                // MS-VBAL 5.4.2.6: a `Do` statement has a condition at the
+                // top or at the bottom, not both.
+                if has_condition {
+                    self.error(
+                        EXPECTED,
+                        "a `Do` loop cannot have a condition on both `Do` and `Loop`",
+                    );
+                }
                 self.bump();
                 self.parse_expr(0);
             }
