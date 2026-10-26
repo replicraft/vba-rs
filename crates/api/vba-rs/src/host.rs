@@ -172,6 +172,9 @@ impl Host for EngineHost {
         if self.cancel.is_cancelled() {
             return Err(ErrInfo::new(18, "cancelled by the embedder"));
         }
+        if self.budget.deadline_passed() {
+            return Err(ErrInfo::new(18, "the call exceeded its time allowance"));
+        }
         Ok(())
     }
 }

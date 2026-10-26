@@ -11,7 +11,7 @@ use vba_value::{ObjectRef, Variant};
 use vba_vm::{BufferSink, RunStatus, VmConfig};
 
 use crate::Error;
-use crate::call::{Arg, CallResult, CallTarget, split_args};
+use crate::call::{Arg, CallLimits, CallResult, CallTarget, split_args};
 use crate::host::{CancelToken, EngineHost, Factory};
 use crate::project::{Project, Report};
 
@@ -513,6 +513,52 @@ impl Instance {
             .limits()
             .max_steps
             .is_some_and(|max| budget.steps_used() >= max)
+    }
+
+    /// Runs `f` with the allowances of `limits` in force, then restores what
+    /// was in force before (scopes nest, and an inner scope never widens an
+    /// outer one). The way to bound one handler in CPU, memory and time
+    /// without spending the instance's own budget:
+    ///
+    /// ```
+    /// use vba::{CallLimits, Engine, Error, Project};
+    /// use vba::runtime::Error as RunError;
+    ///
+    /// let project = Project::from_source("Module1", "Public Sub Spin()\n  Do\n  Loop\nEnd Sub\n");
+    /// let mut inst = Engine::new().load(&project).unwrap();
+    /// inst.trust();
+    /// let err = inst
+    ///     .with_call_limits(CallLimits::new().max_steps(10_000), |i| i.run("Spin", vec![]))
+    ///     .unwrap_err();
+    /// assert!(matches!(err, Error::Run(RunError::Limit(_))));
+    /// assert!(inst.is_usable()); // the allowance was the call's
+    /// ```
+    pub fn with_call_limits<T>(
+        &mut self,
+        limits: CallLimits,
+        f: impl FnOnce(&mut Instance) -> T,
+    ) -> T {
+        let token = self.session.host().budget().enter_scope(limits.to_scope());
+        // The guard restores the scope even if `f` unwinds.
+        struct Restore(Rc<dyn vba_host::Host>, Option<vba_host::ScopeToken>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                if let Some(t) = self.1.take() {
+                    self.0.budget().leave_scope(t);
+                }
+            }
+        }
+        let _guard = Restore(self.session.host().clone(), Some(token));
+        f(self)
+    }
+
+    /// The token the instance's host polls: cancelling it stops the running
+    /// call and every later one until [`CancelToken::reset`]. It is the
+    /// engine's token, shared by all instances of that engine; give each
+    /// instance its own engine (or [`Engine::with_cancel_token`]) to cancel
+    /// them independently.
+    pub fn cancel_token(&self) -> CancelToken {
+        self.cancel.clone()
     }
 
     /// Starts a fresh step allowance: the counter of

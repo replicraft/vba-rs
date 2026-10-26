@@ -1,5 +1,7 @@
 //! Arguments, targets and results of [`Instance::call`](crate::Instance::call).
 
+use std::time::Duration;
+
 use vba_runtime::Target as RtTarget;
 use vba_value::{ObjectRef, Variant};
 use vba_vm::{Arg as VmArg, RunStatus};
@@ -89,6 +91,86 @@ pub(crate) fn split_args(args: Vec<Arg>) -> Result<SplitArgs, &'static str> {
         }
     }
     Ok((positional, named))
+}
+
+/// Allowances for one scope of calls on an instance, applied with
+/// [`Instance::with_call_limits`](crate::Instance::with_call_limits).
+///
+/// Every field is optional and narrows what the engine already enforces; a
+/// scope never grants more than [`Engine::limits`](crate::Engine::limits)
+/// allows. The counters of the instance are untouched, so a spent scope does
+/// not make the instance unusable.
+///
+/// ```
+/// use std::time::Duration;
+/// use vba::CallLimits;
+///
+/// let per_handler = CallLimits::new()
+///     .max_steps(1_000_000)
+///     .max_memory(8 * 1024 * 1024)
+///     .timeout(Duration::from_millis(250));
+/// assert_eq!(per_handler.steps(), Some(1_000_000));
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CallLimits {
+    steps: Option<u64>,
+    memory: Option<u64>,
+    timeout: Option<Duration>,
+}
+
+impl CallLimits {
+    /// No allowance beyond the engine's.
+    pub fn new() -> CallLimits {
+        CallLimits::default()
+    }
+
+    /// At most `steps` interpreter steps from the start of the scope. When
+    /// exhausted the call ends with `Error::Run(Limit(Steps))`.
+    pub fn max_steps(mut self, steps: u64) -> CallLimits {
+        self.steps = Some(steps);
+        self
+    }
+
+    /// At most `bytes` of VBA-visible memory more than is in use when the
+    /// scope starts. When exceeded the call ends with `Error::Run(Limit(Memory))`.
+    pub fn max_memory(mut self, bytes: u64) -> CallLimits {
+        self.memory = Some(bytes);
+        self
+    }
+
+    /// At most this much wall-clock time, checked cooperatively every
+    /// [`CANCEL_POLL_INTERVAL`](vba_host::POLL_INTERVAL) steps and at
+    /// `DoEvents`. When exceeded the call ends with `Error::Run(Cancelled)`;
+    /// the [`CancelToken`](crate::CancelToken) is not touched. A host member
+    /// that blocks is not interrupted.
+    pub fn timeout(mut self, timeout: Duration) -> CallLimits {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// The step allowance, if set.
+    pub fn steps(&self) -> Option<u64> {
+        self.steps
+    }
+
+    /// The memory allowance in bytes, if set.
+    pub fn memory(&self) -> Option<u64> {
+        self.memory
+    }
+
+    /// The time allowance, if set.
+    pub fn time(&self) -> Option<Duration> {
+        self.timeout
+    }
+
+    pub(crate) fn to_scope(self) -> vba_host::ScopeLimits {
+        vba_host::ScopeLimits {
+            max_steps: self.steps,
+            max_memory_bytes: self.memory,
+            timeout: self.timeout,
+        }
+    }
 }
 
 /// What a call is addressed to.

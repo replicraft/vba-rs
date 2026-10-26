@@ -214,7 +214,7 @@ mod state;
 pub mod prelude;
 pub mod raw;
 
-pub use call::{Arg, CallResult, CallTarget};
+pub use call::{Arg, CallLimits, CallResult, CallTarget};
 pub use context::HostContext;
 pub use engine::{Engine, Instance, Outcome};
 pub use host::{CancelToken, Factory};
