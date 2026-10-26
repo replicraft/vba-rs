@@ -170,6 +170,7 @@ fn is_layout_only(op: Opcode) -> bool {
             | Opcode::CommentRemKeyword
             | Opcode::LineContinuation
             | Opcode::StmtBegin
+            | Opcode::StmtBeginImplicit
     )
 }
 
@@ -921,6 +922,26 @@ impl Lw<'_> {
                     has_else: false,
                 });
             }
+            Opcode::IfSingleLine => {
+                let c = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let c = self.coerce_condition(c);
+                let co = self.emit_ex(&c);
+                let then_b = self.new_block();
+                let else_b = self.new_block();
+                let end = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: co,
+                    then_block: then_b,
+                    else_block: else_b,
+                });
+                self.switch_to(then_b);
+                self.frames.push(Frame::If {
+                    end,
+                    else_b,
+                    has_else: false,
+                });
+            }
             Opcode::BlockElseifBranch => {
                 let c = self.pop(ins)?;
                 self.expect_empty(ins)?;
@@ -964,7 +985,7 @@ impl Lw<'_> {
                     *has_else = true;
                 }
             }
-            Opcode::BlockIfClose => match self.frames.pop() {
+            Opcode::BlockIfClose | Opcode::EndifSingleLine => match self.frames.pop() {
                 Some(Frame::If {
                     end,
                     else_b,
@@ -1263,8 +1284,16 @@ impl Lw<'_> {
         suffix: Option<char>,
         args: Vec<Ex>,
     ) -> R<Ex> {
-        if self.local_by_name(name).is_some() || self.is_result_name(name) {
+        if self.local_by_name(name).is_some() {
             return Err(self.no(ins.opcode, "indexing of a variable"));
+        }
+        if self.is_result_name(name) && suffix.is_none() {
+            // `Name(args)` inside the function `Name` is a recursive call.
+            let pid = self.cx.proc_id;
+            if !self.callees.contains(&pid) {
+                self.callees.push(pid);
+            }
+            return self.project_call(ins, pid, args);
         }
         if suffix.is_none()
             && let Some(pid) = self.proc_target(name)

@@ -4,6 +4,8 @@
 
 #![allow(dead_code, missing_docs)]
 
+pub mod synth;
+
 use vba_format::{Limits, read_project};
 
 pub struct Mod {

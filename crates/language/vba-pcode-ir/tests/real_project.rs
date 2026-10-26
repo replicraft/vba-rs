@@ -24,6 +24,28 @@ fn lowering_summary() {
     let total = lp.procedures.len();
     let lowered = lp.lowered_count();
     println!("procedures {total}, lowered {lowered}");
+    let std_names: Vec<&str> = p
+        .modules
+        .iter()
+        .filter(|m| m.kind == vba_project::ModuleKind::Standard)
+        .map(|m| m.name.as_str())
+        .collect();
+    let in_std = lp
+        .procedures
+        .iter()
+        .filter(|r| std_names.contains(&r.module.as_str()))
+        .count();
+    let declares = lp
+        .procedures
+        .iter()
+        .filter(|r| {
+            std_names.contains(&r.module.as_str())
+                && matches!(&r.outcome, Outcome::Unsupported(u) if u.reason == "Declare")
+        })
+        .count();
+    println!(
+        "standard-module procedures {in_std} (of which Declare {declares}), lowered {lowered}"
+    );
     let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
     for r in &lp.procedures {
         if let Outcome::Unsupported(u) = &r.outcome {
@@ -36,6 +58,22 @@ fn lowering_summary() {
     v.sort_by_key(|x| std::cmp::Reverse(x.1));
     for (k, n) in v.iter().take(40) {
         println!("{n:5} {k}");
+    }
+    if std::env::var_os("SHOW_STANDARD").is_some() {
+        let std_mods: Vec<&str> = p
+            .modules
+            .iter()
+            .filter(|m| m.kind == vba_project::ModuleKind::Standard)
+            .map(|m| m.name.as_str())
+            .collect();
+        for r in &lp.procedures {
+            if let Outcome::Unsupported(u) = &r.outcome
+                && std_mods.contains(&r.module.as_str())
+                && u.reason != "Declare"
+            {
+                println!("UNSUP {}.{}: {}", r.module, r.procedure, u);
+            }
+        }
     }
     for r in lp
         .procedures
