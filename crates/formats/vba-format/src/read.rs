@@ -67,7 +67,11 @@ fn find<'n>(nodes: &'n [Node], path: &str, stream: bool) -> Option<&'n Node> {
         .find(|n| n.is_stream == stream && n.path.eq_ignore_ascii_case(path))
 }
 
-fn read_stream(cf: &mut Cfb<'_>, node: &Node, limits: &Limits) -> Result<Vec<u8>, Error> {
+pub(crate) fn read_stream(
+    cf: &mut Cfb<'_>,
+    node: &Node,
+    limits: &Limits,
+) -> Result<Vec<u8>, Error> {
     if node.len > limits.max_stream_bytes as u64 {
         return Err(Error::StreamTooLarge {
             path: node.path.clone(),

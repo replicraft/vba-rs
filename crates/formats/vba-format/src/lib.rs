@@ -18,6 +18,7 @@ extern crate self as vba_format;
 #[path = "../tests/common/mod.rs"]
 mod testsupport;
 
+mod aux_streams;
 pub mod codepage;
 mod codepage_tables;
 pub mod compression;
@@ -27,13 +28,17 @@ mod error;
 mod options;
 mod project_stream;
 mod read;
+pub mod signature;
 mod write;
 
+pub use aux_streams::{
+    LicenseInfo, LicenseKeys, NameMapEntry, ProjectWm, license_keys, module_name_map,
+};
 pub use compression::{DecompressError, compress, decompress};
 pub use error::Error;
 pub use options::{Limits, ReadMode, StaleCache, WriteOptions};
 pub use read::{read_project, read_project_with};
-pub use write::write_project;
+pub use write::{WriteOutput, WriteReport, write_project, write_project_with_report};
 
 /// Keys under which this crate stores uninterpreted data in the model's
 /// [`Preserved`](vba_project::Preserved) slots.

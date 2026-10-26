@@ -334,7 +334,7 @@ fn utf16_lossy(bytes: &[u8]) -> String {
     String::from_utf16_lossy(&units)
 }
 
-fn guid_to_string(b: &[u8]) -> String {
+pub(crate) fn guid_to_string(b: &[u8]) -> String {
     format!(
         "{{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
         u32::from_le_bytes([b[0], b[1], b[2], b[3]]),
@@ -351,7 +351,7 @@ fn guid_to_string(b: &[u8]) -> String {
     )
 }
 
-fn guid_from_string(s: &str) -> Option<[u8; 16]> {
+pub(crate) fn guid_from_string(s: &str) -> Option<[u8; 16]> {
     let b = s.as_bytes();
     if b.len() != 38
         || b[0] != b'{'

@@ -30,6 +30,7 @@ use crate::keys;
 use crate::options::{Limits, StaleCache, WriteOptions};
 use crate::project_stream::{self, LineEdit};
 use crate::read::{decompress_stream, module_kind};
+use crate::signature::SignatureKind;
 
 /// `_VBA_PROJECT` header with no performance cache: Reserved1 `0x61CC`,
 /// Version `0xFFFF`, Reserved2 `0x00`, Reserved3 `0x0001` (§2.3.4.1, §3.1.1).
@@ -61,12 +62,65 @@ struct Layout {
 /// protection, host extenders or workspace, return
 /// [`Error::UnsupportedEdit`].
 pub fn write_project(project: &VbaProject, options: &WriteOptions) -> Result<Vec<u8>, Error> {
-    let layout = if project.preserved.contains(keys::DIR) {
+    write_project_with_report(project, options).map(|o| o.bytes)
+}
+
+/// What a write changed, for callers that must tell users about
+/// consequences such as invalidated digital signatures.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WriteReport {
+    /// Paths of the streams whose bytes differ from the project as read
+    /// (including streams that were dropped). For a project not read from a
+    /// file this lists every stream.
+    pub changed_streams: Vec<String>,
+    /// Paths of the digital signature streams carried by the project. They
+    /// are written unchanged.
+    pub signature_streams: Vec<String>,
+    /// `true` if the project is signed and at least one stream changed. The
+    /// signature streams are still written, but a signature over the old
+    /// content no longer matches and an application will reject or ignore
+    /// it. Deliberately conservative: it does not work out whether the
+    /// changed streams lie inside the hashed subset of MS-OVBA §2.4.2.
+    pub signatures_invalidated: bool,
+}
+
+/// The result of [`write_project_with_report`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteOutput {
+    /// The `vbaProject.bin` bytes.
+    pub bytes: Vec<u8>,
+    /// What changed.
+    pub report: WriteReport,
+}
+
+/// Like [`write_project`], also reporting which streams changed and whether
+/// that invalidates digital signatures the project carries.
+pub fn write_project_with_report(
+    project: &VbaProject,
+    options: &WriteOptions,
+) -> Result<WriteOutput, Error> {
+    let (layout, changed_streams) = if project.preserved.contains(keys::DIR) {
         edit_layout(project, options)?
     } else {
-        fresh_layout(project)?
+        let layout = fresh_layout(project)?;
+        let all = layout.streams.keys().cloned().collect();
+        (layout, all)
     };
-    assemble(layout)
+    let signature_streams: Vec<String> = layout
+        .streams
+        .keys()
+        .filter(|p| SignatureKind::from_stream_name(p).is_some())
+        .cloned()
+        .collect();
+    let signatures_invalidated = !signature_streams.is_empty() && !changed_streams.is_empty();
+    Ok(WriteOutput {
+        bytes: assemble(layout)?,
+        report: WriteReport {
+            changed_streams,
+            signature_streams,
+            signatures_invalidated,
+        },
+    })
 }
 
 fn is_srp(path: &str) -> bool {
@@ -104,7 +158,10 @@ fn copy_preserved(project: &VbaProject, layout: &mut Layout, drop_srp: bool) -> 
     Ok(())
 }
 
-fn edit_layout(project: &VbaProject, options: &WriteOptions) -> Result<Layout, Error> {
+fn edit_layout(
+    project: &VbaProject,
+    options: &WriteOptions,
+) -> Result<(Layout, Vec<String>), Error> {
     let limits = Limits::default();
     let missing = |k: &str| Error::UnsupportedEdit(format!("preserved data {k:?} is missing"));
     let orig_dir_compressed = project
@@ -242,7 +299,42 @@ fn edit_layout(project: &VbaProject, options: &WriteOptions) -> Result<Layout, E
             .streams
             .insert(format!("{vba}/{}", dm.stream_name), stream);
     }
-    Ok(layout)
+
+    // Which streams differ from the project as read?
+    let mut original: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    original.insert(format!("{vba}/dir"), orig_dir_compressed.to_vec());
+    original.insert(format!("{vba}/_VBA_PROJECT"), vp.to_vec());
+    original.insert("PROJECT".into(), project_raw.to_vec());
+    for (m, dm) in project.modules.iter().zip(&orig.modules) {
+        let mut bytes = m
+            .preserved
+            .get(keys::MODULE_PERFORMANCE_CACHE)
+            .unwrap_or_default()
+            .to_vec();
+        bytes.extend_from_slice(
+            m.preserved
+                .get(keys::MODULE_COMPRESSED_SOURCE)
+                .unwrap_or_default(),
+        );
+        original.insert(format!("{vba}/{}", dm.stream_name), bytes);
+    }
+    for (path, bytes) in project.preserved.iter_prefixed(keys::STREAM_PREFIX) {
+        original.insert(path.to_owned(), bytes.to_vec());
+    }
+    let mut changed: Vec<String> = original
+        .iter()
+        .filter(|(path, bytes)| layout.streams.get(*path) != Some(*bytes))
+        .map(|(path, _)| path.clone())
+        .collect();
+    changed.extend(
+        layout
+            .streams
+            .keys()
+            .filter(|p| !original.contains_key(*p))
+            .cloned(),
+    );
+    changed.sort();
+    Ok((layout, changed))
 }
 
 /// The name under which the VBA storage appears in the preserved data.

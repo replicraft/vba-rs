@@ -114,6 +114,15 @@ pub enum Error {
         /// The project's code page.
         code_page: u16,
     },
+    /// An auxiliary stream (`PROJECTwm`, `PROJECTlk`, a signature) does not
+    /// follow its specified structure.
+    #[error("stream {stream}: {detail}")]
+    AuxStream {
+        /// Name of the stream.
+        stream: &'static str,
+        /// What is wrong.
+        detail: &'static str,
+    },
     /// The requested change cannot be written.
     #[error("unsupported edit: {0}")]
     UnsupportedEdit(String),
