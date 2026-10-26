@@ -136,6 +136,12 @@ fn sign_f64(x: f64) -> i16 {
 
 /// `Int` (floor) when `floor` is true, `Fix` (truncate toward zero) otherwise.
 pub fn int_fix(v: &Variant, floor: bool) -> VbaResult<Variant> {
+    // MS-VBAL 6.1.2.3.1.16, 6.1.2.3.1.18: a Date stays a Date.
+    if let Variant::Date(d) = v {
+        let s = d.serial();
+        let r = if floor { s.floor() } else { s.trunc() };
+        return Ok(Variant::Date(vba_value::Date::from_serial(r)?));
+    }
     Ok(match numeric(v)? {
         Variant::Single(x) => Variant::Single(if floor { x.floor() } else { x.trunc() }),
         Variant::Double(x) => Variant::Double(if floor { x.floor() } else { x.trunc() }),

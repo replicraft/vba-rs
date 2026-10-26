@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.3.1.16, func.fix
 ' SOURCE: spec ms-vbal 6.1.2.3.1.16 Fix: types preserved, negative values truncate toward zero
-' XFAIL: wrong pending
 ' EXPECT: neg27=-2
 ' EXPECT: neg25=-2
 ' EXPECT: neg05=0

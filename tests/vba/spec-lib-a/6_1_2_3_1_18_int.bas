@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.3.1.18, func.int
 ' SOURCE: spec ms-vbal 6.1.2.3.1.18 Int: floor, types preserved
-' XFAIL: wrong pending
 ' EXPECT: pos27=2
 ' EXPECT: neg27=-3
 ' EXPECT: neg25=-3
