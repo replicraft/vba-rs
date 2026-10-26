@@ -1356,6 +1356,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-rs"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror",
+ "vba-ast",
+ "vba-automation",
+ "vba-core",
+ "vba-diagnostics",
+ "vba-ffi",
+ "vba-format",
+ "vba-host",
+ "vba-ir",
+ "vba-lexer",
+ "vba-profile",
+ "vba-project",
+ "vba-runtime",
+ "vba-sema",
+ "vba-source",
+ "vba-stdlib",
+ "vba-syntax",
+ "vba-value",
+ "vba-vm",
+ "vba-winapi",
+ "vba-wine",
+]
+
+[[package]]
 name = "vba-runtime"
 version = "0.1.0"
 dependencies = [
