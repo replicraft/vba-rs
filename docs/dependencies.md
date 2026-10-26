@@ -20,7 +20,8 @@ listings) must never depend on hash order or on thread scheduling.
 | `uuid` | GUIDs in project and type-library records | vba-format |
 | `libffi` | Dynamic native calls for `Declare` (feature `native-call`) | vba-ffi |
 | `libloading` | Loading native libraries (feature `native-call`) | vba-ffi |
-| `windows-sys` | Win32 bindings for the Wine helper | vba-wine-host |
+| `windows-sys` | Win32 bindings for the Wine helper (`cfg(windows)`), and Windows-header constants on every host: HRESULT/`DISP_E_*`/`TYPE_E_*`, `DISPID_*`, `DISPATCH_*`, `ERROR_*`, `CP_*`, `MB_*`/`WC_*`. Constants only: nothing is linked on non-Windows hosts | vba-wine-host, vba-automation, vba-winapi |
+| `windows-metadata`, `windows-default` | Reader for Microsoft's Win32 metadata and the `Windows.Win32.winmd` it ships (MIT OR Apache-2.0). Dev tool only | vba-winapi-gen (never a library dependency) |
 | `annotate-snippets` | Source-snippet rendering of diagnostics (CLI only; `vba-diagnostics` stays dependency-free) | vba-cli |
 | `clap` | Command-line parsing | vba-cli |
 | `lsp-server`, `lsp-types` | Language server protocol transport and types | vba-lsp |
@@ -54,3 +55,5 @@ listings) must never depend on hash order or on thread scheduling.
 | `ropey` | Rope text buffer; documents are byte buffers in a code page, not UTF-8 text, and edits are whole-document. |
 | `line-index` | UTF-8 oriented; `vba-source::LineIndex` works on bytes and handles CR, LF and CRLF as VBA does. |
 | `binrw` | Out of scope for this pass (vba-format has its own owner). |
+| `windows-bindgen` output, the `windows` crate | Generated bindings and COM wrappers (`IDispatch`, `VARIANT`, `BSTR` wrappers) would put Windows-only types on the portable path. vba-automation models Automation without COM; VBA-visible types (`VarType`, `VbaError` numbers) keep VBA semantics defined in our crates. Only constants are taken from windows-sys. |
+| `windows-result`, `windows-strings` | `apps/vba-wine-host` has no HRESULT or wide-string/BSTR code (it calls `LoadLibraryA` with `CString` and reads `GetLastError` codes), so there is nothing for them to replace. |
