@@ -334,8 +334,8 @@ impl Vm {
             },
         };
         let lname = name.to_ascii_lowercase();
-        if let Some(cands) = self.procs_by_name.get(&(module, lname)) {
-            let pick = cands.iter().copied().find(|p| {
+        let pick_proc = |cands: &[ProcId]| {
+            cands.iter().copied().find(|p| {
                 let k = ir.program.proc(*p).kind;
                 match kind {
                     InvokeKind::Get => {
@@ -347,10 +347,25 @@ impl Vm {
                     InvokeKind::Put => k == ProcKind::PropertyLet,
                     InvokeKind::PutRef => k == ProcKind::PropertySet,
                 }
-            });
-            if let Some(pid) = pick {
+            })
+        };
+        // An access through the type of a library interface the class
+        // implements runs `Iface_Member`, whatever else the class exposes.
+        let through_iface = self.iface_hint.take().and_then(|lt| {
+            let implemented = mi
+                .implements
+                .iter()
+                .any(|i| matches!(&i.interface, vba_sema::Type::Library(t) if *t == lt));
+            implemented
+                .then(|| format!("{}_{}", lt.name, name).to_ascii_lowercase())
+                .and_then(|n| self.procs_by_name.get(&(module, n)))
+                .and_then(|c| pick_proc(c))
+        });
+        let own = || self.procs_by_name.get(&(module, lname.clone()));
+        if let Some(pid) = through_iface.or_else(|| own().and_then(|c| pick_proc(c))) {
+            {
                 let p = ir.program.proc(pid);
-                if p.visibility == vba_ast::Visibility::Private {
+                if p.visibility == vba_ast::Visibility::Private && through_iface.is_none() {
                     return Err(VbaError::new(438).into());
                 }
                 let bound = self.arrange_args(pid, args)?;

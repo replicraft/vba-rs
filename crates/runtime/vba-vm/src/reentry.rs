@@ -177,6 +177,7 @@ impl Vm {
             source_lines: Vec::new(),
             push_request: None,
             push_done: false,
+            iface_hint: None,
             cascade: None,
             settings: vba_host::MemorySettings::new(),
             bind_stats: BindStats::default(),

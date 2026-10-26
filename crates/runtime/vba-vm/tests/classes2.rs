@@ -190,3 +190,44 @@ fn class_features() {
         ),
     ]);
 }
+
+/// A library interface declared by the embedding application: calls through
+/// the interface type reach the `Iface_Member` procedure of the implementing
+/// class, even when the class has a public member of the same name.
+#[test]
+fn calls_through_a_library_interface_reach_the_implementation() {
+    use std::rc::Rc;
+    use vba_project::ModuleKind;
+    use vba_sema::{LibMember, LibParam, StaticLibrary, Type};
+    let lib = StaticLibrary::new("Lib")
+        .with_type(
+            "IWatcher",
+            vec![
+                LibMember::sub("Notify", vec![LibParam::required("msg", Type::String)]),
+                LibMember::property("Level", Type::Long),
+            ],
+        )
+        .as_interface("IWatcher");
+    let mods = [
+        module(
+            "Probe",
+            ModuleKind::Class,
+            "Implements Lib.IWatcher\nPrivate mLevel As Long\nPublic Sub Notify(ByVal msg As String)\nDebug.Print \"own \" & msg\nEnd Sub\nPrivate Sub IWatcher_Notify(ByVal msg As String)\nDebug.Print \"iface \" & msg\nEnd Sub\nPrivate Property Get IWatcher_Level() As Long\nIWatcher_Level = mLevel + 1\nEnd Property\nPrivate Property Let IWatcher_Level(ByVal v As Long)\nmLevel = v\nEnd Property\n",
+        ),
+        module(
+            "M",
+            ModuleKind::Standard,
+            "Sub Main()\nDim p As New Probe\nDim w As Lib.IWatcher\nSet w = p\np.Notify \"a\"\nw.Notify \"b\"\nw.Level = 4\nDebug.Print w.Level\nEnd Sub\n",
+        ),
+    ];
+    let o = run_full(
+        &mods,
+        "Main",
+        vec![],
+        Rc::new(vba_host::HeadlessHost::new()),
+        Box::new(vba_vm::NoServices),
+        &lib,
+    );
+    assert!(o.result.is_ok(), "{:?}", o.result);
+    assert_eq!(o.out, "own a\niface b\n 5 \n");
+}

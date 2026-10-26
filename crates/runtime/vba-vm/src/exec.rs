@@ -738,8 +738,10 @@ impl Vm {
                 kind,
                 args,
                 dispid,
+                static_receiver,
                 ..
             } => {
+                self.iface_hint = static_receiver.clone();
                 // An early-bound result has the declared type whatever the
                 // object returns.
                 let result_ty = dst
@@ -755,7 +757,9 @@ impl Vm {
                     dispid: *dispid,
                     result_ty,
                 };
-                return self.exec_invoke(*dst, receiver, member, *kind, args, early);
+                let flow = self.exec_invoke(*dst, receiver, member, *kind, args, early);
+                self.iface_hint = None;
+                return flow;
             }
             InstKind::New { dst, target } => {
                 let v = self.create_new(target)?;

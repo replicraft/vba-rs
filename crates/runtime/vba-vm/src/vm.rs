@@ -113,6 +113,9 @@ pub struct Vm {
     pub(crate) source_lines: Vec<Vec<u32>>,
     pub(crate) push_request: Option<Option<vba_ir::Reg>>,
     pub(crate) push_done: bool,
+    /// The library interface type a late-bound access was written against,
+    /// for the duration of that access.
+    pub(crate) iface_hint: Option<vba_sema::LibraryType>,
     pub(crate) cascade: Option<crate::state::Cascade>,
     pub(crate) settings: vba_host::MemorySettings,
     pub(crate) bind_stats: BindStats,
@@ -186,6 +189,7 @@ impl Vm {
             source_lines: Vec::new(),
             push_request: None,
             push_done: false,
+            iface_hint: None,
             settings: vba_host::MemorySettings::new(),
             bind_stats: BindStats::default(),
             cascade: None,

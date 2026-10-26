@@ -257,8 +257,6 @@ by a test of our own expectation and none was compared with Office.
 - A VBA object passed to a host is an opaque handle in the host's table; the host
   calls its members through `HostContext` (`call_on`, `get_member`...), not through
   `Dispatch` on the handle.
-- `Implements` of library interfaces is analysed but calls through the library
-  interface type are late bound by name and do not reach `Iface_Member`.
 - The `Declare` bridge has no native backend: only the `vba-winapi` shims and
   host hooks exist; `Variant` arguments, `Object` parameters and variable-length
   strings inside UDTs are refused.
