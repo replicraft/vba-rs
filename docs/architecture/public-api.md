@@ -199,6 +199,9 @@ is not, is in [conformance.md](../tooling/conformance.md).
   million steps, 256 MiB, call depth 1000) are new. `Engine::new()` starts from the second;
   `Engine::unlimited()` and `Engine::max_memory(bytes)` are new. Code that relied on an engine
   without limits calls `.unlimited()`.
+* `Engine::call_timeout(Option<Duration>)` and `Instance::default_call_timeout`: every call from
+  the embedding application has a 60-second wall-clock allowance by default; `.unlimited()` or
+  `call_timeout(None)` removes it.
 * `Policy::grant_prefixes` keeps its name and signature, but a scope is matched per capability:
   whole path segments for files, the program for `ProcessSpawn`, an exact ProgID or `Namespace.*`
   for `ComCreate`, `library!procedure` or `library!*` for `NativeDeclare`, an action for

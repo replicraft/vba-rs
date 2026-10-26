@@ -215,7 +215,7 @@ uses for an unhandled run-time error; scripts that need to tell them apart shoul
 | `completions SHELL` | shell completion script (bash, zsh, fish, powershell, elvish) |
 | `man` | the manual page in roff |
 | `inspect FILE` | project/module listing (unchanged) |
-| `run FILE... [--entry P] [--arg V]... [--grant CAP[=PATH]]... [--profile ID] [--memfs] [--max-steps N] [--max-memory B] [--max-call-depth N] [--unlimited] [--system-env] [--allow-shell] [--command T]` | runs a procedure |
+| `run FILE... [--entry P] [--arg V]... [--grant CAP[=PATH]]... [--profile ID] [--memfs] [--max-steps N] [--max-memory B] [--max-call-depth N] [--timeout S] [--unlimited] [--system-env] [--allow-shell] [--command T]` | runs a procedure |
 
 `run` is an explicit opt-in and denies everything by default: with no
 `--grant` the program computes and prints (`Debug.Print` to standard output).
@@ -230,7 +230,8 @@ program for `process-spawn` (`notepad` also covers `notepad.exe`, never
 for `network`. Malformed scopes are rejected. The program runs with finite
 default limits (100000000 steps, 256 MiB, call depth 1000); `--max-steps`,
 `--max-memory` and `--max-call-depth` change them and `--unlimited` removes
-the step and memory limits. The file system is
+the step, memory and time limits. The run (and the shutdown after it) may also take at most 60
+wall-clock seconds; `--timeout SECONDS` changes that and `--timeout 0` removes it. The file system is
 the real one unless `--memfs`. Exit codes: 0 success (also `Stop`), 1 bad input
 or the project does not compile, 2 unhandled run-time error (VBA or host),
 3 permission denied, 4 resource limit or cancelled, 5 unsupported feature,

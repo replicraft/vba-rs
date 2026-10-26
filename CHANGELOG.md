@@ -14,7 +14,14 @@ All notable changes are recorded here. The format follows
   `NO_COLOR` is set.
 - `vbars completions SHELL` and `vbars man` generate shell completions and the manual page.
 - `vbars --help` documents the exit codes.
+- `vba`: `Engine::call_timeout` and a 60-second wall-clock allowance per call by default
+  (`Engine::unlimited()` removes it); `vbars run --timeout SECONDS` with the same default.
 - Root `README.md`, `CONTRIBUTING.md`, `SECURITY.md` and this changelog.
+
+### Fixed
+
+- Cancellation and the time allowance of a call are honoured inside long library calls and
+  after large charges, not only every 1024 instructions or at `DoEvents`.
 
 ### Notes
 

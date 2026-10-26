@@ -121,7 +121,13 @@ leave the choice to the embedder. The facade's `Engine::new()` and `vbars run` s
 `ResourceLimits::untrusted()`: 100 million steps (about half a minute of ordinary statements),
 256 MiB, 1000 nested calls, strings of at most 32 million UTF-16 units and arrays of at most
 16.7 million elements; `Engine::unlimited()` and `vbars run --unlimited` opt out
-(`engine_defaults_are_finite_and_unlimited_opts_out`).
+(`engine_defaults_are_finite_and_unlimited_opts_out`). Every call from the embedding application
+also has a wall-clock allowance of 60 seconds by default (`Engine::call_timeout`,
+`vbars run --timeout`), removed by `Engine::unlimited()` / `--unlimited` or raised with
+`call_timeout(Some(d))` / `--timeout S`; `Instance::from_session` and a host you wrote yourself
+start without it (`engines_allow_a_minute_per_call_unless_unlimited`,
+`the_default_time_allowance_ends_a_loop_that_the_step_limit_would_let_run`,
+`run_has_a_wall_clock_limit_that_unlimited_and_zero_remove`).
 
 * **Memory.** One `MemoryMeter` per run is shared by every owner of data a program can grow.
   Strings of 32 UTF-16 units or more and arrays register their capacity with the meter that is
@@ -163,12 +169,23 @@ leave the choice to the embedder. The facade's `Engine::new()` and `vbars run` s
   `replace_split_and_join_on_large_strings_cost_steps`, `copying_large_strings_costs_steps`,
   `copying_large_arrays_costs_steps`, `small_inputs_cost_next_to_nothing`;
   `linear_search_agrees_with_the_plain_loop` and `a_long_needle_in_a_long_text_is_fast`
-  (vba-stdlib).
+  (vba-stdlib). Comparing, converting and copying whole strings is charged through the
+  allocation volume; `whole_string_operations_are_charged_in_proportion_to_their_length`
+  pins that for twenty operations.
 * Steps stop loops, trappable or not (`step_limit_stops_runaway_loops_and_is_not_trappable`).
 * **Cancellation** is polled through `Host::poll_cancel` every 1024 steps, in loops and calls alike
-  and not only at `DoEvents`; with no token raised nothing changes
+  and not only at `DoEvents`; steps charged for work count, so one statement that builds or
+  scans a large value cannot postpone the next poll by a thousand statements. Library calls
+  that charge a large amount of work poll as well, and `Like` polls while it matches, so a
+  single long call is stopped between chunks, not after it. The default `poll_cancel` also
+  ends a run whose call scope timeout has passed. With no token raised nothing changes
   (`cancellation_is_observed_in_loops_without_do_events`,
-  `an_endless_loop_is_cancelled_from_another_thread`). A host that implements cancellation only
+  `an_endless_loop_is_cancelled_from_another_thread`,
+  `a_pathological_like_is_cancelled_while_it_matches`,
+  `a_long_library_call_polls_for_cancellation_before_it_scans`,
+  `big_charges_do_not_postpone_the_next_poll_by_whole_instructions`,
+  `a_spent_time_allowance_ends_a_run_on_any_host`,
+  `a_long_library_call_is_cancelled_by_the_time_allowance`). A host that implements cancellation only
   in `idle` is not polled; implement `poll_cancel` too.
 * Oversized results are refused before they are built: `String$`, `Space$`, `Replace`, `Join`,
   `Split` (`builders_fail_with_error_7_before_building_an_oversized_string`), concatenation
@@ -236,8 +253,10 @@ error, never a panic.
   separate process) for hard containment of hostile code.
 * **Steps approximate CPU time.** One step is calibrated at roughly a microsecond of worst-case
   work, not guaranteed: the cost of an allocation, a hash lookup or a collation compare varies by
-  machine and by string content (`Option Compare Text` folds through a table). A wall-clock
-  deadline needs the cancellation token.
+  machine and by string content (`Option Compare Text` folds through a table). The wall-clock allowance
+  (60 seconds per call by default) bounds the rest; it is checked between chunks of work, so a
+  single native operation of at most the string or array size limit can overshoot it, and a
+  host member that blocks is not interrupted.
 * **Check and use are two steps where there are no directory handles.** On Unix the
   mutating operations and file opens act through a verified directory handle (see
   above). What remains: `Dir`, `FileLen`, `FileDateTime`, `GetAttr` and `stat`/`list`

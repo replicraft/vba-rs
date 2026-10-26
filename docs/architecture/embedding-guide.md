@@ -119,7 +119,7 @@ assert_eq!(inst.run("Twice", vec![21.into()]).unwrap().value, vba::Variant::Long
 ```
 
 The engine decides what the program can reach: `grant(Capability::..)`,
-`grant_prefixes`, `limits`/`max_steps`/`unlimited()` (finite by default),
+`grant_prefixes`, `limits`/`max_steps`/`call_timeout`/`unlimited()` (finite by default),
 `vm_config`, `real_files()`, `system_environment()`, `fixed_clock(date)` (also the year of date
 literals such as `#3/4#`), `strict_spec(true)`. Nothing is ambient. `analyze` uses the same engine
 configuration (registered globals, host members) as `load`.
@@ -515,7 +515,14 @@ embedding errors `NoSuchMember`, `AmbiguousMember`, `NotAccessible` and
 * **Budgets are per instance.** `Engine::limits` / `max_steps` / `vm_config`
   configure each instance the engine loads; every instance has its own meter.
   `Engine::new()` starts from the finite `ResourceLimits::untrusted()` set (100
-  million steps, 256 MiB); `Engine::unlimited()` opts out. The step count spans
+  million steps, 256 MiB, call depth 1000) and gives every call from the embedding
+  application a wall-clock allowance of 60 seconds (`UNTRUSTED_CALL_TIMEOUT`).
+  To raise them: `max_steps(n)`, `max_memory(bytes)`, `limits(ResourceLimits { .. })` and
+  `call_timeout(Some(Duration::from_secs(300)))`; to remove them for code you trust,
+  `Engine::unlimited()` (also `call_timeout(None)` for the clock alone). A
+  `CallLimits::timeout` replaces the default allowance inside its scope, longer or shorter.
+  An instance built with `Instance::from_session` has no default allowance (the session
+  brings its own host); `Instance::default_call_timeout(Some(d))` sets one. The step count spans
   the whole life of the instance, nested calls included, so a long-lived
   instance that serves many events eventually spends it: give each event its own
   allowance with `reset_step_counter()` (below). `Instance::reset_step_counter()` starts a fresh allowance (give each
@@ -524,8 +531,9 @@ embedding errors `NoSuchMember`, `AmbiguousMember`, `NotAccessible` and
   .max_steps(n).max_memory(bytes).timeout(d), |i| ..)` bounds the calls made
   inside the closure without touching the instance's counters: the step and
   memory allowances count from the start of the scope, the timeout is checked
-  every `CANCEL_POLL_INTERVAL` steps and at `DoEvents` (it ends the call with
-  `Cancelled`, the token is not set), and the instance stays usable afterwards.
+  every `CANCEL_POLL_INTERVAL` steps (steps charged for work count, so a statement
+  that scans or builds a large value polls sooner), inside long library calls and at
+  `DoEvents` (it ends the call with `Cancelled`, the token is not set), and the instance stays usable afterwards.
   A scope only narrows what the engine allows, and scopes nest.
   `Instance::cancel_token()` returns the token the instance polls.
 * **Cancellation.** `Engine::cancel_token()` is `Send + Sync + Clone`. The
