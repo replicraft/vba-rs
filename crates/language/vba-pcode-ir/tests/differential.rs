@@ -143,6 +143,69 @@ fn run_one(
     )
 }
 
+/// Runs several procedures one after the other on the same VM (and, for
+/// a class-like module, the same instance), so that module-level state and
+/// fields written by one step are read by the next.
+fn run_session(
+    ir: &Rc<IrProgram>,
+    module: &str,
+    class_like: bool,
+    steps: &[(ProcSel<'_>, Vec<Option<Variant>>)],
+) -> String {
+    let sink = BufferSink::new();
+    let host = HeadlessHost::new().with_limits(ResourceLimits {
+        max_steps: Some(300_000),
+        ..ResourceLimits::default()
+    });
+    let mut vm = match Vm::new(
+        ir.clone(),
+        Rc::new(host),
+        Box::new(NoServices),
+        Box::new(vba_stdlib::FixedHost::default()),
+        Box::new(sink.clone()),
+        VmConfig::default(),
+    ) {
+        Ok(v) => v,
+        Err(e) => return format!("vm: {e}"),
+    };
+    let journal = Rc::new(RefCell::new(Vec::new()));
+    let obj = if class_like {
+        let Some(mid) = vm.find_module(module) else {
+            return "no such module".into();
+        };
+        match vm.create_instance(mid, Some(Rc::new(HostMock::new(journal.clone())))) {
+            Ok(o) => Some(o),
+            Err(e) => return format!("create: {e:?} | out={:?}", sink.contents()),
+        }
+    } else {
+        None
+    };
+    let mut out = String::new();
+    for (sel, args) in steps {
+        let Some(p) = find_proc(ir, module, sel) else {
+            return "no such procedure".into();
+        };
+        let args: Vec<Arg> = args
+            .iter()
+            .cloned()
+            .map(|a| a.map_or(Arg::Missing, Arg::Value))
+            .collect();
+        let r = match obj {
+            Some(o) => vm.run_method(o, p, args),
+            None => vm.run_procedure(p, args),
+        };
+        out.push_str(&format!("{} = {r:?}\n", sel.name));
+    }
+    if let Some(o) = obj {
+        out.push_str(&format!("destroy {:?}\n", vm.destroy_instance(&o)));
+    }
+    format!(
+        "{out}out={:?} | host={:?}",
+        sink.contents(),
+        journal.borrow()
+    )
+}
+
 /// Source program with only the lowered procedures of the project, and the
 /// module-level declarations that the cache side generated.
 fn source_program(
@@ -287,8 +350,55 @@ fn lowered_procedures_agree_with_source() {
         }
         ran[cl] += usize::from(any);
     }
+    // Sessions: every lowered procedure of a module, one after the other on
+    // one VM and instance, so that state written by one is read by the next.
+    let mut sessions = 0usize;
+    for m in &p.modules {
+        let cl = m.kind != ModuleKind::Standard;
+        let procs: Vec<_> = lp
+            .procedures
+            .iter()
+            .filter(|r| r.module == m.name && r.outcome.is_lowered() && r.id.is_some())
+            .collect();
+        if procs.is_empty() {
+            continue;
+        }
+        for round in 0..4usize {
+            let mut steps = Vec::new();
+            for (n, r) in procs.iter().enumerate() {
+                let info = cache_ir.program.proc(r.id.expect("id"));
+                let params: Vec<(Type, bool)> = info
+                    .params
+                    .iter()
+                    .map(|q| (q.ty.clone(), q.optional))
+                    .collect();
+                let sets = arg_sets(&params);
+                let args = sets[(round + n) % sets.len()].clone();
+                steps.push((
+                    ProcSel {
+                        name: &r.procedure,
+                        kind: info.kind,
+                    },
+                    args,
+                ));
+            }
+            if round % 2 == 1 {
+                steps.reverse();
+            }
+            let a = run_session(&src, &m.name, cl, &steps);
+            let b = run_session(&cache_ir, &m.name, cl, &steps);
+            sessions += 1;
+            if a != b {
+                mismatches += 1;
+                println!(
+                    "SESSION MISMATCH {} round {round}\n  source: {a}\n  cache : {b}",
+                    m.name
+                );
+            }
+        }
+    }
     println!(
-        "procedures {total}, lowered {lowered} (standard {}, class-like {}), executed {} + {}, runs {} + {} (source-side errors {errors_both}), mismatches {mismatches}",
+        "procedures {total}, lowered {lowered} (standard {}, class-like {}), executed {} + {}, runs {} + {} (source-side errors {errors_both}), sessions {sessions}, mismatches {mismatches}",
         lowered_by[0], lowered_by[1], ran[0], ran[1], runs[0], runs[1]
     );
     assert_eq!(mismatches, 0);
