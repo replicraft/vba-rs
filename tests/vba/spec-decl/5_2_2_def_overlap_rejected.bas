@@ -1,6 +1,5 @@
 ' INV: vbal.5.2.2
 ' SOURCE: spec ms-vbal 5.2.2 no overlap among letter-spec productions
-' XFAIL: wrong pending
 ' ERROR: load
 DefInt A-D
 DefLng C-F

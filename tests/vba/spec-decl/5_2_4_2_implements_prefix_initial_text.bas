@@ -1,6 +1,5 @@
 ' INV: vbal.5.2.4.2
 ' SOURCE: spec ms-vbal 5.2.4.2 no implemented interface name prefix may be the initial text of another
-' XFAIL: wrong pending
 ' ERROR: load
 Public Sub Main()
 End Sub

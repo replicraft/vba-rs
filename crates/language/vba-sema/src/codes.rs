@@ -64,5 +64,7 @@ pub const READ_ONLY_PROPERTY: Code = Code("SEM029");
 pub const WRITE_ONLY_PROPERTY: Code = Code("SEM030");
 /// `New` applied to a library type that cannot be instantiated.
 pub const NOT_CREATABLE: Code = Code("SEM031");
+/// Procedure declaration rules (`Global` in a class, `ByVal` arrays, parameter names).
+pub const PROCEDURE_RULE: Code = Code("SEM032");
 /// A construct that this implementation does not analyse yet.
 pub const UNSUPPORTED: Code = Code("SEM099");

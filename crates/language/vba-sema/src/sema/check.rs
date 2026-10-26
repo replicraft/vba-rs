@@ -28,6 +28,7 @@ impl Sema<'_> {
             let m = ModuleId(i as u32);
             self.check_class_hooks(m);
             self.check_properties(m);
+            self.check_procedure_rules(m);
             self.check_with_events(m);
         }
         for i in 0..n {
@@ -64,6 +65,68 @@ impl Sema<'_> {
                 mi.initialize = Some(p);
             } else {
                 mi.terminate = Some(p);
+            }
+        }
+    }
+
+    /// MS-VBAL 5.3.1.1, 5.3.1.5 and 5.3.1.7 declaration rules.
+    fn check_procedure_rules(&self, m: ModuleId) {
+        for &p in &self.program.modules[m.index()].procs {
+            let pi = &self.program.procs[p.index()];
+            for prm in &pi.params {
+                if prm.by_val && prm.is_array {
+                    self.error(
+                        m,
+                        codes::PROCEDURE_RULE,
+                        prm.span,
+                        "an array parameter cannot be passed `ByVal`",
+                    );
+                }
+                if matches!(pi.kind, ProcKind::Function | ProcKind::PropertyGet)
+                    && prm.name == pi.name
+                {
+                    self.error(
+                        m,
+                        codes::PROCEDURE_RULE,
+                        prm.span,
+                        "a parameter cannot have the name of its function",
+                    );
+                }
+            }
+        }
+        // A property's Get, Let and Set agree on how each shared parameter is passed.
+        let groups: Vec<PropGroup> = self.program.modules[m.index()]
+            .symbols
+            .values()
+            .filter_map(|(s, _)| match s {
+                Symbol::Property(g) => Some(*g),
+                _ => None,
+            })
+            .collect();
+        for g in groups {
+            let Some(get) = g.get.map(|p| &self.program.procs[p.index()]) else {
+                continue;
+            };
+            for p in [g.let_, g.set].into_iter().flatten() {
+                let pi = &self.program.procs[p.index()];
+                if pi.params.len() != get.params.len() + 1 {
+                    continue; // reported by `check_properties`
+                }
+                for (a, b) in get.params.iter().zip(&pi.params) {
+                    if a.by_val != b.by_val {
+                        self.error_with_label(
+                            m,
+                            codes::PROPERTY_PAIRING,
+                            b.span,
+                            format!(
+                                "parameter `{}` is passed differently than in `Property Get {}`",
+                                b.name, get.name
+                            ),
+                            a.span,
+                            "declared here",
+                        );
+                    }
+                }
             }
         }
     }
@@ -416,6 +479,42 @@ impl Sema<'_> {
                         continue;
                     }
                     let cname = self.program.modules[c.index()].name.clone();
+                    // MS-VBAL 5.2.4.2: no implemented-name prefix may begin another,
+                    // and an interface member name cannot contain an underscore.
+                    let prefix = format!("{cname}_").to_ascii_lowercase();
+                    let clash = result.iter().any(|r| {
+                        let Type::Class(o) = &r.interface else {
+                            return false;
+                        };
+                        let other = format!("{}_", self.program.modules[o.index()].name)
+                            .to_ascii_lowercase();
+                        other.starts_with(&prefix) || prefix.starts_with(&other)
+                    });
+                    if clash {
+                        self.error(
+                            m,
+                            codes::IMPLEMENTS,
+                            d.span,
+                            "an implemented interface name prefix cannot begin with another interface's prefix",
+                        );
+                        continue;
+                    }
+                    if let Some(bad) = self
+                        .required_of_class(*c)
+                        .into_iter()
+                        .find(|r| r.name.to_string().contains('_'))
+                    {
+                        self.error(
+                            m,
+                            codes::IMPLEMENTS,
+                            d.span,
+                            format!(
+                                "interface `{cname}` cannot be implemented: its member `{}` contains an underscore",
+                                bad.name
+                            ),
+                        );
+                        continue;
+                    }
                     let mut members = Vec::new();
                     for req in self.required_of_class(*c) {
                         let kind = req.kind.unwrap_or(ProcKind::Sub);

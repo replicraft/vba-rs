@@ -1,6 +1,5 @@
 ' INV: vbal.5.2.2
 ' SOURCE: spec ms-vbal 5.2.2 letter-range can be descending
-' XFAIL: wrong pending
 ' EXPECT: String String String Empty
 DefStr C-A
 Public Sub Main()

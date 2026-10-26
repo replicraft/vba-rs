@@ -80,6 +80,7 @@ impl<'a> Sema<'a> {
         self.implements_src.push(Vec::new());
 
         let mut declared_any = false;
+        let mut def_seen = [false; 26];
         let (mut seen_explicit, mut seen_base, mut seen_compare, mut seen_private) =
             (false, false, false, false);
 
@@ -163,13 +164,27 @@ impl<'a> Sema<'a> {
                             "`DefLngLng` needs a 64-bit VBA7 profile",
                         );
                     }
+                    // MS-VBAL 5.2.2: a descending span is the same as the
+                    // ascending one, and no letter may be named twice in a module.
+                    let mut overlap = false;
                     let opts = &mut self.program.modules[m.index()].options;
                     for &(lo, hi) in &d.ranges {
-                        for c in lo..=hi {
+                        for c in lo.min(hi)..=lo.max(hi) {
                             if c.is_ascii_uppercase() {
-                                opts.def_types[(c - b'A') as usize] = ty.clone();
+                                let i = (c - b'A') as usize;
+                                overlap |= def_seen[i];
+                                def_seen[i] = true;
+                                opts.def_types[i] = ty.clone();
                             }
                         }
+                    }
+                    if overlap {
+                        self.error(
+                            m,
+                            codes::TYPE_DECLARATION,
+                            d.span,
+                            "a letter is named by more than one Def directive range",
+                        );
                     }
                 }
                 Item::Implements(i) => {
@@ -241,6 +256,14 @@ impl<'a> Sema<'a> {
                             codes::EVENTS,
                             e.span,
                             "`Event` is not available in this language profile",
+                        );
+                    }
+                    if e.name.name.to_string().contains('_') {
+                        self.error(
+                            m,
+                            codes::EVENTS,
+                            e.name.span,
+                            "an event name cannot contain an underscore",
                         );
                     }
                     let id = EventId(self.program.events.len() as u32);
@@ -342,6 +365,14 @@ impl<'a> Sema<'a> {
                 }
                 Item::Type(t) => {
                     declared_any = true;
+                    if t.members.is_empty() && t.directives.is_empty() {
+                        self.error(
+                            m,
+                            codes::TYPE_DECLARATION,
+                            t.name.span,
+                            "a user-defined type needs at least one member",
+                        );
+                    }
                     let id = UdtId(self.program.udts.len() as u32);
                     self.program.udts.push(UdtInfo {
                         id,
@@ -357,6 +388,14 @@ impl<'a> Sema<'a> {
                 }
                 Item::Enum(e) => {
                     declared_any = true;
+                    if e.members.is_empty() {
+                        self.error(
+                            m,
+                            codes::TYPE_DECLARATION,
+                            e.name.span,
+                            "an enum needs at least one member",
+                        );
+                    }
                     let id = EnumId(self.program.enums.len() as u32);
                     self.program.enums.push(EnumInfo {
                         id,
@@ -388,6 +427,14 @@ impl<'a> Sema<'a> {
                         Some(Visibility::Global) | None => Visibility::Public,
                         Some(v) => v,
                     };
+                    if p.visibility == Some(Visibility::Global) && class_like {
+                        self.error(
+                            m,
+                            codes::PROCEDURE_RULE,
+                            p.name.span,
+                            "`Global` is not allowed on a procedure in a class module",
+                        );
+                    }
                     if vis == Visibility::Friend && !class_like {
                         self.error(
                             m,
