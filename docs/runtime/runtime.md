@@ -152,6 +152,11 @@ the policy sees the normalized path.
   without padding, `#TRUE#`/`#FALSE#`, `#NULL#`, dates as `#yyyy-mm-dd#`,
   `#hh:mm:ss#` or both, `#ERROR n#`, and a comma between items; embedded quotes
   are not escaped.
+- Static checks (`vba-sema`): the operand of `Input #`, `Get` and `Put` must not
+  be `Object` or a class (a user-defined type that contains one is not checked),
+  `Line Input #` reads into a `String` or `Variant` and takes a `#` file number.
+  A `Date` that `Input #` reads from text without a leading `#` is error 6, and
+  `SetAttr` on an open file is error 55.
 - `Input #` skips leading blanks and line breaks, reads quoted or comma/line
   delimited tokens and converts them to the target type (numbers like `Val`);
   into a `Variant` the token decides the subtype. `Line Input #` accepts CR, LF

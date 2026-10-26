@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.10, stmt.input
 ' SOURCE: spec ms-vbal 5.4.5.10 Date input not starting with # is error 6
-' XFAIL: wrong not implemented: error 6 for Input into a Date from text without #
 ' ERROR: 6
 ' GRANT: file-read
 ' GRANT: file-write

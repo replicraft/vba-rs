@@ -1337,6 +1337,10 @@ fn read_token(f: &mut OpenFile, d: &[u8], kind: VarType) -> R<Variant> {
             }
         },
         VarType::Date => {
+            // MS-VBAL 5.4.5.10: a Date is read between `#` characters.
+            if !quoted && !upper.starts_with('#') {
+                return vba(6);
+            }
             let inner = upper.trim_matches('#');
             let d = conv(vba_value::text::parse_date(&VbaString::from(inner)))?;
             Ok(Variant::Date(d))

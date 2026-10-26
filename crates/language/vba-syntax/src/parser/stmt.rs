@@ -206,6 +206,10 @@ impl Parser<'_> {
                     self.start(NodeKind::LineInputStmt);
                     self.bump();
                     self.bump();
+                    // MS-VBAL 5.4.5.6: the file number is marked.
+                    if !self.at(TokenKind::Hash) {
+                        self.error(EXPECTED, "expected `#` file number");
+                    }
                     self.parse_arg_list_bare();
                     self.finish();
                 } else if self.word_at(0, "width") && self.kind(1) == Some(TokenKind::Hash) {

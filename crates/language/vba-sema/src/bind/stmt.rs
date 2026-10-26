@@ -321,7 +321,8 @@ impl Binder<'_, '_> {
                 let f = self.file_num(file);
                 let mut ps = Vec::new();
                 for t in targets {
-                    if let Some((p, _)) = self.bind_target(t, false) {
+                    if let Some((p, ty)) = self.bind_target(t, false) {
+                        self.file_data_type(&ty, t.span, "`Input #` cannot read into");
                         ps.push(p);
                     }
                 }
@@ -335,7 +336,17 @@ impl Binder<'_, '_> {
             }
             StmtKind::LineInput { file, target } => {
                 let f = self.file_num(file);
-                let (p, _) = self.bind_target(target, false)?;
+                let (p, ty) = self.bind_target(target, false)?;
+                // MS-VBAL 5.4.5.6: the declared type is String or Variant.
+                if !matches!(ty, Type::String | Type::FixedString(_) | Type::Variant)
+                    && !ty.is_error()
+                {
+                    self.err(
+                        codes::TYPE_MISMATCH,
+                        target.span,
+                        "`Line Input #` reads into a String or Variant",
+                    );
+                }
                 self.stmt(
                     span,
                     BStmtKind::Io(IoStmt::LineInput { file: f, target: p }),
@@ -349,7 +360,11 @@ impl Binder<'_, '_> {
                 let f = self.file_num(file);
                 let r = record.as_ref().map(|e| self.int_arg(e));
                 let t = match target {
-                    Some(t) => Some(self.bind_target(t, false)?.0),
+                    Some(t) => {
+                        let (p, ty) = self.bind_target(t, false)?;
+                        self.file_data_type(&ty, t.span, "`Get` cannot read into");
+                        Some(p)
+                    }
                     None => None,
                 };
                 self.stmt(
@@ -370,6 +385,7 @@ impl Binder<'_, '_> {
                 let r = record.as_ref().map(|e| self.int_arg(e));
                 let v = value.as_ref().map(|e| {
                     let b = self.bind_expr(e);
+                    self.file_data_type(&b.ty, e.span, "`Put` cannot write");
                     self.rvalue(b)
                 });
                 self.stmt(
@@ -481,6 +497,22 @@ impl Binder<'_, '_> {
                 OutputItem::Comma => BOutItem::Comma,
             })
             .collect()
+    }
+
+    /// MS-VBAL 5.4.5.10 to 5.4.5.12: the declared type of the operand of
+    /// `Input`, `Get` and `Put` is not `Object` or a class. (User-defined
+    /// types that contain one are not checked.)
+    fn file_data_type(&mut self, ty: &Type, span: Span, what: &str) {
+        if matches!(
+            ty,
+            Type::Object | Type::Class(_) | Type::Library(_) | Type::Nothing
+        ) {
+            self.err(
+                codes::TYPE_MISMATCH,
+                span,
+                format!("{what} a value of type {}", self.tn(ty)),
+            );
+        }
     }
 
     fn file_num(&mut self, e: &Expr) -> BExpr {
