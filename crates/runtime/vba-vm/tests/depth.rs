@@ -116,3 +116,16 @@ fn ordinary_deep_recursion_works_within_the_limit() {
     );
     assert_eq!(o.out, " 900 \n", "{:?}", o.result);
 }
+
+#[test]
+fn long_chains_of_collections_are_released_iteratively() {
+    // Each collection holds the previous one; releasing the last must not
+    // recurse once per link on the native stack.
+    let o = deep(
+        "Sub Main()\nDim c As Collection, d As Collection, i As Long\nSet c = New Collection\nFor i = 1 To 100000\nSet d = New Collection\nd.Add c\nSet c = d\nNext\nSet c = Nothing\nSet d = Nothing\nDebug.Print \"released\"\nEnd Sub\n",
+        "Public X As Long\n",
+        1000,
+    );
+    assert_eq!(o.out, "released\n", "{:?}", o.result);
+    assert_eq!(o.vm.live_objects(), 0);
+}
