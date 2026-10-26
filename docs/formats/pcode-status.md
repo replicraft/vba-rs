@@ -2,8 +2,10 @@
 
 Crate: `crates/formats/vba-pcode` (library only, no CLI wiring). Scope reached:
 phase 1 (structure) and phase 2 (opcode decoder and disassembler) of the gates in
-[pcode.md](pcode.md). Phase 3 (other versions and 64-bit) and phase 4 (lowering to
-`vba-ir`) are not started.
+[pcode.md](pcode.md). Phase 3 (other versions and 64-bit) is not started. A first
+lowering of the verified subset to `vba-ir` exists in `crates/language/vba-pcode-ir`;
+its coverage on the local project (95 of the 139 standard-module procedures with a
+body, 68 %) is measured in [pcode-phase3.md](pcode-phase3.md) section 4.
 
 Specifications: [pcode-format.md](pcode-format.md), [pcode-opcodes.md](pcode-opcodes.md),
 [pcode.md](pcode.md) and the public MS-OVBA text. Tags as in those documents: `[spec]`

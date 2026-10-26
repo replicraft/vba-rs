@@ -97,70 +97,116 @@ declaration-only text generated from the cache records (headers, parameters, loc
 declarations; empty bodies); no source text is read. The bodies are then replaced by the
 lowered ones. `vba-sema` is therefore a dependency (the IR types need it).
 
-Subset: standard modules; `Sub`/`Function` with plain scalar parameters and locals
-(`ByVal`/`ByRef`); every opcode verified; literals (Integer, Long, Double, String,
-Boolean/Null/Empty), arithmetic, comparison, logic, concatenation, `Like`, unary
-operators; assignment with the same conversions as the source lowering; block and
+Subset: standard modules; `Sub`/`Function` with plain scalar parameters (including
+`Optional` ones, with or without a default value) and locals (`ByVal`/`ByRef`); every
+opcode verified; literals (Integer, Long, Double, String, Boolean/Null/Empty, Date,
+hexadecimal Integer and Long), arithmetic, comparison, logic, concatenation, `Like`,
+unary operators; assignment with the same conversions as the source lowering; block and
 single-line `If`/`ElseIf`/`Else`; `For` with `Step`; `Do`/`Loop` in all forms;
-`While`/`Wend`; `Select Case` with values and ranges; `Exit` for/function/sub; calls to
-other procedures of the project (including recursion and `ByRef` arguments) and to
-library functions by resolved name (`Abs Int Sgn Len InStr`, plus names resolved
-through the library registry); `Debug.Print`.
+`While`/`Wend`; `Select Case` with values, ranges and `Is =`/`Is <>`; `Exit`
+for/function/sub; calls to other procedures of the project (including recursion,
+`ByRef` arguments and omitted optional arguments) and to library functions by resolved
+name (`Abs Int Sgn Len InStr` with 2, 3 or 4 arguments, `CLng`, `CStr`, plus names
+resolved through the library registry and the run-time functions such as `MsgBox`);
+library constants (`vbCrLf`, ...); `Debug.Print`; `On Error Resume Next`,
+`On Error GoTo label`, labels, `Resume label` and property reads on `Err`.
 
-| Metric on the local project | Result |
-|---|---|
-| Procedures in the caches | 430 |
-| In standard modules | 201 (62 are `Declare`) |
-| Lowered, verifier-clean | 63 (45 % of the 139 standard-module procedures with a body) |
-| Unsupported: procedure of a class-like module | 229 |
-| Unsupported: `Declare` | 62 |
-| Unsupported: `On Error` (`ERR_HANDLER_SET`) | 18 |
-| Unsupported: `Optional`/`ParamArray` parameter | 14 |
-| Unsupported: name that is not a local, procedure or library function | 9 |
-| Unsupported: local of non-scalar type / non-plain declaration | 8 / 7 |
-| Unsupported: parameter that is not a plain scalar | 7 |
-| Unsupported: other (single occurrences: `Set`, `ReDim`, `Option Base`, `CInt`-family, hex literals, indexing, unknown callee) | 13 |
+Rules added in the second round, each pinned by the differential run (section 5) and by
+synthetic caches, not by a bare reading of the opcode document:
+
+* Default values of `Optional` parameters sit on the header line in front of the
+  `PROC_HEADER` instruction, after a `CONST_EXPR_WITH_CALL` marker, in reverse argument
+  order. Option bit 0x400 of the argument record marks an argument that has one: the
+  number of such arguments equals the number of expressions on 430 of the 430 header
+  lines. (The argument-count byte of the function record is not used for this: it has a
+  flag in bit 0x80 on six headers.)
+* Opcodes that the opcode table still lists as inferred but that the lowering accepts
+  in one form: `ERR_HANDLER_SET` with modifier 1 (`Resume Next`) or 0 (`GoTo label`),
+  `ERR_RESUME` with modifier 0, `LABEL_NAMED`, `READ_DOT` on the `Err` object,
+  `CONST_INT16_HEX`, `CONST_DATE`, `CONVERT_TO_TYPE` with modifier 3 (`CLng`) or 8
+  (`CStr`). The opcode table is unchanged; the acceptance list is in `lower.rs`.
+* A 32-bit hexadecimal literal is a `Long` whatever its value (a literal with up to four
+  digits and no `&` suffix is an `Integer` and has the 16-bit form).
+* Under `On Error`, a simple statement resumes right after itself; the header of an
+  `If`, `For`, `Do` or `While` resumes at the start of its body; a `Select Case`
+  resumes at its first case body; the statement of a `Resume` or `Exit` has no resume
+  point. This mirrors the source lowering; a statement marker starts a new statement of
+  its own.
+* Modifier bit 0x10 of a local `VAR_DECL` only adds a layout word (seen on declarations
+  whose `As` is aligned with extra spaces); it does not make the declaration anything
+  but a plain `Dim`.
+* `InStr` with three arguments is `start, string1, string2`, the way the source binding
+  reads three arguments.
+
+Coverage on the local project, before and after the second round.
+
+| Metric on the local project | Round 1 | Round 2 |
+|---|---|---|
+| Procedures in the caches | 430 | 430 |
+| In standard modules | 201 (62 are `Declare`) | 201 (62 are `Declare`) |
+| Lowered, verifier-clean | 63 (45 % of the 139 standard-module procedures with a body) | **95 (68 %)** |
+| Unsupported: procedure of a class-like module | 229 | 229 |
+| Unsupported: `Declare` | 62 | 62 |
+| Unsupported: local of a type that is not a plain scalar (objects, user types, arrays, fixed-length strings) | 8 | 14 |
+| Unsupported: name that is not a local, a procedure or a library name (module-level variables, objects) | 9 | 9 |
+| Unsupported: parameter that is not a plain scalar | 7 | 7 |
+| Unsupported: `On Error` | 18 | 0 |
+| Unsupported: `Optional`/`ParamArray` parameter | 14 | 1 (`ParamArray`) |
+| Unsupported: `Static` locals | not separated | 2 |
+| Unsupported: `Mid$` assignment, `ReDim`, `Option Base`, `Set`, `LBound`, indexing, unknown callee, assignment to a module-level name | 13 | 11 |
+
+The second-round numbers were measured with
+`VBA_PCODE_PROJECT=<file> cargo test -p vba-pcode-ir --test real_project -- --ignored --nocapture`.
+Procedures that moved from one reason to another between the rounds (for example an
+`Optional` procedure that then needs an object-typed local) are counted under the reason
+that stops them now.
 
 ## 5. Differential tests
 
 Local project (`tests/differential.rs`): the lowered cache program and a program
 compiled from the original text of the same procedures run on `vba-vm` with
 deterministic argument sets (up to 6 per procedure, diagonal selection from per-type
-pools), comparing result, `Debug.Print` output and error.
+pools; for procedures with `Optional` parameters also the sets with each run of
+trailing optional arguments omitted), comparing result, `Debug.Print` output and error.
 
-| Metric | Result |
-|---|---|
-| Procedures lowered / executed | 63 / 63 |
-| Runs | 306 (50 end in a run-time error on both sides, identically) |
-| Mismatches | 0 |
+| Metric | Round 1 | Round 2 |
+|---|---|---|
+| Procedures lowered / executed | 63 / 63 | 95 / 95 |
+| Runs | 306 (50 end in a run-time error on both sides, identically) | 509 (98 end in a run-time error on both sides, identically) |
+| Mismatches | 0 | 0 |
 
-The harness was checked for sensitivity by swapping the operand order of the binary
-operators: it reports mismatches immediately.
+The harness was checked for sensitivity twice: swapping the operand order of the binary
+operators, and dropping the `Resume Next` points of simple statements (20 mismatches
+reported at once).
 
-Synthetic (`tests/synthetic.rs`, no project needed): 12 tests assemble caches from the
+Synthetic (`tests/synthetic.rs`, no project needed): 17 tests assemble caches from the
 documented layouts and run them with hand-worked expectations; they cover the
 operators and operand order, comparison and logic, text, `If`/`ElseIf`/`Else` and
 single-line `If`, `For`/`Step`/`Exit For`, all `Do`/`While` forms, `Select Case`,
 calls/recursion/`ByRef`, `Debug.Print`, library calls, typed overflow (error 6),
-unsupported reporting, and a property test that mutated and truncated caches never
-panic.
+`Optional` parameters (with and without defaults, omitted at the call and at the run
+call, `IsMissing`), `On Error Resume Next` (statement, `If` condition and `Select Case`
+subject failures), `On Error GoTo` with labels, `Err.Number` and `Resume label`, library
+constants and run-time functions, `InStr` with three arguments, hexadecimal and `Date`
+literals, `CLng`/`CStr`, unsupported reporting, and a property test that mutated and
+truncated caches never panic.
 
 ## 6. What blocks the rest
 
-* `On Error`: needs the semantics of `ERR_HANDLER_SET` verified and the
-  statement resume points of the IR reproduced (18 procedures, mostly pure date
-  functions).
-* Optional parameters: the default value location in the argument record is unknown
-  (14 procedures).
-* Module-level variables and constants: the cache gives the declaration but the value
-  of a constant is not located (9+ procedures).
-* Class-like modules: 229 procedures need instances, members and the object model.
-* `CONVERT_TO_TYPE` and the other inferred opcodes need more statements that exercise
-  each modifier.
-* Arrays, fixed-length strings and user types in declarations (bounds are not
-  located; id 29 carries no name).
-* Hexadecimal literals: how the Integer/Long distinction is stored for values below
-  0x10000.
+Counts are procedures of standard modules (the 229 class-like ones and the 62 `Declare`s
+are separate, structural reasons).
+
+* Locals and parameters of object, user-defined, array and fixed-length string types
+  (14 + 7 + 1 procedures): the cache gives the type reference but not the bounds, the
+  fixed length or the module-local user type name (`Unknowns` in
+  [pcode-status.md](pcode-status.md)).
+* Module-level variables and constants (9 + 2): the declaration is in the cache but the
+  value of a constant is not located and the IR needs global slots in the shell.
+* `Static` locals (2), `Mid$` assignment (`SUBSTR_ASSIGN`, 2), `Set` (1), `ReDim` (1),
+  `Option Base` (1), `LBound` (1), indexing of a variable (1), `ParamArray` (1): each is
+  one opcode family whose operand layout is inferred, with a single use in the sample.
+* Class-like modules (229): need instances, members and the object model.
+* Other versions and bitness: see section 7.
 
 ## 7. Test material that would unblock other versions and bitness
 

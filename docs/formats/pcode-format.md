@@ -207,7 +207,7 @@ Reached through the argument chain of a function record. Let `a` = 4 on x64, els
 | 2 | 2 | identifier reference: argument name |
 | 12 + a | 4 | type field (6.4a) |
 | 20 | 4 | offset of next argument record (0 or 0xFFFFFFFF ends the chain). Whether the x64 adjustment `a` also applies to this field is **unknown** **[L]** |
-| 24 + a | 2 | option bits: 0x0004 ByVal, 0x0002 ByRef, 0x0200 Optional, 0x0001 ParamArray (observed, VBA 7.0 x86) |
+| 24 + a | 2 | option bits: 0x0004 ByVal, 0x0002 ByRef, 0x0200 Optional, 0x0400 Optional with a default value, 0x0001 ParamArray (observed, VBA 7.0 x86). The default values themselves are instructions on the header line, before the `PROC_HEADER` instruction and after a `CONST_EXPR_WITH_CALL` marker, in reverse argument order (430 of 430 header lines agree with the number of 0x0400 arguments) |
 
 Sanity bound: offset + 26 within the table. **[M]** Observed record size (VBA 7.0 x86): 32 bytes. **[M]**
 
