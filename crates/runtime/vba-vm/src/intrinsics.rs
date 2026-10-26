@@ -893,7 +893,10 @@ impl Vm {
                 let path = convert::to_vba_string(&p)?.to_string_lossy();
                 let file = file_no(self, file)?;
                 let record_len = match record_len {
-                    Some(o) => Some(file_no(self, o)?),
+                    Some(o) => {
+                        let v = self.val(o)?;
+                        Some(self.long_of(v)?)
+                    }
                     None => None,
                 };
                 let _: OpenMode = *mode;
