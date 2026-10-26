@@ -356,6 +356,25 @@ impl Binder<'_, '_> {
         if let Some(sym) = self.scope.get(&id.name).cloned() {
             return match sym {
                 LocalSym::Local(l) => {
+                    // MS-VBAL 5.6.10: a type character must match the declared type.
+                    if let Some(sfx) = id.suffix {
+                        let declared = match self.local_ty(l) {
+                            Type::Array { elem, .. } => *elem,
+                            other => other,
+                        };
+                        let wanted = self.sema.suffix_type(sfx);
+                        if !declared.is_error() && !declared.is_variant() && declared != wanted {
+                            self.err(
+                                codes::TYPE_MISMATCH,
+                                id.span,
+                                format!(
+                                    "the type character does not match the declared type of `{}`",
+                                    id.name
+                                ),
+                            );
+                            return self.error_expr(span);
+                        }
+                    }
                     let b = self.local_expr(l, span);
                     self.var_use(b, span, args)
                 }
