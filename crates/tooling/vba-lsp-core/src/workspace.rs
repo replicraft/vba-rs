@@ -1,6 +1,6 @@
 //! The document store and the per-document request facade.
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -38,7 +38,7 @@ pub trait SemanticDiagnostics: Send + Sync {
 #[derive(Default)]
 pub struct Workspace {
     config: Config,
-    docs: HashMap<String, Document>,
+    docs: IndexMap<String, Document>,
     providers: Vec<Box<dyn SemanticDiagnostics>>,
     /// Bumped by every open, edit, close and configuration change; the
     /// project analysis is cached against it.
@@ -105,7 +105,7 @@ impl Workspace {
     /// Closes a document; returns whether it was open.
     pub fn close(&mut self, uri: &str) -> bool {
         self.generation += 1;
-        self.docs.remove(uri).is_some()
+        self.docs.shift_remove(uri).is_some()
     }
 
     /// How many times the project analysis has run. It runs at most once
@@ -136,7 +136,7 @@ impl Workspace {
         Some(p)
     }
 
-    pub(crate) fn docs(&self) -> &HashMap<String, Document> {
+    pub(crate) fn docs(&self) -> &IndexMap<String, Document> {
         &self.docs
     }
 
