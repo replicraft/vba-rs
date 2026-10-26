@@ -200,6 +200,14 @@ impl Vm {
         }
     }
 
+    /// Delivers the events host objects raised while the VM was not
+    /// suspended in a call of the raising object (for example from the
+    /// embedder's own code between calls), in the order they were raised.
+    pub fn deliver_pending_events(&mut self) -> Result<(), VmError> {
+        self.last_site = None;
+        self.drain_events().map_err(|f| self.finish_fault(f))
+    }
+
     /// Binds a host base to an existing instance that has none (typically
     /// the default instance of a form, whose `Class_Initialize` has then
     /// already run without it).

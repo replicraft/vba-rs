@@ -71,6 +71,12 @@ pub struct VmConfig {
     /// handlers and default-member coercions do. Beyond the limit the run
     /// ends with a call-depth limit error.
     pub max_native_depth: u32,
+    /// How many runs may nest through host calls: a host object that
+    /// declares itself re-entrant calls back into the session (raising an
+    /// event, creating a form) while the VM waits in that host call. Beyond
+    /// this depth the nested operation fails, see
+    /// [`ReentryError::TooDeep`](crate::ReentryError::TooDeep).
+    pub max_reentrancy_depth: u32,
 }
 
 impl Default for VmConfig {
@@ -81,6 +87,7 @@ impl Default for VmConfig {
             max_array_elements: 1 << 24,
             max_gosub_depth: 1 << 12,
             max_native_depth: 48,
+            max_reentrancy_depth: 4,
         }
     }
 }

@@ -17,6 +17,7 @@ use vba_vm::{Arg, DebugSink, NullSink, RunOutput, Vm, VmConfig, VmError};
 use crate::error::{Error, ErrorReport, LoadError};
 use crate::files::{FileSystem, FsServices, ScriptFsAdapter};
 use crate::memfs::MemFs;
+use crate::ops::{Ops, Target};
 use crate::shell::{NoShell, ShellHook};
 use crate::vfs::Vfs;
 
@@ -38,15 +39,54 @@ pub struct ProcedureInfo {
     pub class_like: bool,
 }
 
-/// What a call by name is addressed to.
-#[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-pub enum Target {
-    /// The project: `Proc` of the standard modules, or `Module.Proc`
-    /// (a document or designer module runs on its default instance).
-    Project,
-    /// One instance of a class, document or designer module.
-    Object(ObjectRef),
+/// Two owned providers consulted in order.
+struct OwnedChain(Box<dyn TypeProvider>, Box<dyn TypeProvider>);
+
+impl TypeProvider for OwnedChain {
+    fn resolve_type(&self, q: Option<&str>, n: &str) -> Option<vba_sema::LibraryType> {
+        self.0
+            .resolve_type(q, n)
+            .or_else(|| self.1.resolve_type(q, n))
+    }
+    fn has_library(&self, n: &str) -> bool {
+        self.0.has_library(n) || self.1.has_library(n)
+    }
+    fn resolve_declared(&self, q: Option<&str>, n: &str) -> Option<vba_sema::Type> {
+        self.0
+            .resolve_declared(q, n)
+            .or_else(|| self.1.resolve_declared(q, n))
+    }
+    fn enum_members(&self, t: &vba_sema::LibraryType) -> Option<Vec<(String, i64)>> {
+        self.0.enum_members(t).or_else(|| self.1.enum_members(t))
+    }
+    fn record(&self, t: &vba_sema::LibraryType) -> Option<vba_sema::LibRecord> {
+        self.0.record(t).or_else(|| self.1.record(t))
+    }
+    fn class_info(&self, t: &vba_sema::LibraryType) -> Option<vba_sema::LibClass> {
+        self.0.class_info(t).or_else(|| self.1.class_info(t))
+    }
+    fn member(&self, t: &vba_sema::LibraryType, n: &str) -> Option<vba_sema::LibMember> {
+        self.0.member(t, n).or_else(|| self.1.member(t, n))
+    }
+    fn default_member(&self, t: &vba_sema::LibraryType) -> Option<vba_sema::LibMember> {
+        self.0
+            .default_member(t)
+            .or_else(|| self.1.default_member(t))
+    }
+    fn describes_members(&self, t: &vba_sema::LibraryType) -> bool {
+        self.0.describes_members(t) || self.1.describes_members(t)
+    }
+    fn interface_members(&self, t: &vba_sema::LibraryType) -> Option<Vec<vba_sema::LibMember>> {
+        self.0
+            .interface_members(t)
+            .or_else(|| self.1.interface_members(t))
+    }
+    fn events(&self, t: &vba_sema::LibraryType) -> Option<Vec<vba_sema::LibEvent>> {
+        self.0.events(t).or_else(|| self.1.events(t))
+    }
+    fn global(&self, n: &str) -> Option<vba_sema::LibGlobal> {
+        self.0.global(n).or_else(|| self.1.global(n))
+    }
 }
 
 /// Collects everything a [`Session`] needs; nothing runs until the embedder
@@ -100,6 +140,17 @@ impl SessionBuilder {
     #[must_use]
     pub fn provider(mut self, p: impl TypeProvider + 'static) -> Self {
         self.provider = Box::new(p);
+        self
+    }
+
+    /// Adds a type provider that is consulted **before** the one already
+    /// configured (for example the library descriptions of an embedding
+    /// application, next to the global names a facade engine registered).
+    /// [`provider`](SessionBuilder::provider) replaces everything instead.
+    #[must_use]
+    pub fn extra_provider(mut self, p: impl TypeProvider + 'static) -> Self {
+        let old = std::mem::replace(&mut self.provider, Box::new(NoLibraries));
+        self.provider = Box::new(OwnedChain(Box::new(p), old));
         self
     }
 
@@ -395,54 +446,8 @@ impl Session {
         }
     }
 
-    /// The error for a call that needs a module that was left out.
-    fn compiled_only(&self) -> Option<Error> {
-        self.absent
-            .as_ref()
-            .filter(|(_, m)| !m.is_empty())
-            .map(|(project, modules)| Error::CompiledOnly {
-                project: project.clone(),
-                modules: modules.clone(),
-            })
-    }
-
-    fn find(&self, name: &str) -> Result<vba_sema::ProcId, Error> {
-        let p = &self.ir.program;
-        // A qualified name that names a module without source is an explicit
-        // error, not "no such procedure".
-        if let (Some((_, absent)), Some((m, _))) = (&self.absent, name.split_once('.'))
-            && absent.iter().any(|a| a.eq_ignore_ascii_case(m))
-        {
-            return Err(self.compiled_only().expect("absent is non-empty"));
-        }
-        let callable =
-            |id: vba_sema::ProcId| matches!(p.proc(id).kind, ProcKind::Sub | ProcKind::Function);
-        let matches: Vec<vba_sema::ProcId> = if let Some((m, n)) = name.split_once('.') {
-            let Some(module) = p.module_by_name(m) else {
-                return Err(Error::NoSuchProcedure(name.to_owned()));
-            };
-            module
-                .procs
-                .iter()
-                .copied()
-                .filter(|id| callable(*id) && p.proc(*id).name.eq_ignore_case(n))
-                .collect()
-        } else {
-            p.modules
-                .iter()
-                .filter(|m| !m.is_class_like())
-                .flat_map(|m| m.procs.iter().copied())
-                .filter(|id| callable(*id) && p.proc(*id).name.eq_ignore_case(name))
-                .collect()
-        };
-        match matches.as_slice() {
-            // The procedure may live in a module that was left out.
-            [] => Err(self
-                .compiled_only()
-                .unwrap_or_else(|| Error::NoSuchProcedure(name.to_owned()))),
-            [one] => Ok(*one),
-            _ => Err(Error::AmbiguousProcedure(name.to_owned())),
-        }
+    fn ops(&mut self) -> Ops<'_> {
+        Ops::with_absent(&mut self.vm, self.absent.as_ref())
     }
 
     /// Runs a `Sub` or `Function` by name, case-insensitively, like
@@ -471,96 +476,7 @@ impl Session {
         named: Vec<(String, Arg)>,
     ) -> Result<RunOutput, Error> {
         self.require_trust()?;
-        let (id, receiver) = match target {
-            Target::Object(obj) => (self.find_in_object(obj, name, true)?, Some(*obj)),
-            _ => {
-                let id = self.find(name)?;
-                let pr = self.ir.program.proc(id);
-                if matches!(pr.visibility, Visibility::Private) {
-                    return Err(Error::NotCallable(name.to_owned(), "it is private"));
-                }
-                let module = self.ir.program.module(pr.module);
-                if module.is_class_like() {
-                    if !module.predeclared {
-                        return Err(Error::NotCallable(
-                            name.to_owned(),
-                            "it belongs to a class module without a default instance",
-                        ));
-                    }
-                    (id, Some(self.vm.default_instance_object(pr.module)?))
-                } else {
-                    (id, None)
-                }
-            }
-        };
-        let args = self.vm.arrange_call_args(id, positional, named)?;
-        Ok(match receiver {
-            Some(obj) => self.vm.run_method(obj, id, args)?,
-            None => self.vm.run_procedure(id, args)?,
-        })
-    }
-
-    /// The procedure `name` of the class-like module `obj` is an instance
-    /// of. `public_only` rejects private procedures (event handlers are
-    /// usually private).
-    fn find_in_object(
-        &self,
-        obj: &ObjectRef,
-        name: &str,
-        public_only: bool,
-    ) -> Result<vba_sema::ProcId, Error> {
-        if matches!(obj, ObjectRef::Handle(_)) && !self.vm.is_live_instance(obj) {
-            // A destroyed instance, or a handle that never named one.
-            return Err(Error::from(vba_vm::VmError::Runtime(Box::new(
-                vba_vm::RuntimeError::new(vba_vm::RtErr::standard(91)),
-            ))));
-        }
-        let Some(module) = self.vm.object_module(obj) else {
-            return Err(Error::NotCallable(
-                name.to_owned(),
-                "the object is not an instance of a project class",
-            ));
-        };
-        let p = &self.ir.program;
-        let id = p
-            .module(module)
-            .procs
-            .iter()
-            .copied()
-            .find(|id| {
-                let pr = p.proc(*id);
-                matches!(
-                    pr.kind,
-                    ProcKind::Sub | ProcKind::Function | ProcKind::PropertyGet
-                ) && pr.name.eq_ignore_case(name)
-            })
-            .ok_or_else(|| Error::NoSuchProcedure(name.to_owned()))?;
-        if public_only && matches!(p.proc(id).visibility, Visibility::Private) {
-            return Err(Error::NotCallable(name.to_owned(), "it is private"));
-        }
-        Ok(id)
-    }
-
-    // ---- instances --------------------------------------------------------
-
-    fn class_like_module(&self, module: &str) -> Result<vba_sema::ModuleId, Error> {
-        if let Some((_, absent)) = &self.absent
-            && absent.iter().any(|a| a.eq_ignore_ascii_case(module))
-        {
-            return Err(self.compiled_only().expect("absent is non-empty"));
-        }
-        let m = self
-            .ir
-            .program
-            .module_by_name(module)
-            .ok_or_else(|| Error::NoSuchProcedure(module.to_owned()))?;
-        if !m.is_class_like() {
-            return Err(Error::NotCallable(
-                module.to_owned(),
-                "it is a standard module, which has no instances",
-            ));
-        }
-        Ok(m.id)
+        self.ops().call(target, name, positional, named)
     }
 
     /// Creates a **new** instance of a class, document or designer module,
@@ -577,8 +493,7 @@ impl Session {
         host_base: Option<Rc<dyn Dispatch>>,
     ) -> Result<ObjectRef, Error> {
         self.require_trust()?;
-        let m = self.class_like_module(module)?;
-        Ok(self.vm.create_instance(m, host_base)?)
+        self.ops().create_object(module, host_base)
     }
 
     /// The default (predeclared) instance of a document, designer or
@@ -593,14 +508,7 @@ impl Session {
         host_base: Option<Rc<dyn Dispatch>>,
     ) -> Result<ObjectRef, Error> {
         self.require_trust()?;
-        let m = self.class_like_module(module)?;
-        if !self.ir.program.module(m).predeclared {
-            return Err(Error::NotCallable(
-                module.to_owned(),
-                "it is a class module without a default instance",
-            ));
-        }
-        Ok(self.vm.default_instance_with(m, host_base)?)
+        self.ops().default_instance(module, host_base)
     }
 
     /// Gives back the reference [`create_object`](Session::create_object)
@@ -608,14 +516,14 @@ impl Session {
     /// instance. A default instance cannot be destroyed.
     pub fn destroy_object(&mut self, object: &ObjectRef) -> Result<(), Error> {
         self.require_trust()?;
-        Ok(self.vm.destroy_instance(object)?)
+        self.ops().destroy_object(object)
     }
 
     /// Whether `object` has a `Sub`, `Function` or `Property Get` called
     /// `name`, of any visibility (so a host can discover private event
     /// handlers such as `Form_Current`).
     pub fn has_procedure(&self, object: &ObjectRef, name: &str) -> bool {
-        self.find_in_object(object, name, false).is_ok()
+        crate::ops::resolve_in_object(&self.ir, &self.vm, object, name, false).is_ok()
     }
 
     /// Runs the handler `<source>_<event>` (for example `Form` /
@@ -631,21 +539,15 @@ impl Session {
         named: Vec<(String, Arg)>,
     ) -> Result<Option<RunOutput>, Error> {
         self.require_trust()?;
-        let name = format!("{source}_{event}");
-        let id = match self.find_in_object(object, &name, false) {
-            Ok(id) => id,
-            Err(Error::NoSuchProcedure(_)) => return Ok(None),
-            Err(e) => return Err(e),
-        };
-        let args = self.vm.arrange_call_args(id, positional, named)?;
-        Ok(Some(self.vm.run_method(*object, id, args)?))
+        self.ops()
+            .raise_event_on(object, source, event, positional, named)
     }
 
     /// Reads a public variable or `Property Get` without parameters of an
     /// instance by name; names the module lacks go to its host base.
     pub fn get_member(&mut self, object: &ObjectRef, name: &str) -> Result<Variant, Error> {
         self.require_trust()?;
-        Ok(self.vm.get_member(object, name)?)
+        self.ops().get_member(object, name)
     }
 
     /// Assigns a public variable or property of an instance by name.
@@ -656,7 +558,32 @@ impl Session {
         value: Variant,
     ) -> Result<(), Error> {
         self.require_trust()?;
-        Ok(self.vm.set_member(object, name, value)?)
+        self.ops().set_member(object, name, value)
+    }
+
+    /// Reads a public module-level variable or constant of a standard
+    /// module: `Module.Name`, or `Name` when exactly one standard module
+    /// declares it. An object value carries a reference the caller owns
+    /// (see [`Session::release`]).
+    ///
+    /// Errors: unknown name ([`Error::NoSuchMember`]), a name declared in
+    /// several modules ([`Error::AmbiguousMember`]), a private variable, a
+    /// user-defined type or a variable of a class-like module
+    /// ([`Error::NotAccessible`]).
+    pub fn get_global(&mut self, name: &str) -> Result<Variant, Error> {
+        self.require_trust()?;
+        self.ops().get_global(name)
+    }
+
+    /// Assigns a public module-level variable of a standard module. The
+    /// value is converted to the declared type exactly as an assignment in
+    /// VBA would (`Long` to an `Integer` variable, error 6 on overflow,
+    /// error 13 when it cannot be converted), and an object is assigned
+    /// with `Set` semantics. A constant, a fixed-size array and a
+    /// user-defined type cannot be assigned ([`Error::NotAccessible`]).
+    pub fn set_global(&mut self, name: &str, value: Variant) -> Result<(), Error> {
+        self.require_trust()?;
+        self.ops().set_global(name, value)
     }
 
     /// The error the `Err` object holds now, with where it was raised and
@@ -666,6 +593,14 @@ impl Session {
     /// program clears it or another error replaces it, exactly as in VBA.
     pub fn last_error(&self) -> Option<ErrorReport> {
         self.vm_ref().current_error().map(ErrorReport::from)
+    }
+
+    /// Delivers the events host objects raised while the session was not
+    /// waiting in a call of the raising object, in the order they were
+    /// raised. (Events raised during such a call are delivered at once.)
+    pub fn deliver_pending_events(&mut self) -> Result<(), Error> {
+        self.require_trust()?;
+        Ok(self.vm.deliver_pending_events()?)
     }
 
     /// Releases the object references inside a value a call returned (the

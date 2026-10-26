@@ -35,6 +35,21 @@ pub struct EventOutcome {
     pub output: String,
 }
 
+/// The values of the `ByRef` arguments, in argument order.
+pub(crate) fn by_ref_values(
+    positional: &[vba_vm::Arg],
+    named: &[(String, vba_vm::Arg)],
+) -> Vec<Variant> {
+    positional
+        .iter()
+        .chain(named.iter().map(|(_, a)| a))
+        .filter_map(|a| match a {
+            vba_vm::Arg::ByRef(v) => Some(v.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 impl Instance {
     /// Creates a **new** instance of a class, document or designer module.
     /// Every instance has its own module-level state and gets its own
@@ -165,14 +180,7 @@ impl Instance {
                 why,
             ))
         })?;
-        let originals: Vec<Variant> = positional
-            .iter()
-            .chain(named.iter().map(|(_, a)| a))
-            .filter_map(|a| match a {
-                vba_vm::Arg::ByRef(v) => Some(v.clone()),
-                _ => None,
-            })
-            .collect();
+        let originals = by_ref_values(&positional, &named);
         let r = self
             .session
             .raise_event_on(&object, source, event, positional, named);
@@ -191,6 +199,16 @@ impl Instance {
                 output,
             },
         })
+    }
+
+    /// Delivers events that host objects raised **outside** a call of
+    /// theirs (for example from the embedder's own code between calls) to
+    /// the `WithEvents` handlers, in the order they were raised. An event
+    /// raised while the session waits in a call of the raising object is
+    /// delivered at once, with `ByRef` write-back; see
+    /// [`HostContext`](crate::HostContext) and the embedding guide.
+    pub fn deliver_pending_events(&mut self) -> Result<(), Error> {
+        self.session.deliver_pending_events().map_err(Error::Run)
     }
 
     /// Releases the object references inside a value a call returned: an

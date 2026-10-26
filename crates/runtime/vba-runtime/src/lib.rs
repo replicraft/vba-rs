@@ -38,8 +38,10 @@
 
 mod error;
 mod files;
+mod host_context;
 mod members;
 mod memfs;
+mod ops;
 mod realfs;
 mod records;
 mod session;
@@ -49,10 +51,12 @@ mod vfs;
 
 pub use error::{Error, ErrorReport, FsError, LoadError, StackFrame, VbaErrorInfo};
 pub use files::{DEFAULT_MAX_FILE_BYTES, FileSystem, FsServices, ScriptFsAdapter, write_value};
+pub use host_context::HostContext;
 pub use members::{ModuleSummary, ParamSummary, ProcedureSummary, VariableSummary};
 pub use memfs::MemFs;
+pub use ops::{Ops, Target};
 pub use realfs::RealFs;
-pub use session::{ProcedureInfo, Session, SessionBuilder, Target};
+pub use session::{ProcedureInfo, Session, SessionBuilder};
 pub use shell::{NoShell, ShellHook, StdShell};
 pub use system::SystemHost;
 pub use vfs::{

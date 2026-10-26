@@ -9,6 +9,7 @@
 //! it holds are released in order. Reference cycles are not collected.
 
 use crate::dispatch::{Dispatch, DispatchRef};
+use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -36,6 +37,7 @@ pub struct ObjectTable {
     next: Cell<u64>,
     entries: RefCell<HashMap<u64, Entry>>,
     foreign: RefCell<Vec<(ObjectHandle, i32)>>,
+    link: RefCell<Option<Rc<dyn Any>>>,
 }
 
 impl ObjectTable {
@@ -45,7 +47,22 @@ impl ObjectTable {
             next: Cell::new(1),
             entries: RefCell::default(),
             foreign: RefCell::default(),
+            link: RefCell::default(),
         }
+    }
+
+    /// Attaches the interpreter's re-entrancy handle to the table. The
+    /// interpreter that runs against this table calls this once when it is
+    /// created; the type of the handle is private to it.
+    pub fn set_link(&self, link: Rc<dyn Any>) {
+        *self.link.borrow_mut() = Some(link);
+    }
+
+    /// The interpreter's re-entrancy handle (see [`ObjectTable::set_link`]),
+    /// for host objects that call back into the running session. The
+    /// embedding crates wrap it in a typed `HostContext`.
+    pub fn link(&self) -> Option<Rc<dyn Any>> {
+        self.link.borrow().clone()
     }
 
     /// The reference adjustments recorded for foreign handles since the last

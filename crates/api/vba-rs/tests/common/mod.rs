@@ -4,7 +4,7 @@
 
 #![allow(dead_code)]
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -12,7 +12,7 @@ use vba::automation::{
     DispError, DispId, DispParams, Dispatch, InvokeFlags, MemberInfo, ObjectHandle, ObjectRef,
     ObjectTable, ParamInfo,
 };
-use vba::{Arg, CallResult, Error, Instance, ModuleKind, Project, Variant};
+use vba::{Arg, CallResult, Error, HostContext, Instance, ModuleKind, Project, Variant};
 
 /// The state of one toy form, shared with the test.
 #[derive(Default)]
@@ -48,17 +48,22 @@ impl FormState {
 
 const CONTROLS: DispId = DispId(1);
 const REQUERY: DispId = DispId(2);
+const UPDATE: DispId = DispId(3);
 const FIRST_PROP: i32 = 100;
 
 /// The `Me` of a toy form: unknown names are properties of the bag.
 pub struct FormHost {
     pub state: Rc<FormState>,
+    /// The VBA instance this host object is the `Me` of (set after
+    /// `create_object`), so `Update` can raise its events.
+    pub me: Cell<Option<ObjectRef>>,
 }
 
 impl FormHost {
     pub fn new(state: &Rc<FormState>) -> Rc<FormHost> {
         Rc::new(FormHost {
             state: state.clone(),
+            me: Cell::new(None),
         })
     }
 
@@ -80,10 +85,15 @@ impl Dispatch for FormHost {
         "Form".into()
     }
 
+    fn reentrant(&self) -> bool {
+        true
+    }
+
     fn member_id(&self, name: &str) -> Option<DispId> {
         match name.to_lowercase().as_str() {
             "controls" => Some(CONTROLS),
             "requery" => Some(REQUERY),
+            "update" => Some(UPDATE),
             n => self
                 .state
                 .props
@@ -103,6 +113,11 @@ impl Dispatch for FormHost {
             ),
             REQUERY => (
                 "Requery".to_owned(),
+                vec![],
+                InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
+            ),
+            UPDATE => (
+                "Update".to_owned(),
                 vec![],
                 InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
             ),
@@ -149,6 +164,33 @@ impl Dispatch for FormHost {
             REQUERY => {
                 st.log.borrow_mut().push("call Requery".into());
                 Ok(Variant::Empty)
+            }
+            UPDATE => {
+                // Raise BeforeUpdate on the VBA instance, synchronously,
+                // and read Cancel when the handler is done.
+                let ctx = HostContext::current(table)
+                    .ok_or_else(|| DispError::raise(5, "no session context", "FormHost"))?;
+                let me = self.me.get().ok_or_else(|| {
+                    DispError::raise(91, "the form has no VBA module", "FormHost")
+                })?;
+                let out = ctx
+                    .raise_event_on(
+                        me,
+                        "Form",
+                        "BeforeUpdate",
+                        vec![Arg::by_ref(Variant::Integer(0))],
+                    )
+                    .map_err(DispError::from)?;
+                let cancelled = out.byref[0] != Variant::Integer(0);
+                st.log.borrow_mut().push(
+                    if cancelled {
+                        "update cancelled"
+                    } else {
+                        "update committed"
+                    }
+                    .into(),
+                );
+                Ok(Variant::Boolean(!cancelled))
             }
             id => {
                 let name = if id == DispId::VALUE {
@@ -254,4 +296,204 @@ pub fn handle(o: ObjectRef) -> ObjectHandle {
         ObjectRef::Handle(h) => h,
         ObjectRef::Nothing => panic!("Nothing"),
     }
+}
+
+// ---- an application-like host: DoCmd and Application ------------------------
+
+/// A form `DoCmd.OpenForm` opened.
+pub struct OpenForm {
+    pub name: String,
+    pub object: ObjectRef,
+    pub state: Rc<FormState>,
+    pub host: Rc<FormHost>,
+}
+
+#[derive(Default)]
+pub struct AppState {
+    pub forms: RefCell<Vec<OpenForm>>,
+    /// What the host saw, in order.
+    pub log: RefCell<Vec<String>>,
+}
+
+/// `DoCmd`: `OpenForm FormName, [DataMode], [OpenArgs]` creates a second
+/// instance of `Form_<FormName>` and raises its `Open` and `Load` handlers
+/// synchronously, while the VBA statement that called it is waiting.
+pub struct DoCmd(pub Rc<AppState>);
+
+const OPEN_FORM: DispId = DispId(1);
+
+impl Dispatch for DoCmd {
+    fn class_name(&self) -> String {
+        "DoCmd".into()
+    }
+    fn reentrant(&self) -> bool {
+        true
+    }
+    fn member_id(&self, name: &str) -> Option<DispId> {
+        name.eq_ignore_ascii_case("OpenForm").then_some(OPEN_FORM)
+    }
+    fn member_info(&self, id: DispId) -> Option<MemberInfo> {
+        (id == OPEN_FORM).then(|| MemberInfo {
+            name: "OpenForm".into(),
+            id,
+            supports: InvokeFlags::METHOD,
+            params: vec![
+                ParamInfo::required("FormName").by_val(),
+                ParamInfo::optional("DataMode").by_val(),
+                ParamInfo::optional("OpenArgs").by_val(),
+            ],
+        })
+    }
+    fn invoke(
+        &self,
+        table: &ObjectTable,
+        _id: DispId,
+        _flags: InvokeFlags,
+        params: &mut DispParams,
+    ) -> Result<Variant, DispError> {
+        let app = &self.0;
+        let info = self.member_info(OPEN_FORM).expect("known");
+        let bound = vba::automation::bind(&info.params, params)?;
+        let name = text(&bound.slots[0].value);
+        let open_args = bound.slots[2].value.clone();
+        let ctx = HostContext::current(table)
+            .ok_or_else(|| DispError::raise(5, "DoCmd needs a running session", "DoCmd"))?;
+        app.log.borrow_mut().push(format!("OpenForm {name} begin"));
+        let state = FormState::new(&[
+            ("CustomerName", Variant::Null),
+            ("Caption", Variant::from(name.as_str())),
+            (
+                "OpenArgs",
+                if bound.slots[2].is_missing() {
+                    Variant::Null
+                } else {
+                    open_args
+                },
+            ),
+        ]);
+        let host = FormHost::new(&state);
+        let object = ctx
+            .create_object(&format!("Form_{name}"), Some(host.clone()))
+            .map_err(DispError::from)?;
+        host.me.set(Some(object));
+        app.forms.borrow_mut().push(OpenForm {
+            name: name.clone(),
+            object,
+            state,
+            host,
+        });
+        let open = ctx
+            .raise_event_on(
+                object,
+                "Form",
+                "Open",
+                vec![Arg::by_ref(Variant::Integer(0))],
+            )
+            .map_err(DispError::from)?;
+        if open.byref[0] != Variant::Integer(0) {
+            let form = app.forms.borrow_mut().pop().expect("just pushed");
+            ctx.destroy_object(form.object).map_err(DispError::from)?;
+            app.log
+                .borrow_mut()
+                .push(format!("OpenForm {name} cancelled"));
+            return Err(DispError::raise(
+                2501,
+                "The OpenForm action was canceled.",
+                "DoCmd",
+            ));
+        }
+        ctx.raise_event_on(object, "Form", "Load", vec![])
+            .map_err(DispError::from)?;
+        app.log.borrow_mut().push(format!("OpenForm {name} end"));
+        Ok(Variant::Empty)
+    }
+}
+
+/// `Application.Setting(Name)` returns the VBA global `Config.<Name>`;
+/// `Application.Run(Proc, [Arg1])` calls a VBA procedure back.
+pub struct Application(pub Rc<AppState>);
+
+impl Dispatch for Application {
+    fn class_name(&self) -> String {
+        "Application".into()
+    }
+    fn reentrant(&self) -> bool {
+        true
+    }
+    fn member_id(&self, name: &str) -> Option<DispId> {
+        match name.to_lowercase().as_str() {
+            "setting" => Some(DispId(1)),
+            "run" => Some(DispId(2)),
+            _ => None,
+        }
+    }
+    fn member_info(&self, id: DispId) -> Option<MemberInfo> {
+        let (name, params) = match id.0 {
+            1 => ("Setting", vec![ParamInfo::required("Name").by_val()]),
+            2 => (
+                "Run",
+                vec![
+                    ParamInfo::required("Procedure").by_val(),
+                    ParamInfo::optional("Arg1").by_val(),
+                ],
+            ),
+            _ => return None,
+        };
+        Some(MemberInfo {
+            name: name.into(),
+            id,
+            supports: InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
+            params,
+        })
+    }
+    fn invoke(
+        &self,
+        table: &ObjectTable,
+        id: DispId,
+        _flags: InvokeFlags,
+        params: &mut DispParams,
+    ) -> Result<Variant, DispError> {
+        let ctx = HostContext::current(table)
+            .ok_or_else(|| DispError::raise(5, "no session context", "Application"))?;
+        let info = self.member_info(id).ok_or(DispError::MEMBER_NOT_FOUND)?;
+        let bound = vba::automation::bind(&info.params, params)?;
+        match id.0 {
+            1 => {
+                let name = text(&bound.slots[0].value);
+                self.0.log.borrow_mut().push(format!("Setting {name}"));
+                ctx.get_global(&format!("Config.{name}"))
+                    .map_err(DispError::from)
+            }
+            _ => {
+                let proc = text(&bound.slots[0].value);
+                let args = if bound.slots[1].is_missing() {
+                    vec![]
+                } else {
+                    vec![Arg::val(bound.slots[1].value.clone())]
+                };
+                let r = ctx
+                    .call(vba::CallTarget::Project, &proc, args)
+                    .map_err(DispError::from)?;
+                Ok(r.value)
+            }
+        }
+    }
+}
+
+/// An engine with `DoCmd` and `Application` globals sharing one `AppState`.
+pub fn app_engine(app: &Rc<AppState>) -> vba::Engine {
+    let (a, b) = (app.clone(), app.clone());
+    vba::Engine::new()
+        .dispatch_global("DoCmd", move || DoCmd(a.clone()))
+        .dispatch_global("Application", move || Application(b.clone()))
+}
+
+pub fn load_app(engine: &vba::Engine, modules: &[(&str, ModuleKind, &str)]) -> Instance {
+    let mut p = Project::new();
+    for (name, kind, src) in modules {
+        p.add_module(name, *kind, src).unwrap();
+    }
+    let mut inst = engine.load(&p).unwrap();
+    inst.trust();
+    inst
 }

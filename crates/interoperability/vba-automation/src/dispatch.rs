@@ -429,6 +429,19 @@ pub trait Dispatch {
     fn event_source(&self) -> Option<&dyn EventSource> {
         None
     }
+
+    /// Whether the object may call back into the running session while it
+    /// executes a member (`DoCmd.OpenForm` creating a form and raising its
+    /// events, a form raising `BeforeUpdate` and reading `Cancel`).
+    ///
+    /// An object that returns `true` has the interpreter *suspended* for
+    /// the duration of its [`invoke`](Dispatch::invoke): the table passed
+    /// to `invoke` then gives access to a re-entrant session handle (see
+    /// [`ObjectTable::link`]). The default is `false`, which costs
+    /// nothing; objects that never call back should leave it.
+    fn reentrant(&self) -> bool {
+        false
+    }
 }
 
 /// Shared pointer to an object as stored in the table.

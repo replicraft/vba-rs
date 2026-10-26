@@ -699,6 +699,7 @@ impl Vm {
             .unwrap_or_default();
         let qs = Rc::new(QueueSink {
             queue: self.pending_events.clone(),
+            slot: self.slot.clone(),
             sink,
             var,
             names,
@@ -718,33 +719,90 @@ impl Vm {
         Ok(())
     }
 
-    /// Delivers events queued by objects outside the VM.
+    /// The handler of the library event `event` of the `WithEvents` variable
+    /// `var` in the class of `sink`.
+    fn external_handler(&self, sink: u64, var: GlobalId, event: &str) -> Option<ProcId> {
+        let Some(Obj {
+            kind: ObjKind::Class { module, .. },
+            ..
+        }) = self.objects.get(&sink)
+        else {
+            return None;
+        };
+        self.ir.classes[module.index()].as_ref().and_then(|c| {
+            c.handlers
+                .iter()
+                .find(|h| {
+                    h.var == var
+                        && matches!(&h.event, EventRef::Library { name, .. }
+                            if name.to_string().eq_ignore_ascii_case(event))
+                })
+                .map(|h| h.proc)
+        })
+    }
+
+    /// Delivers events queued by objects outside the VM (events raised while
+    /// the VM was not suspended in a host call, or by an object that is not
+    /// re-entrant, wait here until the next safe point).
     pub(crate) fn drain_events(&mut self) -> VResult<()> {
         loop {
             let ev = self.pending_events.borrow_mut().pop_front();
             let Some(ev) = ev else { return Ok(()) };
-            let Some(Obj {
-                kind: ObjKind::Class { module, .. },
-                ..
-            }) = self.objects.get(&ev.sink)
-            else {
-                continue;
-            };
-            let handler = self.ir.classes[module.index()].as_ref().and_then(|c| {
-                c.handlers
-                    .iter()
-                    .find(|h| {
-                        h.var == ev.var
-                            && matches!(&h.event, EventRef::Library { name, .. }
-                                if name.to_string().eq_ignore_ascii_case(&ev.event))
-                    })
-                    .map(|h| h.proc)
-            });
-            if let Some(p) = handler {
+            if let Some(p) = self.external_handler(ev.sink, ev.var, &ev.event) {
                 let args = ev.args.into_iter().map(BoundArg::Val).collect();
                 self.call_nested(p, Some(ev.sink), args)?;
             }
         }
+    }
+
+    /// Delivers an event raised by a host object **now**, while the VM is
+    /// suspended in a call of that object: the handler runs to completion,
+    /// its `ByRef` parameters are written back into `args` (so the raiser
+    /// can read `Cancel`), and only then does the raiser continue. Events
+    /// queued earlier are delivered first, which keeps the order.
+    pub(crate) fn deliver_event_now(
+        &mut self,
+        sink: u64,
+        var: GlobalId,
+        event: &str,
+        args: &mut [AutoArg],
+    ) -> Result<Variant, DispError> {
+        if let Err(f) = self.drain_events() {
+            return Err(self.nested_fault_to_disp(f));
+        }
+        let Some(handler) = self.external_handler(sink, var, event) else {
+            return Ok(Variant::Empty);
+        };
+        let mut vm_args = Vec::with_capacity(args.len());
+        let mut by_ref_at = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            vm_args.push(if a.is_missing() {
+                crate::vm::Arg::Missing
+            } else if a.by_ref {
+                by_ref_at.push(i);
+                crate::vm::Arg::ByRef(a.value.clone())
+            } else {
+                crate::vm::Arg::Value(a.value.clone())
+            });
+        }
+        match self.run_top(handler, Some(sink), vm_args) {
+            Ok(out) => {
+                for (i, v) in by_ref_at.into_iter().zip(out.byref) {
+                    args[i].value = v;
+                }
+                Ok(out.value)
+            }
+            Err(e) => Err(crate::reentry::vm_error_to_disp(&e)),
+        }
+    }
+
+    /// A fault that happened in a nested operation, as the error the host
+    /// gets back; a fatal one is also remembered for the outer run.
+    pub(crate) fn nested_fault_to_disp(&mut self, f: Fault) -> DispError {
+        if !matches!(f, Fault::Err(_)) {
+            self.pending_fatal = Some(f.clone());
+        }
+        crate::reentry::vm_error_to_disp(&self.fault_to_error(f))
     }
 
     // ---- shutdown -----------------------------------------------------------
@@ -803,10 +861,13 @@ impl Vm {
     }
 }
 
-/// The event sink handed to objects outside the VM: it queues events for
-/// delivery at the next safe point.
+/// The event sink handed to objects outside the VM. While the VM is
+/// suspended in a call of the raising object the event is delivered at
+/// once, with `ByRef` write-back; otherwise it is queued for delivery at the
+/// next safe point.
 struct QueueSink {
     queue: Rc<RefCell<VecDeque<PendingEvent>>>,
+    slot: Rc<crate::reentry::ReentrySlot>,
     sink: u64,
     var: GlobalId,
     names: Vec<String>,
@@ -823,6 +884,15 @@ impl EventSink for QueueSink {
         event: &str,
         args: &mut [AutoArg],
     ) -> Result<Variant, DispError> {
+        if self.slot.is_suspended() {
+            let r = self
+                .slot
+                .with_vm(|vm| vm.deliver_event_now(self.sink, self.var, event, args));
+            return match r {
+                Ok(r) => r,
+                Err(e) => Err(DispError::raise(28, e.to_string(), "vba")),
+            };
+        }
         self.queue.borrow_mut().push_back(PendingEvent {
             sink: self.sink,
             var: self.var,

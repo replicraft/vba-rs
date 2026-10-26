@@ -191,6 +191,7 @@
 //! * `wine`: the opt-in Wine bridge client (`raw::wine`), implies `winapi`.
 
 mod call;
+mod context;
 mod engine;
 mod host;
 mod objects;
@@ -201,6 +202,7 @@ pub mod prelude;
 pub mod raw;
 
 pub use call::{Arg, CallResult, CallTarget};
+pub use context::HostContext;
 pub use engine::{Engine, Instance, Outcome};
 pub use host::{CancelToken, Factory};
 pub use objects::EventOutcome;
@@ -243,13 +245,15 @@ pub use vba_host::{
 /// The automation traits an embedder implements to expose host objects.
 pub mod automation {
     pub use vba_automation::dispatch::{
-        Arg, DispId, DispParams, Dispatch, DispatchRef, InvokeFlags, MemberInfo, ParamInfo,
+        Arg, Bound, DispId, DispParams, Dispatch, DispatchRef, InvokeFlags, MemberInfo, ParamInfo,
+        bind,
     };
     pub use vba_automation::testing;
     pub use vba_automation::{
         AutoResult, CallArgs, DispError, ErrInfo, Final, ObjectHandle, ObjectRef, ObjectTable,
         Step, VariantEnum,
     };
+    pub use vba_automation::{ConnectionPoint, Cookie, EventSink, EventSource};
 }
 
 /// The runtime layer (sessions, file systems, errors) in full.

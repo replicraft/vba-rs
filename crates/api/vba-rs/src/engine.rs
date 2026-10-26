@@ -14,6 +14,24 @@ use crate::call::{Arg, CallResult, CallTarget, split_args};
 use crate::host::{CancelToken, EngineHost, Factory};
 use crate::project::{Project, Report};
 
+/// Tells the analysis which global names the engine registered, so that
+/// `Application.Name` in VBA code is a late-bound member access on a global
+/// object and not an undeclared variable.
+struct EngineGlobals(Vec<String>);
+
+impl vba_sema::TypeProvider for EngineGlobals {
+    fn resolve_type(&self, _: Option<&str>, _: &str) -> Option<vba_sema::LibraryType> {
+        None
+    }
+
+    fn global(&self, name: &str) -> Option<vba_sema::LibGlobal> {
+        self.0
+            .iter()
+            .any(|g| g.eq_ignore_ascii_case(name))
+            .then_some(vba_sema::LibGlobal::Object(vba_sema::Type::Object))
+    }
+}
+
 #[derive(Clone)]
 enum Files {
     Memory(Vec<(String, Vec<u8>)>),
@@ -285,6 +303,9 @@ impl Engine {
             host.classes.insert(n.clone(), f.clone());
         }
         let mut b = Session::builder()
+            .provider(EngineGlobals(
+                self.globals.iter().map(|(n, _)| n.clone()).collect(),
+            ))
             .host(Rc::new(host))
             .debug_sink(sink.clone())
             .command_line(&self.command)
@@ -311,6 +332,24 @@ impl Engine {
     pub fn load(&self, project: &Project) -> Result<Instance, Error> {
         let (builder, sink) = self.session_builder();
         let session = builder.build_project(project.model()).map_err(Error::Run)?;
+        Ok(Instance { session, sink })
+    }
+
+    /// Like [`load`](Engine::load), after `configure` adjusted the session
+    /// builder: the way to add what the engine does not expose, such as a
+    /// `TypeProvider` that describes host types for early binding and
+    /// `WithEvents` (add it with `SessionBuilder::extra_provider`, which
+    /// keeps the engine's own globals visible), a `Shell` hook or a
+    /// different file system.
+    pub fn load_with(
+        &self,
+        project: &Project,
+        configure: impl FnOnce(SessionBuilder) -> SessionBuilder,
+    ) -> Result<Instance, Error> {
+        let (builder, sink) = self.session_builder();
+        let session = configure(builder)
+            .build_project(project.model())
+            .map_err(Error::Run)?;
         Ok(Instance { session, sink })
     }
 

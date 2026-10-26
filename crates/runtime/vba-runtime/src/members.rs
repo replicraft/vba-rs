@@ -4,10 +4,7 @@
 
 use vba_ast::{ProcKind, Visibility};
 use vba_project::ModuleKind;
-use vba_sema::{Symbol, Type};
-use vba_value::Variant;
 
-use crate::error::Error;
 use crate::session::Session;
 
 /// One parameter of a procedure.
@@ -195,120 +192,5 @@ impl Session {
             .filter(|m| m.class_like && m.procedure(name).is_some())
             .map(|m| m.name)
             .collect()
-    }
-
-    fn global_symbol(&self, name: &str) -> Result<Symbol, Error> {
-        let p = &self.program().program;
-        let n = vba_ast::Name::new(name.rsplit('.').next().unwrap_or(name));
-        let candidates: Vec<(&vba_sema::ModuleInfo, Symbol)> = match name.split_once('.') {
-            Some((module, _)) => {
-                let m = p
-                    .module_by_name(module)
-                    .ok_or_else(|| Error::NoSuchMember(name.to_owned()))?;
-                if m.is_class_like() {
-                    return Err(Error::NotAccessible(
-                        name.to_owned(),
-                        "it belongs to a class-like module; its variables are fields of an instance (use get_member / set_member)",
-                    ));
-                }
-                m.symbols
-                    .get(&n)
-                    .map(|(s, _)| (m, *s))
-                    .into_iter()
-                    .collect()
-            }
-            None => p
-                .modules
-                .iter()
-                .filter(|m| !m.is_class_like())
-                .filter_map(|m| m.symbols.get(&n).map(|(s, _)| (m, *s)))
-                .filter(|(_, s)| {
-                    // An unqualified name only names what is public.
-                    match s {
-                        Symbol::Var(g) => !matches!(p.global(*g).visibility, Visibility::Private),
-                        Symbol::Const(c) => {
-                            !matches!(p.consts[c.index()].visibility, Visibility::Private)
-                        }
-                        _ => false,
-                    }
-                })
-                .collect(),
-        };
-        match candidates.as_slice() {
-            [(_, s @ (Symbol::Var(_) | Symbol::Const(_)))] => Ok(*s),
-            [] | [_] => Err(Error::NoSuchMember(name.to_owned())),
-            _ => Err(Error::AmbiguousMember(name.to_owned())),
-        }
-    }
-
-    /// Reads a public module-level variable or constant of a standard
-    /// module: `Module.Name`, or `Name` when exactly one standard module
-    /// declares it. An object value carries a reference the caller owns
-    /// (see [`Session::release`]).
-    ///
-    /// Errors: unknown name ([`Error::NoSuchMember`]), a name declared in
-    /// several modules ([`Error::AmbiguousMember`]), a private variable, a
-    /// user-defined type or a variable of a class-like module
-    /// ([`Error::NotAccessible`]).
-    pub fn get_global(&mut self, name: &str) -> Result<Variant, Error> {
-        self.require_trust()?;
-        match self.global_symbol(name)? {
-            Symbol::Var(g) => {
-                self.check_var_access(name, g)?;
-                Ok(self.vm().get_global(g)?)
-            }
-            Symbol::Const(c) => match &{
-                let info = &self.program().program.consts[c.index()];
-                if matches!(info.visibility, Visibility::Private) {
-                    return Err(Error::NotAccessible(name.to_owned(), "it is private"));
-                }
-                info.value.clone()
-            } {
-                vba_sema::bound::Constant::Value(v) => Ok(v.clone()),
-                vba_sema::bound::Constant::DateText(_) => Err(Error::Unsupported(format!(
-                    "the value of constant `{name}`, a date literal, is not evaluated ahead of use"
-                ))),
-            },
-            _ => Err(Error::NoSuchMember(name.to_owned())),
-        }
-    }
-
-    /// Assigns a public module-level variable of a standard module. The
-    /// value is converted to the declared type exactly as an assignment in
-    /// VBA would (`Long` to an `Integer` variable, error 6 on overflow,
-    /// error 13 when it cannot be converted), and an object is assigned
-    /// with `Set` semantics. A constant, a fixed-size array and a
-    /// user-defined type cannot be assigned ([`Error::NotAccessible`]).
-    pub fn set_global(&mut self, name: &str, value: Variant) -> Result<(), Error> {
-        self.require_trust()?;
-        match self.global_symbol(name)? {
-            Symbol::Var(g) => {
-                self.check_var_access(name, g)?;
-                let info = self.program().program.global(g);
-                if info.fixed_bounds.is_some() {
-                    return Err(Error::NotAccessible(
-                        name.to_owned(),
-                        "it is a fixed-size array",
-                    ));
-                }
-                Ok(self.vm().set_global(g, value)?)
-            }
-            Symbol::Const(_) => Err(Error::NotAccessible(name.to_owned(), "it is a constant")),
-            _ => Err(Error::NoSuchMember(name.to_owned())),
-        }
-    }
-
-    fn check_var_access(&self, name: &str, g: vba_sema::GlobalId) -> Result<(), Error> {
-        let info = self.program().program.global(g);
-        if matches!(info.visibility, Visibility::Private) {
-            return Err(Error::NotAccessible(name.to_owned(), "it is private"));
-        }
-        if matches!(info.ty, Type::Udt(_) | Type::LibRecord(_)) {
-            return Err(Error::NotAccessible(
-                name.to_owned(),
-                "it is a user-defined type, which has no host representation",
-            ));
-        }
-        Ok(())
     }
 }

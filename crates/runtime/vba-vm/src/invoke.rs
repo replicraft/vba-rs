@@ -19,6 +19,13 @@ use crate::vm::Vm;
 
 type LateArgs = Vec<(Option<String>, BoundArg)>;
 
+/// How an access to a host object was dispatched (see `BindStats`).
+enum BindKind {
+    Early,
+    ByName,
+    Fallback,
+}
+
 /// What the analysis resolved for an access on a library type.
 #[derive(Clone, Copy)]
 pub(crate) struct EarlyBind<'a> {
@@ -683,27 +690,47 @@ impl Vm {
             (InvokeKind::PutRef, Some(v)) => Final::Set(v),
             _ => return Err(VbaError::new(450).into()),
         };
-        let result = match member {
-            Member::Named(n) => {
-                let early = dispid
-                    .and_then(|id| call::invoke_early(table, h, DispId(id), n, &mut ca, &fin));
-                match early {
-                    Some(r) => {
-                        self.bind_stats.early += 1;
-                        r
-                    }
-                    None => {
-                        self.bind_stats.by_name += 1;
-                        self.bind_stats.fallbacks += u64::from(dispid.is_some());
-                        call::invoke_member(table, h, n, &mut ca, &fin)
+        let dispatch = |ca: &mut CallArgs| -> (vba_automation::AutoResult<Variant>, BindKind) {
+            match member {
+                Member::Named(n) => {
+                    let early =
+                        dispid.and_then(|id| call::invoke_early(table, h, DispId(id), n, ca, &fin));
+                    match early {
+                        Some(r) => (r, BindKind::Early),
+                        None => (
+                            call::invoke_member(table, h, n, ca, &fin),
+                            if dispid.is_some() {
+                                BindKind::Fallback
+                            } else {
+                                BindKind::ByName
+                            },
+                        ),
                     }
                 }
-            }
-            Member::Default => {
-                self.bind_stats.by_name += 1;
-                call::invoke_default(table, h, &mut ca, &fin)
+                Member::Default => (call::invoke_default(table, h, ca, &fin), BindKind::ByName),
             }
         };
+        // A re-entrant object may call back into this session while the
+        // member runs: the VM waits in its slot meanwhile.
+        let reentrant = table.get(h).is_ok_and(|o| o.reentrant());
+        let (result, kind) = if reentrant {
+            self.suspended(|| dispatch(&mut ca))
+        } else {
+            dispatch(&mut ca)
+        };
+        match kind {
+            BindKind::Early => self.bind_stats.early += 1,
+            BindKind::ByName => self.bind_stats.by_name += 1,
+            BindKind::Fallback => {
+                self.bind_stats.by_name += 1;
+                self.bind_stats.fallbacks += 1;
+            }
+        }
+        // A fatal fault of a nested run ends this run, whatever the host
+        // made of the error it got.
+        if let Some(f) = self.pending_fatal.take() {
+            return Err(f);
+        }
         for (arg, loc) in ca.positional.iter().zip(&positional_locs) {
             if let (true, Some(l)) = (arg.by_ref, loc) {
                 self.store(l, arg.value.clone())?;

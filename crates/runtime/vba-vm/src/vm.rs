@@ -98,6 +98,11 @@ pub struct Vm {
     pub(crate) run_depth: u32,
     /// How many host calls the VM is suspended in (nested embedder runs).
     pub(crate) nesting: u32,
+    /// The place this VM waits in while a re-entrant host object runs.
+    pub(crate) slot: Rc<crate::reentry::ReentrySlot>,
+    /// A fatal fault (limit, cancellation, `End`, `Stop`...) raised inside a
+    /// nested run; the outer run ends with it when the host call returns.
+    pub(crate) pending_fatal: Option<Fault>,
     pub(crate) stop_reason: Option<String>,
     pub(crate) last_site: Option<Site>,
     /// Source line of each statement, per function (see `set_source_lines`).
@@ -169,6 +174,8 @@ impl Vm {
             declare: DeclareState::new(),
             run_depth: 0,
             nesting: 0,
+            slot: crate::reentry::ReentrySlot::new(),
+            pending_fatal: None,
             stop_reason: None,
             last_site: None,
             source_lines: Vec::new(),
@@ -180,6 +187,7 @@ impl Vm {
             poll_countdown: vba_host::POLL_INTERVAL,
         };
         vm.index_program();
+        vm.host.objects().set_link(vm.slot.clone());
         vm.reset_state().map_err(|f| vm.fault_to_error(f))?;
         Ok(vm)
     }
@@ -296,6 +304,11 @@ impl Vm {
         &self.ir
     }
 
+    /// A shared handle to the program the VM runs.
+    pub fn program_rc(&self) -> Rc<IrProgram> {
+        self.ir.clone()
+    }
+
     /// Finds a procedure by `Module.Name` or by a bare name (the first match
     /// in module order; case-insensitive).
     pub fn find_procedure(&self, name: &str) -> Option<ProcId> {
@@ -352,7 +365,7 @@ impl Vm {
         self.run_top(proc_, Some(id), args)
     }
 
-    fn run_top(
+    pub(crate) fn run_top(
         &mut self,
         proc_: ProcId,
         me: Option<u64>,
@@ -371,6 +384,9 @@ impl Vm {
         };
         let r = self.call_nested(proc_, me, bound);
         let byref = self.collect_byref(temp_base, outs, matches!(r, Ok(_) | Err(Fault::Stop)));
+        if self.nesting > 0 {
+            return self.finish_nested(r, byref);
+        }
         match r {
             Ok(v) => Ok(RunOutput {
                 value: v,
@@ -402,6 +418,45 @@ impl Vm {
         }
     }
 
+    /// The end of a run that was started by a host object while the VM was
+    /// suspended in a call of that object. The outer frames must survive,
+    /// so nothing is cleared; a fatal fault is remembered for the outer
+    /// run (see the module documentation of `reentry`).
+    fn finish_nested(
+        &mut self,
+        r: VResult<Variant>,
+        byref: Vec<Variant>,
+    ) -> Result<RunOutput, VmError> {
+        match r {
+            Ok(value) => Ok(RunOutput {
+                value,
+                status: RunStatus::Completed,
+                byref,
+            }),
+            Err(Fault::End) => {
+                self.pending_fatal = Some(Fault::End);
+                Ok(RunOutput {
+                    value: Variant::Empty,
+                    status: RunStatus::Ended,
+                    byref: Vec::new(),
+                })
+            }
+            Err(Fault::Stop) => {
+                self.pending_fatal = Some(Fault::Stop);
+                Ok(RunOutput {
+                    value: Variant::Empty,
+                    status: RunStatus::Stopped,
+                    byref,
+                })
+            }
+            Err(e @ Fault::Err(_)) => Err(self.fault_to_error(e)),
+            Err(f) => {
+                self.pending_fatal = Some(f.clone());
+                Err(self.fault_to_error(f))
+            }
+        }
+    }
+
     /// The predeclared default instance of a class-like module, created (and
     /// `Class_Initialize` run) on first use.
     pub fn default_instance_object(&mut self, module: ModuleId) -> Result<ObjectRef, VmError> {
@@ -410,10 +465,7 @@ impl Vm {
         let r = self.default_instance(module);
         match r {
             Ok(id) => Ok(ObjectRef::Handle(vm_handle(id))),
-            Err(f) => {
-                self.frames.clear();
-                Err(self.fault_to_error(f))
-            }
+            Err(f) => Err(self.finish_fault(f)),
         }
     }
 

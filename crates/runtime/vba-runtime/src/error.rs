@@ -248,6 +248,10 @@ pub enum Error {
     /// The member exists but cannot be read or written this way.
     #[error("`{0}` cannot be accessed: {1}")]
     NotAccessible(String, &'static str),
+    /// A re-entrant call from a host object could not start: the handle
+    /// is stale (kept past its host call) or the nesting limit is reached.
+    #[error("re-entrancy: {0}")]
+    Reentrancy(String),
     /// An unhandled error raised by the VBA program or the language.
     #[error("{0}")]
     Vba(Box<ErrorReport>),
@@ -317,6 +321,7 @@ impl Error {
             Error::NoSuchMember(_) => "no-such-member",
             Error::AmbiguousMember(_) => "ambiguous-member",
             Error::NotAccessible(..) => "not-accessible",
+            Error::Reentrancy(_) => "reentrancy",
             Error::Vba(_) => "vba",
             Error::Host(_) => "host",
             Error::PermissionDenied(_) => "permission-denied",
