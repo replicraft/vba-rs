@@ -1,0 +1,33 @@
+[package]
+name = "vba-pcode-ir"
+description = "Lowering of decoded compiled-code (p-code) procedures to the vba-ir intermediate representation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-ast.workspace = true
+vba-core.workspace = true
+vba-diagnostics.workspace = true
+vba-ir.workspace = true
+vba-pcode.workspace = true
+vba-profile.workspace = true
+vba-project.workspace = true
+vba-sema.workspace = true
+vba-source.workspace = true
+vba-stdlib.workspace = true
+vba-value.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+vba-format.workspace = true
+vba-diagnostics.workspace = true
+vba-host.workspace = true
+vba-lexer.workspace = true
+vba-stdlib.workspace = true
+vba-vm.workspace = true
+
+[lints]
+workspace = true

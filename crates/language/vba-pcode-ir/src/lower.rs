@@ -1,0 +1,1561 @@
+//! Lowering of the instruction stream of one procedure.
+//!
+//! The instructions of a procedure are replayed on an expression stack
+//! (stack semantics as verified in `vba-pcode`); statements consume the
+//! stack and emit IR in the order a source lowering would, mirroring the
+//! conversions that `vba-sema` and `vba-ir` apply. Anything outside the
+//! conservative subset stops lowering with [`Unsupported`].
+
+use std::collections::HashMap;
+
+use vba_ast::{BinaryOp as AstBin, CompareMode as AstCompare};
+use vba_ir::{
+    BinOp, Block, BlockId, CallArg, Callee, Function, Inst, InstKind, Operand as IrOperand,
+    OutItem, RefPlace, Reg, Slot, SlotRole, StmtId, StmtInfo, StoreMode, Terminator, UnOp,
+};
+use vba_pcode::{Evidence, Listed, Opcode, Operand};
+use vba_sema::bound::Constant;
+use vba_sema::{LocalId, LocalKind, ProcId, ProcInfo, Program, Type};
+use vba_source::Span;
+use vba_value::ops::{ArithOp, CompareOp, CompareOptions, LogicOp, Overflow, StringNumberRule};
+use vba_value::{VarType, Variant, VbaString};
+
+use crate::error::Unsupported;
+use crate::model::CompareStored;
+
+/// Name index of the standard-module procedures that can be called.
+#[derive(Debug, Default)]
+pub(crate) struct ProcIndex {
+    /// Lower-case name to `(module index, proc index, id)`.
+    pub by_name: HashMap<String, Vec<(usize, usize, ProcId)>>,
+}
+
+/// An expression tree built from the stack; IR is emitted when a statement
+/// consumes it.
+#[derive(Debug, Clone)]
+enum Ex {
+    Const(Variant, Type),
+    Local {
+        id: LocalId,
+        ty: Type,
+        /// A plain variable read (eligible for `ByRef` passing).
+        bare: bool,
+    },
+    Unary {
+        op: UnOp,
+        ty: Type,
+        e: Box<Ex>,
+    },
+    Binary {
+        op: AstBin,
+        ty: Type,
+        l: Box<Ex>,
+        r: Box<Ex>,
+    },
+    Convert {
+        e: Box<Ex>,
+        to: Type,
+    },
+    Call {
+        callee: Callee,
+        ty: Type,
+        args: Vec<ArgEx>,
+    },
+    Paren(Box<Ex>),
+}
+
+#[derive(Debug, Clone)]
+enum ArgEx {
+    Val(Ex),
+    Ref(LocalId),
+    Missing,
+}
+
+impl Ex {
+    fn ty(&self) -> Type {
+        match self {
+            Ex::Const(_, t) | Ex::Local { ty: t, .. } => t.clone(),
+            Ex::Unary { ty, .. } | Ex::Binary { ty, .. } | Ex::Call { ty, .. } => ty.clone(),
+            Ex::Convert { to, .. } => to.clone(),
+            Ex::Paren(e) => e.ty(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum Frame {
+    If {
+        end: BlockId,
+        else_b: BlockId,
+        has_else: bool,
+    },
+    For {
+        head: BlockId,
+        next_b: BlockId,
+        exit: BlockId,
+        counter: LocalId,
+        counter_ty: Type,
+        step: IrOperand,
+    },
+    Loop {
+        head: BlockId,
+        exit: BlockId,
+    },
+    Select {
+        subject: IrOperand,
+        subject_ty: Type,
+        end: BlockId,
+        /// Where the comparisons of the next case are emitted.
+        chain: BlockId,
+        /// Body block of the case being built or in progress.
+        body: Option<BlockId>,
+        /// Block after the current case's last item.
+        miss: Option<BlockId>,
+        /// The current case body is open (a `Case` or `End Select` closes it).
+        in_body: bool,
+        in_else: bool,
+    },
+}
+
+struct BlockBuf {
+    insts: Vec<Inst>,
+    term: Option<Terminator>,
+}
+
+/// Context needed to lower one procedure.
+pub(crate) struct ProcCtx<'a> {
+    pub program: &'a Program,
+    pub proc_id: ProcId,
+    pub index: &'a ProcIndex,
+    pub module: usize,
+    pub compare: CompareStored,
+    pub name: &'a str,
+}
+
+/// The result of lowering one procedure.
+pub(crate) struct Lowered {
+    pub function: Function,
+    pub callees: Vec<ProcId>,
+}
+
+struct Lw<'a> {
+    cx: &'a ProcCtx<'a>,
+    sema: &'a ProcInfo,
+    regs: Vec<Type>,
+    blocks: Vec<BlockBuf>,
+    stmts: Vec<StmtInfo>,
+    cur: BlockId,
+    cur_stmt: StmtId,
+    stack: Vec<Ex>,
+    frames: Vec<Frame>,
+    callees: Vec<ProcId>,
+    /// Stack depth at `FOR_VAR_EXPR_OPEN`, while between the markers.
+    for_depth: Option<usize>,
+    /// The counter captured at `FOR_VAR_EXPR_CLOSE`.
+    for_var: Option<Ex>,
+    /// Pending `Debug.Print` list.
+    print: Option<(Vec<Ex>, Vec<OutItem>)>,
+    line: usize,
+    stmt_line: usize,
+}
+
+type R<T> = Result<T, Unsupported>;
+
+const SPAN: Span = Span { start: 0, end: 0 };
+
+fn is_layout_only(op: Opcode) -> bool {
+    matches!(
+        op,
+        Opcode::CommentQuote
+            | Opcode::CommentRemKeyword
+            | Opcode::LineContinuation
+            | Opcode::StmtBegin
+    )
+}
+
+fn var_type_to_type(v: VarType) -> Type {
+    match v {
+        VarType::Integer => Type::Integer,
+        VarType::Long => Type::Long,
+        VarType::Single => Type::Single,
+        VarType::Double => Type::Double,
+        VarType::Currency => Type::Currency,
+        VarType::Date => Type::Date,
+        VarType::String => Type::String,
+        VarType::Boolean => Type::Boolean,
+        VarType::Decimal => Type::Decimal,
+        VarType::Byte => Type::Byte,
+        VarType::LongLong => Type::LongLong,
+        _ => Type::Variant,
+    }
+}
+
+fn overflow_for(l: &Type, r: &Type) -> Overflow {
+    if l.is_variant() || r.is_variant() {
+        Overflow::Promote
+    } else {
+        Overflow::Error
+    }
+}
+
+fn compare_op(op: AstBin) -> CompareOp {
+    match op {
+        AstBin::Eq => CompareOp::Eq,
+        AstBin::Ne => CompareOp::Ne,
+        AstBin::Lt => CompareOp::Lt,
+        AstBin::Gt => CompareOp::Gt,
+        AstBin::Le => CompareOp::Le,
+        _ => CompareOp::Ge,
+    }
+}
+
+/// Lowers the body of a procedure.
+pub(crate) fn lower_body(
+    cx: &ProcCtx<'_>,
+    body: &[(usize, Listed)],
+    header_line: usize,
+    kind_template: &Function,
+) -> R<Lowered> {
+    let sema = cx.program.proc(cx.proc_id);
+    let mut lw = Lw {
+        cx,
+        sema,
+        regs: Vec::new(),
+        blocks: vec![BlockBuf {
+            insts: Vec::new(),
+            term: None,
+        }],
+        stmts: Vec::new(),
+        cur: BlockId(0),
+        cur_stmt: StmtId(0),
+        stack: Vec::new(),
+        frames: Vec::new(),
+        callees: Vec::new(),
+        for_depth: None,
+        for_var: None,
+        print: None,
+        line: header_line,
+        stmt_line: usize::MAX,
+    };
+    lw.begin_stmt();
+    let mut last_op = Opcode::ProcHeader;
+    let mut i = 0;
+    while i < body.len() {
+        let (line, ins) = &body[i];
+        lw.line = *line;
+        last_op = ins.opcode;
+        if *line != lw.stmt_line {
+            lw.begin_stmt();
+            lw.stmt_line = *line;
+        }
+        let consumed = lw.step(body, i)?;
+        i += consumed;
+    }
+    if !lw.frames.is_empty() {
+        return Err(lw.no(last_op, "unterminated block structure"));
+    }
+    if !lw.stack.is_empty() {
+        return Err(lw.no(last_op, "values left on the expression stack"));
+    }
+    lw.terminate(Terminator::Return);
+    Ok(lw.finish(kind_template))
+}
+
+impl Lw<'_> {
+    fn no(&self, op: Opcode, reason: impl Into<String>) -> Unsupported {
+        Unsupported {
+            opcode: op,
+            procedure: self.cx.name.to_owned(),
+            line: self.line,
+            reason: reason.into(),
+        }
+    }
+
+    // ---- building ---------------------------------------------------------
+
+    fn reg(&mut self, ty: Type) -> Reg {
+        self.regs.push(ty);
+        Reg(self.regs.len() as u32 - 1)
+    }
+
+    fn new_block(&mut self) -> BlockId {
+        self.blocks.push(BlockBuf {
+            insts: Vec::new(),
+            term: None,
+        });
+        BlockId(self.blocks.len() as u32 - 1)
+    }
+
+    fn switch_to(&mut self, b: BlockId) {
+        self.cur = b;
+    }
+
+    fn begin_stmt(&mut self) {
+        self.stmts.push(StmtInfo {
+            span: SPAN,
+            line: None,
+            resume_next: None,
+        });
+        self.cur_stmt = StmtId(self.stmts.len() as u32 - 1);
+    }
+
+    fn emit(&mut self, kind: InstKind) {
+        let inst = Inst {
+            span: SPAN,
+            stmt: self.cur_stmt,
+            kind,
+        };
+        self.blocks[self.cur.0 as usize].insts.push(inst);
+    }
+
+    fn is_terminated(&self) -> bool {
+        self.blocks[self.cur.0 as usize].term.is_some()
+    }
+
+    fn terminate(&mut self, t: Terminator) {
+        if !self.is_terminated() {
+            self.blocks[self.cur.0 as usize].term = Some(t);
+        }
+    }
+
+    fn jump_to(&mut self, b: BlockId) {
+        self.terminate(Terminator::Jump(b));
+        self.switch_to(b);
+    }
+
+    fn terminate_and_continue(&mut self, t: Terminator) {
+        self.terminate(t);
+        let n = self.new_block();
+        self.switch_to(n);
+    }
+
+    fn finish(mut self, template: &Function) -> Lowered {
+        let blocks = std::mem::take(&mut self.blocks);
+        let stmt = self.cur_stmt;
+        let blocks: Vec<Block> = blocks
+            .into_iter()
+            .map(|b| Block {
+                insts: b.insts,
+                term: b.term.unwrap_or(Terminator::Unreachable),
+                term_stmt: stmt,
+                term_span: SPAN,
+            })
+            .collect();
+        let slots: Vec<Slot> = template
+            .slots
+            .iter()
+            .map(|s| Slot {
+                name: s.name.clone(),
+                ty: s.ty.clone(),
+                role: match s.role {
+                    SlotRole::Param(i) => SlotRole::Param(i),
+                    SlotRole::Result => SlotRole::Result,
+                    SlotRole::Local => SlotRole::Local,
+                    SlotRole::Temp => SlotRole::Temp,
+                },
+            })
+            .collect();
+        Lowered {
+            function: Function {
+                kind: template.kind,
+                name: template.name.clone(),
+                slots,
+                regs: self.regs,
+                blocks,
+                stmts: self.stmts,
+            },
+            callees: self.callees,
+        }
+    }
+
+    // ---- types and conversions --------------------------------------------
+
+    fn compare_ast(&self) -> AstCompare {
+        match self.cx.compare {
+            CompareStored::Binary => AstCompare::Binary,
+            CompareStored::Text => AstCompare::Text,
+            CompareStored::Database => AstCompare::Database,
+        }
+    }
+
+    fn compare_opts(&self, l: &Type, r: &Type) -> CompareOptions {
+        let mode = match self.compare_ast() {
+            AstCompare::Binary => vba_value::CompareMode::Binary,
+            AstCompare::Text | AstCompare::Database => vba_value::CompareMode::Text,
+        };
+        let numeric = |t: &Type| t.is_numeric() || matches!(t, Type::Boolean | Type::Date);
+        let coerce = (l.is_string() && numeric(r)) || (numeric(l) && r.is_string());
+        CompareOptions {
+            mode,
+            string_number: if coerce {
+                StringNumberRule::Coerce
+            } else {
+                StringNumberRule::VariantOrdering
+            },
+        }
+    }
+
+    /// Converts `e` to `to` as an assignment would: constants are converted
+    /// at lowering time when exact, other values get a `Convert`.
+    fn coerce(&self, e: Ex, to: &Type) -> Ex {
+        let from = e.ty();
+        if from == *to {
+            return e;
+        }
+        if let Ex::Const(v, _) = &e {
+            if *to == Type::Variant {
+                return Ex::Const(v.clone(), Type::Variant);
+            }
+            if let Some(vt) = to.var_type()
+                && !matches!(to, Type::Udt(_) | Type::Array { .. } | Type::FixedString(_))
+                && !to.is_object()
+                && let Ok(c) = vba_value::convert::convert_to(v, vt)
+            {
+                return Ex::Const(c, to.clone());
+            }
+        }
+        Ex::Convert {
+            e: Box::new(e),
+            to: to.clone(),
+        }
+    }
+
+    fn coerce_condition(&self, e: Ex) -> Ex {
+        match e.ty() {
+            Type::Boolean | Type::Variant => e,
+            _ => self.coerce(e, &Type::Boolean),
+        }
+    }
+
+    // ---- name resolution -------------------------------------------------
+
+    fn local_by_name(&self, name: &str) -> Option<(LocalId, Type)> {
+        self.sema.locals.iter().enumerate().find_map(|(i, l)| {
+            (matches!(l.kind, LocalKind::Param(_) | LocalKind::Var)
+                && l.name.to_string().eq_ignore_ascii_case(name))
+            .then(|| (LocalId(i as u32), l.ty.clone()))
+        })
+    }
+
+    fn is_result_name(&self, name: &str) -> bool {
+        self.sema.has_result && self.sema.name.to_string().eq_ignore_ascii_case(name)
+    }
+
+    fn proc_target(&mut self, name: &str) -> Option<ProcId> {
+        let list = self.cx.index.by_name.get(&name.to_ascii_lowercase())?;
+        let same: Vec<_> = list
+            .iter()
+            .filter(|(m, _, _)| *m == self.cx.module)
+            .collect();
+        let pick = if same.len() == 1 {
+            same[0].2
+        } else if same.is_empty() && list.len() == 1 {
+            list[0].2
+        } else {
+            return None;
+        };
+        if !self.callees.contains(&pick) {
+            self.callees.push(pick);
+        }
+        Some(pick)
+    }
+
+    fn name_of(&self, ins: &Listed) -> R<(String, Option<char>)> {
+        match ins.operands.first() {
+            Some(Operand::Name {
+                name,
+                suffix,
+                bracketed: _,
+            }) => match name.spelling() {
+                Some(s) if !matches!(name, vba_pcode::Name::Me) => Ok((s.to_owned(), *suffix)),
+                _ => Err(self.no(ins.opcode, "name does not resolve")),
+            },
+            _ => Err(self.no(ins.opcode, "missing name operand")),
+        }
+    }
+
+    // ---- stack helpers -----------------------------------------------------
+
+    fn pop(&mut self, ins: &Listed) -> R<Ex> {
+        self.stack
+            .pop()
+            .ok_or_else(|| self.no(ins.opcode, "expression stack underflow"))
+    }
+
+    fn pop_n(&mut self, ins: &Listed, n: usize) -> R<Vec<Ex>> {
+        if self.stack.len() < n {
+            return Err(self.no(ins.opcode, "expression stack underflow"));
+        }
+        let at = self.stack.len() - n;
+        Ok(self.stack.split_off(at))
+    }
+
+    // ---- calls ------------------------------------------------------------
+
+    fn project_call(&mut self, ins: &Listed, id: ProcId, args: Vec<Ex>) -> R<Ex> {
+        let callee = self.cx.program.proc(id);
+        if callee.params.len() != args.len() {
+            return Err(self.no(ins.opcode, "argument count differs from the parameter list"));
+        }
+        let mut out = Vec::new();
+        for (p, a) in callee.params.iter().zip(args) {
+            let forced = matches!(a, Ex::Paren(_));
+            if p.by_val || forced {
+                out.push(ArgEx::Val(self.coerce(a, &p.ty)));
+                continue;
+            }
+            if let Ex::Local {
+                id: lid,
+                ty,
+                bare: true,
+            } = &a
+            {
+                if *ty == p.ty {
+                    out.push(ArgEx::Ref(*lid));
+                    continue;
+                }
+                if p.ty != Type::Variant {
+                    return Err(self.no(ins.opcode, "ByRef argument of a different type"));
+                }
+            }
+            out.push(ArgEx::Val(self.coerce(a, &p.ty)));
+        }
+        Ok(Ex::Call {
+            callee: Callee::Proc(id),
+            ty: if callee.has_result {
+                callee.ret.clone()
+            } else {
+                Type::Variant
+            },
+            args: out,
+        })
+    }
+
+    fn intrinsic_call(
+        &mut self,
+        ins: &Listed,
+        name: &str,
+        dollar: bool,
+        mut args: Vec<Ex>,
+    ) -> R<Ex> {
+        let lookup = if dollar {
+            format!("{name}$")
+        } else {
+            name.to_owned()
+        };
+        let Some(r) = vba_stdlib::lookup(&lookup) else {
+            return Err(self.no(
+                ins.opcode,
+                format!("`{name}` is not a known library function"),
+            ));
+        };
+        let info = r.info;
+        if info.params.iter().any(|p| p.param_array) {
+            return Err(self.no(ins.opcode, "ParamArray function"));
+        }
+        let is_instr = matches!(info.name, "InStr" | "InStrB");
+        let mut lead_missing = false;
+        if is_instr {
+            match args.len() {
+                2 => lead_missing = true,
+                4 => {}
+                _ => {
+                    return Err(self.no(ins.opcode, "InStr with three arguments is ambiguous"));
+                }
+            }
+        }
+        let total = args.len() + usize::from(lead_missing);
+        if total > info.params.len() || args.len() < info.min_args() - usize::from(lead_missing) {
+            return Err(self.no(ins.opcode, "argument count does not fit the signature"));
+        }
+        let mut out = Vec::new();
+        if lead_missing {
+            out.push(ArgEx::Missing);
+        }
+        let skip = usize::from(lead_missing);
+        for (k, a) in args.drain(..).enumerate() {
+            let p = &info.params[k + skip];
+            let pty = var_type_to_type(p.ty);
+            if pty.is_object() {
+                return Err(self.no(ins.opcode, "object parameter"));
+            }
+            out.push(ArgEx::Val(self.coerce(a, &pty)));
+        }
+        while out.len() < info.params.len() {
+            let p = &info.params[out.len()];
+            if !p.optional {
+                return Err(self.no(ins.opcode, "missing required argument"));
+            }
+            out.push(ArgEx::Missing);
+        }
+        let ty = if dollar && info.dollar {
+            Type::String
+        } else {
+            var_type_to_type(info.returns)
+        };
+        Ok(Ex::Call {
+            callee: Callee::Intrinsic {
+                name: info.name.to_owned(),
+                dollar: r.dollar,
+            },
+            ty,
+            args: out,
+        })
+    }
+
+    // ---- emission ---------------------------------------------------------
+
+    fn emit_ex(&mut self, e: &Ex) -> IrOperand {
+        match e {
+            Ex::Const(v, _) => IrOperand::Const(Constant::Value(v.clone())),
+            Ex::Local { id, ty, .. } => {
+                let dst = self.reg(ty.clone());
+                self.emit(InstKind::LoadLocal { dst, slot: *id });
+                IrOperand::Reg(dst)
+            }
+            Ex::Paren(inner) => self.emit_ex(inner),
+            Ex::Unary { op, ty, e: inner } => {
+                let it = inner.ty();
+                let o = self.emit_ex(inner);
+                let dst = self.reg(ty.clone());
+                self.emit(InstKind::Unary {
+                    dst,
+                    op: *op,
+                    ty: ty.clone(),
+                    overflow: if it.is_variant() {
+                        Overflow::Promote
+                    } else {
+                        Overflow::Error
+                    },
+                    src: o,
+                });
+                IrOperand::Reg(dst)
+            }
+            Ex::Binary { op, ty, l, r } => {
+                let (lt, rt) = (l.ty(), r.ty());
+                let lo = self.emit_ex(l);
+                let ro = self.emit_ex(r);
+                let dst = self.reg(ty.clone());
+                let bop = match op {
+                    AstBin::Add => BinOp::Arith(ArithOp::Add),
+                    AstBin::Sub => BinOp::Arith(ArithOp::Sub),
+                    AstBin::Mul => BinOp::Arith(ArithOp::Mul),
+                    AstBin::Div => BinOp::Arith(ArithOp::Div),
+                    AstBin::IntDiv => BinOp::Arith(ArithOp::IntDiv),
+                    AstBin::Mod => BinOp::Arith(ArithOp::Mod),
+                    AstBin::Pow => BinOp::Arith(ArithOp::Pow),
+                    AstBin::Concat => BinOp::Concat,
+                    AstBin::Eq | AstBin::Ne | AstBin::Lt | AstBin::Gt | AstBin::Le | AstBin::Ge => {
+                        BinOp::Compare(compare_op(*op), self.compare_opts(&lt, &rt))
+                    }
+                    AstBin::Like => BinOp::Like(self.compare_ast()),
+                    AstBin::Is => BinOp::Is,
+                    AstBin::And => BinOp::Logic(LogicOp::And),
+                    AstBin::Or => BinOp::Logic(LogicOp::Or),
+                    AstBin::Xor => BinOp::Logic(LogicOp::Xor),
+                    AstBin::Eqv => BinOp::Logic(LogicOp::Eqv),
+                    AstBin::Imp => BinOp::Logic(LogicOp::Imp),
+                };
+                self.emit(InstKind::Binary {
+                    dst,
+                    op: bop,
+                    ty: ty.clone(),
+                    overflow: overflow_for(&lt, &rt),
+                    lhs: lo,
+                    rhs: ro,
+                });
+                IrOperand::Reg(dst)
+            }
+            Ex::Convert { e: inner, to } => {
+                let o = self.emit_ex(inner);
+                let dst = self.reg(to.clone());
+                self.emit(InstKind::Convert {
+                    dst,
+                    src: o,
+                    to: to.clone(),
+                });
+                IrOperand::Reg(dst)
+            }
+            Ex::Call { callee, ty, args } => {
+                let mut out = Vec::new();
+                for a in args {
+                    out.push(match a {
+                        ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
+                        ArgEx::Missing => CallArg::Missing,
+                        ArgEx::Ref(l) => {
+                            let r = self.reg(self.local_ty(*l));
+                            self.emit(InstKind::MakeRef {
+                                dst: r,
+                                place: RefPlace::Local(*l),
+                            });
+                            CallArg::Ref(r)
+                        }
+                    });
+                }
+                let dst = self.reg(ty.clone());
+                self.emit(InstKind::Call {
+                    dst: Some(dst),
+                    callee: callee.clone(),
+                    receiver: None,
+                    args: out,
+                });
+                IrOperand::Reg(dst)
+            }
+        }
+    }
+
+    fn local_ty(&self, l: LocalId) -> Type {
+        self.sema.locals[l.index()].ty.clone()
+    }
+
+    /// Emits a call whose result is discarded (statement-level call).
+    fn emit_call_stmt(&mut self, e: &Ex) {
+        if let Ex::Call { callee, args, .. } = e {
+            let mut out = Vec::new();
+            for a in args {
+                out.push(match a {
+                    ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
+                    ArgEx::Missing => CallArg::Missing,
+                    ArgEx::Ref(l) => {
+                        let r = self.reg(self.local_ty(*l));
+                        self.emit(InstKind::MakeRef {
+                            dst: r,
+                            place: RefPlace::Local(*l),
+                        });
+                        CallArg::Ref(r)
+                    }
+                });
+            }
+            self.emit(InstKind::Call {
+                dst: None,
+                callee: callee.clone(),
+                receiver: None,
+                args: out,
+            });
+        }
+    }
+
+    fn cmp(
+        &mut self,
+        op: CompareOp,
+        l: &IrOperand,
+        lt: &Type,
+        r: IrOperand,
+        rt: &Type,
+    ) -> IrOperand {
+        let ty = if lt.is_variant() || rt.is_variant() {
+            Type::Variant
+        } else {
+            Type::Boolean
+        };
+        let dst = self.reg(ty.clone());
+        let opts = self.compare_opts(lt, rt);
+        self.emit(InstKind::Binary {
+            dst,
+            op: BinOp::Compare(op, opts),
+            ty,
+            overflow: overflow_for(lt, rt),
+            lhs: l.clone(),
+            rhs: r,
+        });
+        IrOperand::Reg(dst)
+    }
+
+    // ---- the instruction step ------------------------------------------------
+
+    /// Processes the instruction at `i`; returns how many were consumed.
+    fn step(&mut self, body: &[(usize, Listed)], i: usize) -> R<usize> {
+        let ins = &body[i].1;
+        let op = ins.opcode;
+        if is_layout_only(op) {
+            return Ok(1);
+        }
+        if op.evidence() != Evidence::Verified {
+            return Err(self.no(op, format!("opcode is not verified ({:?})", op.evidence())));
+        }
+        match op {
+            // ---- literals ----
+            Opcode::ConstInt16Decimal => {
+                let v = self.int_operand(ins)?;
+                let v = i16::try_from(v).map_err(|_| self.no(op, "literal out of range"))?;
+                self.stack
+                    .push(Ex::Const(Variant::Integer(v), Type::Integer));
+            }
+            Opcode::ConstInt32Decimal => {
+                let v = self.int_operand(ins)?;
+                let v = i32::try_from(v).map_err(|_| self.no(op, "literal out of range"))?;
+                self.stack.push(Ex::Const(Variant::Long(v), Type::Long));
+            }
+            Opcode::ConstInt32Hex => {
+                // The stored value is unsigned; whether a 32-bit hex literal
+                // below 0x10000 is an Integer or a Long is not settled.
+                let v = self.int_operand(ins)?;
+                if !(0x1_0000..=0xFFFF_FFFF).contains(&v) {
+                    return Err(self.no(op, "hex literal whose type is not settled"));
+                }
+                self.stack
+                    .push(Ex::Const(Variant::Long(v as u32 as i32), Type::Long));
+            }
+            Opcode::ConstFloat64 => match ins.operands.first() {
+                Some(Operand::Float64(v)) => {
+                    self.stack
+                        .push(Ex::Const(Variant::Double(*v), Type::Double));
+                }
+                _ => return Err(self.no(op, "bad literal")),
+            },
+            Opcode::ConstText => match ins.operands.first() {
+                Some(Operand::Text(t)) if t.is_ascii() => {
+                    let s = String::from_utf8_lossy(t).into_owned();
+                    self.stack
+                        .push(Ex::Const(Variant::String(VbaString::from(s)), Type::String));
+                }
+                _ => return Err(self.no(op, "string literal outside ASCII")),
+            },
+            Opcode::ConstKeywordValue => match ins.modifier {
+                0 => self
+                    .stack
+                    .push(Ex::Const(Variant::Boolean(false), Type::Boolean)),
+                1 => self
+                    .stack
+                    .push(Ex::Const(Variant::Boolean(true), Type::Boolean)),
+                2 => self.stack.push(Ex::Const(Variant::Null, Type::Variant)),
+                3 => self.stack.push(Ex::Const(Variant::Empty, Type::Variant)),
+                _ => return Err(self.no(op, "unknown keyword value")),
+            },
+            // ---- operators ----
+            Opcode::NumAdd => self.binary(ins, AstBin::Add)?,
+            Opcode::NumSubtract => self.binary(ins, AstBin::Sub)?,
+            Opcode::NumMultiply => self.binary(ins, AstBin::Mul)?,
+            Opcode::NumDivide => self.binary(ins, AstBin::Div)?,
+            Opcode::NumIntDivide => self.binary(ins, AstBin::IntDiv)?,
+            Opcode::NumRemainder => self.binary(ins, AstBin::Mod)?,
+            Opcode::TextJoin => self.binary(ins, AstBin::Concat)?,
+            Opcode::CompareEqual => self.binary(ins, AstBin::Eq)?,
+            Opcode::CompareNotEqual => self.binary(ins, AstBin::Ne)?,
+            Opcode::CompareLess => self.binary(ins, AstBin::Lt)?,
+            Opcode::CompareGreater => self.binary(ins, AstBin::Gt)?,
+            Opcode::CompareLessEqual => self.binary(ins, AstBin::Le)?,
+            Opcode::CompareGreaterEqual => self.binary(ins, AstBin::Ge)?,
+            Opcode::ComparePattern => self.binary(ins, AstBin::Like)?,
+            Opcode::BoolConjunction => self.binary(ins, AstBin::And)?,
+            Opcode::BoolDisjunction => self.binary(ins, AstBin::Or)?,
+            Opcode::BoolNegate => {
+                let e = self.pop(ins)?;
+                let ty = vba_sema::not_result(&e.ty());
+                self.stack.push(Ex::Unary {
+                    op: UnOp::Not,
+                    ty,
+                    e: Box::new(e),
+                });
+            }
+            Opcode::NumNegate => {
+                let e = self.pop(ins)?;
+                let ty = vba_sema::negate_result(&e.ty());
+                self.stack.push(Ex::Unary {
+                    op: UnOp::Neg,
+                    ty,
+                    e: Box::new(e),
+                });
+            }
+            Opcode::ExprParentheses => {
+                let e = self.pop(ins)?;
+                self.stack.push(Ex::Paren(Box::new(e)));
+            }
+            Opcode::IntrinsicAbsoluteValue => self.unary_intrinsic(ins, "Abs")?,
+            Opcode::IntrinsicFloor => self.unary_intrinsic(ins, "Int")?,
+            Opcode::IntrinsicSign => self.unary_intrinsic(ins, "Sgn")?,
+            Opcode::IntrinsicLengthChars => self.unary_intrinsic(ins, "Len")?,
+            Opcode::IntrinsicSearchA | Opcode::IntrinsicSearchC => {
+                let n = if op == Opcode::IntrinsicSearchA { 2 } else { 4 };
+                let args = self.pop_n(ins, n)?;
+                let c = self.intrinsic_call(ins, "InStr", false, args)?;
+                self.stack.push(c);
+            }
+            // ---- names ----
+            Opcode::ReadSimple => {
+                let (name, _) = self.name_of(ins)?;
+                let e = self.read_name(ins, &name, Vec::new())?;
+                self.stack.push(e);
+            }
+            Opcode::ReadSimpleParams => {
+                let (name, suffix) = self.name_of(ins)?;
+                let argc = match ins.operands.get(1) {
+                    Some(Operand::Count(c)) => usize::from(*c),
+                    _ => return Err(self.no(op, "missing argument count")),
+                };
+                let args = self.pop_n(ins, argc)?;
+                let e = self.read_name_call(ins, &name, suffix, args)?;
+                self.stack.push(e);
+            }
+            Opcode::WriteSimple => self.assign(ins)?,
+            // ---- statements ----
+            Opcode::DimMarker | Opcode::VarDecl | Opcode::OptionStmt => {}
+            Opcode::InvokeSimple => {
+                let (name, suffix) = self.name_of(ins)?;
+                let argc = match ins.operands.get(1) {
+                    Some(Operand::Count(c)) => usize::from(*c),
+                    _ => return Err(self.no(op, "missing argument count")),
+                };
+                let args = self.pop_n(ins, argc)?;
+                let call = self.statement_call(ins, &name, suffix, args)?;
+                self.expect_empty(ins)?;
+                self.emit_call_stmt(&call);
+            }
+            Opcode::IfBlockOpen => {
+                let c = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let c = self.coerce_condition(c);
+                let co = self.emit_ex(&c);
+                let then_b = self.new_block();
+                let else_b = self.new_block();
+                let end = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: co,
+                    then_block: then_b,
+                    else_block: else_b,
+                });
+                self.switch_to(then_b);
+                self.frames.push(Frame::If {
+                    end,
+                    else_b,
+                    has_else: false,
+                });
+            }
+            Opcode::BlockElseifBranch => {
+                let c = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let (end, prev_else) = match self.frames.last() {
+                    Some(Frame::If {
+                        end,
+                        else_b,
+                        has_else: false,
+                    }) => (*end, *else_b),
+                    _ => return Err(self.no(op, "ElseIf outside a block If")),
+                };
+                self.terminate(Terminator::Jump(end));
+                self.switch_to(prev_else);
+                self.begin_stmt();
+                let c = self.coerce_condition(c);
+                let co = self.emit_ex(&c);
+                let then_b = self.new_block();
+                let else_b = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: co,
+                    then_block: then_b,
+                    else_block: else_b,
+                });
+                self.switch_to(then_b);
+                if let Some(Frame::If { else_b: e, .. }) = self.frames.last_mut() {
+                    *e = else_b;
+                }
+            }
+            Opcode::BlockElseBranch => {
+                let (end, prev_else) = match self.frames.last() {
+                    Some(Frame::If {
+                        end,
+                        else_b,
+                        has_else: false,
+                    }) => (*end, *else_b),
+                    _ => return Err(self.no(op, "Else outside a block If")),
+                };
+                self.terminate(Terminator::Jump(end));
+                self.switch_to(prev_else);
+                if let Some(Frame::If { has_else, .. }) = self.frames.last_mut() {
+                    *has_else = true;
+                }
+            }
+            Opcode::BlockIfClose => match self.frames.pop() {
+                Some(Frame::If {
+                    end,
+                    else_b,
+                    has_else,
+                }) => {
+                    self.terminate(Terminator::Jump(end));
+                    if !has_else {
+                        self.switch_to(else_b);
+                        self.terminate(Terminator::Jump(end));
+                    }
+                    self.switch_to(end);
+                }
+                _ => return Err(self.no(op, "End If without a block If")),
+            },
+            Opcode::LeaveFunction | Opcode::LeaveSub => {
+                self.terminate_and_continue(Terminator::Return);
+            }
+            Opcode::LeaveFor => {
+                let exit = self.frames.iter().rev().find_map(|f| match f {
+                    Frame::For { exit, .. } => Some(*exit),
+                    _ => None,
+                });
+                let Some(exit) = exit else {
+                    return Err(self.no(op, "Exit For outside a For loop"));
+                };
+                self.terminate_and_continue(Terminator::Jump(exit));
+            }
+            Opcode::ForVarExprOpen => {
+                self.for_depth = Some(self.stack.len());
+                self.for_var = None;
+            }
+            Opcode::ForVarExprClose => {
+                let Some(d) = self.for_depth.take() else {
+                    return Err(self.no(op, "unbalanced For variable markers"));
+                };
+                if self.stack.len() != d + 1 {
+                    return Err(self.no(op, "For variable expression is not one value"));
+                }
+                self.for_var = self.stack.pop();
+            }
+            Opcode::ForCounted | Opcode::ForCountedStep => self.for_open(ins)?,
+            Opcode::ForAdvance | Opcode::ForAdvanceNamed => self.for_next(ins)?,
+            Opcode::DoOpen => {
+                let head = self.new_block();
+                let body_b = self.new_block();
+                let exit = self.new_block();
+                self.jump_to(head);
+                self.terminate(Terminator::Jump(body_b));
+                self.switch_to(body_b);
+                self.frames.push(Frame::Loop { head, exit });
+            }
+            Opcode::DoOpenWhile | Opcode::DoOpenUntil | Opcode::WhileOpen => {
+                let c = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let until = op == Opcode::DoOpenUntil;
+                let head = self.new_block();
+                let body_b = self.new_block();
+                let exit = self.new_block();
+                self.jump_to(head);
+                let c = self.coerce_condition(c);
+                let co = self.emit_ex(&c);
+                let (t, e) = if until {
+                    (exit, body_b)
+                } else {
+                    (body_b, exit)
+                };
+                self.terminate(Terminator::Branch {
+                    cond: co,
+                    then_block: t,
+                    else_block: e,
+                });
+                self.switch_to(body_b);
+                self.frames.push(Frame::Loop { head, exit });
+            }
+            Opcode::DoClose | Opcode::WhileClose => match self.frames.pop() {
+                Some(Frame::Loop { head, exit }) => {
+                    self.terminate(Terminator::Jump(head));
+                    self.switch_to(exit);
+                }
+                _ => return Err(self.no(op, "Loop without Do")),
+            },
+            Opcode::DoCloseWhile | Opcode::DoCloseUntil => {
+                let c = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                match self.frames.pop() {
+                    Some(Frame::Loop { head, exit }) => {
+                        self.begin_stmt();
+                        let c = self.coerce_condition(c);
+                        let co = self.emit_ex(&c);
+                        let (t, e) = if op == Opcode::DoCloseUntil {
+                            (exit, head)
+                        } else {
+                            (head, exit)
+                        };
+                        self.terminate(Terminator::Branch {
+                            cond: co,
+                            then_block: t,
+                            else_block: e,
+                        });
+                        self.switch_to(exit);
+                    }
+                    _ => return Err(self.no(op, "Loop without Do")),
+                }
+            }
+            Opcode::SwitchBegin => {
+                let s = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let ty = s.ty();
+                let so = self.emit_ex(&s);
+                let end = self.new_block();
+                let chain = self.cur;
+                self.frames.push(Frame::Select {
+                    subject: so,
+                    subject_ty: ty,
+                    end,
+                    chain,
+                    body: None,
+                    miss: None,
+                    in_body: false,
+                    in_else: false,
+                });
+            }
+            Opcode::CaseValue | Opcode::CaseRange => {
+                return self.case_item(body, i);
+            }
+            Opcode::CaseListEnd => {
+                let (body_b, miss) = match self.frames.last_mut() {
+                    Some(Frame::Select { body, miss, .. }) => (body.take(), miss.take()),
+                    _ => return Err(self.no(op, "Case list outside Select Case")),
+                };
+                let (Some(body_b), Some(miss)) = (body_b, miss) else {
+                    return Err(self.no(op, "empty Case list"));
+                };
+                self.switch_to(body_b);
+                if let Some(Frame::Select { chain, in_body, .. }) = self.frames.last_mut() {
+                    *chain = miss;
+                    *in_body = true;
+                }
+            }
+            Opcode::CaseDefault => {
+                let (end, chain, in_body) = match self.frames.last() {
+                    Some(Frame::Select {
+                        end,
+                        chain,
+                        in_body,
+                        in_else: false,
+                        ..
+                    }) => (*end, *chain, *in_body),
+                    _ => return Err(self.no(op, "Case Else outside Select Case")),
+                };
+                if in_body {
+                    self.terminate(Terminator::Jump(end));
+                }
+                self.switch_to(chain);
+                if let Some(Frame::Select {
+                    in_body, in_else, ..
+                }) = self.frames.last_mut()
+                {
+                    *in_body = false;
+                    *in_else = true;
+                }
+            }
+            Opcode::SwitchEnd => match self.frames.pop() {
+                Some(Frame::Select {
+                    end,
+                    chain,
+                    in_body,
+                    in_else,
+                    ..
+                }) => {
+                    self.terminate(Terminator::Jump(end));
+                    if in_body && !in_else {
+                        // No `Case Else`: the unmatched chain falls out.
+                        self.switch_to(chain);
+                        self.terminate(Terminator::Jump(end));
+                    }
+                    self.switch_to(end);
+                }
+                _ => return Err(self.no(op, "End Select without Select Case")),
+            },
+            Opcode::DebugPrefix => {
+                if self.print.is_some() {
+                    return Err(self.no(op, "nested Debug.Print"));
+                }
+                self.print = Some((Vec::new(), Vec::new()));
+            }
+            Opcode::OutTargetObject => {
+                if self.print.is_none() {
+                    return Err(self.no(op, "output target outside Debug.Print"));
+                }
+            }
+            Opcode::OutItemThenComma | Opcode::OutItemThenSemicolon | Opcode::OutItemLast => {
+                let e = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let Some((vals, seps)) = self.print.as_mut() else {
+                    return Err(self.no(op, "output item outside Debug.Print"));
+                };
+                vals.push(e);
+                match op {
+                    Opcode::OutItemThenComma => seps.push(OutItem::Comma),
+                    Opcode::OutItemThenSemicolon => seps.push(OutItem::Semicolon),
+                    _ => {
+                        let (vals, seps) = self.print.take().unwrap_or_default();
+                        let mut items = Vec::new();
+                        let mut seps = seps.into_iter();
+                        for v in &vals {
+                            let o = self.emit_ex(v);
+                            items.push(OutItem::Value(o));
+                            if let Some(s) = seps.next() {
+                                items.push(s);
+                            }
+                        }
+                        self.emit(InstKind::DebugPrint { items });
+                    }
+                }
+            }
+            _ => {
+                return Err(self.no(op, "verified opcode outside the lowering subset"));
+            }
+        }
+        Ok(1)
+    }
+
+    fn expect_empty(&self, ins: &Listed) -> R<()> {
+        if self.stack.is_empty() {
+            Ok(())
+        } else {
+            Err(self.no(ins.opcode, "values left on the expression stack"))
+        }
+    }
+
+    fn int_operand(&self, ins: &Listed) -> R<i64> {
+        match ins.operands.first() {
+            Some(Operand::Int { value, .. }) => Ok(*value),
+            _ => Err(self.no(ins.opcode, "bad literal")),
+        }
+    }
+
+    fn binary(&mut self, ins: &Listed, op: AstBin) -> R<()> {
+        let r = self.pop(ins)?;
+        let l = self.pop(ins)?;
+        let (lt, rt) = (l.ty(), r.ty());
+        if lt.is_object() || rt.is_object() {
+            return Err(self.no(ins.opcode, "object operand"));
+        }
+        let ty = vba_sema::binary_result(op, &lt, &rt);
+        if ty.is_error() {
+            return Err(self.no(ins.opcode, "operand types do not combine"));
+        }
+        self.stack.push(Ex::Binary {
+            op,
+            ty,
+            l: Box::new(l),
+            r: Box::new(r),
+        });
+        Ok(())
+    }
+
+    fn unary_intrinsic(&mut self, ins: &Listed, name: &str) -> R<()> {
+        let a = self.pop(ins)?;
+        let c = self.intrinsic_call(ins, name, false, vec![a])?;
+        self.stack.push(c);
+        Ok(())
+    }
+
+    /// `READ_SIMPLE` / zero-argument names.
+    fn read_name(&mut self, ins: &Listed, name: &str, args: Vec<Ex>) -> R<Ex> {
+        if self.is_result_name(name) {
+            return Err(self.no(ins.opcode, "reads the function's own name"));
+        }
+        if let Some((id, ty)) = self.local_by_name(name) {
+            return Ok(Ex::Local { id, ty, bare: true });
+        }
+        if let Some(pid) = self.proc_target(name) {
+            let callee = self.cx.program.proc(pid);
+            if callee.has_result && callee.params.is_empty() {
+                return self.project_call(ins, pid, args);
+            }
+        }
+        if let Some(r) = vba_stdlib::lookup(name)
+            && r.info.min_args() == 0
+            && !r.info.params.iter().any(|p| p.param_array)
+        {
+            return self.intrinsic_call(ins, name, false, args);
+        }
+        Err(self.no(
+            ins.opcode,
+            "name is not a local, a procedure or a library function",
+        ))
+    }
+
+    fn read_name_call(
+        &mut self,
+        ins: &Listed,
+        name: &str,
+        suffix: Option<char>,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
+        if self.local_by_name(name).is_some() || self.is_result_name(name) {
+            return Err(self.no(ins.opcode, "indexing of a variable"));
+        }
+        if suffix.is_none()
+            && let Some(pid) = self.proc_target(name)
+        {
+            let callee = self.cx.program.proc(pid);
+            if !callee.has_result {
+                return Err(self.no(ins.opcode, "a Sub used as a value"));
+            }
+            return self.project_call(ins, pid, args);
+        }
+        let dollar = match suffix {
+            None => false,
+            Some('$') => true,
+            Some(_) => return Err(self.no(ins.opcode, "type-suffixed name")),
+        };
+        self.intrinsic_call(ins, name, dollar, args)
+    }
+
+    fn statement_call(
+        &mut self,
+        ins: &Listed,
+        name: &str,
+        suffix: Option<char>,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
+        if self.local_by_name(name).is_some() || self.is_result_name(name) {
+            return Err(self.no(ins.opcode, "call of a variable"));
+        }
+        if suffix.is_none()
+            && let Some(pid) = self.proc_target(name)
+        {
+            return self.project_call(ins, pid, args);
+        }
+        let dollar = suffix == Some('$');
+        self.intrinsic_call(ins, name, dollar, args)
+    }
+
+    fn assign(&mut self, ins: &Listed) -> R<()> {
+        let (name, _) = self.name_of(ins)?;
+        let v = self.pop(ins)?;
+        self.expect_empty(ins)?;
+        let (slot, ty) = if self.is_result_name(&name) {
+            match self.sema.result_local {
+                Some(l) => (l, self.sema.ret.clone()),
+                None => return Err(self.no(ins.opcode, "assignment to a Sub's name")),
+            }
+        } else if let Some(t) = self.local_by_name(&name) {
+            t
+        } else {
+            return Err(self.no(ins.opcode, "assignment to a name that is not a local"));
+        };
+        if v.ty().is_object() || ty.is_object() {
+            return Err(self.no(ins.opcode, "object assignment"));
+        }
+        let v = self.coerce(v, &ty);
+        let o = self.emit_ex(&v);
+        self.emit(InstKind::StoreLocal {
+            slot,
+            src: o,
+            mode: StoreMode::Let,
+        });
+        Ok(())
+    }
+
+    // ---- For ---------------------------------------------------------------
+
+    fn for_open(&mut self, ins: &Listed) -> R<()> {
+        let op = ins.opcode;
+        let n = if op == Opcode::ForCountedStep { 3 } else { 2 };
+        let mut vals = self.pop_n(ins, n)?;
+        self.expect_empty(ins)?;
+        let Some(counter) = self.for_var.take() else {
+            return Err(self.no(op, "For without a counter variable"));
+        };
+        let Ex::Local {
+            id: counter_id,
+            ty: counter_ty,
+            ..
+        } = counter
+        else {
+            return Err(self.no(op, "For counter is not a local variable"));
+        };
+        if counter_ty.is_object() {
+            return Err(self.no(op, "object counter"));
+        }
+        let step_ex = if n == 3 { vals.pop() } else { None };
+        let end_ex = vals.pop();
+        let start_ex = vals.pop();
+        let (Some(start_ex), Some(end_ex)) = (start_ex, end_ex) else {
+            return Err(self.no(op, "malformed For header"));
+        };
+        let start = self.coerce(start_ex, &counter_ty);
+        let end = self.coerce(end_ex, &counter_ty);
+        let step = match step_ex {
+            Some(s) => self.coerce(s, &counter_ty),
+            None => self.default_step(&counter_ty),
+        };
+        let s = self.emit_ex(&start);
+        let e = self.emit_ex(&end);
+        let st = self.emit_ex(&step);
+        self.emit(InstKind::StoreLocal {
+            slot: counter_id,
+            src: s,
+            mode: StoreMode::Let,
+        });
+        let head = self.new_block();
+        let body_b = self.new_block();
+        let next_b = self.new_block();
+        let exit = self.new_block();
+        self.jump_to(head);
+        let cur = self.reg(counter_ty.clone());
+        self.emit(InstKind::LoadLocal {
+            dst: cur,
+            slot: counter_id,
+        });
+        let c = self.reg(Type::Boolean);
+        self.emit(InstKind::ForTest {
+            dst: c,
+            counter: IrOperand::Reg(cur),
+            end: e,
+            step: st.clone(),
+        });
+        self.terminate(Terminator::Branch {
+            cond: IrOperand::Reg(c),
+            then_block: body_b,
+            else_block: exit,
+        });
+        self.switch_to(body_b);
+        self.frames.push(Frame::For {
+            head,
+            next_b,
+            exit,
+            counter: counter_id,
+            counter_ty,
+            step: st,
+        });
+        Ok(())
+    }
+
+    fn default_step(&self, counter_ty: &Type) -> Ex {
+        // The default step is the Integer constant 1, converted like the
+        // other header values.
+        self.coerce(Ex::Const(Variant::Integer(1), Type::Integer), counter_ty)
+    }
+
+    fn for_next(&mut self, ins: &Listed) -> R<()> {
+        let op = ins.opcode;
+        // `Next` carries FOR_VAR_EXPR markers (and the variable for the
+        // named form); they were captured into `for_var`.
+        self.for_var = None;
+        self.for_depth = None;
+        self.expect_empty(ins)?;
+        match self.frames.pop() {
+            Some(Frame::For {
+                head,
+                next_b,
+                exit,
+                counter,
+                counter_ty,
+                step,
+            }) => {
+                self.jump_to(next_b);
+                self.begin_stmt();
+                let cur = self.reg(counter_ty.clone());
+                self.emit(InstKind::LoadLocal {
+                    dst: cur,
+                    slot: counter,
+                });
+                let nv = self.reg(counter_ty.clone());
+                self.emit(InstKind::Binary {
+                    dst: nv,
+                    op: BinOp::Arith(ArithOp::Add),
+                    ty: counter_ty.clone(),
+                    overflow: if counter_ty.is_variant() {
+                        Overflow::Promote
+                    } else {
+                        Overflow::Error
+                    },
+                    lhs: IrOperand::Reg(cur),
+                    rhs: step,
+                });
+                self.emit(InstKind::StoreLocal {
+                    slot: counter,
+                    src: IrOperand::Reg(nv),
+                    mode: StoreMode::Let,
+                });
+                self.terminate(Terminator::Jump(head));
+                self.switch_to(exit);
+                Ok(())
+            }
+            _ => Err(self.no(op, "Next without For")),
+        }
+    }
+
+    // ---- Select Case --------------------------------------------------------
+
+    fn case_item(&mut self, body: &[(usize, Listed)], i: usize) -> R<usize> {
+        let ins = &body[i].1;
+        let op = ins.opcode;
+        let is_range = op == Opcode::CaseRange;
+        let items = if is_range { 2 } else { 1 };
+        let mut vals = self.pop_n(ins, items)?;
+        // Open a new case when none is being built.
+        let need_open = matches!(self.frames.last(), Some(Frame::Select { body: None, .. }));
+        if !matches!(self.frames.last(), Some(Frame::Select { .. })) {
+            return Err(self.no(op, "Case outside Select Case"));
+        }
+        if need_open {
+            let (end, chain, in_body, in_else) = match self.frames.last() {
+                Some(Frame::Select {
+                    end,
+                    chain,
+                    in_body,
+                    in_else,
+                    ..
+                }) => (*end, *chain, *in_body, *in_else),
+                _ => return Err(self.no(op, "Case outside Select Case")),
+            };
+            if in_else {
+                return Err(self.no(op, "Case after Case Else"));
+            }
+            if in_body {
+                self.terminate(Terminator::Jump(end));
+            }
+            self.switch_to(chain);
+            let body_b = self.new_block();
+            let miss = self.new_block();
+            if let Some(Frame::Select {
+                body,
+                miss: m,
+                in_body,
+                ..
+            }) = self.frames.last_mut()
+            {
+                *body = Some(body_b);
+                *m = Some(miss);
+                *in_body = false;
+            }
+        }
+        let (subject, subject_ty, body_b, miss) = match self.frames.last() {
+            Some(Frame::Select {
+                subject,
+                subject_ty,
+                body: Some(b),
+                miss: Some(m),
+                ..
+            }) => (subject.clone(), subject_ty.clone(), *b, *m),
+            _ => return Err(self.no(op, "Case outside Select Case")),
+        };
+        // The item is the last of its list when CASE_LIST_END follows.
+        let last = body
+            .get(i + 1)
+            .is_some_and(|(_, n)| n.opcode == Opcode::CaseListEnd);
+        let next = if last { miss } else { self.new_block() };
+        if is_range {
+            let hi = vals.pop();
+            let lo = vals.pop();
+            let (Some(lo), Some(hi)) = (lo, hi) else {
+                return Err(self.no(op, "malformed Case range"));
+            };
+            let (lot, hit) = (lo.ty(), hi.ty());
+            let lo_o = self.emit_ex(&lo);
+            let c1 = self.cmp(CompareOp::Ge, &subject, &subject_ty, lo_o, &lot);
+            let second = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond: c1,
+                then_block: second,
+                else_block: next,
+            });
+            self.switch_to(second);
+            let hi_o = self.emit_ex(&hi);
+            let c2 = self.cmp(CompareOp::Le, &subject, &subject_ty, hi_o, &hit);
+            self.terminate(Terminator::Branch {
+                cond: c2,
+                then_block: body_b,
+                else_block: next,
+            });
+        } else {
+            let Some(v) = vals.pop() else {
+                return Err(self.no(op, "malformed Case value"));
+            };
+            let vt = v.ty();
+            let vo = self.emit_ex(&v);
+            let c = self.cmp(CompareOp::Eq, &subject, &subject_ty, vo, &vt);
+            self.terminate(Terminator::Branch {
+                cond: c,
+                then_block: body_b,
+                else_block: next,
+            });
+        }
+        self.switch_to(next);
+        Ok(1)
+    }
+}
