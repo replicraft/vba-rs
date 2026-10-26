@@ -7,10 +7,11 @@ property accessors with member ids, invoke kinds, parameter names, types,
 flags and defaults), constants, GUIDs, help strings, version, LCID and flags.
 It works on bytes only: no COM, no code is loaded, no `unsafe`.
 
-Inputs: a raw MSFT-format file (`.tlb`, `.olb`) or a PE image (`.dll`,
-`.ocx`, `.exe`, 32- or 64-bit) whose `TYPELIB` resources are read. The older
-SLTG format is recognised and rejected with `TypelibError::UnsupportedFormat`
-(see "Open unknowns").
+Inputs: a raw MSFT-format or SLTG-format file (`.tlb`, `.olb`) or a PE image
+(`.dll`, `.ocx`, `.exe`, 32- or 64-bit) whose `TYPELIB` resources are read.
+The format is chosen by the first four bytes (`MSFT` or `SLTG`); both readers
+produce the same `TypeLib` model. SLTG coverage and gaps are listed in "SLTG
+layout" and "SLTG coverage and known gaps".
 
 The crate lives in `crates/interoperability/vba-typelib`. It is independent
 of the `vbars` CLI; `cargo run -p vba-typelib --example dump -- FILE
@@ -22,8 +23,11 @@ of the `vbars` CLI; `cargo run -p vba-typelib --example dump -- FILE
 let lib   = vba_typelib::load(&bytes)?;          // raw typelib or first TYPELIB resource of a PE
 let libs  = vba_typelib::load_all(&bytes)?;      // every library, with its resource id
 let lib   = vba_typelib::load_file(path)?;
+let lib   = vba_typelib::parse_any(raw)?;        // raw bytes of either format, by magic
 let lib   = vba_typelib::parse_msft(raw)?;       // raw MSFT bytes only
+let lib   = vba_typelib::parse_sltg(raw)?;       // raw SLTG bytes only
 let lib   = vba_typelib::msft::parse(raw, Limits { max_types: 1000, ..Limits::default() })?;
+let lib   = vba_typelib::sltg::parse(raw, Limits::default())?;
 let res   = vba_typelib::pe::typelib_resources(&pe_bytes)?;   // raw resource bytes + ids
 ```
 
@@ -43,7 +47,8 @@ are listed in `TypeLib::warnings` (none occur on any sample).
 All reads are bounds checked and return typed `TypelibError`s
 (`NotATypelib`, `UnsupportedFormat`, `Pe`, `NoTypelibResource`, `OutOfRange`,
 `Malformed`, `LimitExceeded`, `Io`); malformed input never panics.
-`Limits` caps types (131072), members over all types (1 048 576), parameters
+`parse_msft` given SLTG data answers `UnsupportedFormat`, `parse_sltg` given
+anything else `NotATypelib`. `Limits` (shared by both readers) caps types (131072), members over all types (1 048 576), parameters
 (2 097 152) and type-description nesting (32); counts are additionally checked
 against the data actually present.
 
@@ -323,6 +328,173 @@ like functions (unverified: none occur). Enum members are kind 2, record and
 union fields kind 0, dispinterface properties kind 3 (their id is in the id
 array).
 
+## SLTG layout
+
+SLTG is the older compound format. The layout below was written from the
+publicly documented structure of the format and then checked byte by byte
+against the only SLTG files available, the two `stdole32.tlb` stubs (i386 and
+x86_64, same layout, six types: `GUID`, `DISPPARAMS`, `EXCEPINFO`,
+`IUnknown`, `IDispatch`, `IEnumVARIANT`). "Verified" below means "decoded
+correctly on those files" and nothing more; fields without a sample are
+marked. All integers are little endian, a `pstring` is a `u16` length
+followed by the bytes (`0xffff` = none), names are Windows-1252.
+
+### File structure
+
+| Offset | Size | Field | Confidence |
+| --- | --- | --- | --- |
+| 0x00 | 4 | signature `SLTG` | verified |
+| 0x04 | 2 | `n`: number of index names (types + 2) | verified |
+| 0x06 | 2 | 9 | unknown meaning, ignored |
+| 0x08 | 2 | 0x4f | unknown meaning, ignored |
+| 0x0a | 2 | `first`: 1-based number of the first block entry in file order | verified |
+| 0x0c | 16 | GUID `{000204FF-0000-0000-C000-000000000046}` | constant, ignored |
+| 0x1c | 8 | `0x44`, `0xffff0000` | unknown, ignored |
+| 0x24 | 8 (n-1) | block entries | verified |
+| next | variable | the index: `n` NUL-terminated names | verified |
+| next | 9 | zero padding | verified |
+| next | sum of the lengths | the blocks, in chain order | verified |
+
+A block entry is `{u32 length, u16 index_string, u16 next}`: `index_string`
+is the offset of the block's name inside the index, `next` the 1-based number
+of the entry whose block follows in the file (`0` ends the chain). The reader
+follows the chain from `first`, requires it to cover every entry, and accepts
+blocks in any physical order (the sample has them in entry order; other
+orders are exercised with synthetic files only). The index starts with
+`\x01CompObj` (no block), then `dir`, then one stream name per type (the
+samples use `BAAAAAAAAA`, `DAAAAAAAAA`, ...). In the samples the `dir` block
+comes last. Bytes after the last block are ignored.
+
+### The `dir` block
+
+| Part | Layout | Confidence |
+| --- | --- | --- |
+| library block | `u16 0x51cc`, `u16 3`, `u16` library name (name table offset), `u16 0xffff`, `pstring` help string, `pstring` help file, `u32` help context, `u16` syskind, `u16` lcid, `u32 0`, `u16` library flags, `u16` major, `u16` minor, 16-byte GUID | verified (help file none and help context 0 only) |
+| gap | 0x40 bytes of `0xff` | verified |
+| type list | `u16` type count, then per type: `pstring` stream name (matches an index name), `pstring` second stream name, `u16 0xffff`, `u16` type name (name table offset), `u16` `m`, `m` bytes, `u16 0xffff`, `u32` help context, `u16 0xffff`, 16-byte GUID, `u16` type kind (`TKIND_*`) | verified for `m = 0`; the `m` extra bytes are skipped (believed to be a help string, not decoded) |
+| gap | 0x216 bytes: a 22-byte record and the 512-byte name hash table (`0xff` in the samples) | verified, contents ignored |
+| name table | `u16` size, `u16 0`, then the entries | verified |
+
+The order of the type list is the type index of the model. A name table entry
+is eight bytes of `0xff` (hash chain, ignored), the NUL-terminated name,
+padded to an even length; a name is addressed by the byte offset of its
+entry, and `0xfffe`/`0xffff` mean no name. The library, type, member and
+parameter names all live in this table.
+
+### Type block
+
+Offsets are relative to the start of the block.
+
+| Offset | Field | Confidence |
+| --- | --- | --- |
+| 0x00 | `u16 0x0501` | verified |
+| 0x02 | `u32` offset of the reference table, or `0xffffffff` | verified (records have none) |
+| 0x0a | `u32` offset of the member header | verified |
+| 0x12 | `u32` version (major low, minor high) | verified as 0 only |
+| 0x1a | `u8 f1`, `u8 f2`: type flags = `f1 >> 3 \| f2 << 5` | assumed; verified for flags 0 only |
+| 0x1d | `u8` type kind (checked against the type list, a difference is a warning) | verified |
+| 0x22 | the reference table, when present | verified |
+
+Reference table: `u16 0x00df`, 66 bytes of `0xff`, `u32 number` (8 bytes per
+reference), `number + 2` bytes of `0xff`, five bytes `01 00 00 00 00`, then
+`number / 8` `pstring`s, then a byte `0xdf`. The strings are `*\Rffff*#N`
+(type `N`, hexadecimal, of this library: `TypeRef::Local(N)`) or
+`*\Rxxxx*#N` with `xxxx` the name table offset of a
+`*\G{guid}#major.minor#lcid#file#` entry describing another library
+(`TypeRef::Imported`, one `Import` per distinct library and type; only the
+type's number is stored, so `Import::type_guid` is `None`). Local references
+are verified; imported ones are implemented from the public description and
+have no sample.
+
+Member header (9 bytes: `u16 1`, `u16 0xffff`, `u8 1`, `u32` byte count
+`c`), then the `c` bytes of member data (the "group"), then a fixed 0x36-byte
+tail:
+
+| Tail offset | Field | Confidence |
+| --- | --- | --- |
+| 0x00, 0x02, 0x04 | function, variable, implemented-type counts | verified |
+| 0x08, 0x0a, 0x0c | group offsets of the functions, variables and implemented types (`0xffff` = none) | verified |
+| 0x20, 0x22 | instance size, alignment | verified (records) |
+| 0x28 | vtable size in bytes | verified |
+| others | `0xffff`, 0, or sizes of the member areas | ignored |
+
+All offsets inside the group are relative to the start of the group.
+
+Implemented-type record (22 bytes): byte 0 `0x4a`; `u16` next at 2
+(`0xffff` last); byte 6 `IMPLTYPEFLAG_*`; at 18 a `USERDEFINED` type
+description whose reference is at 20. Verified for one base interface with
+flags 0; the default and source bits and a chain of several records are
+synthetic only.
+
+Function record: byte 0 `0x6c` (with function flags) or `0x4c` (without; no
+sample); byte 1 the invoke kind in the high nibble (1 function, 2 get, 4
+put, 8 putref; low nibble 2); `u16` next function (group offset, `0xffff`
+last) at 2; name at 4; `i32` member id at 6; `u16` help context at 10 and help
+string at 12 (not decoded); `u16` offset of the argument table at 14; byte 16
+`nacc` = `argument count << 3 | 4`; byte 17 `0x80`; `u16` return type at 18;
+`u16` vtable offset at 20; `u16` function flags at 22 (`0x6c` only). The
+argument table is four bytes per argument: `u16` name (bit 0 set means the
+type is inline) and `u16` type word or group offset. The return type is
+inline when bit 7 of byte 17 is set, otherwise a group offset; every sample
+function has an inline return type, so the out-of-line form is unverified.
+Functions of a dispinterface get `FuncKind::Dispatch`, all others
+`PureVirtual`.
+
+Variable record: byte 0 `0x2a` (with variable flags) or `0x0a` (without,
+0x12 bytes, no sample); byte 1 flags (`0x02` the type word is inline, `0x40`
+a constant, `0x08` the constant is stored in the offset field); `u16` next at
+2; name at 4; `u16` field offset or inline constant at 6; `u16` type word or
+group offset at 8; `i32` member id at 10; help context and string at 14 and
+16; `u16` variable flags at 18. Record and union fields are `PerInstance`
+with their offset, dispinterface variables `Dispatch`. Verified: record
+fields with inline types and a fixed array. Constants with an inline value
+(`0x08`) follow the public description and have no sample; constants stored
+out of line are not decoded (`ConstValue::Unsupported` and a warning).
+
+Type words are shared by arguments, returns and variables. The first word
+also carries the parameter flags: `0xc000` neither in nor out, `0x8000` in
+and out, `0x4000` out, otherwise in; `0x2000` lcid; `0x0080` retval. The low
+six bits are the `VT_*` tag and `0x0e00` (all three bits) adds a pointer. A
+`PTR` tag adds a pointer and continues with the next word; `USERDEFINED` is
+followed by a word holding four times the index into the reference table;
+`CARRAY` by the group offset of a 32-bit `SAFEARRAY` header (16 bytes, then a
+`u32` count and an `i32` lower bound per dimension) and continues with the
+element type; `SAFEARRAY` by an unused offset and continues; any other tag
+ends the description. Verified: primitives, pointers to primitives and to
+user types, pointer chains (`void**`) and the `UI1[8]` array. A `SAFEARRAY`
+parameter is synthetic only.
+
+## SLTG coverage and known gaps
+
+Decoded into the model: library name, GUID, version, lcid, flags, syskind,
+help string and help context; types with name, kind, GUID, flags, version,
+alignment, instance and vtable size, base interface and coclass members (with
+their flags); functions and property accessors with member id, invoke kind,
+vtable offset, flags, return type and parameters (name, type, in/out, lcid,
+retval); record and union fields, dispinterface properties and enum members
+with inline values.
+
+Known gaps, reported as a warning or a plain absence rather than an error
+where possible:
+
+- Type, function and variable help strings are not decoded (`doc` is `None`;
+  the help contexts of members are read).
+- Module DLL names and entry points, and alias targets: `dll_name` and
+  `alias` stay `None`, and an alias gets a warning (the field holding an alias
+  target is not known with confidence).
+- Optional and default parameters (`optional_count` is 0, `default` is
+  `None`), custom attributes, and function flags beyond the stored word.
+- Constants stored out of line (strings, wide integers) are
+  `ConstValue::Unsupported`.
+- Imported types cannot be resolved by GUID (only a type number in the other
+  library is stored), so the sema adapter treats a base interface in another
+  library as unknown.
+- Type flags are `f1 >> 3 | f2 << 5`, confirmed only for the value 0.
+- Only 32-bit `SAFEARRAY` headers are read (the x86_64 `stdole32.tlb` uses
+  the same layout). The fixed gaps (`0x40`, `0x216`, 9 bytes after the index)
+  are assumed; a library with other gaps fails with `Malformed` or
+  `OutOfRange` instead of being guessed at.
+
 ## Verification performed
 
 - Every `.tlb`, `.dll`, `.ocx` and `.exe` in the Wine bundle's `x86_64-windows`
@@ -330,7 +502,8 @@ array).
   library, from `stdole2` with 42 types to `mshtml` with 399 types and 22 000
   functions; `vbscript.dll` and `uiautomationcore.dll` hold several), 1315
   files have no `TYPELIB` resource and 2 (`stdole32.tlb` per architecture) are
-  SLTG. No warning is produced by any of them.
+  SLTG, read by the SLTG reader (106 libraries in all). No warning is
+  produced by any of them.
 - Invariants asserted by the ignored test over all of them: names present,
   every type reference resolves, vtable slots are aligned and inside the
   vtable, record fields lie inside the record, enum members are valued
@@ -343,6 +516,19 @@ array).
   PE route.
 - `scrrun.dll` drives `vba-sema` (`Scripting.Dictionary` members and a
   misspelled member diagnosed).
+- `stdole32.tlb` (SLTG): library name and GUID, the six types and their
+  GUIDs, `IDispatch.Invoke` (member id, eight parameters, vtable offset), the
+  `GUID` record (`Data4` as `UI1[8]`), the nine `EXCEPINFO` fields; the
+  rendered members match the well-known OLE definitions.
+- Synthetic SLTG libraries written by the test writer
+  (`tests/common/sltg.rs`, which follows the layout above): every type kind,
+  imports, fixed-array and SAFEARRAY descriptions, both function and variable
+  record forms, blocks in a non-sequential chain order, PE images mixing both
+  formats, the `vba-sema` adapter; truncation at every length, every
+  single-byte corruption, every word set to an extreme value, random bytes
+  and mutated files. The writer encodes the same assumptions as the reader, so
+  it shows consistency, not fidelity; only `stdole32.tlb` checks the layout
+  against real data.
 - Synthetic round trips through the test writer for every type kind,
   constants (inline and out-of-line), defaults, arrays, imports, coclass
   chains, PE32 and PE32+ images with several resources; truncation at every
@@ -363,9 +549,11 @@ array).
   Microsoft-built files use the same convention is not established.
 - Inline constants: negative payloads, `BOOL`, `CY`; out-of-line widths other
   than `BSTR`, `UI4`, `I4`.
-- The SLTG format (the whole `stdole32.tlb` family, and some older
-  libraries). A SLTG file starts with `SLTG`; it is detected and rejected with
-  `UnsupportedFormat`. No SLTG structure is read.
+- SLTG: the layout was verified on two files of one library, so every field
+  that varies between libraries is unverified: out-of-line constants and
+  return types, imported references, the `0x4c` and `0x0a` record forms,
+  alias, module and enum blocks, the type list's extra bytes and the type
+  flag encoding (see "SLTG coverage and known gaps").
 - The code page of names and strings (read as Windows-1252, ignoring the
   library LCID).
 - Behaviour of `vba-automation` consumers: the model exposes member ids,
