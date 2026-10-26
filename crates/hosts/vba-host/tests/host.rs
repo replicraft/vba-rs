@@ -349,7 +349,11 @@ proptest! {
     #[test]
     fn drive_grants_ignore_case_and_all_grants_reject_parent_segments(
         prefix in "[a-z]{1,8}/",
-        rest in "[a-z]{0,8}",
+        // A device name never matches a grant (the Windows spelling rules), so the
+        // generated tail must not spell one.
+        rest in "[a-z]{0,8}".prop_filter("not a device name", |r| {
+            !matches!(r.as_str(), "con" | "prn" | "aux" | "nul")
+        }),
         mask in proptest::collection::vec(any::<bool>(), 1..16),
     ) {
         let fold = |s: String| -> String {
