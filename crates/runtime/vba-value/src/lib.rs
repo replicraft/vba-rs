@@ -16,7 +16,7 @@ pub mod string;
 pub mod text;
 pub mod variant;
 
-pub use array::{Bounds, VbaArray};
+pub use array::{Bounds, ELEMENT_BYTES, VbaArray};
 pub use currency::Currency;
 pub use date::Date;
 pub use decimal::Decimal;

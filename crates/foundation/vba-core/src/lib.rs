@@ -4,5 +4,7 @@
 //! or the operating system.
 
 pub mod error;
+pub mod memory;
 
 pub use error::{VbaError, VbaResult};
+pub use memory::{Charge, MemoryExceeded, MemoryMeter, MeterScope, Tracked};

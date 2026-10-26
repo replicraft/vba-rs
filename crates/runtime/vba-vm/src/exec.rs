@@ -952,14 +952,10 @@ impl Vm {
             Variant::Empty => VbaArray::new_dynamic(crate::heap::elem_vartype(elem)),
             _ => return Err(VbaError::TYPE_MISMATCH.into()),
         };
+        self.check_room(vba_value::ELEMENT_BYTES.saturating_mul(total))?;
         let old: Vec<Variant> = arr.iter().cloned().collect();
         arr.redim(&dims, preserve)?;
-        let (old_len, new_len) = (old.len() as u64, arr.len() as u64);
-        if new_len > old_len {
-            self.charge_memory(32 * (new_len - old_len))?;
-        } else {
-            self.free_memory(32 * (old_len - new_len));
-        }
+        let new_len = arr.len() as u64;
         self.fill_special(&mut arr, elem)?;
         let slot = self.var_mut(&loc)?;
         *slot = Variant::Array(Box::new(arr));
@@ -985,13 +981,10 @@ impl Vm {
             return Err(VbaError::TYPE_MISMATCH.into());
         };
         let old: Vec<Variant> = a.iter().cloned().collect();
-        let n = a.len() as u64;
         let fixed = a.is_fixed();
         a.erase();
         if fixed {
             self.fill_special(&mut a, &elem)?;
-        } else {
-            self.free_memory(32 * n);
         }
         let slot = self.var_mut(&loc)?;
         *slot = Variant::Array(a);

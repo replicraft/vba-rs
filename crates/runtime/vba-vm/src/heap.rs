@@ -112,7 +112,7 @@ impl Vm {
         if total > self.cfg.max_array_elements {
             return Err(VbaError::OUT_OF_MEMORY.into());
         }
-        self.charge_memory(32 * total)?;
+        self.check_room(vba_value::ELEMENT_BYTES.saturating_mul(total))?;
         let mut a = VbaArray::new_fixed(elem_vartype(elem), &dims)?;
         self.fill_special(&mut a, elem)?;
         Ok(a)
@@ -143,6 +143,12 @@ impl Vm {
 
     pub(crate) fn charge_memory(&self, bytes: u64) -> VResult<()> {
         self.host.budget().alloc(bytes).map_err(Fault::from)
+    }
+
+    /// Fails with the memory limit if `bytes` more would not fit; the bytes
+    /// are not charged (the owner registers them when it is built).
+    pub(crate) fn check_room(&self, bytes: u64) -> VResult<()> {
+        self.host.budget().check_room(bytes).map_err(Fault::from)
     }
 
     pub(crate) fn free_memory(&self, bytes: u64) {

@@ -122,6 +122,7 @@ impl Vm {
         debug: Box<dyn DebugSink>,
         cfg: VmConfig,
     ) -> Result<Vm, VmError> {
+        let _meter = host.budget().enter();
         let mut vm = Vm {
             ir: ir.clone(),
             host,
@@ -327,6 +328,7 @@ impl Vm {
             .collect();
         self.last_site = None;
         self.stop_reason = None;
+        let _meter = self.host.budget().enter();
         let r = self.call_nested(proc_, me, bound);
         match r {
             Ok(v) => Ok(RunOutput {
@@ -360,6 +362,7 @@ impl Vm {
     /// `Class_Initialize` run) on first use.
     pub fn default_instance_object(&mut self, module: ModuleId) -> Result<ObjectRef, VmError> {
         self.last_site = None;
+        let _meter = self.host.budget().enter();
         let r = self.default_instance(module);
         match r {
             Ok(id) => Ok(ObjectRef::Handle(vm_handle(id))),
@@ -384,6 +387,7 @@ impl Vm {
     /// declaration order, running `Class_Terminate` of objects that become
     /// unreferenced (the orderly end of a session).
     pub fn shutdown(&mut self) -> Result<(), VmError> {
+        let _meter = self.host.budget().enter();
         let r = self.shutdown_inner();
         r.map_err(|f| self.fault_to_error(f))
     }

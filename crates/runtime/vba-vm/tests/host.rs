@@ -441,10 +441,8 @@ fn collection_growth_is_charged_to_the_memory_limit() {
     assert_eq!(o.result, Err(VmError::Limit(LimitKind::Memory)));
 }
 
-/// Known gap, pinned so a change is noticed: strings are not charged to the
-/// memory budget, only limited in length one by one.
 #[test]
-fn strings_held_by_a_program_are_not_charged_to_the_memory_limit() {
+fn strings_held_by_a_program_are_charged_to_the_memory_limit() {
     let o = run_limited(
         "Sub Main()\nDim a(1 To 8) As String, i As Long\nFor i = 1 To 8\na(i) = String$(1000000, \"x\")\nNext\nDebug.Print \"held\"\nEnd Sub\n",
         ResourceLimits {
@@ -453,7 +451,8 @@ fn strings_held_by_a_program_are_not_charged_to_the_memory_limit() {
             ..ResourceLimits::default()
         },
     );
-    assert_eq!(o.out, "held\n", "{:?}", o.result);
+    assert_eq!(o.result, Err(VmError::Limit(LimitKind::Memory)));
+    assert_eq!(o.out, "");
 }
 
 #[test]

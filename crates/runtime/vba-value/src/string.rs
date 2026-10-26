@@ -7,6 +7,7 @@
 use crate::collation::{Collation, EN_US};
 use std::cmp::Ordering;
 use std::fmt;
+use vba_core::Tracked;
 
 /// `Option Compare` mode (MS-VBAL §5.2.1.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -21,23 +22,64 @@ pub enum CompareMode {
 }
 
 /// An owned VBA string (UTF-16 code units, arbitrary content).
-#[derive(Clone, Default, PartialEq, Eq, Hash)]
-pub struct VbaString(Vec<u16>);
+///
+/// A string of 32 code units or more registers its allocation with the
+/// memory meter that is current on the creating thread
+/// ([`vba_core::MemoryMeter::enter`]) and credits it when dropped.
+pub struct VbaString(Vec<u16>, Tracked);
+
+impl Default for VbaString {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for VbaString {
+    fn clone(&self) -> Self {
+        Self::own(self.0.clone())
+    }
+}
+
+impl PartialEq for VbaString {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for VbaString {}
+
+impl std::hash::Hash for VbaString {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl Drop for VbaString {
+    fn drop(&mut self) {
+        self.1.release(self.0.capacity() * 2);
+    }
+}
 
 impl VbaString {
+    /// Takes ownership of `units`, registering the allocation.
+    fn own(units: Vec<u16>) -> Self {
+        let t = Tracked::new(units.capacity() * 2);
+        Self(units, t)
+    }
+
     /// Creates an empty string.
     pub fn new() -> Self {
-        Self(Vec::new())
+        Self(Vec::new(), Tracked::default())
     }
 
     /// Creates a string from raw UTF-16 code units, keeping them verbatim.
     pub fn from_units(units: Vec<u16>) -> Self {
-        Self(units)
+        Self::own(units)
     }
 
     /// Creates a string from a slice of code units.
     pub fn from_slice(units: &[u16]) -> Self {
-        Self(units.to_vec())
+        Self::own(units.to_vec())
     }
 
     /// Returns the code units.
@@ -46,8 +88,10 @@ impl VbaString {
     }
 
     /// Consumes the string and returns its code units.
-    pub fn into_units(self) -> Vec<u16> {
-        self.0
+    pub fn into_units(mut self) -> Vec<u16> {
+        let v = std::mem::take(&mut self.0);
+        self.1.release(v.capacity() * 2);
+        v
     }
 
     /// Returns `Len(s)`: the number of UTF-16 code units.
@@ -79,7 +123,9 @@ impl VbaString {
         if !rest.is_empty() {
             return None;
         }
-        Some(Self(pairs.iter().map(|c| u16::from_le_bytes(*c)).collect()))
+        Some(Self::own(
+            pairs.iter().map(|c| u16::from_le_bytes(*c)).collect(),
+        ))
     }
 
     /// Converts to a Rust `String`, failing if there are unpaired surrogates.
@@ -97,7 +143,7 @@ impl VbaString {
         let mut v = Vec::with_capacity(self.0.len() + other.0.len());
         v.extend_from_slice(&self.0);
         v.extend_from_slice(&other.0);
-        VbaString(v)
+        VbaString::own(v)
     }
 
     /// Compares two strings under the given `Option Compare` mode.
@@ -122,7 +168,7 @@ impl VbaString {
 
 impl From<&str> for VbaString {
     fn from(s: &str) -> Self {
-        Self(s.encode_utf16().collect())
+        Self::own(s.encode_utf16().collect())
     }
 }
 

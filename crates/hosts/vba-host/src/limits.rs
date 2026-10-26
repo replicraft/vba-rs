@@ -2,6 +2,7 @@
 
 use std::cell::Cell;
 use vba_automation::ErrInfo;
+use vba_core::{MemoryMeter, MeterScope};
 
 /// Default maximum call depth.
 pub const DEFAULT_MAX_CALL_DEPTH: u32 = 1000;
@@ -63,7 +64,7 @@ impl From<LimitExceeded> for ErrInfo {
 pub struct Budget {
     limits: ResourceLimits,
     steps: Cell<u64>,
-    memory: Cell<u64>,
+    memory: MemoryMeter,
     depth: Cell<u32>,
 }
 
@@ -73,7 +74,7 @@ impl Budget {
         Budget {
             limits,
             steps: Cell::new(0),
-            memory: Cell::new(0),
+            memory: MemoryMeter::new(limits.max_memory_bytes),
             depth: Cell::new(0),
         }
     }
@@ -93,9 +94,24 @@ impl Budget {
         self.depth.get()
     }
 
-    /// Bytes currently charged.
+    /// Bytes currently charged: strings, arrays, objects, files and every
+    /// other owner that registers with the meter.
     pub fn memory_used(&self) -> u64 {
-        self.memory.get()
+        self.memory.used()
+    }
+
+    /// The shared meter behind `max_memory_bytes`. Owners of heap-like data
+    /// outside the interpreter (an in-memory file system, a dictionary, an
+    /// output buffer) charge their bytes to it.
+    pub fn meter(&self) -> &MemoryMeter {
+        &self.memory
+    }
+
+    /// Makes this budget's meter the current one on this thread, so that
+    /// values created meanwhile are charged to it. The interpreter does this
+    /// for the duration of every entry point.
+    pub fn enter(&self) -> MeterScope {
+        self.memory.enter()
     }
 
     /// Charges `n` steps.
@@ -103,9 +119,13 @@ impl Budget {
         let total = self.steps.get().saturating_add(n);
         self.steps.set(total);
         match self.limits.max_steps {
-            Some(max) if total > max => Err(LimitExceeded::Steps),
-            _ => Ok(()),
+            Some(max) if total > max => return Err(LimitExceeded::Steps),
+            _ => {}
         }
+        if self.memory.exceeded() {
+            return Err(LimitExceeded::Memory);
+        }
+        Ok(())
     }
 
     /// Charges one step.
@@ -130,16 +150,23 @@ impl Budget {
 
     /// Charges an allocation. On failure nothing is charged.
     pub fn alloc(&self, bytes: u64) -> Result<(), LimitExceeded> {
-        let total = self.memory.get().saturating_add(bytes);
-        if self.limits.max_memory_bytes.is_some_and(|m| total > m) {
-            return Err(LimitExceeded::Memory);
-        }
-        self.memory.set(total);
-        Ok(())
+        self.memory
+            .try_alloc(bytes)
+            .map_err(|_| LimitExceeded::Memory)
     }
 
     /// Returns memory to the budget.
     pub fn free(&self, bytes: u64) {
-        self.memory.set(self.memory.get().saturating_sub(bytes));
+        self.memory.free(bytes);
+    }
+
+    /// Fails if `bytes` more would not fit, without charging them. Used
+    /// before building something whose size is known in advance, so that the
+    /// allocation itself never happens.
+    pub fn check_room(&self, bytes: u64) -> Result<(), LimitExceeded> {
+        match self.memory.limit() {
+            Some(l) if self.memory.used().saturating_add(bytes) > l => Err(LimitExceeded::Memory),
+            _ => Ok(()),
+        }
     }
 }

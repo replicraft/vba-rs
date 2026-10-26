@@ -9,6 +9,7 @@
 
 use crate::convert::convert_to;
 use crate::variant::{VarType, Variant};
+use vba_core::Charge;
 use vba_core::{VbaError, VbaResult};
 
 /// Maximum number of dimensions (an OLE `SAFEARRAY` limit of VBA).
@@ -47,13 +48,28 @@ impl Bounds {
 }
 
 /// A VBA array value.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// The element storage is registered with the memory meter that is current
+/// on the creating thread ([`vba_core::MemoryMeter::enter`]) and credited
+/// when the array is dropped. Elements that own heap data (strings) are
+/// registered by their own types.
+#[derive(Debug, PartialEq)]
 pub struct VbaArray {
     elem: VarType,
     fixed: bool,
     dims: Vec<Bounds>,
     data: Vec<Variant>,
+    charge: Charge,
 }
+
+impl Clone for VbaArray {
+    fn clone(&self) -> Self {
+        Self::assemble(self.elem, self.fixed, self.dims.clone(), self.data.clone())
+    }
+}
+
+/// Bytes of storage per array element, as charged to the memory meter.
+pub const ELEMENT_BYTES: u64 = std::mem::size_of::<Variant>() as u64;
 
 fn total_len(dims: &[Bounds]) -> VbaResult<usize> {
     if dims.is_empty() || dims.len() > MAX_DIMENSIONS {
@@ -73,26 +89,37 @@ fn total_len(dims: &[Bounds]) -> VbaResult<usize> {
 }
 
 impl VbaArray {
+    fn assemble(elem: VarType, fixed: bool, dims: Vec<Bounds>, data: Vec<Variant>) -> Self {
+        let charge = Charge::new(data.capacity() as u64 * ELEMENT_BYTES);
+        Self {
+            elem,
+            fixed,
+            dims,
+            data,
+            charge,
+        }
+    }
+
+    /// Re-registers the storage after `data` changed its capacity.
+    fn sync(&mut self) {
+        self.charge.set(self.data.capacity() as u64 * ELEMENT_BYTES);
+    }
+
     /// Creates a fixed-size array (`Dim a(1 To 3, 0 To 4) As T`). Bounds with
     /// `upper < lower`, zero or more than 60 dimensions are error 9.
     pub fn new_fixed(elem: VarType, dims: &[Bounds]) -> VbaResult<Self> {
         let n = total_len(dims)?;
-        Ok(Self {
+        Ok(Self::assemble(
             elem,
-            fixed: true,
-            dims: dims.to_vec(),
-            data: vec![elem.default_value(); n],
-        })
+            true,
+            dims.to_vec(),
+            vec![elem.default_value(); n],
+        ))
     }
 
     /// Creates an unallocated dynamic array (`Dim a() As T`).
     pub fn new_dynamic(elem: VarType) -> Self {
-        Self {
-            elem,
-            fixed: false,
-            dims: Vec::new(),
-            data: Vec::new(),
-        }
+        Self::assemble(elem, false, Vec::new(), Vec::new())
     }
 
     /// Creates an allocated array without elements, as returned by `Split("")`
@@ -100,12 +127,12 @@ impl VbaArray {
     /// with a user-written upper bound below the lower bound stays error 9;
     /// only library functions produce this shape.
     pub fn new_empty(elem: VarType, lower: i32) -> Self {
-        Self {
+        Self::assemble(
             elem,
-            fixed: false,
-            dims: vec![Bounds::new(lower, lower.wrapping_sub(1))],
-            data: Vec::new(),
-        }
+            false,
+            vec![Bounds::new(lower, lower.wrapping_sub(1))],
+            Vec::new(),
+        )
     }
 
     /// A one-dimensional dynamic `Byte` array indexed from 0 holding `bytes`
@@ -251,11 +278,18 @@ impl VbaArray {
             if dims[..last] != self.dims[..last] || dims[last].lower != self.dims[last].lower {
                 return Err(VbaError::SUBSCRIPT_OUT_OF_RANGE);
             }
+            if n > self.data.len() {
+                self.data.reserve_exact(n - self.data.len());
+            } else {
+                self.data.truncate(n);
+                self.data.shrink_to_fit();
+            }
             self.data.resize(n, self.elem.default_value());
         } else {
             self.data = vec![self.elem.default_value(); n];
         }
         self.dims = dims.to_vec();
+        self.sync();
         Ok(())
     }
 
@@ -269,7 +303,8 @@ impl VbaArray {
             }
         } else {
             self.dims.clear();
-            self.data.clear();
+            self.data = Vec::new();
+            self.sync();
         }
     }
 
