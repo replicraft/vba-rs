@@ -266,3 +266,31 @@ fn version_facts_and_the_profile_hint_name_a_real_profile() {
     let hint = v.profile_hint().unwrap();
     assert!(vba::find_profile(hint).is_some(), "{hint}");
 }
+
+/// Known limitation, pinned so a change is noticed: cancellation is observed
+/// only at `DoEvents`; a loop that never calls it is stopped by the step
+/// limit, not by the token.
+#[test]
+fn cancellation_is_observed_only_at_do_events_and_the_step_limit_stops_the_rest() {
+    let spin = project(
+        "Public Sub Main()\n  Dim i As Long\n  For i = 1 To 1000\n  Next\n  Debug.Print \"finished\"\nEnd Sub\n",
+    );
+    let engine = Engine::new();
+    engine.cancel_token().cancel();
+    assert_eq!(
+        engine.run(&spin, "Main", vec![]).unwrap().output,
+        "finished\n"
+    );
+    let with_events = project(
+        "Public Sub Main()\n  Dim i As Long\n  For i = 1 To 1000\n    DoEvents\n  Next\n  Debug.Print \"finished\"\nEnd Sub\n",
+    );
+    let err = engine.run(&with_events, "Main", vec![]).unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
+    // Without DoEvents only the step limit ends an endless loop.
+    let endless = project("Public Sub Main()\n  Do\n  Loop\nEnd Sub\n");
+    let err = Engine::new()
+        .max_steps(100_000)
+        .run(&endless, "Main", vec![])
+        .unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Limit(_))), "{err:?}");
+}
