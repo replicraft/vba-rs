@@ -834,7 +834,7 @@ impl Vm {
     /// type (a variable-length `String` counts its two-byte length and its
     /// ANSI bytes, a `Variant` its two-byte subtype and data). The sizes of
     /// the numeric types are the documented ones; the treatment of
-    /// variable-length members is unverified.
+    /// variable-length members and of dynamic array members is unverified.
     fn record_len(&self, t: &Type, cur: &Variant) -> VResult<u64> {
         let ir = self.ir.clone();
         Ok(match t {
@@ -888,12 +888,13 @@ impl Vm {
                 let Variant::Array(a) = cur else {
                     return Err(VbaError::TYPE_MISMATCH.into());
                 };
-                if !a.is_fixed() {
-                    return Err(Fault::Unsupported(
-                        "Len of a user-defined type with a dynamic array member".into(),
-                    ));
-                }
-                let mut total = 0;
+                // A dynamic array counts the descriptor `Put` writes (2 + 8
+                // bytes per dimension) before its elements.
+                let mut total = if a.is_fixed() {
+                    0
+                } else {
+                    2 + 8 * a.dimensions() as u64
+                };
                 for e in a.iter() {
                     total += self.record_len(elem, e)?;
                 }
