@@ -155,6 +155,112 @@ pub(crate) struct CollItem {
     pub value: Variant,
 }
 
+/// The items of a `Collection` in insertion order, with a key index.
+///
+/// The index holds every key and maps it to a position hint. Hints of items
+/// below `clean` are exact; a hint is always checked against the item before
+/// use, so a stale one can only cost a scan, never a wrong answer. Appending
+/// keeps everything clean; inserting or removing in the middle lowers `clean`
+/// to that position. A lookup of a key whose hint is not usable scans from
+/// `clean` without touching the index for the first few lookups after an edit
+/// (a program that edits between lookups pays what a linear scan costs), then
+/// repairs the hints on its way and raises `clean`, so a run of lookups after
+/// one edit is amortised O(1) each.
+#[derive(Debug, Default)]
+pub(crate) struct Coll {
+    items: Vec<CollItem>,
+    index: std::collections::HashMap<String, usize>,
+    clean: usize,
+    /// Plain scans since the last edit.
+    scans: u8,
+}
+
+const PLAIN_SCANS: u8 = 3;
+
+impl Coll {
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn get(&self, pos: usize) -> Option<&CollItem> {
+        self.items.get(pos)
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, CollItem> {
+        self.items.iter()
+    }
+
+    pub fn into_values(self) -> Vec<Variant> {
+        self.items.into_iter().map(|i| i.value).collect()
+    }
+
+    /// Whether an item has this (already lower-cased) key.
+    pub fn contains(&self, key: &str) -> bool {
+        self.index.contains_key(key)
+    }
+
+    /// Position of the item with this (already lower-cased) key.
+    pub fn find(&mut self, key: &str) -> Option<usize> {
+        let &h = self.index.get(key)?;
+        if h < self.clean
+            && self
+                .items
+                .get(h)
+                .is_some_and(|i| i.key.as_deref() == Some(key))
+        {
+            return Some(h);
+        }
+        // The key exists and lies at or beyond `clean`.
+        if self.scans < PLAIN_SCANS {
+            self.scans += 1;
+            return (self.clean..self.items.len())
+                .find(|&at| self.items[at].key.as_deref() == Some(key));
+        }
+        let mut at = self.clean;
+        while at < self.items.len() {
+            let found = if let Some(k) = self.items[at].key.as_deref() {
+                if let Some(slot) = self.index.get_mut(k) {
+                    *slot = at;
+                }
+                k == key
+            } else {
+                false
+            };
+            at += 1;
+            if found {
+                self.clean = at;
+                return Some(at - 1);
+            }
+        }
+        self.clean = at;
+        None
+    }
+
+    pub fn insert(&mut self, at: usize, item: CollItem) {
+        let append = at == self.items.len();
+        if let Some(k) = &item.key {
+            self.index.insert(k.clone(), at);
+        }
+        self.items.insert(at, item);
+        if append && self.clean == at {
+            self.clean = at + 1;
+        } else {
+            self.clean = self.clean.min(at);
+        }
+        self.scans = 0;
+    }
+
+    pub fn remove(&mut self, at: usize) -> CollItem {
+        let item = self.items.remove(at);
+        if let Some(k) = &item.key {
+            self.index.remove(k);
+        }
+        self.clean = self.clean.min(at);
+        self.scans = 0;
+        item
+    }
+}
+
 /// What an object is.
 #[derive(Debug)]
 pub(crate) enum ObjKind {
@@ -165,7 +271,7 @@ pub(crate) enum ObjKind {
     },
     Err,
     Debug,
-    Collection(Vec<CollItem>),
+    Collection(Coll),
 }
 
 /// An object owned by the VM.
@@ -231,4 +337,66 @@ pub(crate) fn nul_string(n: u32) -> Variant {
 
 pub(crate) fn udt_variant(id: u64) -> Variant {
     Variant::UserDefined(UdtHandle(id))
+}
+
+#[cfg(test)]
+mod coll_tests {
+    use super::*;
+
+    fn naive(items: &[CollItem], key: &str) -> Option<usize> {
+        items.iter().position(|i| i.key.as_deref() == Some(key))
+    }
+
+    /// The key index agrees with a linear scan over random sequences of
+    /// appends, middle inserts, removes and lookups.
+    #[test]
+    fn key_index_matches_linear_scan() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for _ in 0..200 {
+            let mut c = Coll::default();
+            let mut model: Vec<CollItem> = Vec::new();
+            for _ in 0..300 {
+                let key = format!("k{}", next(40));
+                match next(5) {
+                    0 | 1 => {
+                        let keyed = next(4) != 0;
+                        if keyed && naive(&model, &key).is_some() {
+                            assert!(c.find(&key).is_some());
+                            continue;
+                        }
+                        let at = if next(2) == 0 {
+                            model.len()
+                        } else {
+                            next(model.len() as u64 + 1) as usize
+                        };
+                        let item = CollItem {
+                            key: keyed.then(|| key.clone()),
+                            value: Variant::Long(0),
+                        };
+                        model.insert(at, item.clone());
+                        c.insert(at, item);
+                    }
+                    2 if !model.is_empty() => {
+                        let at = next(model.len() as u64) as usize;
+                        model.remove(at);
+                        c.remove(at);
+                    }
+                    _ => {
+                        assert_eq!(c.find(&key), naive(&model, &key));
+                    }
+                }
+                assert_eq!(c.len(), model.len());
+            }
+            for i in 0..40 {
+                let key = format!("k{i}");
+                assert_eq!(c.find(&key), naive(&model, &key));
+            }
+        }
+    }
 }

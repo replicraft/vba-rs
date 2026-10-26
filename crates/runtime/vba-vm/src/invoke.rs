@@ -595,7 +595,7 @@ impl Vm {
 
     // ---- Collection ------------------------------------------------------------------
 
-    fn coll_items(&mut self, id: u64) -> VResult<&mut Vec<CollItem>> {
+    fn coll_items(&mut self, id: u64) -> VResult<&mut Coll> {
         match self.objects.get_mut(&id).map(|o| &mut o.kind) {
             Some(ObjKind::Collection(items)) => Ok(items),
             _ => Err(VbaError::new(91).into()),
@@ -611,8 +611,7 @@ impl Vm {
             Variant::String(s) => {
                 let key = s.to_string_lossy().to_lowercase();
                 items
-                    .iter()
-                    .position(|i| i.key.as_deref() == Some(key.as_str()))
+                    .find(&key)
                     .ok_or_else(|| VbaError::INVALID_PROCEDURE_CALL.into())
             }
             other => {
@@ -655,7 +654,7 @@ impl Vm {
                 let idx = self.bound_value(b)?.ok_or(VbaError::new(449))?;
                 let pos = self.coll_position(id, &idx)?;
                 if name == "item" {
-                    let v = self.coll_items(id)?[pos].value.clone();
+                    let v = self.coll_items(id)?.get(pos).ok_or(VbaError::new(91))?.value.clone();
                     self.retain_value(&v);
                     Ok(v)
                 } else {
@@ -692,10 +691,7 @@ impl Vm {
                     }
                 };
                 if let Some(k) = &key
-                    && self
-                        .coll_items(id)?
-                        .iter()
-                        .any(|i| i.key.as_deref() == Some(k.as_str()))
+                    && self.coll_items(id)?.contains(k)
                 {
                     return Err(VbaError::new(457).into());
                 }

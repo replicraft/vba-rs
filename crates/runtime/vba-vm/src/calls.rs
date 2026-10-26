@@ -478,7 +478,7 @@ impl Vm {
                 // Through the cascade like class fields, so a long chain of
                 // collections holding collections is destroyed in a loop and
                 // not by recursion on the native stack.
-                let values: Vec<Variant> = items.into_iter().map(|it| it.value).collect();
+                let values: Vec<Variant> = items.into_values();
                 let _ = self.release_cascade(values);
             }
             ObjKind::Err | ObjKind::Debug => {}

@@ -1009,7 +1009,7 @@ impl Vm {
                     self.objects.insert(
                         id,
                         Obj {
-                            kind: ObjKind::Collection(Vec::new()),
+                            kind: ObjKind::Collection(Default::default()),
                             refs: 1,
                             terminating: false,
                             sinks: Vec::new(),

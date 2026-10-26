@@ -599,7 +599,7 @@ impl Vm {
                     }
                 }
                 ObjKind::Collection(items) => {
-                    for i in items {
+                    for i in items.iter() {
                         self.mark(&i.value, &mut marks);
                     }
                 }
