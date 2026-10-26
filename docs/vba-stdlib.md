@@ -66,9 +66,7 @@ against a real VBA host.
   elements (`LBound` 0, `UBound` -1; `Option Base 1` gives 1 and 0), built with
   `VbaArray::new_empty`. A user `ReDim` to an upper bound below the lower bound
   remains error 9.
-- `Format`: fraction formats, `*` fill and `[color]`/`[condition]` sections are
-  skipped, not interpreted; locale-dependent calendars (non-Gregorian) are not
-  supported.
+- `Format`: locale-dependent calendars (non-Gregorian) are not supported.
 
 ## Rules
 
@@ -98,6 +96,25 @@ against a real VBA host.
   a descending range are error 93 (descending range: **unverified**).
 
 ### Format family (**doc**)
+- Source checked: Microsoft Learn, "Format function (Visual Basic for
+  Applications)". That page defines named formats, user-defined numeric
+  (`0 # . % , : / E- E+ e- e+ - + $ ( )`, backslash, quoted text), date/time
+  and string formats and the section rules, and nothing else: **VBA `Format`
+  has no fraction formats, no `*` fill, no `?` placeholder, no `_` spacing and
+  no `[Red]`/`[Color n]`/`[condition]` sections**. These are therefore not
+  implemented as features; the implementation merely skips `*x`, `_x` (as a
+  space), `?` (as a digit placeholder) and `[...]` so that Excel-style formats
+  do not produce garbage (**unverified** what Office does with them). The doc
+  examples are asserted in `format::tests::learn_page_*`.
+- Format is truncated to 257 characters. One to four numeric sections: pos/zero;
+  pos, neg; pos, neg, zero; pos, neg, zero, Null. An empty section between
+  semicolons uses the positive section (a negative value then gets a minus
+  sign; that sign is **unverified**). String formats: two sections, the
+  second for `Null` and `""`.
+- `Format(Null, fmt)` returns the literal text of the fourth section of a
+  four-section numeric format (or the second of a two-section string format)
+  as the page says; any other format gives `Null` (the page's four-section row
+  is the only source; **unverified** against Office).
 - Numbers are formatted from their 15-significant-digit decimal value, ties
   away from zero (so `Format(0.125,"0.00")` is `0.13`). Sections
   `positive;negative;zero`; with one section a negative value gets `-` in
@@ -115,7 +132,7 @@ against a real VBA host.
   the empty string.
 - `FormatNumber/Currency/Percent` use `-1` / `-2` (`vbUseDefault`) as defaults;
   `Null` is error 94. `FormatDateTime` `Short Time` is 24-hour `hh:mm`.
-- `Format(Null)` is `Null`; `Format$(Null)` is 94.
+- `Format(Null)` is `Null` unless a Null section exists; `Format$(Null)` is 94.
 
 ### Math
 - `Rnd`/`Randomize` (**ref**: Microsoft KB 231847 for the generator; the
