@@ -1306,6 +1306,7 @@ version = "0.1.0"
 name = "vba-stdlib"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "proptest",
  "vba-value",
 ]

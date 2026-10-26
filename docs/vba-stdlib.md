@@ -52,12 +52,23 @@ against a real VBA host.
 
 ## Not implemented (explicit errors)
 
-- `ChrB` (a one-byte string cannot be represented as UTF-16), `LeftB`/`RightB`/
-  `MidB` results with an odd byte count, `InStrB` with text comparison:
-  `Unsupported`.
-- `Asc` of characters outside Windows-1252: `Unsupported`.
-- `StrConv` modes `vbWide vbNarrow vbKatakana vbHiragana vbUnicode
-  vbFromUnicode` (and combinations): `Unsupported`.
+- Byte-oriented functions work on the UTF-16LE bytes of the string
+  (`LenB` = 2 * code units, `AscB` the low byte of the first unit). A VBA
+  BSTR may hold an odd number of bytes; `vba-value` strings are UTF-16 and
+  cannot. **Policy**: any result with an odd byte count (`ChrB`, `LeftB`,
+  `RightB`, `MidB`, and `StrConv(vbFromUnicode)` into an odd number of bytes)
+  is `Unsupported`, never silently rounded and never error 5 (it is valid VBA).
+  `InStrB` with text comparison is `Unsupported`.
+- `Asc`/`Chr` use the host locale's ANSI code page (`Locale::ansi_code_page`,
+  1252 for en-US). `Asc` of a character the page cannot encode is
+  `Unsupported` (real VBA substitutes an environment-dependent code); double
+  byte pages (932, 936, 949, 950) give `lead*256+trail` from `Asc` and accept
+  256..65535 in `Chr`.
+- `StrConv`: `vbSimplifiedChinese`, `vbTraditionalChinese` and
+  `vbLinguisticCasing` are `Unsupported`; `vbUnicode`/`vbFromUnicode` use
+  `encoding_rs` code pages only (874, 932, 936, 949, 950, 1250-1258, 10000,
+  20866, 21866, ISO-8859-x, 65001); any other page, or a `LocaleID` outside the
+  small built-in table (`textconv::lcid_code_page`), is `Unsupported`.
 - `Str` of a `Date`, `DDB` with a fractional period: `Unsupported`.
 - `TypeName` of objects and user-defined types, `IsMissing`: `VmRequired`.
 - Windows LCID collation: `Option Compare Text` is a simple per-code-unit case
@@ -88,6 +99,16 @@ against a real VBA host.
 - `StrReverse` reverses UTF-16 code units, splitting surrogate pairs
   (**unverified**). `StrConv(vbProperCase)` capitalizes after any character
   that is not a letter, digit or apostrophe (**unverified**).
+- `StrConv` width/kana (`textconv`, **unverified** against Windows for rare
+  characters): `vbWide` maps ASCII 0x20-0x7E, the symbols cent/pound/not/
+  macron/broken bar/yen/won and halfwidth katakana (with voiced and semi-voiced
+  marks combined) to fullwidth forms; `vbNarrow` is the inverse;
+  `vbKatakana`/`vbHiragana` map U+3041-3096 and U+30A1-30F6 (offset 0x60) and
+  leave halfwidth katakana and the prolonged sound mark alone. Width and kana
+  are applied before case; `vbWide`+`vbNarrow`, `vbKatakana`+`vbHiragana`,
+  and `vbUnicode`/`vbFromUnicode` with any other flag are error 5
+  (**unverified**). `vbFromUnicode` encodes unmappable characters as `?` and
+  packs the bytes two per unit, little endian.
 - `Asc`/`Chr` use Windows-1252 for 0x80-0x9F (**doc**: default ANSI code page
   assumption, documented as a gap); `ChrW`/`AscW` use UTF-16 units, `AscW`
   returning a signed `Integer` (**spec**).

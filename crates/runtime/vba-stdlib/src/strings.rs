@@ -474,17 +474,102 @@ pub mod conv {
     pub const PROPER: i32 = 3;
 }
 
-/// `StrConv(s, conversion)`. Upper, lower and proper case are implemented;
-/// the wide/narrow/katakana/hiragana/Unicode/FromUnicode modes depend on
-/// Windows code pages and are unsupported.
+/// `StrConv` flag bits not covered by [`conv`].
+mod flag {
+    pub const WIDE: i32 = 4;
+    pub const NARROW: i32 = 8;
+    pub const KATAKANA: i32 = 16;
+    pub const HIRAGANA: i32 = 32;
+    pub const UNICODE: i32 = 64;
+    pub const FROM_UNICODE: i32 = 128;
+    pub const SIMPLIFIED: i32 = 256;
+    pub const TRADITIONAL: i32 = 512;
+    pub const LINGUISTIC: i32 = 1024;
+}
+
+/// `StrConv(s, conversion)` with the Windows-1252 code page for
+/// `vbUnicode`/`vbFromUnicode`; see [`str_conv_cp`].
 pub fn str_conv(s: &VbaString, conversion: i32) -> StdResult<VbaString> {
-    match conversion {
-        0 => Ok(s.clone()),
-        conv::UPPER => Ok(ucase(s)),
-        conv::LOWER => Ok(lcase(s)),
-        conv::PROPER => {
+    str_conv_cp(s, conversion, 1252)
+}
+
+/// `StrConv(s, conversion)`.
+///
+/// Implemented: `vbUpperCase`, `vbLowerCase`, `vbProperCase`, `vbWide`,
+/// `vbNarrow`, `vbKatakana`, `vbHiragana` (width and kana first, then case;
+/// `vbWide`/`vbNarrow` and `vbKatakana`/`vbHiragana` are mutually exclusive,
+/// else error 5), and `vbUnicode`/`vbFromUnicode` through `code_page`
+/// (`encoding_rs` pages only, see [`crate::textconv::encoding_for`]; other
+/// pages are [`StdError::Unsupported`]). `vbUnicode`/`vbFromUnicode` cannot be
+/// combined with other flags (error 5, **unverified**).
+///
+/// `vbFromUnicode` yields the code page bytes packed two per `UTF-16` unit
+/// (little endian), which is how a VBA string holds them. A result with an odd
+/// number of bytes cannot be represented and is `Unsupported`.
+/// `vbSimplifiedChinese`, `vbTraditionalChinese` and `vbLinguisticCasing` are
+/// `Unsupported`; other bits are error 5.
+pub fn str_conv_cp(s: &VbaString, conversion: i32, code_page: u32) -> StdResult<VbaString> {
+    const KNOWN: i32 = 3
+        | flag::WIDE
+        | flag::NARROW
+        | flag::KATAKANA
+        | flag::HIRAGANA
+        | flag::UNICODE
+        | flag::FROM_UNICODE
+        | flag::SIMPLIFIED
+        | flag::TRADITIONAL
+        | flag::LINGUISTIC;
+    if conversion < 0 || conversion & !KNOWN != 0 {
+        return Err(E5.into());
+    }
+    let has = |f: i32| conversion & f != 0;
+    if (has(flag::WIDE) && has(flag::NARROW))
+        || (has(flag::KATAKANA) && has(flag::HIRAGANA))
+        || (has(flag::SIMPLIFIED) && has(flag::TRADITIONAL))
+    {
+        return Err(E5.into());
+    }
+    if has(flag::UNICODE) || has(flag::FROM_UNICODE) {
+        if conversion & !(flag::UNICODE | flag::FROM_UNICODE) != 0
+            || (has(flag::UNICODE) && has(flag::FROM_UNICODE))
+        {
+            return Err(E5.into());
+        }
+        let bytes: Vec<u8> = s.as_units().iter().flat_map(|u| u.to_le_bytes()).collect();
+        if has(flag::FROM_UNICODE) {
+            let enc = crate::textconv::encode(s, code_page)?;
+            return from_bytes(&enc);
+        }
+        return crate::textconv::decode(&bytes, code_page);
+    }
+    if has(flag::SIMPLIFIED) || has(flag::TRADITIONAL) {
+        return Err(StdError::Unsupported(
+            "StrConv vbSimplifiedChinese/vbTraditionalChinese",
+        ));
+    }
+    if has(flag::LINGUISTIC) {
+        return Err(StdError::Unsupported("StrConv vbLinguisticCasing"));
+    }
+    let mut r = s.clone();
+    if has(flag::WIDE) {
+        r = crate::textconv::to_wide(&r);
+    }
+    if has(flag::NARROW) {
+        r = crate::textconv::to_narrow(&r);
+    }
+    if has(flag::KATAKANA) {
+        r = crate::textconv::to_katakana(&r);
+    }
+    if has(flag::HIRAGANA) {
+        r = crate::textconv::to_hiragana(&r);
+    }
+    match conversion & 3 {
+        0 => Ok(r),
+        conv::UPPER => Ok(ucase(&r)),
+        conv::LOWER => Ok(lcase(&r)),
+        _ => {
             let mut at_start = true;
-            let units = s
+            let units = r
                 .as_units()
                 .iter()
                 .map(|&u| {
@@ -497,14 +582,62 @@ pub fn str_conv(s: &VbaString, conversion: i32) -> StdResult<VbaString> {
                 .collect();
             Ok(VbaString::from_units(units))
         }
-        4 | 8 | 16 | 32 | 64 | 128 | 1024 | 2048 => Err(StdError::Unsupported(
-            "StrConv modes that depend on Windows code pages or LCIDs",
-        )),
-        c if c > 0 && c & !(3 | 4 | 8 | 16 | 32 | 64 | 128 | 1024 | 2048) == 0 => Err(
-            StdError::Unsupported("StrConv combinations that depend on Windows code pages"),
-        ),
-        _ => Err(E5.into()),
     }
+}
+
+/// `Asc` in an arbitrary supported code page: the first character encoded in
+/// `code_page`; a double-byte character yields `lead * 256 + trail` as a
+/// signed `Integer`. Unmappable characters are `Unsupported` (real VBA returns
+/// an environment-dependent substitute).
+pub fn asc_cp(s: &VbaString, code_page: u32) -> StdResult<i16> {
+    if code_page == 1252 {
+        return asc(s);
+    }
+    let first = char::decode_utf16(s.as_units().iter().copied())
+        .next()
+        .ok_or(E5)?
+        .map_err(|_| StdError::Unsupported("Asc of an unpaired surrogate"))?;
+    let enc = crate::textconv::encoding_for(code_page).ok_or(StdError::Unsupported(
+        "code page not supported by encoding_rs",
+    ))?;
+    let mut buf = [0u8; 4];
+    let (bytes, _, bad) = enc.encode(first.encode_utf8(&mut buf));
+    if bad {
+        return Err(StdError::Unsupported(
+            "Asc of a character outside the code page",
+        ));
+    }
+    match bytes.as_ref() {
+        [b] => Ok(i16::from(*b)),
+        [l, t] => Ok(((u16::from(*l) << 8) | u16::from(*t)) as i16),
+        _ => Err(StdError::Unsupported("Asc of a multi-byte character")),
+    }
+}
+
+/// `Chr` in a supported code page. 0..=255 is one byte; 256..=65535 is a
+/// lead/trail byte pair and only valid for double-byte pages (932, 936, 949,
+/// 950); anything undecodable is error 5.
+pub fn chr_cp(n: i32, code_page: u32) -> StdResult<VbaString> {
+    if code_page == 1252 {
+        return Ok(chr(n)?);
+    }
+    let bytes: Vec<u8> = match n {
+        0..=255 => vec![n as u8],
+        256..=65535 if crate::textconv::is_double_byte(code_page) => {
+            vec![(n >> 8) as u8, n as u8]
+        }
+        _ => return Err(E5.into()),
+    };
+    let enc = crate::textconv::encoding_for(code_page).ok_or(StdError::Unsupported(
+        "code page not supported by encoding_rs",
+    ))?;
+    let (text, bad) = enc
+        .decode_without_bom_handling_and_without_replacement(&bytes)
+        .map_or_else(|| (std::borrow::Cow::Borrowed(""), true), |t| (t, false));
+    if bad || text.is_empty() {
+        return Err(E5.into());
+    }
+    Ok(VbaString::from(text.as_ref()))
 }
 
 // ---------------------------------------------------------------------------
@@ -707,15 +840,24 @@ pub(crate) fn f_str_comp(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> 
         mode,
     )))
 }
-pub(crate) fn f_str_conv(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+pub(crate) fn f_str_conv(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     null_guard!(a, 0);
-    Ok(text(str_conv(&a.string(0)?, a.long(1)?)?))
+    let page = match a.long_or(2, 0)? {
+        0 => ctx.host.locale().ansi_code_page,
+        lcid => crate::textconv::lcid_code_page(lcid).ok_or(StdError::Unsupported(
+            "StrConv LocaleID without a known code page",
+        ))?,
+    };
+    Ok(text(str_conv_cp(&a.string(0)?, a.long(1)?, page)?))
 }
-pub(crate) fn f_asc(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+pub(crate) fn f_asc(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     if a.is_null(0) {
         return Err(VbaError::INVALID_USE_OF_NULL.into());
     }
-    Ok(Variant::Integer(asc(&a.string(0)?)?))
+    Ok(Variant::Integer(asc_cp(
+        &a.string(0)?,
+        ctx.host.locale().ansi_code_page,
+    )?))
 }
 pub(crate) fn f_asc_w(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     if a.is_null(0) {
@@ -729,11 +871,11 @@ pub(crate) fn f_asc_b(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     }
     Ok(Variant::Integer(i16::from(asc_b(&a.string(0)?)?)))
 }
-pub(crate) fn f_chr(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+pub(crate) fn f_chr(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     if a.is_null(0) {
         return Err(VbaError::INVALID_USE_OF_NULL.into());
     }
-    Ok(text(chr(a.long(0)?)?))
+    Ok(text(chr_cp(a.long(0)?, ctx.host.locale().ansi_code_page)?))
 }
 pub(crate) fn f_chr_w(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     if a.is_null(0) {

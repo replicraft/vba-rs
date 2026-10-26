@@ -1297,7 +1297,10 @@ mod tests {
             Variant::from("none")
         );
         let one = VbaString::from("0");
-        assert_eq!(format(&Variant::Null, Some(&one), &env).unwrap(), Variant::Null);
+        assert_eq!(
+            format(&Variant::Null, Some(&one), &env).unwrap(),
+            Variant::Null
+        );
         // Strings: second section for Null and "".
         let two = VbaString::from("@@;\"empty\"");
         assert_eq!(

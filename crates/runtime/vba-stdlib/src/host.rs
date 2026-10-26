@@ -73,6 +73,9 @@ pub struct Locale {
     pub medium_time: String,
     /// `Format` pattern of `"Long Time"`.
     pub long_time: String,
+    /// Windows ANSI code page used by `Asc`, `Chr` and `StrConv`
+    /// (`vbUnicode`/`vbFromUnicode`); 1252 for en-US.
+    pub ansi_code_page: u32,
 }
 
 impl Locale {
@@ -128,6 +131,7 @@ impl Locale {
             short_time: "hh:mm".into(),
             medium_time: "hh:mm AM/PM".into(),
             long_time: "h:mm:ss AM/PM".into(),
+            ansi_code_page: 1252,
         }
     }
 }

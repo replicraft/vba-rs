@@ -220,6 +220,34 @@ fn asc_chr() {
 }
 
 #[test]
+fn byte_view_of_strings() {
+    // Byte semantics are the UTF-16LE bytes: LenB = 2 * Len in code units.
+    let smile = "\u{1F600}"; // two code units, four bytes
+    let mut e = Env::new();
+    assert_eq!(e.call("LenB", &[s(smile)]), Ok(Variant::Long(4)));
+    assert_eq!(e.call("Len", &[s(smile)]), Ok(Variant::Long(2)));
+    assert_eq!(e.call("AscB", &[s("A")]), Ok(Variant::Integer(0x41)));
+    assert_eq!(e.call("AscB", &[s("\u{0141}")]), Ok(Variant::Integer(0x41)));
+    assert_eq!(e.call("LeftB", &[s("abc"), n(2)]), Ok(s("a")));
+    assert_eq!(e.call("RightB", &[s("abc"), n(4)]), Ok(s("bc")));
+    assert_eq!(e.call("MidB", &[s("abc"), n(3), n(2)]), Ok(s("b")));
+    assert_eq!(e.call("InStrB", &[s("abc"), s("b")]), Ok(Variant::Long(3)));
+    // Policy: results with an odd byte count cannot be a UTF-16 string and
+    // are an explicit Unsupported error, never silently rounded.
+    for (f, args) in [
+        ("LeftB", vec![s("abc"), n(3)]),
+        ("RightB", vec![s("abc"), n(1)]),
+        ("MidB", vec![s("abc"), n(2), n(3)]),
+    ] {
+        assert!(
+            matches!(e.call(f, &args), Err(StdError::Unsupported(_))),
+            "{f}"
+        );
+    }
+    assert_eq!(e.call("LeftB", &[s("abc"), n(-1)]), Err(err(5)));
+}
+
+#[test]
 fn strcomp_strconv() {
     run(vec![
         (
@@ -241,15 +269,77 @@ fn strcomp_strconv() {
         ("StrConv", vec![s("Hello"), n(-5)], Err(5)),
     ]);
     let mut e = Env::new();
-    for mode in [4, 8, 16, 32, 64, 128, 65] {
+    // Width and kana.
+    run(vec![
+        ("StrConv", vec![s("Ab1"), n(4)], st("Ａｂ１")),
+        ("StrConv", vec![s("Ａｂ１"), n(8)], st("Ab1")),
+        ("StrConv", vec![s("ひら"), n(16)], st("ヒラ")),
+        ("StrConv", vec![s("ヒラ"), n(32)], st("ひら")),
+        ("StrConv", vec![s("ab"), n(4 | 1)], st("ＡＢ")),
+        ("StrConv", vec![s("ｶﾞ"), n(4 | 32)], st("が")),
+        ("StrConv", vec![s("a"), n(4 | 8)], Err(5)),
+        ("StrConv", vec![s("a"), n(16 | 32)], Err(5)),
+        ("StrConv", vec![s("a"), n(65)], Err(5)),
+        ("StrConv", vec![s("a"), n(64 | 128)], Err(5)),
+        ("StrConv", vec![s("a"), n(2048)], Err(5)),
+    ]);
+    // Unicode <-> ANSI bytes: two bytes pack into one UTF-16 unit.
+    let units = |u: &[u16]| Variant::String(vba_value::VbaString::from_units(u.to_vec()));
+    assert_eq!(e.call("StrConv", &[s("ab"), n(128)]), Ok(units(&[0x6261])));
+    assert_eq!(e.call("StrConv", &[units(&[0x6261]), n(64)]), Ok(s("ab")));
+    assert_eq!(
+        e.call("StrConv", &[s("\u{e9}\u{3a9}"), n(128)]),
+        Ok(units(&[0x3FE9]))
+    );
+    // Japanese LocaleID selects code page 932.
+    assert_eq!(
+        e.call("StrConv", &[s("\u{3042}\u{3044}"), n(128), n(0x411)]),
+        Ok(units(&[0xA082, 0xA282]))
+    );
+    assert_eq!(
+        e.call("StrConv", &[units(&[0xA082, 0xA282]), n(64), n(0x411)]),
+        Ok(s("\u{3042}\u{3044}"))
+    );
+    // Odd byte counts and unsupported pages/flags are explicit errors.
+    for (text, mode, lcid) in [
+        ("a", 128, 0),
+        ("a", 256, 0),
+        ("a", 512, 0),
+        ("a", 1024, 0),
+        ("ab", 128, 0x1234),
+    ] {
         assert!(
             matches!(
-                e.call("StrConv", &[s("a"), n(mode)]),
+                e.call("StrConv", &[s(text), n(mode), n(lcid)]),
                 Err(StdError::Unsupported(_))
             ),
-            "{mode}"
+            "{mode} {lcid}"
         );
     }
+    // Typed API with explicit code pages.
+    use vba_stdlib::strings::{asc_cp, chr_cp, str_conv_cp};
+    let v = |x: &str| vba_value::VbaString::from(x);
+    assert_eq!(asc_cp(&v("\u{3042}"), 932).unwrap(), 0x82A0u16 as i16);
+    assert_eq!(asc_cp(&v("A"), 932).unwrap(), 65);
+    assert_eq!(asc_cp(&v("\u{0416}"), 1251).unwrap(), 0xC6);
+    assert!(matches!(
+        asc_cp(&v("\u{3042}"), 1252),
+        Err(StdError::Unsupported(_))
+    ));
+    assert!(matches!(
+        asc_cp(&v("a"), 437),
+        Err(StdError::Unsupported(_))
+    ));
+    assert_eq!(chr_cp(0x82A0, 932).unwrap(), v("\u{3042}"));
+    assert_eq!(chr_cp(0xC6, 1251).unwrap(), v("\u{0416}"));
+    assert!(chr_cp(0x82A0, 1251).is_err());
+    assert!(chr_cp(256, 1252).is_err());
+    assert_eq!(
+        str_conv_cp(&v("\u{3042}\u{3044}"), 128, 932)
+            .unwrap()
+            .as_units(),
+        &[0xA082, 0xA282]
+    );
 }
 
 #[test]

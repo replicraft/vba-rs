@@ -25,6 +25,7 @@ pub mod like;
 pub mod math;
 pub mod registry;
 pub mod strings;
+pub mod textconv;
 
 pub use call::{Args, Ctx, State};
 pub use error::{StdError, StdResult};
