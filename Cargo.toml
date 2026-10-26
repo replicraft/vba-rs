@@ -42,6 +42,9 @@ vba-wine = { path = "crates/windows/vba-wine" }
 # Error handling
 thiserror = "2"
 
+# Data structures
+bitflags = "2"
+
 # Binary parsing
 cfb = "0.15"
 encoding_rs = "0.8"

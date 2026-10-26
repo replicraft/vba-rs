@@ -43,16 +43,16 @@ impl Member {
     fn supports(&self) -> InvokeFlags {
         let mut f = InvokeFlags::NONE;
         if self.method.is_some() {
-            f = f | InvokeFlags::METHOD;
+            f |= InvokeFlags::METHOD;
         }
         if self.get.is_some() {
-            f = f | InvokeFlags::PROPERTY_GET;
+            f |= InvokeFlags::PROPERTY_GET;
         }
         if self.put.is_some() {
-            f = f | InvokeFlags::PROPERTY_PUT;
+            f |= InvokeFlags::PROPERTY_PUT;
         }
         if self.put_ref.is_some() {
-            f = f | InvokeFlags::PROPERTY_PUT_REF;
+            f |= InvokeFlags::PROPERTY_PUT_REF;
         }
         f
     }

@@ -6,7 +6,7 @@ use crate::error::DispError;
 use crate::events::EventSource;
 use crate::hresult;
 use crate::table::ObjectTable;
-use std::ops::BitOr;
+use bitflags::bitflags;
 use std::rc::Rc;
 use vba_core::VbaError;
 use vba_value::{ObjectHandle, Variant};
@@ -34,47 +34,35 @@ impl DispId {
     pub const COLLECT: DispId = DispId(-8);
 }
 
-/// `Invoke` flags (`DISPATCH_*`), combinable with `|`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct InvokeFlags(pub u16);
+bitflags! {
+    /// `Invoke` flags (`DISPATCH_*`), combinable with `|`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+    pub struct InvokeFlags: u16 {
+        /// No flags.
+        const NONE = 0;
+        /// `DISPATCH_METHOD`.
+        const METHOD = 1;
+        /// `DISPATCH_PROPERTYGET`.
+        const PROPERTY_GET = 2;
+        /// `DISPATCH_PROPERTYPUT` (Let).
+        const PROPERTY_PUT = 4;
+        /// `DISPATCH_PROPERTYPUTREF` (Set).
+        const PROPERTY_PUT_REF = 8;
+    }
+}
 
 impl InvokeFlags {
-    /// No flags.
-    pub const NONE: InvokeFlags = InvokeFlags(0);
-    /// `DISPATCH_METHOD`.
-    pub const METHOD: InvokeFlags = InvokeFlags(1);
-    /// `DISPATCH_PROPERTYGET`.
-    pub const PROPERTY_GET: InvokeFlags = InvokeFlags(2);
-    /// `DISPATCH_PROPERTYPUT` (Let).
-    pub const PROPERTY_PUT: InvokeFlags = InvokeFlags(4);
-    /// `DISPATCH_PROPERTYPUTREF` (Set).
-    pub const PROPERTY_PUT_REF: InvokeFlags = InvokeFlags(8);
-
-    /// `true` if every bit of `other` is set.
-    pub const fn contains(self, other: InvokeFlags) -> bool {
-        self.0 & other.0 == other.0
-    }
-
-    /// `true` if any bit of `other` is set.
-    pub const fn intersects(self, other: InvokeFlags) -> bool {
-        self.0 & other.0 != 0
-    }
+    const READ_BITS: InvokeFlags = InvokeFlags::METHOD.union(InvokeFlags::PROPERTY_GET);
+    const WRITE_BITS: InvokeFlags = InvokeFlags::PROPERTY_PUT.union(InvokeFlags::PROPERTY_PUT_REF);
 
     /// `true` for a read (Method and/or PropertyGet, no put bit).
     pub const fn is_read(self) -> bool {
-        self.intersects(InvokeFlags(3)) && !self.intersects(InvokeFlags(12))
+        self.intersects(Self::READ_BITS) && !self.intersects(Self::WRITE_BITS)
     }
 
     /// `true` for PropertyPut or PropertyPutRef.
     pub const fn is_write(self) -> bool {
-        self.intersects(InvokeFlags(12))
-    }
-}
-
-impl BitOr for InvokeFlags {
-    type Output = InvokeFlags;
-    fn bitor(self, rhs: InvokeFlags) -> InvokeFlags {
-        InvokeFlags(self.0 | rhs.0)
+        self.intersects(Self::WRITE_BITS)
     }
 }
 
