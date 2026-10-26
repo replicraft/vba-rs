@@ -31,6 +31,7 @@ use crate::options::{Limits, StaleCache, WriteOptions};
 use crate::project_stream::{self, LineEdit};
 use crate::read::{decompress_stream, module_kind};
 use crate::signature::SignatureKind;
+use crate::streams::ProjectStreams;
 
 /// `_VBA_PROJECT` header with no performance cache: Reserved1 `0x61CC`,
 /// Version `0xFFFF`, Reserved2 `0x00`, Reserved3 `0x0001` (§2.3.4.1, §3.1.1).
@@ -43,7 +44,7 @@ fn fixed_time() -> std::time::SystemTime {
 
 /// Streams and storages to emit.
 pub(crate) struct Layout {
-    pub(crate) streams: BTreeMap<String, Vec<u8>>,
+    pub(crate) streams: ProjectStreams,
     pub(crate) storages: BTreeMap<String, ([u8; 16], u32)>,
     pub(crate) version: u16,
 }
@@ -51,7 +52,7 @@ pub(crate) struct Layout {
 impl Layout {
     pub(crate) fn new() -> Self {
         Self {
-            streams: BTreeMap::new(),
+            streams: ProjectStreams::new(),
             storages: BTreeMap::new(),
             version: 3,
         }
@@ -109,28 +110,53 @@ pub fn write_project_with_report(
     project: &VbaProject,
     options: &WriteOptions,
 ) -> Result<WriteOutput, Error> {
+    let (layout, report) = build(project, options)?;
+    Ok(WriteOutput {
+        bytes: assemble(layout)?,
+        report,
+    })
+}
+
+/// Writes a project as a complete [`ProjectStreams`] set instead of a
+/// compound file, with the same report as [`write_project_with_report`].
+///
+/// This is the seam for an embedder that stores the VBA streams itself: it
+/// can write back exactly the streams listed in
+/// [`WriteReport::changed_streams`] (and delete the ones that are no longer
+/// in the returned set; see that field). Streams not listed are byte for byte
+/// what was read. The same edits are supported and refused as in
+/// [`write_project`], including the compiled-only rules.
+pub fn write_project_streams(
+    project: &VbaProject,
+    options: &WriteOptions,
+) -> Result<(ProjectStreams, WriteReport), Error> {
+    let (layout, report) = build(project, options)?;
+    Ok((layout.streams, report))
+}
+
+fn build(project: &VbaProject, options: &WriteOptions) -> Result<(Layout, WriteReport), Error> {
     let (layout, changed_streams) = if project.preserved.contains(keys::DIR) {
         edit_layout(project, options)?
     } else {
         let layout = fresh_layout(project)?;
-        let all = layout.streams.keys().cloned().collect();
+        let all = layout.streams.paths().map(str::to_owned).collect();
         (layout, all)
     };
     let signature_streams: Vec<String> = layout
         .streams
-        .keys()
+        .paths()
         .filter(|p| SignatureKind::from_stream_name(p).is_some())
-        .cloned()
+        .map(str::to_owned)
         .collect();
     let signatures_invalidated = !signature_streams.is_empty() && !changed_streams.is_empty();
-    Ok(WriteOutput {
-        bytes: assemble(layout)?,
-        report: WriteReport {
+    Ok((
+        layout,
+        WriteReport {
             changed_streams,
             signature_streams,
             signatures_invalidated,
         },
-    })
+    ))
 }
 
 fn is_srp(path: &str) -> bool {
@@ -156,7 +182,7 @@ fn copy_preserved(project: &VbaProject, layout: &mut Layout, drop_srp: bool) -> 
         if drop_srp && is_srp(path) {
             continue;
         }
-        layout.streams.insert(path.to_owned(), bytes.to_vec());
+        layout.streams.insert(path, bytes.to_vec());
     }
     if let Some(v) = project
         .preserved
@@ -277,11 +303,7 @@ fn edit_layout(
         }
     }
 
-    let mut layout = Layout {
-        streams: BTreeMap::new(),
-        storages: BTreeMap::new(),
-        version: 3,
-    };
+    let mut layout = Layout::new();
     copy_preserved(project, &mut layout, invalidate)?;
 
     let vba = vba_storage_name(project);
@@ -306,7 +328,7 @@ fn edit_layout(
     );
 
     layout.streams.insert(
-        "PROJECT".into(),
+        "PROJECT",
         patched_project_stream(project, &orig, &orig_props, project_raw)?,
     );
 
@@ -341,11 +363,15 @@ fn edit_layout(
             .insert(format!("{vba}/{}", dm.stream_name), stream);
     }
 
+    for sp in spellings(project) {
+        layout.streams.respell(sp);
+    }
+
     // Which streams differ from the project as read?
-    let mut original: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let mut original = ProjectStreams::new();
     original.insert(format!("{vba}/dir"), orig_dir_compressed.to_vec());
     original.insert(format!("{vba}/_VBA_PROJECT"), vp.to_vec());
-    original.insert("PROJECT".into(), project_raw.to_vec());
+    original.insert("PROJECT", project_raw.to_vec());
     for (m, dm) in project.modules.iter().zip(&orig.modules) {
         let mut bytes = m
             .preserved
@@ -362,20 +388,34 @@ fn edit_layout(
     for (path, bytes) in project.preserved.iter_prefixed(keys::STREAM_PREFIX) {
         original.insert(path.to_owned(), bytes.to_vec());
     }
+    for sp in spellings(project) {
+        original.respell(sp);
+    }
     let mut changed: Vec<String> = original
         .iter()
-        .filter(|(path, bytes)| layout.streams.get(*path) != Some(*bytes))
-        .map(|(path, _)| path.clone())
+        .filter(|(path, bytes)| layout.streams.get(path) != Some(*bytes))
+        .map(|(path, _)| path.to_owned())
         .collect();
     changed.extend(
         layout
             .streams
-            .keys()
-            .filter(|p| !original.contains_key(*p))
-            .cloned(),
+            .paths()
+            .filter(|p| !original.contains(p))
+            .map(str::to_owned),
     );
     changed.sort();
     Ok((layout, changed))
+}
+
+/// The recorded spellings of the project's own streams (see
+/// [`keys::STREAM_SPELLINGS`]).
+fn spellings(project: &VbaProject) -> Vec<&str> {
+    project
+        .preserved
+        .get(keys::STREAM_SPELLINGS)
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .map(|t| t.split('\n').collect())
+        .unwrap_or_default()
 }
 
 /// The name under which the VBA storage appears in the preserved data.
@@ -385,6 +425,11 @@ fn vba_storage_name(project: &VbaProject) -> String {
         .iter_prefixed(keys::STORAGE_PREFIX)
         .map(|(p, _)| p)
         .find(|p| p.eq_ignore_ascii_case("VBA"))
+        .or_else(|| {
+            spellings(project)
+                .first()
+                .and_then(|dir| dir.split('/').next())
+        })
         .unwrap_or("VBA")
         .to_owned()
 }
@@ -511,21 +556,17 @@ fn fresh_layout(project: &VbaProject) -> Result<Layout, Error> {
         trailing: Vec::new(),
         unknown: Vec::new(),
     };
-    let mut layout = Layout {
-        streams: BTreeMap::new(),
-        storages: BTreeMap::new(),
-        version: 3,
-    };
+    let mut layout = Layout::new();
     copy_preserved(project, &mut layout, false)?;
     layout
         .streams
-        .insert("VBA/dir".into(), compress(&info.serialize()?));
+        .insert("VBA/dir", compress(&info.serialize()?));
     layout
         .streams
-        .insert("VBA/_VBA_PROJECT".into(), EMPTY_VBA_PROJECT.to_vec());
+        .insert("VBA/_VBA_PROJECT", EMPTY_VBA_PROJECT.to_vec());
     layout
         .streams
-        .insert("PROJECT".into(), project_stream::generate(project)?);
+        .insert("PROJECT", project_stream::generate(project)?);
     for m in &project.modules {
         let stream = if m.has_source {
             let encoded = codepage::encode(
@@ -576,7 +617,7 @@ pub(crate) fn assemble(layout: Layout) -> Result<Vec<u8>, Error> {
             .map_err(err)?;
         cf.set_state_bits(&full, *bits).map_err(err)?;
     }
-    for (path, data) in &layout.streams {
+    for (path, data) in layout.streams.iter() {
         if let Some((parent, _)) = path.rsplit_once('/') {
             let parent = format!("/{parent}");
             if !cf.is_storage(&parent) {

@@ -33,6 +33,7 @@ mod options;
 mod project_stream;
 mod read;
 pub mod signature;
+mod streams;
 mod write;
 
 pub use aux_streams::{
@@ -45,8 +46,11 @@ pub use container::{
 };
 pub use error::Error;
 pub use options::{Limits, ReadMode, StaleCache, WriteOptions};
-pub use read::{read_project, read_project_with};
-pub use write::{WriteOutput, WriteReport, write_project, write_project_with_report};
+pub use read::{read_project, read_project_from_streams, read_project_with};
+pub use streams::ProjectStreams;
+pub use write::{
+    WriteOutput, WriteReport, write_project, write_project_streams, write_project_with_report,
+};
 
 /// Keys under which this crate stores uninterpreted data in the model's
 /// [`Preserved`](vba_project::Preserved) slots.
@@ -66,7 +70,13 @@ pub mod keys {
     /// Project: the original `PROJECT` stream.
     pub const PROJECT_STREAM: &str = "ovba:project-stream";
     /// Project: the original `_VBA_PROJECT` stream, including its cache.
-    pub const VBA_PROJECT_STREAM: &str = "ovba:vba-project-stream";
+    pub const VBA_PROJECT_STREAM: &str = vba_project::VBA_PROJECT_STREAM_KEY;
+    /// Project: the spellings, one per line, of the `dir`, `_VBA_PROJECT`,
+    /// `PROJECT` and module streams when they differ from the canonical
+    /// `VBA/dir`, `VBA/_VBA_PROJECT`, `PROJECT`, `VBA/<stream name>` (stream
+    /// paths are located case-insensitively; this lets a write-back use the
+    /// same paths it was given).
+    pub const STREAM_SPELLINGS: &str = "ovba:stream-spellings";
     /// Project: compound file version number (3 or 4), one byte.
     pub const CFB_VERSION: &str = "ovba:cfb-version";
     /// Project: prefix of preserved streams, followed by the stream path.

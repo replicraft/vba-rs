@@ -12,6 +12,7 @@ use crate::error::Error;
 use crate::keys;
 use crate::options::{Limits, ReadMode};
 use crate::project_stream::{self, ProjectProps};
+use crate::streams::ProjectStreams;
 
 /// Size of the version-independent header of the `_VBA_PROJECT` stream
 /// (§2.3.4.1).
@@ -155,25 +156,77 @@ pub fn read_project_with(
     mode: ReadMode,
 ) -> Result<VbaProject, Error> {
     let (mut cf, nodes) = open_and_list(bytes, limits)?;
+    find(&nodes, "VBA", false).ok_or_else(|| Error::MissingStream { path: "VBA".into() })?;
+    let mut streams = ProjectStreams::new();
+    for node in nodes.iter().filter(|n| n.is_stream) {
+        streams.insert(&node.path, read_stream(&mut cf, node, limits)?);
+    }
+    let mut project = read_project_from_streams(&streams, mode, limits)?;
+    let p = &mut project.preserved;
+    p.insert(keys::CFB_VERSION, vec![cf.version().number() as u8]);
+    for node in nodes.iter().filter(|n| !n.is_stream) {
+        let mut v = node.clsid.to_vec();
+        v.extend_from_slice(&node.state_bits.to_le_bytes());
+        p.insert(format!("{}{}", keys::STORAGE_PREFIX, node.path), v);
+    }
+    Ok(project)
+}
 
-    let vba =
-        find(&nodes, "VBA", false).ok_or_else(|| Error::MissingStream { path: "VBA".into() })?;
-    let vba_prefix = vba.path.clone();
-    let required = |path: String| -> Result<&Node, Error> {
-        find(&nodes, &path, true).ok_or(Error::MissingStream { path })
+/// Reads a project from a set of named streams (`VBA/dir`,
+/// `VBA/_VBA_PROJECT`, `VBA/<module>`, `PROJECT`, and any others such as
+/// `PROJECTwm` or `VBA/__SRP_n`), without any container.
+///
+/// This is the code path [`read_project_with`] uses once it has collected the
+/// streams of a compound file, so the result is identical to reading a
+/// compound file holding the same streams, except that it carries no storage
+/// entries (CLSIDs, state bits) or compound-file version, because a stream
+/// set has none. Paths are located case-insensitively. Limits apply to the
+/// stream count, each stream, their total, and decompression.
+///
+/// Missing required streams, oversized streams and malformed content are
+/// reported as [`Error`]s.
+pub fn read_project_from_streams(
+    streams: &ProjectStreams,
+    mode: ReadMode,
+    limits: &Limits,
+) -> Result<VbaProject, Error> {
+    if streams.len() > limits.max_entries {
+        return Err(Error::TooManyEntries {
+            limit: limits.max_entries,
+        });
+    }
+    let mut total: u64 = 0;
+    for (path, data) in streams.iter() {
+        if data.len() > limits.max_stream_bytes {
+            return Err(Error::StreamTooLarge {
+                path: path.to_owned(),
+                size: data.len() as u64,
+                limit: limits.max_stream_bytes,
+            });
+        }
+        total += data.len() as u64;
+        if total > limits.max_container_bytes {
+            return Err(Error::InputTooLarge {
+                size: total,
+                limit: limits.max_container_bytes,
+            });
+        }
+    }
+    let required = |path: &str| -> Result<(&str, &[u8]), Error> {
+        streams.entry(path).ok_or_else(|| Error::MissingStream {
+            path: path.to_owned(),
+        })
     };
-    let dir_node = required(format!("{vba_prefix}/dir"))?;
-    let vp_node = required(format!("{vba_prefix}/_VBA_PROJECT"))?;
-    let project_node = required("PROJECT".into())?;
+    let (dir_path, dir_compressed) = required("VBA/dir")?;
+    let vba_prefix = dir_path.split('/').next().unwrap_or("VBA").to_owned();
+    let (vp_path, vp_raw) = required("VBA/_VBA_PROJECT")?;
+    let (project_path, project_raw) = required("PROJECT")?;
 
-    let dir_compressed = read_stream(&mut cf, dir_node, limits)?;
-    let dir_bytes = decompress_stream(&dir_compressed, &dir_node.path, limits)?;
+    let dir_bytes = decompress_stream(dir_compressed, dir_path, limits)?;
     let info = DirInfo::parse_with(&dir_bytes, mode == ReadMode::Tolerant)?;
 
-    let project_raw = read_stream(&mut cf, project_node, limits)?;
-    let props = project_stream::parse(&project_raw, info.code_page)?;
+    let props = project_stream::parse(project_raw, info.code_page)?;
 
-    let vp_raw = read_stream(&mut cf, vp_node, limits)?;
     if vp_raw.len() < VBA_PROJECT_HEADER_LEN {
         return Err(Error::VbaProjectTooShort { len: vp_raw.len() });
     }
@@ -200,14 +253,25 @@ pub fn read_project_with(
     project.references = info.references.clone();
 
     let mut consumed: BTreeSet<String> = BTreeSet::new();
-    for n in [dir_node, vp_node, project_node] {
-        consumed.insert(n.path.to_ascii_uppercase());
+    let mut spellings = vec![
+        dir_path.to_owned(),
+        vp_path.to_owned(),
+        project_path.to_owned(),
+    ];
+    let mut canonical = vec![
+        "VBA/dir".to_owned(),
+        "VBA/_VBA_PROJECT".to_owned(),
+        "PROJECT".to_owned(),
+    ];
+    for path in [dir_path, vp_path, project_path] {
+        consumed.insert(path.to_ascii_uppercase());
     }
     for dm in &info.modules {
         let path = format!("{vba_prefix}/{}", dm.stream_name);
-        let node = find(&nodes, &path, true).ok_or(Error::MissingStream { path })?;
-        consumed.insert(node.path.to_ascii_uppercase());
-        let data = read_stream(&mut cf, node, limits)?;
+        let (node_path, data) = required(&path)?;
+        consumed.insert(node_path.to_ascii_uppercase());
+        spellings.push(node_path.to_owned());
+        canonical.push(format!("VBA/{}", dm.stream_name));
         let offset = dm.text_offset as usize;
         if offset > data.len() {
             return Err(Error::ModuleOffsetOutOfRange {
@@ -220,7 +284,7 @@ pub fn read_project_with(
         let (source, has_source) = if compressed.is_empty() {
             (String::new(), false)
         } else {
-            let raw = decompress_stream(compressed, &node.path, limits)?;
+            let raw = decompress_stream(compressed, node_path, limits)?;
             (codepage::decode(info.code_page, &raw)?, true)
         };
         let mut module = Module::new(dm.name.clone(), module_kind(&props, dm), source);
@@ -245,28 +309,21 @@ pub fn read_project_with(
     }
 
     let p = &mut project.preserved;
-    p.insert(keys::DIR, dir_compressed);
-    p.insert(keys::PROJECT_STREAM, project_raw);
-    p.insert(keys::VBA_PROJECT_STREAM, vp_raw);
+    p.insert(keys::DIR, dir_compressed.to_vec());
+    p.insert(keys::PROJECT_STREAM, project_raw.to_vec());
+    p.insert(keys::VBA_PROJECT_STREAM, vp_raw.to_vec());
     if !info.trailing.is_empty() {
         p.insert(keys::DIR_TRAILING, info.trailing.clone());
     }
     if !info.unknown.is_empty() {
         p.insert(keys::DIR_UNKNOWN, UnknownRecord::encode_list(&info.unknown));
     }
-    p.insert(keys::CFB_VERSION, vec![cf.version().number() as u8]);
-
-    for node in &nodes {
-        if node.is_stream {
-            if consumed.contains(&node.path.to_ascii_uppercase()) {
-                continue;
-            }
-            let data = read_stream(&mut cf, node, limits)?;
-            p.insert(format!("{}{}", keys::STREAM_PREFIX, node.path), data);
-        } else {
-            let mut v = node.clsid.to_vec();
-            v.extend_from_slice(&node.state_bits.to_le_bytes());
-            p.insert(format!("{}{}", keys::STORAGE_PREFIX, node.path), v);
+    if spellings.iter().zip(&canonical).any(|(a, b)| a != b) {
+        p.insert(keys::STREAM_SPELLINGS, spellings.join("\n").into_bytes());
+    }
+    for (path, data) in streams.iter() {
+        if !consumed.contains(&path.to_ascii_uppercase()) {
+            p.insert(format!("{}{}", keys::STREAM_PREFIX, path), data.to_vec());
         }
     }
     Ok(project)
