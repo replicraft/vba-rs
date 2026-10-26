@@ -16,6 +16,10 @@ project. It contains no binary-format knowledge and no dependency on
 - `Reference`: `Registered`, `Project` and `Control` (the latter optionally
   carrying the original type library identifier). Library identifiers are kept
   as text and are not validated.
+- `Protection`: the restrictions the file declares. `locked_for_viewing()`,
+  `is_hidden()` and `notice()` summarize them. They describe the file and are
+  **not security**: module source is stored unencrypted in a protected
+  project, and the model enforces nothing.
 - Editing helpers on `VbaProject`: `module`, `module_mut` (case-insensitive,
   as VBA compares names), `add_module` (rejects duplicates), `remove_module`,
   `set_module_source`.

@@ -11,6 +11,9 @@
 //! * [`write_project`] writes the model back; an untouched project round-trips
 //!   with identical stream contents.
 //! * [`compress`] and [`decompress`] implement the §2.4.1 container.
+//! * [`container`] finds the project inside OOXML packages and legacy Office
+//!   documents, and replaces it inside OOXML packages.
+//! * [`signature`] parses (never verifies) digital signature streams.
 
 #[cfg(test)]
 extern crate self as vba_format;

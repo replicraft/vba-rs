@@ -2,16 +2,25 @@
 
 Crate: `crates/formats/vba-format`. An independent implementation of the
 parts of [MS-OVBA] needed to read and write a VBA project storage
-(`vbaProject.bin`, a compound file) and convert it to and from the
-`vba-project` model. Section numbers below refer to MS-OVBA.
+(`vbaProject.bin`, a compound file), to find that storage inside host
+documents, and to convert it to and from the `vba-project` model. Section
+numbers below refer to MS-OVBA unless another specification is named.
 
 ## API
 
-- `read_project(bytes, &Limits) -> Result<VbaProject, Error>`
-- `write_project(&VbaProject, &WriteOptions) -> Result<Vec<u8>, Error>`
+- `read_project(bytes, &Limits) -> Result<VbaProject, Error>` (strict) and
+  `read_project_with(bytes, &Limits, ReadMode)` (`Strict` or `Tolerant`)
+- `write_project(&VbaProject, &WriteOptions) -> Result<Vec<u8>, Error>` and
+  `write_project_with_report`, which also returns a `WriteReport` (changed
+  streams, signature streams, whether signatures are invalidated)
+- Module `container`: `extract_project`, `read_document`,
+  `locate_ooxml_project`, `replace_ooxml_project` (VBA projects inside OOXML
+  packages and legacy Office documents)
+- `module_name_map`, `license_keys` (typed `PROJECTwm` / `PROJECTlk`) and the
+  `signature` module (signature streams: structure only)
 - `compress(&[u8]) -> Vec<u8>` and `decompress(&[u8], limit)` (§2.4.1)
-- `codepage` (MBCS conversion via `encoding_rs`) and `crypt` (§2.4.3, used
-  only to report protection state)
+- `codepage` (MBCS conversion via `encoding_rs` plus OEM tables) and `crypt`
+  (§2.4.3, used to report protection state)
 - `keys`: the `Preserved` keys this crate uses.
 
 ## Implemented
@@ -23,12 +32,38 @@ parts of [MS-OVBA] needed to read and write a VBA project storage
 | `PROJECT` stream: module list, name, help, description, ID, protection (CMG/DPB/GC), host extenders, workspace | §2.3.1 |
 | `_VBA_PROJECT` header | §2.3.4.1 |
 | Module streams: split at MODULEOFFSET, decompress, decode with PROJECTCODEPAGE | §2.3.4.3 |
-| Data decryption (read side) | §2.4.3.3 |
+| Data encryption (read side, and write side for tests) | §2.4.3 |
+| `PROJECTwm`, `PROJECTlk`: typed parsing | §2.3.3, §2.3.2 |
+| Digital signature streams: structure only | MS-OSHARED §2.3.2.1, §2.3.2.2 |
+| Host documents: OOXML, `.doc`, `.xls`, `.ppt` extraction; OOXML replacement | see "Host documents" |
 
-Code pages: those `encoding_rs` implements (for example 874, 932, 936, 949,
-950, 1250 to 1258, 10000, 20866, 28592 to 28605, 51932, 54936, 65001). Others
-return `Error::UnsupportedCodePage`; they are never guessed. OEM pages such as
-437 and 850 are not available.
+## Code pages
+
+Supported: those `encoding_rs` implements (for example 866, 874, 932, 936,
+949, 950, 1250 to 1258, 10000, 20866, 28592 to 28605, 51932, 54936, 65001)
+and the OEM single-byte pages **437, 737, 775, 850, 852, 855, 857, 858, 860,
+861, 862, 863, 864, 865 and 869**, which come from small tables
+(`src/codepage_tables.rs`). The tables are generated from Microsoft's mapping
+files published at
+<https://unicode.org/Public/MAPPINGS/VENDORS/MICSFT/PC/> (`CP<n>.TXT`) and
+were cross-checked byte for byte against an independent implementation (the
+Python standard library codecs) when generated. Bytes a file leaves undefined
+(for example in 857, 864, 869) decode to U+FFFD and cannot be encoded.
+Code page 858 is not published there; it is 850 with 0xD5 mapped to U+20AC,
+checked against the same independent implementation (a test pins the single
+difference). Code page 874 stays with `encoding_rs` (Windows-874). The unit
+tests spot-check each table against entries read off the mapping files, check
+that every defined byte round-trips, and that the pages are ASCII compatible
+except where the file says otherwise (864, byte 0x25).
+
+Not supported (`Error::UnsupportedCodePage`, never guessed): the Apple code
+pages `encoding_rs` lacks (10006, 10010, 10017, 10029, 10079, 10081, 10082)
+and 10007, because no Microsoft-published mapping was available to verify
+them against (Apple's tables at unicode.org are Apple's, not Microsoft's, and
+are not assumed identical); also 1361 (Johab), and the ISO-2022 and EBCDIC
+families. A project in such a page cannot be read, because the `dir` stream
+and module source need the page; the bytes are not lost, they are simply not
+read.
 
 ## Verified against the specification
 
@@ -43,15 +78,19 @@ Tests reproduce these worked examples:
 - §3.1.6 (PROJECT stream): parsed completely; a one-line patch changes only
   that line.
 - §3.1.6 CMG/DPB/GC values decrypt to the expected state (unprotected,
-  no password, visible).
+  no password, visible), and re-encrypting the documented plaintext with the
+  documented seed, project key and ignored bytes (0x07) reproduces the three
+  documented hex strings exactly.
 
 Also tested: round trips over varied and >4096-byte inputs including
 incompressible data, property tests (`proptest`), truncation of every prefix of
 the `dir` stream, thousands of randomized corruptions of `dir`, the compound
-file and individual streams (no panics), and resource limits.
+file and individual streams (no panics), property tests that damage, truncate
+and randomize OOXML packages, legacy documents and PowerPoint streams (no
+panics, limits respected), and resource limits.
 
 Not verified: files produced by real Microsoft Office. No Office-generated
-fixture was available; all fixtures are built from the specification. The
+fixture was available; all fixtures are built from the specifications. The
 writer's output has not been opened by Office.
 
 ## Reading: limits and errors
@@ -64,15 +103,20 @@ compared with the remaining data before any allocation. `Limits` (defaults):
 | input file | 256 MiB |
 | any stream | 64 MiB |
 | decompressed stream | 64 MiB |
-| decompressed/compressed ratio | 1024 (valid data cannot exceed about 700) |
+| decompressed/compressed ratio (`dir`, modules) | 1024 (valid data cannot exceed about 700) |
 | compound file entries | 65536 |
+| ZIP archive entries | 65536 |
+| ZIP entry / compressed PowerPoint storage ratio | 1024 |
 
-Reading is strict about the `dir` grammar: an unexpected record id is
-`Error::DirUnexpectedRecord`. It is lenient about content the model ignores
-(reserved fields, redundant size fields, unknown `PROJECT` lines and sections,
-`HelpFile2`), and prefers the Unicode half of a string record when present.
-A module's kind comes from the `PROJECT` stream; if it has no entry, the
-`dir` MODULETYPE gives standard or class.
+Reading is strict about the `dir` grammar by default (`ReadMode::Strict`):
+an unexpected record id is `Error::DirUnexpectedRecord`. In
+`ReadMode::Tolerant` records whose id is outside the MS-OVBA grammar are kept
+instead (see below); a known record in the wrong place is still an error. It
+is lenient about content the model ignores (reserved fields, redundant size
+fields, unknown `PROJECT` lines and sections, `HelpFile2`), and prefers the
+Unicode half of a string record when present. A module's kind comes from the
+`PROJECT` stream; if it has no entry, the `dir` MODULETYPE gives standard or
+class.
 
 ## Preservation guarantees on write
 
@@ -104,6 +148,20 @@ and state bits of every storage.
 - `PROJECT` stream, when name, description, help file or help context changed:
   only those lines are replaced (`Key="value"`), the rest is byte-identical.
 
+**Unknown `dir` records (tolerant mode).** MS-OVBA fixes the `dir` records by
+version, so a record id outside the grammar can only come from a newer or
+non-conforming producer. `ReadMode::Tolerant` keeps each such record as an
+opaque blob, assuming the shape every other `dir` record has (16-bit id,
+32-bit size, payload; this shape is an assumption, it is not specified for
+unknown ids). Blobs are stored in order, with an anchor (the number of known
+records before them in their scope), in `Preserved` under `keys::DIR_UNKNOWN`
+(records outside modules) and `keys::MODULE_DIR_UNKNOWN` (per module). If the
+`dir` stream is not otherwise changed it is written back byte for byte; if it
+is rewritten, every blob is written again at its anchor. Removing a
+`Preserved` entry removes those records on the next rewrite. A truncated
+unknown record is an error in both modes. On conforming input both modes give
+identical models.
+
 **Stale caches.** The performance cache is compiled state. A host that trusts
 a cache that no longer matches the source runs the old code. Default
 `StaleCache::Invalidate`, when any module source changed: the edited module
@@ -118,9 +176,15 @@ consumer rebuilds caches.
 Stream contents, the version (3 or 4), storage CLSIDs and state bits are
 preserved; timestamps are set to a fixed value so output is reproducible.
 
-**Digital signatures.** Signature streams are preserved verbatim, but any edit
-invalidates a signature. Nothing is re-signed or verified, and the content
-hashes of §2.4.2 are not computed.
+**Digital signatures.** Signature streams are preserved verbatim and never
+re-signed or verified; the content hashes of §2.4.2 are not computed.
+`write_project_with_report` returns a `WriteReport`: `changed_streams` (the
+streams whose bytes differ from the project as read, including dropped ones),
+`signature_streams`, and `signatures_invalidated`, which is true when the
+project carries a signature stream and at least one stream changed. This is
+deliberately conservative: it does not work out whether the changed streams
+fall in the subset §2.4.2 hashes. Callers should tell the user that the
+signature no longer matches. `write_project` itself stays silent.
 
 ## Writing: supported edits
 
@@ -137,22 +201,119 @@ A project not read from a file (built in memory) is generated from the model:
 and one stream per module. Designer modules, passwords and `PROJECTwm` cannot
 be generated. Such output follows the specification but is untested in Office.
 
+## Host documents (`container`)
+
+| Host | Where the project is | Status |
+| --- | --- | --- |
+| `vbaProject.bin` | the file itself | read and write |
+| OOXML (`.docm .xlsm .pptm .dotm .xlam .xlsb` ...) | the part named by the `http://schemas.microsoft.com/office/2006/relationships/vbaProject` relationship of the `officeDocument` part (MS-OFFMACRO §2.1.1.2, §2.2.1.2, §2.3.1.2) | read; replace |
+| Word `.doc` | storage `Macros` (MS-DOC §2.1.9) | read |
+| Excel `.xls` | storage `_VBA_PROJECT_CUR` (MS-XLS §2.1.7.18) | read |
+| PowerPoint `.ppt` | `VbaProjectStg` persist object, reached through `Current User`, the user edit chain, the persist directory, the `DocumentContainer` and its `VBAInfoAtom`; raw or zlib-compressed (MS-PPT §2.1.2 parts 1, 2 and 11, §2.4.10, §2.4.11, §2.10.40 to §2.10.42) | read |
+
+Detection is by content (ZIP or compound file magic), not file name. OOXML
+parts are found only through relationships: the package root `_rels/.rels`,
+then the main part's relationships. Targets are resolved as OPC part names
+(relative, absolute, `..`, percent-encoding, case-insensitive match) and
+external targets are ignored. No `officeDocument` relationship, a missing
+part, more than one `vbaProject` relationship, or a target outside the package
+is an error (`NoVbaProject` or `Package`). The content type of the part is not
+checked. MS-XLS names the storage `_VBA_PROJECT_CUR` and calls it "the VBA
+Storage specified in MS-OVBA"; because MS-OVBA §2.2.2 requires a VBA storage
+to be named `VBA`, it is read as the project root storage, and a
+`_VBA_PROJECT_CUR` that holds a `dir` stream directly is returned as
+`UnsupportedContainer` rather than guessed at.
+
+For the legacy formats `extract_project` returns a new standalone compound
+file with the same streams and storages (contents identical, container layout
+new, CLSIDs and state bits and the host's compound file version kept), which
+`read_project` reads. Writing a project back into a `.doc`, `.xls` or `.ppt`
+is **not** implemented.
+
+`replace_ooxml_project(package, new_vbaProject_bin, &Limits)`:
+
+- Exact (verified by test): entry order; every entry except the project part
+  is raw-copied, so its compressed bytes, name bytes, compression method,
+  modification time, CRC, sizes, attributes, comment and extra fields are
+  identical, and so is the archive comment.
+- The project part keeps its name, compression method (deflate if the
+  original method is not available), modification time and attributes; its
+  compressed bytes, comment and extra fields are new.
+- Not byte-exact: the ZIP structure around the entries (offsets, central
+  directory, gaps or data before the first entry, ZIP64 records, data
+  descriptors) is rewritten by the `zip` crate. For a package that already
+  has the layout that crate writes, replacing the project with identical
+  bytes reproduces the file exactly (tested); packages from other producers
+  keep their entries but may differ in layout.
+- Relationships, `[Content_Types].xml` and any signature part are not
+  touched. A package without a VBA project cannot gain one this way
+  (`NoVbaProject`).
+
+Limits: input size, entry count, and for every ZIP entry or compressed
+PowerPoint storage actually read: declared size, actual size, and the ratio of
+decompressed to compressed size (`Limits::max_archive_ratio`). The old project
+part is never inflated by `replace_ooxml_project`. Duplicate entry names are
+rejected. Encrypted ZIP entries, encrypted Office documents
+(`EncryptedPackage`) and encrypted PowerPoint files are `UnsupportedContainer`.
+
+Not verified: no Office-generated `.docm`, `.xls` or `.ppt` file was
+available; all fixtures are built from the specification text. The
+relationship type of a signature part (`vbaProjectSignature`) is not in the
+specifications consulted and is not followed;
+`signature::read_signature_part` parses a signature part you supply.
+
+## Auxiliary streams
+
+- `PROJECTwm` (§2.3.3): `module_name_map(&project)` returns the NAMEMAP
+  entries (MBCS bytes as stored, decoded MBCS name, UTF-16 name).
+  `ProjectWm::to_bytes` reproduces any stream that parses.
+- `PROJECTlk` (§2.3.2): `license_keys(&project)` returns version 1 streams as
+  class id, license key bytes and the required flag. Other versions are
+  errors. `to_bytes` writes the flag as 0 or 1.
+- Both are preserved and written back unchanged whatever happens to the typed
+  view; a malformed stream is an error from these functions only, never from
+  `read_project`. Because module renames are rejected, the name map cannot go
+  out of date.
+
+## Protection
+
+`CMG`, `DPB` and `GC` are decoded (§2.3.1.15 to §2.3.1.17, §2.4.3). The model's
+`Protection` reports `user_protected`, `host_protected`, `vbe_protected`,
+`has_password` and `visible`; `locked_for_viewing()` is true when any
+protection bit is set or the project is marked not visible, `is_hidden()`
+when `GC` is 0, and `notice()` gives a one-line message. **These flags are an
+editor restriction, not security.** The module source is stored unencrypted
+(only the three values above are obfuscated; §4.2 says this is "to obfuscate
+sensitive information, not to secure it"); this crate reads it like any other
+project, and readers must not treat the flags as access control. Passwords are
+neither verified nor recovered. A CMG value that cannot be decoded leaves the
+flags at their defaults; an undecodable DPB counts as a password being
+present.
+
+## Digital signatures
+
+`signature::signatures(&project)` and `read_signature_part` find streams
+named (ignoring leading control characters and case) `DigitalSignature`,
+`DigitalSignatureEx` or `DigitalSignatureAgile`, and parse them as a
+`DigSigBlob` / `DigSigInfoSerialized` (MS-OSHARED §2.3.2.1, §2.3.2.2): the
+PKCS #7 `SignedData` and the serialized certificate store are returned as
+opaque bytes. **The stream names are not defined in MS-OVBA or MS-OSHARED**;
+they are the names Office uses. **Nothing is verified**: there is no PKCS #7
+parsing, no certificate or chain validation, no timestamp validation and no
+content hash (§2.4.2). `signature::is_signed` only means such a stream
+exists. A stream that does not parse is reported with its error and is still
+preserved.
+
 ## Not supported
 
 - **Stripped or compiled-only projects**: a module stream with nothing after
   the cache is read with `has_source == false` and an empty source. Compiled
   code is not interpreted or decompiled. Source can be supplied for such a
   module by setting it.
-- **Locked and password-protected projects**: CMG, DPB and GC are decoded to
-  report `Protection`. Module source is not encrypted by these flags and is
-  read normally. Passwords are neither verified nor recovered, and cannot be
-  written.
-- **Encrypted files** (for example an encrypted OOXML package) and
-  **wrapper formats**: only a raw `vbaProject.bin` compound file is read.
-  Extraction from OOXML zip packages and from `.doc`/`.xls` sub-storages is
-  not implemented.
-- `PROJECTwm` and `PROJECTlk` are preserved but not parsed, so renaming
-  would not update them (renaming is rejected anyway).
+- **Passwords**: neither verified, recovered nor written.
+- **Writing into legacy documents** (`.doc`, `.xls`, `.ppt`), and **adding a
+  project to a package** that has none.
+- **Encrypted files** of any kind.
 - Designer contents (VBFrame, OFORMS streams) are preserved, not parsed.
-- Records outside the grammar above in the `dir` stream are an error, not
-  skipped.
+- Code pages listed above as unsupported.
+- Signature verification, re-signing, and the contents hashes of §2.4.2.
