@@ -412,3 +412,17 @@ fn ui_automation_and_clock_are_refused_by_default() {
     assert_eq!(num(all.set_clock(ClockPart::Time, d)), 70);
     assert!(all.settings().is_none());
 }
+
+#[test]
+fn a_bulk_charge_never_records_more_than_one_step_over_the_limit() {
+    let b = Budget::new(ResourceLimits {
+        max_steps: Some(100),
+        max_memory_bytes: None,
+        max_call_depth: 10,
+    });
+    b.charge_steps(90).unwrap();
+    assert_eq!(b.charge_steps(5_000), Err(LimitExceeded::Steps));
+    assert_eq!(b.steps_used(), 101);
+    assert_eq!(b.charge_steps(5_000), Err(LimitExceeded::Steps));
+    assert_eq!(b.steps_used(), 101);
+}

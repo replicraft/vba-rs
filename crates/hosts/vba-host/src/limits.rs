@@ -263,16 +263,22 @@ impl Budget {
                 .set(self.volume_paid.get() + whole * ALLOC_BYTES_PER_STEP);
             n = n.saturating_add(whole);
         }
-        let total = self.steps.get().saturating_add(n);
+        let prev = self.steps.get();
+        let total = prev.saturating_add(n);
+        let cap = match (self.limits.max_steps, self.step_ceiling.get()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        if let Some(cap) = cap
+            && total > cap
+        {
+            // A bulk charge (work units, allocation volume) can jump far past
+            // the limit: record at most one step over it, so the counter
+            // never reads more than `limit + 1` however much was asked for.
+            self.steps.set(total.min(cap.saturating_add(1)).max(prev));
+            return Err(LimitExceeded::Steps);
+        }
         self.steps.set(total);
-        match self.limits.max_steps {
-            Some(max) if total > max => return Err(LimitExceeded::Steps),
-            _ => {}
-        }
-        match self.step_ceiling.get() {
-            Some(max) if total > max => return Err(LimitExceeded::Steps),
-            _ => {}
-        }
         if self.memory.exceeded() {
             return Err(LimitExceeded::Memory);
         }

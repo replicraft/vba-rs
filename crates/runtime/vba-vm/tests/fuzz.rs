@@ -226,6 +226,14 @@ proptest! {
 }
 
 #[test]
+fn nested_loops_with_resume_next_stay_within_the_step_budget() {
+    let body = "a = 0\nDo While a < 5\na = a + 1\nFor i = 1 To 3\nFor i = 1 To 1\ncol.Add Len(Space(Len(Space(col.Count))))\nv = v + 1\nNext\nNext\nLoop\n";
+    let src = program(1, &[body.to_owned()]);
+    let run = execute(&src).expect("compiles");
+    assert!(run.steps <= MAX_STEPS + 1, "steps {}", run.steps);
+}
+
+#[test]
 fn memory_is_bounded_by_the_configured_limits() {
     // A program that tries to grow without bound is stopped by a limit and
     // does not exhaust the machine.
