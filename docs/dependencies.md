@@ -12,12 +12,13 @@ listings) must never depend on hash order or on thread scheduling.
 
 | Dependency | Role | Used by |
 | --- | --- | --- |
-| `thiserror` | `Error` derive for library error enums | vba-cli, vba-format, vba-ffi, vba-ir, vba-project, vba-runtime, vba-winapi, vba-wine |
-| `bitflags` | Typed flag sets with `|`, `contains`, `intersects` | vba-automation (`InvokeFlags`), vba-syntax (parser block terminators) |
+| `thiserror` | `Error` derive for library error enums | vba-cli, vba-format, vba-ffi, vba-ir, vba-project, vba-runtime, vba-typelib, vba-winapi, vba-wine |
+| `bitflags` | Typed flag sets with `|`, `contains`, `intersects` | vba-automation (`InvokeFlags`), vba-syntax (parser block terminators), vba-typelib (type, function, parameter and library flags) |
 | `indexmap` | Hash map with insertion-ordered iteration, so order is structural | vba-lsp-core (open-document table), vba-scripting (`Scripting.Dictionary` key order) |
 | `cfb` | Compound File Binary container reading and writing | vba-format |
-| `encoding_rs` | Windows code page decoding and encoding | vba-format, vba-lsp-core, vba-stdlib |
+| `encoding_rs` | Windows code page decoding and encoding | vba-format, vba-lsp-core, vba-stdlib, vba-typelib (type library names and strings) |
 | `uuid` | GUIDs in project and type-library records | vba-format |
+| `object` | Reader for PE images (resource directory of `TYPELIB` resources), features `read_core`, `pe`, `std` only (Apache-2.0 OR MIT) | vba-typelib |
 | `libffi` | Dynamic native calls for `Declare` (feature `native-call`) | vba-ffi |
 | `libloading` | Loading native libraries (feature `native-call`) | vba-ffi |
 | `windows-sys` | Win32 bindings for the Wine helper (`cfg(windows)`), and Windows-header constants on every host: HRESULT/`DISP_E_*`/`TYPE_E_*`, `DISPID_*`, `DISPATCH_*`, `ERROR_*`, `CP_*`, `MB_*`/`WC_*`. Constants only: nothing is linked on non-Windows hosts | vba-wine-host, vba-automation, vba-winapi |
@@ -41,6 +42,7 @@ listings) must never depend on hash order or on thread scheduling.
 
 | Candidate | Decision and reason |
 | --- | --- |
+| `pelite`, `goblin` (PE resource walking for `vba-typelib`) | `object` was adopted. `pelite` (MIT) has the nicest resource API but contains `unsafe` in 30 source files and its last release is 0.10.0. `goblin` (MIT only) parses ELF/Mach-O/archives by default and pulls `scroll`, `plain` and `log`; its PE resource module is large (about 2000 lines) for a need of one resource type. `object` (Apache-2.0 OR MIT, same licence as the workspace) with `default-features = false` and `read_core`/`pe`/`std` adds only itself and `memchr` (already in the tree), reads PE32 and PE32+, has no `unsafe` in its PE reader (its byte-casting helpers are shared, audited code) and bounds checks every table read. |
 | `slotmap` | `ObjectTable` (vba-automation) and `HandleTable` (vba-ffi) are not slot arenas: handles are monotonic and never reused (`ObjectHandle(1), (2), ...`; tokens `0x100 + 4n`), and the VM partitions the handle space by a high bit. A slotmap reuses slots under a version counter, changes the numeric representation and eventually wraps, which weakens "a stale handle is never aliased by a later object". |
 | `smallvec` | Measured on the call path (small `Vec<BoundArg>` argument lists in vba-vm, release build): 1.30 s vs 1.32 s on a call-heavy program (`Fib(29)`), 0.58 s vs 0.58 s on the mixed program. Within noise, so the extra dependency was not kept. |
 | `rustc-hash` | No hot map in the interpreter loop: the VM's maps are touched only on late-bound calls and class default instances, and the compile-time maps are not performance relevant. Nothing to gain; every observable-order map is already sorted explicitly. |
