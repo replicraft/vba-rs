@@ -698,3 +698,33 @@ fn local_constants_fold_where_they_are_read() {
     assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
     assert_eq!(call_std(&lp, "G", vec![]), l(38));
 }
+
+#[test]
+fn the_end_statement_ends_the_run() {
+    let mut t = Tables::default();
+    let (g, n) = (t.name("g"), t.name("n"));
+    let gv = t.variable("g", Some(T_LONG));
+    let mut lines = vec![
+        Line::new()
+            .opm(Opcode::DimMarker, 16)
+            .rec(Opcode::VarDecl, 1, gv),
+    ];
+    // Sub Quit(n As Long): g = n: End: g = 99
+    let rec = t.function("Quit", None, &[("n", T_LONG, true)]);
+    lines.extend(block(
+        rec,
+        5,
+        Opcode::ProcEndSub,
+        vec![
+            Line::new().read(n).write(g),
+            Line::new().op(Opcode::HaltEnd),
+            Line::new().i16(99).write(g),
+        ],
+    ));
+    let lp = lower_kind(&t, ModuleKind::Standard, &lines, &[]);
+    assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
+    let (mut vm, _) = new_vm(&lp);
+    let p = vm.find_procedure("Cls.Quit").expect("entry");
+    let r = vm.run_procedure(p, vec![Arg::Value(l(7))]).expect("runs");
+    assert_eq!(r.status, vba_vm::RunStatus::Ended);
+}

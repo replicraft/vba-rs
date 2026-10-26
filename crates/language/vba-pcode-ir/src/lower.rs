@@ -1478,6 +1478,10 @@ impl Lw<'_> {
             }
 
             // ---- statements ----
+            Opcode::HaltEnd => {
+                self.expect_empty(ins)?;
+                self.terminate_and_continue(Terminator::End);
+            }
             Opcode::ArgMissing => self.stack.push(Ex::Missing),
             Opcode::BranchGoto => {
                 let (name, _) = self.name_of(ins)?;
@@ -1976,7 +1980,7 @@ impl Lw<'_> {
         }
         Err(self.no(
             ins.opcode,
-            "name is not a local, a procedure or a library function",
+            format!("name `{name}` is not a local, a procedure or a library function"),
         ))
     }
 
