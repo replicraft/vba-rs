@@ -16,6 +16,13 @@
 //! statements, calls of other procedures of the project and of library
 //! functions by resolved name, and `Debug.Print`.
 //!
+//! Class, document and designer modules are lowered as members of
+//! instances: module-level variables (fields) and constants, `Me`, `Property
+//! Get`/`Let`, `Class_Initialize`/`Class_Terminate`, and, in document and
+//! designer modules, members that the module does not declare (controls,
+//! base-class members), which are bound late on the host base object of the
+//! instance. Objects, arrays and user-defined types are not covered.
+//!
 //! The IR refers to a semantic program (procedure ids, signatures, local
 //! slots). It is derived from a declaration-only text that this crate
 //! generates from the *cache records* (headers, parameter and local
