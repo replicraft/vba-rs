@@ -25,6 +25,7 @@ listings) must never depend on hash order or on thread scheduling.
 | `windows-metadata`, `windows-default` | Reader for Microsoft's Win32 metadata and the `Windows.Win32.winmd` it ships (MIT OR Apache-2.0). Dev tool only | vba-winapi-gen (never a library dependency) |
 | `annotate-snippets` | Source-snippet rendering of diagnostics (CLI only; `vba-diagnostics` stays dependency-free) | vba-cli |
 | `clap` | Command-line parsing | vba-cli |
+| `clap_complete`, `clap_mangen` | `vbars completions` (shell completion scripts) and `vbars man` (manual page), generated from the same definition as `--help` | vba-cli |
 | `lsp-server`, `lsp-types` | Language server protocol transport and types | vba-lsp |
 | `serde`, `serde_json` | LSP message payloads | vba-lsp |
 

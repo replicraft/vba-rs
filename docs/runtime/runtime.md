@@ -197,15 +197,23 @@ same policy checks and scoped grants as the file statements.
 
 ## CLI
 
-`vbars` (crate `vba-cli`):
+`vbars` (crate `vba-cli`). Wherever a file is expected, `-` reads standard input (a standard
+module named `Stdin`; diagnostics name it `<stdin>`). `--color auto|always|never` controls
+ANSI colours in diagnostics: `auto` colours only a terminal and never when `NO_COLOR` is set.
+The `--json` outputs carry `schema_version` 1 and 1-based `line`/`column` positions.
+`vbars --help` lists the exit codes. A command-line usage error exits 2, the same code `run`
+uses for an unhandled run-time error; scripts that need to tell them apart should run
+`vbars run` with arguments that parse.
 
 | Command | Result |
 | --- | --- |
 | `lex FILE [--trivia] [--profile ID]` | tokens with positions, lexer diagnostics; exit 1 on errors |
-| `parse FILE [--tree] [--profile ID]` | summary or tree, parser diagnostics; exit 1 on errors |
-| `check FILE... [--profile ID]` | semantic analysis of the files (or a `vbaProject.bin`) as one project; exit 1 on errors |
-| `fmt-check FILE` | losslessness of the syntax tree and whitespace findings; exit 1 on findings |
-| `profiles` | the language profiles |
+| `parse FILE [--tree \| --json] [--profile ID]` | summary, tree or JSON, parser diagnostics; exit 1 on errors |
+| `check FILE... [--profile ID] [--json]` | semantic analysis of the files (or a `vbaProject.bin`) as one project; exit 1 on errors |
+| `fmt-check FILE [--json]` | losslessness of the syntax tree and whitespace findings; exit 1 on findings |
+| `profiles [--json]` | the language profiles |
+| `completions SHELL` | shell completion script (bash, zsh, fish, powershell, elvish) |
+| `man` | the manual page in roff |
 | `inspect FILE` | project/module listing (unchanged) |
 | `run FILE... [--entry P] [--arg V]... [--grant CAP[=PATH]]... [--profile ID] [--memfs] [--max-steps N] [--max-memory B] [--max-call-depth N] [--unlimited] [--system-env] [--allow-shell] [--command T]` | runs a procedure |
 
