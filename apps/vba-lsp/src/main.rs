@@ -5,6 +5,7 @@
 
 mod config;
 mod convert;
+mod libraries;
 mod server;
 
 use lsp_server::Connection;

@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use vba_lsp_core::{self as core, Workspace};
 
-use crate::{config, convert};
+use crate::{config, convert, libraries};
 
 /// Upper bound on workspace symbols returned for one query.
 const MAX_WORKSPACE_SYMBOLS: usize = 500;
@@ -119,10 +119,12 @@ impl Server {
             == Some(true);
         let mut ws = Workspace::new();
         let mut warnings = Vec::new();
+        let mut library_info = None;
         if let Some(opts) = &init.initialization_options {
             let (cfg, w) = config::from_settings(opts);
             ws.set_config(cfg);
             warnings = w;
+            library_info = load_libraries(&mut ws, opts, &mut warnings);
         }
         let result = json!({
             "capabilities": capabilities(),
@@ -142,6 +144,9 @@ impl Server {
         };
         for w in warnings {
             s.log(lsp::MessageType::WARNING, w)?;
+        }
+        if let Some(i) = library_info {
+            s.log(lsp::MessageType::INFO, i)?;
         }
         // `initialize_finish` consumed the `initialized` notification, so
         // this is the moment the client accepts requests.
@@ -463,10 +468,14 @@ impl Server {
     }
 
     fn apply_settings(&mut self, settings: &Value) -> Result<()> {
-        let (cfg, warnings) = config::from_settings(settings);
+        let (cfg, mut warnings) = config::from_settings(settings);
         self.ws.set_config(cfg);
+        let info = load_libraries(&mut self.ws, settings, &mut warnings);
         for w in warnings {
             self.log(lsp::MessageType::WARNING, w)?;
+        }
+        if let Some(i) = info {
+            self.log(lsp::MessageType::INFO, i)?;
         }
         // Every document is re-analysed with the new settings.
         self.published.clear();
@@ -506,6 +515,22 @@ impl Server {
         }
         Ok(())
     }
+}
+
+/// Loads the libraries named by the settings into the workspace (replacing
+/// the previous ones). Problems are appended to `warnings`; the result is an
+/// informational summary when libraries were requested.
+fn load_libraries(
+    ws: &mut Workspace,
+    settings: &Value,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    let (paths, problems) = config::type_library_paths(settings);
+    warnings.extend(problems);
+    let loaded = libraries::load(&paths);
+    warnings.extend(loaded.errors);
+    ws.set_type_provider(loaded.provider);
+    (!paths.is_empty()).then(|| format!("loaded {} type libraries", loaded.libraries))
 }
 
 fn format_options(o: &lsp::FormattingOptions) -> core::FormatOptions {

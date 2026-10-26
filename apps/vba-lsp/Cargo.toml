@@ -17,6 +17,7 @@ lsp-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 vba-lsp-core.workspace = true
+vba-typelib.workspace = true
 
 [lints]
 workspace = true

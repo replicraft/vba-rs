@@ -6,14 +6,19 @@
 //!            "constants": { "DEBUGGING": 1 },
 //!            "semantic": true,
 //!            "projectName": "VBAProject",
-//!            "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" } } }
+//!            "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" },
+//!            "typeLibraries": ["C:/libs/scrrun.dll", "libs/Shapes.tlb"] } }
 //! ```
 //!
 //! The object under `vba` may also be passed directly (initialization
 //! options). Absent settings take their defaults, so removing a setting in
 //! the editor restores the default.
 
+use std::path::PathBuf;
+
 use serde_json::Value;
+
+use crate::libraries::MAX_PATHS;
 use vba_lsp_core::{Config, ModuleKind, parse_encoding};
 
 /// Builds a configuration from settings and returns warnings for entries
@@ -78,10 +83,43 @@ pub fn from_settings(settings: &Value) -> (Config, Vec<String>) {
                 }
                 None => warnings.push("`vba.moduleKinds` must be an object".to_string()),
             },
+            // Read by `type_library_paths`.
+            "typeLibraries" => {}
             other => warnings.push(format!("unknown setting `vba.{other}`")),
         }
     }
     (cfg, warnings)
+}
+
+/// The `vba.typeLibraries` paths and warnings for malformed entries. Absent
+/// means no libraries.
+pub fn type_library_paths(settings: &Value) -> (Vec<PathBuf>, Vec<String>) {
+    let section = settings.get("vba").unwrap_or(settings);
+    let mut warnings = Vec::new();
+    let mut paths = Vec::new();
+    match section.get("typeLibraries") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(items)) => {
+            for item in items {
+                match item.as_str() {
+                    Some(p) if !p.trim().is_empty() => {
+                        if paths.len() == MAX_PATHS {
+                            warnings.push(format!(
+                                "`vba.typeLibraries` lists more than {MAX_PATHS} paths, the rest are ignored"
+                            ));
+                            break;
+                        }
+                        paths.push(PathBuf::from(p));
+                    }
+                    _ => warnings.push(format!(
+                        "`vba.typeLibraries` entries must be non-empty strings, got {item}"
+                    )),
+                }
+            }
+        }
+        Some(_) => warnings.push("`vba.typeLibraries` must be a list of paths".to_string()),
+    }
+    (paths, warnings)
 }
 
 fn module_kind(s: &str) -> Option<ModuleKind> {
@@ -142,6 +180,22 @@ mod tests {
         let (cfg, w) = from_settings(&Value::Null);
         assert!(w.is_empty());
         assert_eq!(cfg.profile.id, Config::default().profile.id);
+    }
+
+    #[test]
+    fn type_libraries() {
+        let (p, w) =
+            type_library_paths(&json!({"vba": {"typeLibraries": ["a.tlb", 3, "", "b.dll"]}}));
+        assert_eq!(p, [PathBuf::from("a.tlb"), PathBuf::from("b.dll")]);
+        assert_eq!(w.len(), 2, "{w:?}");
+        let (p, w) = type_library_paths(&json!({"typeLibraries": "a.tlb"}));
+        assert!(p.is_empty());
+        assert_eq!(w.len(), 1);
+        let (p, w) = type_library_paths(&Value::Null);
+        assert!(p.is_empty() && w.is_empty());
+        // The key is known to the general settings reader.
+        let (_, w) = from_settings(&json!({"vba": {"typeLibraries": []}}));
+        assert!(w.is_empty());
     }
 
     #[test]
