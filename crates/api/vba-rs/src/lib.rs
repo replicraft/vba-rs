@@ -302,6 +302,20 @@ pub enum Error {
 }
 
 impl Error {
+    /// The details of an unhandled VBA, host or permission error (see
+    /// [`runtime::Error::report`]); `None` for every other family.
+    pub fn report(&self) -> Option<&ErrorReport> {
+        match self {
+            Error::Run(e) => e.report(),
+            _ => None,
+        }
+    }
+
+    /// The `Err` contents (number, description, source, help) of that error.
+    pub fn error_info(&self) -> Option<VbaErrorInfo> {
+        self.report().map(ErrorReport::info)
+    }
+
     /// A short stable name of the family, for logs and exit codes.
     pub fn kind(&self) -> &'static str {
         match self {

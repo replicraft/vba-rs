@@ -241,3 +241,32 @@ fn errors_before_any_frame_have_an_empty_stack() {
     assert!(r.frames.is_empty());
     assert_eq!(r.info().line, 0);
 }
+
+#[test]
+fn the_error_type_crosses_threads_and_forwards_the_details() {
+    fn assert_send_sync<T: Send + Sync + 'static + std::error::Error>() {}
+    assert_send_sync::<Error>();
+
+    let engine = vba::Engine::new();
+    let project = vba::Project::from_source(
+        "Module1",
+        "Public Sub Boom()\n  Err.Raise 5000, \"App.Rules\", \"nope\"\nEnd Sub\n",
+    );
+    let mut inst = engine.load(&project).unwrap();
+    inst.trust();
+    let err = inst.run("Boom", vec![]).unwrap_err();
+    // The embedding application maps without matching on the runtime enum.
+    let info = err.error_info().expect("a VBA error carries its details");
+    assert_eq!(
+        (info.number, info.source.as_str(), info.description.as_str()),
+        (5000, "App.Rules", "nope")
+    );
+    assert_eq!(err.report().unwrap().frames[0].procedure, "Boom");
+
+    let load = engine
+        .load(&vba::Project::from_source("M", "Public Sub A(\nEnd Sub\n"))
+        .err()
+        .unwrap();
+    assert!(load.error_info().is_none());
+    assert!(load.report().is_none());
+}
