@@ -24,11 +24,11 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 541 |
+| implemented | 557 |
 | partial | 129 |
 | unsupported | 5 |
-| not-started | 33 |
-| Conformance programs | 2121 |
+| not-started | 17 |
+| Conformance programs | 2151 |
 | Programs that are known deviations (XFAIL) | 135 |
 
 ## Entries per category and status
@@ -63,10 +63,10 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-organization | 3 | 1 | 0 | 0 | 2 |
 | spec-declarations | 21 | 11 | 10 | 0 | 0 |
 | spec-procedures | 12 | 6 | 5 | 0 | 1 |
-| spec-statements | 55 | 44 | 10 | 0 | 1 |
-| spec-coercion | 18 | 11 | 6 | 0 | 1 |
+| spec-statements | 55 | 45 | 10 | 0 | 0 |
+| spec-coercion | 18 | 12 | 6 | 0 | 0 |
 | spec-expressions | 53 | 25 | 23 | 0 | 5 |
-| spec-library | 193 | 149 | 21 | 0 | 23 |
+| spec-library | 193 | 163 | 21 | 0 | 9 |
 
 ## Entries per provenance
 
@@ -75,9 +75,9 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | oracle | 0 |
 | spec | 436 |
 | doc | 99 |
-| derived | 40 |
+| derived | 56 |
 | unverified | 100 |
-| (no program) | 33 |
+| (no program) | 17 |
 
 ## Programs per area and provenance
 
@@ -85,32 +85,32 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | arrays | 34 | 0 | 7 | 10 | 6 | 11 |
 | classes | 30 | 0 | 12 | 6 | 9 | 3 |
-| collections | 24 | 0 | 7 | 14 | 1 | 2 |
+| collections | 25 | 0 | 7 | 14 | 2 | 2 |
 | conversions | 39 | 0 | 28 | 4 | 2 | 5 |
 | datatypes | 52 | 0 | 27 | 16 | 0 | 9 |
-| datetime | 45 | 0 | 18 | 14 | 2 | 11 |
+| datetime | 48 | 0 | 18 | 14 | 5 | 11 |
 | derived-math | 21 | 0 | 0 | 21 | 0 | 0 |
 | errors | 26 | 0 | 18 | 6 | 0 | 2 |
 | events | 7 | 0 | 6 | 0 | 1 | 0 |
 | file-io | 48 | 0 | 19 | 19 | 3 | 7 |
-| financial | 13 | 0 | 0 | 2 | 11 | 0 |
+| financial | 20 | 0 | 0 | 2 | 18 | 0 |
 | host | 42 | 0 | 3 | 15 | 10 | 14 |
 | language | 20 | 0 | 6 | 6 | 0 | 8 |
-| logic | 10 | 0 | 7 | 3 | 0 | 0 |
+| logic | 11 | 0 | 7 | 3 | 1 | 0 |
 | math | 37 | 0 | 24 | 4 | 2 | 7 |
 | operators | 66 | 0 | 59 | 1 | 5 | 1 |
 | procedures | 34 | 0 | 23 | 2 | 4 | 5 |
-| spec-coerce | 187 | 0 | 187 | 0 | 0 | 0 |
+| spec-coerce | 188 | 0 | 187 | 0 | 1 | 0 |
 | spec-data | 289 | 0 | 279 | 0 | 8 | 2 |
 | spec-decl | 155 | 0 | 155 | 0 | 0 | 0 |
 | spec-lex | 145 | 0 | 145 | 0 | 0 | 0 |
-| spec-lib-a | 96 | 0 | 96 | 0 | 0 | 0 |
+| spec-lib-a | 97 | 0 | 96 | 0 | 1 | 0 |
 | spec-lib-b | 63 | 0 | 62 | 1 | 0 | 0 |
 | spec-lib-c | 58 | 0 | 58 | 0 | 0 | 0 |
-| spec-lib-d | 74 | 0 | 74 | 0 | 0 | 0 |
+| spec-lib-d | 88 | 0 | 74 | 0 | 14 | 0 |
 | spec-ops | 131 | 0 | 131 | 0 | 0 | 0 |
-| spec-proc | 214 | 0 | 214 | 0 | 0 | 0 |
-| statements | 88 | 0 | 74 | 13 | 1 | 0 |
+| spec-proc | 215 | 0 | 214 | 0 | 1 | 0 |
+| statements | 89 | 0 | 75 | 13 | 1 | 0 |
 | strings | 73 | 0 | 33 | 17 | 8 | 15 |
 
 ## Gaps
@@ -198,7 +198,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.3.1.11` | spec-procedures | Procedure Invocation Argument Processing | partial |  |
 | `vbal.5.4.1.1` | spec-statements | Statement Labels | partial |  |
 | `vbal.5.4.2.1` | spec-statements | Call Statement | partial |  |
-| `vbal.5.4.2.11` | spec-statements | Stop Statement | not-started |  |
 | `vbal.5.4.3.1` | spec-statements | Local Variable Declarations | partial |  |
 | `vbal.5.4.3.3` | spec-statements | ReDim Statement | partial |  |
 | `vbal.5.4.3.8` | spec-statements | Let Statement | partial |  |
@@ -208,7 +207,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.4.5.8` | spec-statements | Print Statement | partial |  |
 | `vbal.5.4.5.11` | spec-statements | Put Statement | partial |  |
 | `vbal.5.5.1.1` | spec-coercion | Static semantics | partial |  |
-| `vbal.5.5.1.2.1.1` | spec-coercion | Banker’s rounding | not-started |  |
 | `vbal.5.5.1.2.2` | spec-coercion | Let-coercion to and from Boolean | partial |  |
 | `vbal.5.5.1.2.4` | spec-coercion | Let-coercion to and from String | partial |  |
 | `vbal.5.5.1.2.9` | spec-coercion | Let-coercion to and from Error | partial |  |
@@ -266,24 +264,10 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.6.1.2.11.1.5` | spec-library | ChrB / ChrB$ | partial |  |
 | `vbal.6.1.2.11.1.6` | spec-library | ChrW/ ChrW$ | partial |  |
 | `vbal.6.1.2.11.1.15` | spec-library | InStrRev | partial |  |
-| `vbal.6.1.2.11.1.18` | spec-library | LCase$ | not-started |  |
-| `vbal.6.1.2.11.1.20` | spec-library | Left$ | not-started |  |
-| `vbal.6.1.2.11.1.21` | spec-library | LeftB$ | not-started |  |
-| `vbal.6.1.2.11.1.24` | spec-library | LTrim$ / RTrim$ / Trim$ | not-started |  |
-| `vbal.6.1.2.11.1.26` | spec-library | Mid$ | not-started |  |
-| `vbal.6.1.2.11.1.27` | spec-library | MidB$ | not-started |  |
-| `vbal.6.1.2.11.1.30` | spec-library | Right / RightB | not-started |  |
-| `vbal.6.1.2.11.1.31` | spec-library | Right$ | not-started |  |
-| `vbal.6.1.2.11.1.32` | spec-library | RightB$ | not-started |  |
-| `vbal.6.1.2.11.1.34` | spec-library | Space$ | not-started |  |
 | `vbal.6.1.2.11.1.37` | spec-library | StrConv | partial |  |
 | `vbal.6.1.2.11.1.38` | spec-library | String | partial |  |
-| `vbal.6.1.2.11.1.39` | spec-library | String$ | not-started |  |
-| `vbal.6.1.2.11.1.41` | spec-library | UCase | not-started |  |
-| `vbal.6.1.2.11.1.42` | spec-library | UCase$ | not-started |  |
 | `vbal.6.1.3.2.1.1` | spec-library | Clear | partial |  |
 | `vbal.6.1.3.2.1.2` | spec-library | Raise | partial |  |
-| `vbal.6.1.3.2.2.1` | spec-library | Description | not-started |  |
 | `vbal.6.1.3.3.1.1` | spec-library | Load | not-started |  |
 | `vbal.6.1.3.3.1.2` | spec-library | Unload | not-started |  |
 
