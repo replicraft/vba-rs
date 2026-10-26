@@ -138,10 +138,15 @@ pub trait Host {
     /// the program is doing, so that a loop without `DoEvents` can be
     /// cancelled from another thread. It must be cheap (an atomic load); an
     /// error aborts the run. Unlike [`Host::idle`] it carries no other
-    /// meaning and the default does nothing, so a host that cancels in `idle`
-    /// should cancel here too. The interpreter also polls it once at the
-    /// start of every call made by the embedder, nested ones included.
+    /// meaning, so a host that cancels in `idle` should cancel here too. The interpreter also polls it once at the
+    /// start of every call made by the embedder, nested ones included. The default
+    /// honours the time allowance of a call scope
+    /// ([`Budget::deadline_passed`]); library calls that run long poll it
+    /// between chunks of work too.
     fn poll_cancel(&self) -> HostResult<()> {
+        if self.budget().deadline_passed() {
+            return Err(ErrInfo::new(18, "the call exceeded its time allowance"));
+        }
         Ok(())
     }
 

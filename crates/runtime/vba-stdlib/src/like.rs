@@ -157,7 +157,7 @@ fn matches_one(tok: &Tok, c: u16, mode: CompareMode) -> bool {
 
 /// `text Like pattern` for non-`Null` operands.
 pub fn like(text: &VbaString, pattern: &VbaString, mode: CompareMode) -> VbaResult<bool> {
-    match like_metered(text, pattern, mode, &mut |_| true) {
+    match like_metered(text, pattern, mode, &mut |_| Ok(())) {
         Ok(b) => Ok(b),
         Err(StdError::Vba(e)) => Err(e),
         Err(_) => unreachable!("an unmetered match is never cut short"),
@@ -168,15 +168,15 @@ pub fn like(text: &VbaString, pattern: &VbaString, mode: CompareMode) -> VbaResu
 const REPORT_EVERY: u64 = 1024;
 
 /// [`like`] that reports the work it does: `meter` is called with the number
-/// of comparisons done so far (in batches) and returns `false` to stop the
-/// match, which then fails with [`StdError::WorkExceeded`]. Matching a
+/// of comparisons done so far (in batches) and returns an error to stop the
+/// match, which then fails with that error (see [`crate::WorkMeter`]). Matching a
 /// pattern with many `*` against a long text can take quadratic time; this
 /// is how the step budget bounds it.
 pub fn like_metered(
     text: &VbaString,
     pattern: &VbaString,
     mode: CompareMode,
-    meter: &mut dyn FnMut(u64) -> bool,
+    meter: &mut dyn FnMut(u64) -> StdResult<()>,
 ) -> StdResult<bool> {
     let toks = parse(pattern.as_units())?;
     let t = text.as_units();
@@ -187,9 +187,7 @@ pub fn like_metered(
     loop {
         work += 1;
         if work >= REPORT_EVERY {
-            if !meter(work) {
-                return Err(StdError::WorkExceeded);
-            }
+            meter(work)?;
             work = 0;
         }
         if pi < toks.len() {
@@ -215,11 +213,8 @@ pub fn like_metered(
                 }
             }
         } else if ti == t.len() {
-            return if meter(work) {
-                Ok(true)
-            } else {
-                Err(StdError::WorkExceeded)
-            };
+            meter(work)?;
+            return Ok(true);
         }
         match star {
             Some((sp, st)) if st < t.len() => {
@@ -228,11 +223,8 @@ pub fn like_metered(
                 ti = st + 1;
             }
             _ => {
-                return if meter(work) {
-                    Ok(false)
-                } else {
-                    Err(StdError::WorkExceeded)
-                };
+                meter(work)?;
+                return Ok(false);
             }
         }
     }

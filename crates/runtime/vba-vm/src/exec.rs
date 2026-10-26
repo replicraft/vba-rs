@@ -362,9 +362,9 @@ impl Vm {
                         vba_ast::CompareMode::Binary => CompareMode::Binary,
                         _ => CompareMode::Text,
                     };
-                    let budget = self.host.budget();
+                    let meter = crate::intrinsics::BudgetWork(&*self.host);
                     let b = vba_stdlib::like::like_metered(&text, &pat, m, &mut |units| {
-                        budget.charge_work(units).is_ok()
+                        vba_stdlib::WorkMeter::charge(&meter, units)
                     })?;
                     Variant::Boolean(b)
                 }
@@ -512,12 +512,16 @@ impl Vm {
 
     /// Every `POLL_INTERVAL` steps asks the host whether the run was
     /// cancelled, so loops and calls can be stopped from another thread
-    /// without `DoEvents`. Costs one decrement per step.
+    /// without `DoEvents`. Counted in steps and not in instructions: an
+    /// instruction that builds a large value is charged many steps at once
+    /// and must not postpone the next poll by that many instructions. Costs
+    /// one read of the step counter per instruction.
     #[inline]
     fn poll(&mut self) -> VResult<()> {
-        self.poll_countdown -= 1;
-        if self.poll_countdown == 0 {
-            self.poll_countdown = vba_host::POLL_INTERVAL;
+        let steps = self.host.budget().steps_used();
+        // A counter that went back (a fresh allowance) starts a new interval.
+        if steps < self.polled_at || steps - self.polled_at >= u64::from(vba_host::POLL_INTERVAL) {
+            self.polled_at = steps;
             self.host
                 .poll_cancel()
                 .map_err(|e| Fault::Cancelled(e.description))?;

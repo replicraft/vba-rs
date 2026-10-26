@@ -25,6 +25,9 @@ pub enum StdError {
     /// The caller's work budget (steps) ran out while the function was
     /// scanning its arguments. Never a VBA error: the host ends the run.
     WorkExceeded,
+    /// The host cancelled the run (or its time allowance ran out) while the
+    /// function was working. Never a VBA error: the host ends the run.
+    Cancelled(String),
 }
 
 /// Result alias used throughout the crate.
@@ -53,6 +56,7 @@ impl fmt::Display for StdError {
             StdError::Unsupported(what) => write!(f, "unsupported: {what}"),
             StdError::VmRequired(what) => write!(f, "requires the VM: {what}"),
             StdError::WorkExceeded => f.write_str("work budget exceeded"),
+            StdError::Cancelled(why) => write!(f, "cancelled: {why}"),
         }
     }
 }

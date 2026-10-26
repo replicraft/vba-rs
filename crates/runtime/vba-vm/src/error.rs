@@ -225,6 +225,7 @@ impl From<vba_stdlib::StdError> for Fault {
             vba_stdlib::StdError::Vba(v) => v.into(),
             vba_stdlib::StdError::Unsupported(s) => Fault::Unsupported(format!("stdlib: {s}")),
             vba_stdlib::StdError::WorkExceeded => Fault::Limit(LimitKind::Steps),
+            vba_stdlib::StdError::Cancelled(why) => Fault::Cancelled(why),
             vba_stdlib::StdError::VmRequired(s) => {
                 Fault::Unsupported(format!("stdlib function needs VM support: {s}"))
             }

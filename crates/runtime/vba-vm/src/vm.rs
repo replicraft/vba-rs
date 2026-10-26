@@ -116,8 +116,8 @@ pub struct Vm {
     pub(crate) cascade: Option<crate::state::Cascade>,
     pub(crate) settings: vba_host::MemorySettings,
     pub(crate) bind_stats: BindStats,
-    /// Steps until the host is asked whether the run was cancelled.
-    pub(crate) poll_countdown: u32,
+    /// Step count at the last poll of the host for cancellation.
+    pub(crate) polled_at: u64,
 }
 
 /// How member accesses on objects outside the VM were dispatched.
@@ -189,7 +189,7 @@ impl Vm {
             settings: vba_host::MemorySettings::new(),
             bind_stats: BindStats::default(),
             cascade: None,
-            poll_countdown: vba_host::POLL_INTERVAL,
+            polled_at: 0,
         };
         vm.index_program();
         vm.host.objects().set_link(vm.slot.clone());

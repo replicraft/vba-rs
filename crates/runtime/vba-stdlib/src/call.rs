@@ -1,7 +1,7 @@
 //! Calling convention shared by every intrinsic: [`Ctx`] carries the host and
 //! the mutable library state, [`Args`] the (possibly omitted) arguments.
 
-use crate::error::{ARGUMENT_NOT_OPTIONAL, StdError, StdResult};
+use crate::error::{ARGUMENT_NOT_OPTIONAL, StdResult};
 use crate::host::Host;
 use crate::math::RndState;
 use vba_value::{CompareMode, PointerWidth, Variant, VbaResult, VbaString, convert};
@@ -17,9 +17,12 @@ pub struct State {
 /// Receives the scanning work a built-in does, so that the caller can bound
 /// CPU time and not only the number of statements.
 pub trait WorkMeter {
-    /// Accounts for `units` (one per UTF-16 unit looked at). `false` when the
-    /// caller's budget is spent and the function must stop.
-    fn charge(&self, units: u64) -> bool;
+    /// Accounts for `units` (one per UTF-16 unit looked at). Fails with
+    /// [`crate::StdError::WorkExceeded`] when the caller's budget is spent and with
+    /// [`crate::StdError::Cancelled`] when the host asks the run to stop; the
+    /// function must stop at once. Long-running functions call it between
+    /// chunks of work, so it is also where cancellation is polled.
+    fn charge(&self, units: u64) -> StdResult<()>;
 }
 
 /// Everything an intrinsic may consult besides its arguments.
@@ -66,12 +69,12 @@ impl<'a> Ctx<'a> {
     }
 
     /// Accounts for `units` of scanning work (one per UTF-16 unit examined)
-    /// before it is done. Fails with [`StdError::WorkExceeded`] when the
+    /// before it is done. Fails with [`crate::StdError::WorkExceeded`] when the
     /// caller's budget cannot pay for it.
     pub fn charge(&self, units: u64) -> StdResult<()> {
         match self.work {
-            Some(w) if !w.charge(units) => Err(StdError::WorkExceeded),
-            _ => Ok(()),
+            Some(w) => w.charge(units),
+            None => Ok(()),
         }
     }
 }

@@ -6,14 +6,28 @@ use vba_host::{InputBoxRequest, MsgBoxRequest};
 use vba_ir::{CallArg, Function, IoOp, OutItem};
 use vba_profile::Bitness;
 use vba_sema::Type;
-use vba_stdlib::{Ctx, WorkMeter};
+use vba_stdlib::{Ctx, StdError, StdResult, WorkMeter};
 
 /// Accounts the scanning work of built-ins against the step budget.
-pub(crate) struct BudgetWork<'a>(pub(crate) &'a vba_host::Budget);
+/// Work of at least this many units also asks the host whether the run was
+/// cancelled, so a long library call is not deaf to cancellation and to the
+/// time allowance of a call scope.
+const POLL_WORK_UNITS: u64 = 1024;
+
+pub(crate) struct BudgetWork<'a>(pub(crate) &'a dyn vba_host::Host);
 
 impl WorkMeter for BudgetWork<'_> {
-    fn charge(&self, units: u64) -> bool {
-        self.0.charge_work(units).is_ok()
+    fn charge(&self, units: u64) -> StdResult<()> {
+        self.0
+            .budget()
+            .charge_work(units)
+            .map_err(|_| StdError::WorkExceeded)?;
+        if units >= POLL_WORK_UNITS {
+            self.0
+                .poll_cancel()
+                .map_err(|e| StdError::Cancelled(e.description))?;
+        }
+        Ok(())
     }
 }
 use vba_stdlib::interaction::PrintHelper;
@@ -431,7 +445,7 @@ impl Vm {
             .ok_or_else(|| Fault::Unsupported(format!("unknown function `{name}`")))?;
         let module = self.frames.last().expect("frame").module;
         let opts = &self.ir.program.module(module).options;
-        let meter = BudgetWork(self.host.budget());
+        let meter = BudgetWork(&*self.host);
         let mut ctx = Ctx::new(&*self.std_host, &mut self.std_state);
         ctx.work = Some(&meter);
         ctx.compare = match opts.compare {

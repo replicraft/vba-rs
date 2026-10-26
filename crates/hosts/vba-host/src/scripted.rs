@@ -60,6 +60,8 @@ pub struct ScriptedHost {
     references: Vec<ProjectReference>,
     cancel_after_idles: Option<u32>,
     idles: RefCell<u32>,
+    cancel_after_polls: Option<u32>,
+    polls: RefCell<u32>,
     log: RefCell<Vec<String>>,
 }
 
@@ -86,6 +88,8 @@ impl ScriptedHost {
             references: Vec::new(),
             cancel_after_idles: None,
             idles: RefCell::new(0),
+            cancel_after_polls: None,
+            polls: RefCell::new(0),
             log: RefCell::default(),
         }
     }
@@ -171,6 +175,13 @@ impl ScriptedHost {
         self
     }
 
+    /// Makes the `n`-th poll of [`Host::poll_cancel`] (and later ones) fail
+    /// with error 18: a cancellation that arrives while the program runs.
+    pub fn cancel_after_polls(mut self, n: u32) -> Self {
+        self.cancel_after_polls = Some(n);
+        self
+    }
+
     /// The event router.
     pub fn router(&self) -> &EventRouter {
         &self.router
@@ -246,6 +257,18 @@ impl Host for ScriptedHost {
         match self.declares.get(&key.to_lowercase()) {
             Some(f) => f(req),
             None => Err(ErrInfo::standard(453)),
+        }
+    }
+
+    fn poll_cancel(&self) -> HostResult<()> {
+        let mut n = self.polls.borrow_mut();
+        *n += 1;
+        match self.cancel_after_polls {
+            Some(limit) if *n >= limit => Err(ErrInfo::standard(18)),
+            _ if self.budget().deadline_passed() => {
+                Err(ErrInfo::new(18, "the call exceeded its time allowance"))
+            }
+            _ => Ok(()),
         }
     }
 

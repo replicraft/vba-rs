@@ -171,7 +171,7 @@ impl Vm {
             run_depth: 0,
             native_base: 0,
             nesting: 0,
-            poll_countdown: vba_host::POLL_INTERVAL,
+            polled_at: 0,
             stop_reason: None,
             last_site: None,
             source_lines: Vec::new(),
