@@ -40,6 +40,33 @@ impl Project {
         p
     }
 
+    /// A project named `name` (the default `Err.Source` of its errors) made of
+    /// module texts the embedding application holds itself: `(module name,
+    /// kind, source)`. No file is involved. A duplicate module name is
+    /// [`Error::Model`].
+    ///
+    /// ```
+    /// use vba::{Engine, ModuleKind, Project, Variant};
+    ///
+    /// let project = Project::from_modules("App", [
+    ///     ("Utils", ModuleKind::Standard, "Public Function One() As Long\n  One = 1\nEnd Function\n"),
+    /// ]).unwrap();
+    /// let out = Engine::new().run(&project, "One", vec![]).unwrap();
+    /// assert_eq!(out.value, Variant::Long(1));
+    /// ```
+    pub fn from_modules<'a>(
+        name: &str,
+        modules: impl IntoIterator<Item = (&'a str, ModuleKind, &'a str)>,
+    ) -> Result<Project, Error> {
+        let mut p = Project {
+            model: VbaProject::new(name),
+        };
+        for (module, kind, source) in modules {
+            p.add_module(module, kind, source)?;
+        }
+        Ok(p)
+    }
+
     /// Wraps an existing model.
     pub fn from_model(model: VbaProject) -> Project {
         Project { model }
