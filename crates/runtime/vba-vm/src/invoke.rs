@@ -190,6 +190,11 @@ impl Vm {
                 None => self.invoke_external(h, member, kind, args, want_value, dispid),
             },
             Variant::Object(ObjectRef::Nothing) | Variant::Empty => Err(VbaError::new(91).into()),
+            // MS-VBAL 5.6.2.1: a non-array, non-object value followed by an
+            // argument list is indexed out of range.
+            _ if matches!(member, Member::Default) && !args.is_empty() => {
+                Err(VbaError::SUBSCRIPT_OUT_OF_RANGE.into())
+            }
             _ => Err(VbaError::new(424).into()),
         }
     }
