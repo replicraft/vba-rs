@@ -25,6 +25,10 @@ pub struct Report {
 pub enum ToolError {
     #[error(transparent)]
     Load(#[from] LoadError),
+    #[error(
+        "{0} is a compound file (a project), not a source file; use `vbars check` or `vbars inspect`"
+    )]
+    NotSource(String),
     #[error("unknown profile `{0}`; `vbars profiles` lists them")]
     UnknownProfile(String),
 }
@@ -96,6 +100,15 @@ pub fn lex_file(path: &Path, profile: &Profile, trivia: bool) -> Result<Report, 
 /// `vbars parse`: a summary (or the tree) and the parser diagnostics.
 pub fn parse_file(path: &Path, profile: &Profile, tree: bool) -> Result<Report, ToolError> {
     let bytes = read_source(path)?;
+    if bytes.starts_with(&load::CFB_MAGIC) {
+        // A project is not a source file. Say precisely why it cannot be
+        // parsed instead of tokenizing binary data.
+        let loaded = load::load(&[path.to_path_buf()])?;
+        return Err(loaded.compiled_only_error().map_or_else(
+            || ToolError::NotSource(path.display().to_string()),
+            ToolError::from,
+        ));
+    }
     let mut map = SourceMap::new();
     let file = add_file(&mut map, path, bytes.clone());
     let parsed = vba_ast::parse_module(file, &bytes, profile, &ParseOptions::strict());
@@ -122,6 +135,9 @@ pub fn parse_file(path: &Path, profile: &Profile, tree: bool) -> Result<Report, 
 /// `vbars check`: the semantic analysis of one or more files as one project.
 pub fn check_files(paths: &[PathBuf], profile: &Profile) -> Result<Report, ToolError> {
     let loaded = load::load(paths)?;
+    if let Some(e) = loaded.compiled_only_error() {
+        return Err(e.into());
+    }
     let (modules, options): (Vec<SourceModule>, Options) = match &loaded.project {
         Some(p) => (
             loaded.modules.clone(),

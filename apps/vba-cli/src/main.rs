@@ -88,7 +88,8 @@ enum Command {
     ///
     /// Exit codes: 0 success; 1 bad input or the project does not compile;
     /// 2 unhandled run-time error; 3 permission denied; 4 resource limit or
-    /// cancelled; 5 unsupported feature or internal error.
+    /// cancelled; 5 unsupported feature or internal error; 6 the project is
+    /// compiled-only (modules without source).
     Run {
         /// Source files (`.bas`, `.cls`, `.frm`) or one vbaProject.bin.
         #[arg(required = true)]
@@ -133,6 +134,11 @@ enum Command {
         /// The text `Command` returns.
         #[arg(long)]
         command: Option<String>,
+        /// Accept a project in which only some modules have source; the
+        /// modules without source are left out and calling into them is an
+        /// error (exit 6). A fully compiled-only project is always refused.
+        #[arg(long)]
+        allow_partial: bool,
     },
 }
 
@@ -148,7 +154,14 @@ fn finish(r: Result<tools::Report, tools::ToolError>) -> ExitCode {
         }
         Err(e) => {
             eprintln!("error: {e}");
-            ExitCode::from(1)
+            if matches!(
+                e,
+                tools::ToolError::Load(load::LoadError::CompiledOnly { .. })
+            ) {
+                ExitCode::from(run::exit::COMPILED_ONLY)
+            } else {
+                ExitCode::from(1)
+            }
         }
     }
 }
@@ -203,6 +216,7 @@ fn main() -> ExitCode {
             system_env,
             allow_shell,
             command,
+            allow_partial,
         } => ExitCode::from(run::run(run::RunArgs {
             files,
             entry,
@@ -216,6 +230,7 @@ fn main() -> ExitCode {
             system_env,
             allow_shell,
             command,
+            allow_partial,
         })),
     }
 }

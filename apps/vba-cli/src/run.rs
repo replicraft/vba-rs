@@ -26,6 +26,9 @@ pub mod exit {
     pub const LIMIT: u8 = 4;
     /// A feature that is not implemented, or an internal error.
     pub const UNSUPPORTED: u8 = 5;
+    /// The project, or the module a call needs, has no source text
+    /// (compiled-only or stripped).
+    pub const COMPILED_ONLY: u8 = 6;
 }
 
 /// What `vbars run` was asked to do.
@@ -42,6 +45,7 @@ pub struct RunArgs {
     pub system_env: bool,
     pub allow_shell: bool,
     pub command: Option<String>,
+    pub allow_partial: bool,
 }
 
 struct StdoutSink;
@@ -112,6 +116,7 @@ fn exit_code(e: &Error) -> u8 {
         | Error::NoSuchProcedure(_)
         | Error::AmbiguousProcedure(_)
         | Error::NotCallable(..) => exit::INPUT,
+        Error::CompiledOnly { .. } => exit::COMPILED_ONLY,
         Error::Vba(_) | Error::Host(_) => exit::RUNTIME,
         Error::PermissionDenied(_) => exit::DENIED,
         Error::Limit(_) | Error::Cancelled(_) => exit::LIMIT,
@@ -179,6 +184,9 @@ pub fn run(a: RunArgs) -> u8 {
     }
     if a.allow_shell {
         builder = builder.shell(StdShell);
+    }
+    if a.allow_partial {
+        builder = builder.allow_partial();
     }
     let built = match &loaded.project {
         Some(p) => builder.build_project(p),

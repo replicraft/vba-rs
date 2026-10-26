@@ -89,7 +89,12 @@ fn reports_locked_and_source_less_projects() {
         "{text}"
     );
     assert!(text.contains("no source"), "{text}");
-    assert!(text.contains("1 module(s) have no source text"), "{text}");
+    assert!(
+        text.contains("no source text for 1 module(s): Thing"),
+        "{text}"
+    );
+    assert!(text.contains("Source availability: mixed"), "{text}");
+    assert!(text.contains("[absent, no cache]"), "{text}");
 }
 
 #[test]

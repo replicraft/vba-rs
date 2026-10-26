@@ -91,7 +91,13 @@ fn decode_source(bytes: &[u8]) -> Option<String> {
 
 fn describe_size(m: &Module) -> String {
     if !m.has_source {
-        return "no source".to_owned();
+        return match m.performance_cache_len() {
+            0 => "no source, no cache [absent, no cache]".to_owned(),
+            n => format!("no source, {n}-byte compiled cache [compiled-only]"),
+        };
+    }
+    if m.source_is_ambiguous() {
+        return "0 chars, 0 lines [empty source, with compiled cache; ambiguous]".to_owned();
     }
     let lines = m.source.lines().count();
     format!("{} chars, {} lines", m.source.chars().count(), lines)
@@ -194,11 +200,30 @@ fn report_project(p: &VbaProject) -> String {
             describe_size(m)
         );
     }
-    let stripped = p.modules.iter().filter(|m| !m.has_source).count();
-    if stripped > 0 {
+    let availability = p.source_availability();
+    let _ = writeln!(out, "Source availability: {}", availability.name());
+    let lacking: Vec<&str> = p.modules_without_source().map(|m| &*m.name).collect();
+    if !lacking.is_empty() {
         let _ = writeln!(
             out,
-            "Note: {stripped} module(s) have no source text (stripped or compiled-only); their code cannot be shown."
+            "Note: no source text for {} module(s): {}. Their code exists only as \
+             compiled state, which is preserved byte for byte but never decompiled \
+             or run; such a project cannot be parsed, checked or run.",
+            lacking.len(),
+            lacking.join(", ")
+        );
+    }
+    let ambiguous: Vec<&str> = p
+        .modules
+        .iter()
+        .filter(|m| m.source_is_ambiguous())
+        .map(|m| &*m.name)
+        .collect();
+    if !ambiguous.is_empty() {
+        let _ = writeln!(
+            out,
+            "Note: the source state of {} is ambiguous (see docs/compiled-projects.md).",
+            ambiguous.join(", ")
         );
     }
     let _ = writeln!(

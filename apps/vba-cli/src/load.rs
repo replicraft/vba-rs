@@ -7,7 +7,7 @@ use vba_project::{Module, VbaProject};
 use vba_sema::SourceModule;
 
 /// Compound file signature.
-const CFB_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+pub const CFB_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 
 /// Why a file could not be loaded.
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +38,19 @@ pub enum LoadError {
         #[source]
         source: vba_project::StandaloneError,
     },
+    /// A project has modules without source text (compiled-only or
+    /// stripped); compiled state is never analysed or run.
+    #[error(
+        "{path}: project {project:?} is {availability}: no source for module(s) {}; \
+         compiled-only projects can be inspected but not parsed, checked or run",
+        modules.join(", ")
+    )]
+    CompiledOnly {
+        path: String,
+        project: String,
+        availability: &'static str,
+        modules: Vec<String>,
+    },
     /// The text is neither UTF-8 nor Windows-1252.
     #[error("{path}: not valid UTF-8 or Windows-1252 text")]
     Encoding { path: String },
@@ -47,11 +60,30 @@ pub enum LoadError {
 pub struct Loaded {
     /// A project file, when one was given (then it is the only input).
     pub project: Option<VbaProject>,
+    /// The path of the project file, when there is one.
+    pub project_path: Option<String>,
     /// The modules to analyse.
     pub modules: Vec<SourceModule>,
     /// Where each module came from, parallel to `modules`: the file path, or
     /// `project[Module]` for a module inside a project file.
     pub origins: Vec<String>,
+}
+
+impl Loaded {
+    /// The error for a project with modules that lack source, if it is one.
+    pub fn compiled_only_error(&self) -> Option<LoadError> {
+        let p = self.project.as_ref()?;
+        let availability = p.source_availability();
+        if availability == vba_project::ProjectSourceAvailability::FullSource {
+            return None;
+        }
+        Some(LoadError::CompiledOnly {
+            path: self.project_path.clone().unwrap_or_default(),
+            project: p.name.clone(),
+            availability: availability.name(),
+            modules: p.modules_without_source().map(|m| m.name.clone()).collect(),
+        })
+    }
 }
 
 /// Decodes a source file: UTF-8 if valid, otherwise Windows-1252.
@@ -130,12 +162,14 @@ pub fn load(paths: &[PathBuf]) -> Result<Loaded, LoadError> {
                     })
                     .collect(),
                 project: Some(project),
+                project_path: Some(shown),
             });
         }
         return Err(LoadError::Unrecognized { path: shown });
     }
     Ok(Loaded {
         project: None,
+        project_path: None,
         modules,
         origins,
     })
