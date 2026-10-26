@@ -21,6 +21,7 @@ are. Statements about behavior carry a confidence marker (`spec`, `doc`, `derive
 * [overview](architecture/overview.md): crate groups, dependency direction, data flow, the permission model, the standalone-library principle.
 * [public-api](architecture/public-api.md): the stable `vba` facade for embedders.
 * [host](architecture/host.md): the `vba-host` contract, capabilities, policy and limits.
+* [security-model](architecture/security-model.md): what is guaranteed (with the tests) and what is not.
 * [dependencies](architecture/dependencies.md): every third-party dependency and why it is used.
 
 ## language/
