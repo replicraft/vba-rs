@@ -1,6 +1,6 @@
 # Binding to type libraries
 
-How the types of a type library (`docs/typelib.md`) become static types in
+How the types of a type library (`docs/formats/typelib.md`) become static types in
 `vba-sema`, early-bound instructions in `vba-ir` and member-id calls in
 `vba-vm`, what is supported, what is not, and which diagnostics exist.
 
