@@ -27,7 +27,17 @@ pub struct Ctx<'a> {
     pub array_base: i32,
     /// Pointer width for `CLngPtr`.
     pub pointer_width: PointerWidth,
+    /// The longest string, in UTF-16 units, a function may build. A larger
+    /// result is error 7 before it is allocated.
+    pub max_string_units: usize,
+    /// The most elements an array-returning function may build (`Split`).
+    pub max_array_elements: usize,
 }
+
+/// Default of [`Ctx::max_string_units`] (2 GiB of UTF-16 units).
+pub const DEFAULT_MAX_STRING_UNITS: usize = 1 << 30;
+/// Default of [`Ctx::max_array_elements`].
+pub const DEFAULT_MAX_ARRAY_ELEMENTS: usize = 1 << 28;
 
 impl<'a> Ctx<'a> {
     /// A context with `Option Compare Binary`, `Option Base 0` and 64-bit
@@ -39,6 +49,8 @@ impl<'a> Ctx<'a> {
             compare: CompareMode::Binary,
             array_base: 0,
             pointer_width: PointerWidth::Bits64,
+            max_string_units: DEFAULT_MAX_STRING_UNITS,
+            max_array_elements: DEFAULT_MAX_ARRAY_ELEMENTS,
         }
     }
 }

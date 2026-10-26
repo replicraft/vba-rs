@@ -409,6 +409,8 @@ impl Vm {
             _ => CompareMode::Text,
         };
         ctx.array_base = i32::from(opts.base);
+        ctx.max_string_units = self.cfg.max_string_units;
+        ctx.max_array_elements = usize::try_from(self.cfg.max_array_elements).unwrap_or(usize::MAX);
         ctx.pointer_width = match self.ir.program.profile.target.bitness {
             Bitness::B64 => PointerWidth::Bits64,
             _ => PointerWidth::Bits32,

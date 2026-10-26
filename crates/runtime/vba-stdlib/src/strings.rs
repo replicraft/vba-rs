@@ -264,6 +264,22 @@ pub fn replace_with(
     mode: CompareMode,
     col: &dyn Collation,
 ) -> VbaResult<VbaString> {
+    replace_bounded(expr, find, with, start, count, mode, col, usize::MAX)
+}
+
+/// [`replace_with`] that fails with error 7 as soon as the result would
+/// exceed `max_units`, before the units are allocated.
+#[allow(clippy::too_many_arguments)]
+pub fn replace_bounded(
+    expr: &VbaString,
+    find: &VbaString,
+    with: &VbaString,
+    start: i32,
+    count: i32,
+    mode: CompareMode,
+    col: &dyn Collation,
+    max_units: usize,
+) -> VbaResult<VbaString> {
     if start < 1 || count < -1 {
         return Err(E5);
     }
@@ -281,6 +297,10 @@ pub fn replace_with(
     while count == -1 || done < count {
         match find_from(&h, &n, pos) {
             Some(i) => {
+                let grown = out.len().saturating_add(i - pos).saturating_add(with.len());
+                if grown > max_units {
+                    return Err(VbaError::OUT_OF_MEMORY);
+                }
                 out.extend_from_slice(&tail[pos..i]);
                 out.extend_from_slice(with.as_units());
                 pos = i + n.len();
@@ -288,6 +308,9 @@ pub fn replace_with(
             }
             None => break,
         }
+    }
+    if out.len().saturating_add(tail.len() - pos) > max_units {
+        return Err(VbaError::OUT_OF_MEMORY);
     }
     out.extend_from_slice(&tail[pos..]);
     Ok(VbaString::from_units(out))
@@ -459,6 +482,19 @@ pub fn split_with(
     mode: CompareMode,
     col: &dyn Collation,
 ) -> VbaResult<Vec<VbaString>> {
+    split_bounded(expr, delim, limit, mode, col, usize::MAX)
+}
+
+/// [`split_with`] that fails with error 7 when more than `max_parts` pieces
+/// would be produced.
+pub fn split_bounded(
+    expr: &VbaString,
+    delim: &VbaString,
+    limit: i32,
+    mode: CompareMode,
+    col: &dyn Collation,
+    max_parts: usize,
+) -> VbaResult<Vec<VbaString>> {
     if limit < -1 {
         return Err(E5);
     }
@@ -478,6 +514,9 @@ pub fn split_with(
     while limit == -1 || (out.len() as i32) < limit - 1 {
         match find_from(&h, &d, pos) {
             Some(i) => {
+                if out.len() >= max_parts {
+                    return Err(VbaError::OUT_OF_MEMORY);
+                }
                 out.push(vs(&e[pos..i]));
                 pos = i + d.len();
             }
@@ -501,8 +540,24 @@ fn string_items(v: &Variant) -> VbaResult<Vec<VbaString>> {
 /// `Join(sourceArray, delimiter)`; a non-array or multi-dimensional array is
 /// error 5, a `Null` element error 94.
 pub fn join(source: &Variant, delim: &VbaString) -> VbaResult<VbaString> {
+    join_bounded(source, delim, usize::MAX)
+}
+
+/// [`join`] that fails with error 7 when the result would exceed
+/// `max_units`, before it is allocated.
+pub fn join_bounded(source: &Variant, delim: &VbaString, max_units: usize) -> VbaResult<VbaString> {
     let items = string_items(source)?;
-    let mut out = Vec::new();
+    let mut total = 0usize;
+    for (i, s) in items.iter().enumerate() {
+        if i > 0 {
+            total = total.saturating_add(delim.len());
+        }
+        total = total.saturating_add(s.len());
+        if total > max_units {
+            return Err(VbaError::OUT_OF_MEMORY);
+        }
+    }
+    let mut out = Vec::with_capacity(total);
     for (i, s) in items.iter().enumerate() {
         if i > 0 {
             out.extend_from_slice(delim.as_units());
@@ -848,7 +903,7 @@ pub(crate) fn f_replace(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     } else {
         mode_arg(ctx, a, 5)?
     };
-    Ok(text(replace_with(
+    Ok(text(replace_bounded(
         &a.string(0)?,
         &a.string(1)?,
         &a.string(2)?,
@@ -856,17 +911,25 @@ pub(crate) fn f_replace(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
         a.long_or(4, -1)?,
         mode,
         ctx.host.collation(),
+        ctx.max_string_units,
     )?))
 }
-pub(crate) fn f_space(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+pub(crate) fn f_space(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     null_guard!(a, 0);
-    Ok(text(space(a.long(0)?)?))
+    let n = a.long(0)?;
+    if usize::try_from(n).is_ok_and(|n| n > ctx.max_string_units) {
+        return Err(VbaError::OUT_OF_MEMORY.into());
+    }
+    Ok(text(space(n)?))
 }
-pub(crate) fn f_string(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+pub(crate) fn f_string(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     if a.is_null(0) || a.is_null(1) {
         return Err(VbaError::INVALID_USE_OF_NULL.into());
     }
     let n = a.long(0)?;
+    if usize::try_from(n).is_ok_and(|n| n > ctx.max_string_units) {
+        return Err(VbaError::OUT_OF_MEMORY.into());
+    }
     match a.req(1)? {
         Variant::String(s) => {
             let u = *s.as_units().first().ok_or(E5)?;
@@ -987,21 +1050,22 @@ pub(crate) fn f_split(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     } else {
         mode_arg(ctx, a, 3)?
     };
-    let parts = split_with(
+    let parts = split_bounded(
         &a.string(0)?,
         &delim,
         a.long_or(2, -1)?,
         mode,
         ctx.host.collation(),
+        ctx.max_array_elements,
     )?;
     Ok(string_array(parts)?)
 }
-pub(crate) fn f_join(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
+pub(crate) fn f_join(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     let delim = match a.get(1) {
         Some(v) => convert::to_vba_string(v)?,
         None => VbaString::from(" "),
     };
-    Ok(text(join(a.req(0)?, &delim)?))
+    Ok(text(join_bounded(a.req(0)?, &delim, ctx.max_string_units)?))
 }
 pub(crate) fn f_filter(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     let mode = if a.get(3).is_none() {
