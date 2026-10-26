@@ -1,0 +1,226 @@
+//! Semantic analysis for VBA projects.
+//!
+//! [`analyze_sources`] / [`analyze_project`] parse the modules of a project
+//! (through `vba-ast`), build module and project symbol tables, resolve
+//! names case-insensitively following MS-VBAL §5.6.10/§5.6.11, check
+//! declarations (`Option Explicit`, properties, `Implements`, events,
+//! `Declare`), fold constants, type every expression and bind every call.
+//! The result is an [`Analysis`]: a [`Program`] whose procedure bodies are
+//! typed [`bound`] trees, plus deterministic diagnostics with `SEM###`
+//! codes.
+//!
+//! Library types (host object models, COM libraries) come from an injected
+//! [`TypeProvider`]; anything the provider cannot answer is reported
+//! explicitly, never guessed. See `docs/sema.md`.
+
+pub mod bound;
+pub mod builtins;
+pub mod codes;
+pub mod fold;
+pub mod program;
+pub mod provider;
+pub mod types;
+pub mod walk;
+
+mod bind;
+mod sema;
+
+pub use program::{
+    Analysis, ConstInfo, DeclareInfo, EnumInfo, EventHandler, EventInfo, EventRef, FieldInfo,
+    GlobalInfo, ImplementsInfo, LabelInfo, LabelKey, LocalInfo, LocalKind, ModuleInfo,
+    ModuleOptions, ParamInfo, ProcInfo, Program, PropGroup, Symbol, UdtInfo,
+};
+pub use provider::{
+    Chain, LibEvent, LibGlobal, LibMember, LibMemberKind, LibParam, NoLibraries, StaticLibrary,
+    TypeProvider,
+};
+pub use types::*;
+
+use std::collections::HashMap;
+
+use vba_ast::{Name, parse_module};
+use vba_diagnostics::{Diagnostic, Diagnostics};
+use vba_profile::Profile;
+use vba_project::{ModuleKind, VbaProject};
+use vba_source::{FileId, SourceEncoding, SourceMap, Span};
+use vba_syntax::ParseOptions;
+
+/// One module to analyse.
+#[derive(Debug, Clone)]
+pub struct SourceModule {
+    /// Module name.
+    pub name: String,
+    /// Module role.
+    pub kind: ModuleKind,
+    /// Source text as stored (without an export file header).
+    pub source: Vec<u8>,
+}
+
+/// Analysis options.
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Report the deviations VBE tolerates as errors (see `vba-syntax`).
+    pub strict_syntax: bool,
+    /// Project name, for `Project.Module.Name` qualification.
+    pub project_name: String,
+    /// Project-level conditional compilation constants.
+    pub constants: Vec<(String, i64)>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            strict_syntax: true,
+            project_name: "VBAProject".to_owned(),
+            constants: Vec::new(),
+        }
+    }
+}
+
+/// Parses `a = 1 : b = 2` style project constants; malformed entries are
+/// ignored.
+pub fn parse_project_constants(text: &str) -> Vec<(String, i64)> {
+    text.split(':')
+        .filter_map(|part| {
+            let (k, v) = part.split_once('=')?;
+            Some((k.trim().to_owned(), v.trim().parse::<i64>().ok()?))
+        })
+        .filter(|(k, _)| !k.is_empty())
+        .collect()
+}
+
+/// Analyses the modules of a project.
+pub fn analyze_project(
+    project: &VbaProject,
+    profile: &Profile,
+    provider: &dyn TypeProvider,
+) -> Analysis {
+    let modules: Vec<SourceModule> = project
+        .modules
+        .iter()
+        .map(|m| SourceModule {
+            name: m.name.clone(),
+            kind: m.kind,
+            source: m.source.clone().into_bytes(),
+        })
+        .collect();
+    let opts = Options {
+        project_name: project.name.clone(),
+        constants: parse_project_constants(&project.constants),
+        ..Options::default()
+    };
+    analyze_sources(&modules, profile, provider, &opts)
+}
+
+/// Analyses a set of modules.
+pub fn analyze_sources(
+    modules: &[SourceModule],
+    profile: &Profile,
+    provider: &dyn TypeProvider,
+    opts: &Options,
+) -> Analysis {
+    let mut sources = SourceMap::new();
+    let mut parse_opts = if opts.strict_syntax {
+        ParseOptions::strict()
+    } else {
+        ParseOptions::tolerant()
+    };
+    parse_opts.constants = opts.constants.clone();
+    let mut all = Diagnostics::new();
+    let mut asts = Vec::new();
+    let mut infos = Vec::new();
+    let mut ids: HashMap<Name, ModuleId> = HashMap::new();
+    for (i, m) in modules.iter().enumerate() {
+        let file = sources.add(
+            m.name.clone(),
+            m.source.clone(),
+            if std::str::from_utf8(&m.source).is_ok() {
+                SourceEncoding::Utf8
+            } else {
+                SourceEncoding::Unknown
+            },
+        );
+        let parsed = parse_module(file, &m.source, profile, &parse_opts);
+        let has_errors = parsed
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == vba_diagnostics::Severity::Error);
+        all.extend(parsed.diagnostics);
+        let name = Name::new(&m.name);
+        let id = ModuleId(i as u32);
+        if let Some(prev) = ids.get(&name) {
+            all.push(Diagnostic::error(
+                codes::DUPLICATE_DECLARATION,
+                file,
+                Span::empty(0),
+                format!(
+                    "module `{}` is defined twice (first module #{})",
+                    m.name, prev.0
+                ),
+            ));
+        } else {
+            ids.insert(name.clone(), id);
+        }
+        infos.push(ModuleInfo {
+            id,
+            name,
+            kind: m.kind,
+            file,
+            options: ModuleOptions::default(),
+            symbols: HashMap::new(),
+            procs: Vec::new(),
+            globals: Vec::new(),
+            consts: Vec::new(),
+            udts: Vec::new(),
+            enums: Vec::new(),
+            declares: Vec::new(),
+            events: Vec::new(),
+            implements: Vec::new(),
+            handlers: Vec::new(),
+            predeclared: false,
+            default_member: None,
+            initialize: None,
+            terminate: None,
+            has_syntax_errors: has_errors,
+        });
+        asts.push(parsed.module);
+    }
+    let program = Program {
+        profile: *profile,
+        modules: infos,
+        procs: Vec::new(),
+        globals: Vec::new(),
+        consts: Vec::new(),
+        udts: Vec::new(),
+        enums: Vec::new(),
+        declares: Vec::new(),
+        events: Vec::new(),
+    };
+    let builtin = builtins::BuiltinLibrary;
+    let chained = Chain(provider, &builtin);
+    let mut s = sema::Sema::new(&asts, program, &chained, &opts.project_name);
+    s.module_ids = ids;
+    sema::run_declaration_passes(&mut s);
+    let mut bound = Vec::new();
+    for i in 0..s.program.procs.len() {
+        bound.push(bind::bind_proc(&s, ProcId(i as u32)));
+    }
+    for (i, b) in bound.into_iter().enumerate() {
+        let p = &mut s.program.procs[i];
+        p.locals = b.locals;
+        p.result_local = b.result_local;
+        p.labels = b.labels;
+        p.body = b.body;
+    }
+    all.extend(s.diags.into_inner().as_slice().iter().cloned());
+    Analysis {
+        program: s.program,
+        diagnostics: all.into_sorted(),
+        sources,
+    }
+}
+
+/// The file id of module `m` in an [`Analysis`].
+pub fn file_of(a: &Analysis, m: ModuleId) -> FileId {
+    a.program.modules[m.index()].file
+}

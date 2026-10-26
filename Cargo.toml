@@ -28,6 +28,7 @@ vba-lexer = { path = "crates/language/vba-lexer" }
 vba-lsp-core = { path = "crates/tooling/vba-lsp-core" }
 vba-profile = { path = "crates/foundation/vba-profile" }
 vba-project = { path = "crates/model/vba-project" }
+vba-sema = { path = "crates/language/vba-sema" }
 vba-source = { path = "crates/foundation/vba-source" }
 vba-stdlib = { path = "crates/runtime/vba-stdlib" }
 vba-syntax = { path = "crates/language/vba-syntax" }

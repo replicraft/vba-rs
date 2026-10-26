@@ -1,0 +1,277 @@
+//! Assignable locations: converting bound expressions to places and
+//! binding assignment targets.
+
+use vba_ast::{Arg, Expr, ExprKind, Ident, ProcKind};
+use vba_source::Span;
+
+use crate::bound::*;
+use crate::codes;
+use crate::program::Symbol;
+use crate::sema::Found;
+use crate::types::*;
+
+use super::Binder;
+use super::call::Sig;
+
+impl Binder<'_, '_> {
+    /// The storage location denoted by `e`, if it denotes one (a variable,
+    /// field, array element or UDT member): the places that can be passed by
+    /// reference.
+    pub(crate) fn expr_to_place(&self, e: &BExpr) -> Option<BPlace> {
+        match &e.kind {
+            BExprKind::Local(l) => Some(BPlace::Local(*l)),
+            BExprKind::Global(g) => Some(BPlace::Global(*g)),
+            BExprKind::Field { receiver, global } => Some(BPlace::Field {
+                receiver: receiver.clone(),
+                global: *global,
+            }),
+            BExprKind::Index { base, indices } => Some(BPlace::Index {
+                base: Box::new(self.expr_to_place(base)?),
+                indices: indices.clone(),
+                elem: e.ty.clone(),
+            }),
+            BExprKind::UdtField { base, udt, index } => Some(BPlace::UdtField {
+                base: Box::new(self.expr_to_place(base)?),
+                udt: *udt,
+                index: *index,
+                ty: e.ty.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    /// Binds the target of `Let`/`Set`/`LSet`/`RSet`. `set` selects
+    /// `Property Set` / `DISPATCH_PROPERTYPUTREF`.
+    pub(crate) fn bind_target(&mut self, e: &Expr, set: bool) -> Option<(BPlace, Type)> {
+        // `Mid(s, ...) = x` is the Mid statement, not an assignment to a call.
+        if let ExprKind::Call { callee, .. } = &e.kind
+            && let ExprKind::Name(id) = &callee.kind
+            && matches!(
+                id.name.to_string_lossy().to_ascii_lowercase().as_str(),
+                "mid" | "midb"
+            )
+            && !self.scope.contains_key(&id.name)
+        {
+            self.err(
+                codes::UNSUPPORTED,
+                e.span,
+                "the `Mid` statement (assignment to Mid) is not supported",
+            );
+            return None;
+        }
+        // The implicit result variable of a function or property getter.
+        let name_of = |x: &Expr| match &x.kind {
+            ExprKind::Name(id) => Some(id.clone()),
+            _ => None,
+        };
+        if let Some(id) = name_of(e)
+            && self.info().has_result
+            && id.name == self.info().name
+            && !self.scope.contains_key(&id.name)
+            && let Some(r) = self.result_local
+        {
+            let ty = self.local_ty(r);
+            return Some((BPlace::Local(r), ty));
+        }
+        if let Some(r) = self.try_write_only_property(e, set) {
+            return r;
+        }
+        let b = self.bind_expr(e);
+        if b.ty.is_error() {
+            return None;
+        }
+        self.place_for_assignment(b, set)
+    }
+
+    /// Converts a bound read expression into a place for assignment.
+    fn place_for_assignment(&mut self, b: BExpr, set: bool) -> Option<(BPlace, Type)> {
+        if let Some(p) = self.expr_to_place(&b) {
+            return Some((p, b.ty));
+        }
+        let span = b.span;
+        let sema = self.sema;
+        match b.kind {
+            BExprKind::Call(call) => {
+                let BCall {
+                    target,
+                    receiver,
+                    args,
+                } = *call;
+                if let CallTarget::Proc(p) = target {
+                    let pi = &sema.program.procs[p.index()];
+                    if pi.kind == ProcKind::PropertyGet
+                        && let Some((Symbol::Property(g), _)) = sema.program.modules
+                            [pi.module.index()]
+                        .symbols
+                        .get(&pi.name)
+                    {
+                        let chosen = if set { g.set } else { g.let_ };
+                        return match chosen {
+                            Some(c) => {
+                                let cinfo = &sema.program.procs[c.index()];
+                                let ty = cinfo
+                                    .params
+                                    .last()
+                                    .map(|p| p.ty.clone())
+                                    .unwrap_or(Type::Error);
+                                Some((
+                                    BPlace::Property {
+                                        call: Box::new(BCall {
+                                            target: CallTarget::Proc(c),
+                                            receiver,
+                                            args,
+                                        }),
+                                        set,
+                                        ty: ty.clone(),
+                                    },
+                                    ty,
+                                ))
+                            }
+                            None => {
+                                let msg = if set && g.let_.is_some() {
+                                    format!(
+                                        "property `{}` has no `Property Set` (use a plain assignment)",
+                                        pi.name
+                                    )
+                                } else if !set && g.set.is_some() {
+                                    format!(
+                                        "property `{}` has no `Property Let` (use `Set`)",
+                                        pi.name
+                                    )
+                                } else {
+                                    format!("property `{}` is read-only", pi.name)
+                                };
+                                self.err(codes::ASSIGNMENT_KIND, span, msg);
+                                None
+                            }
+                        };
+                    }
+                }
+                self.err(
+                    codes::NOT_ASSIGNABLE,
+                    span,
+                    "cannot assign to the result of a procedure call",
+                );
+                None
+            }
+            BExprKind::Late(mut late) if late.kind == LateKind::Get => {
+                late.kind = if set {
+                    LateKind::PropertyPutRef
+                } else {
+                    LateKind::PropertyPut
+                };
+                Some((
+                    BPlace::Late {
+                        late,
+                        ty: Type::Variant,
+                    },
+                    Type::Variant,
+                ))
+            }
+            BExprKind::Const(_) => {
+                self.err(codes::NOT_ASSIGNABLE, span, "cannot assign to a constant");
+                None
+            }
+            _ => {
+                self.err(
+                    codes::NOT_ASSIGNABLE,
+                    span,
+                    "this expression cannot be assigned to",
+                );
+                None
+            }
+        }
+    }
+
+    /// A property with `Property Let`/`Set` but no `Property Get` cannot be
+    /// bound as a read; bind it directly as an assignment target.
+    fn try_write_only_property(&mut self, e: &Expr, set: bool) -> Option<Option<(BPlace, Type)>> {
+        let (callee, args): (&Expr, &[Arg]) = match &e.kind {
+            ExprKind::Call { callee, args } => (callee, args),
+            _ => (e, &[]),
+        };
+        let sema = self.sema;
+        let (group, receiver, name): (_, Option<BExpr>, &Ident) = match &callee.kind {
+            ExprKind::Name(id) if !self.scope.contains_key(&id.name) => {
+                match sema.lookup_module_scope(self.module, &id.name) {
+                    Found::Sym(owner, Symbol::Property(g)) if g.get.is_none() => {
+                        let recv = sema.program.modules[owner.index()]
+                            .is_class_like()
+                            .then(|| self.me_expr(callee.span));
+                        (g, recv, id)
+                    }
+                    _ => return None,
+                }
+            }
+            ExprKind::Member {
+                target: Some(t),
+                name,
+            } => {
+                if matches!(t.kind, ExprKind::Name(_) | ExprKind::Member { .. })
+                    && self.is_namespace_like(t)
+                {
+                    return None;
+                }
+                let recv = self.bind_expr(t);
+                let Type::Class(m) = recv.ty.clone() else {
+                    return None;
+                };
+                match sema.program.modules[m.index()].symbols.get(&name.name) {
+                    Some((Symbol::Property(g), _)) if g.get.is_none() => (*g, Some(recv), name),
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+        let chosen = if set { group.set } else { group.let_ };
+        let Some(c) = chosen else {
+            self.err(
+                codes::ASSIGNMENT_KIND,
+                name.span,
+                format!(
+                    "property `{}` has no matching `Property Let`/`Set`",
+                    name.name
+                ),
+            );
+            return Some(None);
+        };
+        let info = &sema.program.procs[c.index()];
+        let mut sig = Sig::of_proc(info);
+        let value = sig.params.pop();
+        let bargs = self.match_args(&sig, args, e.span);
+        let ty = value.map(|v| v.ty).unwrap_or(Type::Error);
+        Some(Some((
+            BPlace::Property {
+                call: Box::new(BCall {
+                    target: CallTarget::Proc(c),
+                    receiver,
+                    args: bargs,
+                }),
+                set,
+                ty: ty.clone(),
+            },
+            ty,
+        )))
+    }
+
+    fn is_namespace_like(&self, t: &Expr) -> bool {
+        let sema = self.sema;
+        match &t.kind {
+            ExprKind::Name(id) => {
+                !self.scope.contains_key(&id.name)
+                    && matches!(
+                        sema.lookup_module_scope(self.module, &id.name),
+                        Found::Module(_) | Found::Sym(_, Symbol::Enum(_))
+                    )
+            }
+            ExprKind::Member {
+                target: Some(inner),
+                ..
+            } => self.is_namespace_like(inner),
+            _ => false,
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unused(&self, _: Span) {}
+}
