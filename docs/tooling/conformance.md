@@ -24,12 +24,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 510 |
+| implemented | 511 |
 | partial | 159 |
-| unsupported | 6 |
+| unsupported | 5 |
 | not-started | 33 |
-| Conformance programs | 2087 |
-| Programs that are known deviations (XFAIL) | 175 |
+| Conformance programs | 2097 |
+| Programs that are known deviations (XFAIL) | 174 |
 
 ## Entries per category and status
 
@@ -57,7 +57,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | data-type | 18 | 18 | 0 | 0 | 0 |
 | identifier-type-character | 7 | 7 | 0 | 0 | 0 |
 | object | 13 | 10 | 0 | 3 | 0 |
-| language-element | 38 | 26 | 11 | 1 | 0 |
+| language-element | 38 | 27 | 11 | 0 | 0 |
 | spec-environment | 5 | 4 | 1 | 0 | 0 |
 | spec-lexical | 12 | 9 | 3 | 0 | 0 |
 | spec-organization | 3 | 1 | 0 | 0 | 2 |
@@ -74,9 +74,9 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | --- | ---: |
 | oracle | 0 |
 | spec | 440 |
-| doc | 100 |
+| doc | 99 |
 | derived | 39 |
-| unverified | 96 |
+| unverified | 97 |
 | (no program) | 33 |
 
 ## Programs per area and provenance
@@ -94,8 +94,8 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | events | 7 | 0 | 6 | 0 | 1 | 0 |
 | file-io | 47 | 0 | 19 | 19 | 3 | 6 |
 | financial | 13 | 0 | 0 | 2 | 11 | 0 |
-| host | 34 | 0 | 3 | 15 | 10 | 6 |
-| language | 18 | 0 | 6 | 4 | 0 | 8 |
+| host | 42 | 0 | 3 | 15 | 10 | 14 |
+| language | 20 | 0 | 6 | 6 | 0 | 8 |
 | logic | 10 | 0 | 7 | 3 | 0 | 0 |
 | math | 37 | 0 | 24 | 4 | 2 | 7 |
 | operators | 66 | 0 | 59 | 1 | 5 | 1 |
@@ -180,7 +180,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `lit.null` | language-element | Null | partial |  |
 | `expr.index` | language-element | Index expression | partial |  |
 | `expr.typeof` | language-element | TypeOf ... Is expression | partial |  |
-| `expr.addressof` | language-element | AddressOf expression | unsupported | AddressOf produces no callable native pointer without the Declare bridge |
 | `expr.default-member` | language-element | Default member resolution | partial | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
 | `expr.implicit-conv` | language-element | Implicit conversion in expressions | partial |  |
 | `lex.continuation` | language-element | Line continuation | partial |  |
@@ -327,7 +326,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `collections/userform_not_provided` | unsupported | UserForm objects need a host that provides forms |
 | `file-io/fso_drives_not_provided` | unsupported | FileSystemObject.Drives, GetDrive and DriveExists are not provided: a virtual file system has no drives to describe (error 438) |
 | `host/load_unload_form` | unsupported | forms require a host that provides them |
-| `language/addressof_without_native` | unsupported | AddressOf produces no callable native pointer without the Declare bridge |
 | `spec-coerce/5_5_1_1_longlong_to_double_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: implicit LongLong narrowing is accepted and checked at run time |
 | `spec-coerce/5_5_1_1_longlong_to_long_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: implicit LongLong narrowing is accepted and checked at run time |
 | `spec-coerce/5_5_1_2_11_empty_to_object_object_required` | wrong | VBA behaviour kept where MS-VBAL text differs: Object = Variant without Set is rejected at analysis (SEM007), not error 424 at run time |
