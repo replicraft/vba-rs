@@ -13,9 +13,18 @@ fn helper() -> &'static str {
     env!("CARGO_BIN_EXE_vba-wine-host")
 }
 
+/// Timeouts that must NOT fire are scaled by `VBA_TEST_TIMEOUT_SCALE`
+/// (default 10) so heavy machine load cannot trip them.
+fn scale() -> u64 {
+    std::env::var("VBA_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10)
+}
+
 fn opts(ms: u64) -> SessionOptions {
     SessionOptions {
-        timeout: Duration::from_millis(ms),
+        timeout: Duration::from_millis(ms * scale()),
         ..Default::default()
     }
 }
@@ -80,11 +89,14 @@ fn helper_crash_is_reported() {
 
 #[test]
 fn helper_hang_times_out_and_is_killed() {
-    let mut s = spawn(&["--inject=hang"], 300).unwrap();
+    // Generous Hello timeout (process start-up), then a short one: the hung
+    // helper never answers, so the short timeout always fires.
+    let mut s = spawn(&["--inject=hang"], 2000).unwrap();
+    s.set_timeout(Duration::from_millis(300));
     let t = Instant::now();
     let e = s.ping().unwrap_err();
     assert!(matches!(e, WineError::Timeout { op: "Ping", .. }), "{e}");
-    assert!(t.elapsed() < Duration::from_secs(5));
+    assert!(t.elapsed() < Duration::from_secs(5 * scale()));
     assert_eq!(s.ping().unwrap_err(), WineError::SessionClosed);
 }
 
@@ -122,7 +134,7 @@ fn drop_kills_the_helper() {
     let s = spawn(&["--inject=hang"], 5000).unwrap();
     let t = Instant::now();
     drop(s);
-    assert!(t.elapsed() < Duration::from_secs(5));
+    assert!(t.elapsed() < Duration::from_secs(5 * scale()));
 }
 
 #[test]

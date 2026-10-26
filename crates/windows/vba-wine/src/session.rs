@@ -123,6 +123,13 @@ impl Session {
         Ok(s)
     }
 
+    /// Changes the per-request timeout for subsequent requests. Lets a caller
+    /// use a generous timeout for the Hello (process start-up) and a tight one
+    /// for later requests.
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.opts.timeout = timeout;
+    }
+
     /// What the helper reported (bitness, OS, Wine version, capabilities).
     pub fn info(&self) -> &HelloInfo {
         &self.info

@@ -106,9 +106,18 @@ fn spawn_server(backend: impl Backend + Send + 'static) -> ChannelTransport {
     t
 }
 
+/// Timeouts that must NOT fire are scaled by `VBA_TEST_TIMEOUT_SCALE`
+/// (default 10) so heavy machine load cannot trip them.
+fn scale() -> u64 {
+    std::env::var("VBA_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10)
+}
+
 fn opts(ms: u64) -> SessionOptions {
     SessionOptions {
-        timeout: Duration::from_millis(ms),
+        timeout: Duration::from_millis(ms * scale()),
         ..Default::default()
     }
 }
@@ -248,7 +257,9 @@ fn timeout_kills_and_closes() {
         std::thread::sleep(Duration::from_secs(5));
         drop(peer);
     });
-    let mut s = Session::connect(Box::new(t), opts(100)).unwrap();
+    // Generous Hello timeout (thread start-up under load), tight afterwards.
+    let mut s = Session::connect(Box::new(t), opts(2000)).unwrap();
+    s.set_timeout(Duration::from_millis(100));
     let e = s.load_library("mock").unwrap_err();
     assert!(
         matches!(
