@@ -157,6 +157,7 @@ spec-data/5_4_3_3_redim_non_array_declared_type_invalid	engine-only	expects a co
 spec-data/5_4_3_4_erase_non_array_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-data/5_4_3_5_mid_integer_argument_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-data/5_4_3_6_lset_integer_target_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-data/5_4_3_6_lset_udt_different_layout_variable_string_unsupported	engine-only	expects the engine-specific outcome `unsupported`
 spec-data/5_4_3_7_rset_integer_target_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-data/5_4_3_7_rset_udt_target_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-data/5_4_3_8_let_function_not_enclosing_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
@@ -184,10 +185,15 @@ spec-data/5_4_5_10_input_quoted_string	safety	needs the `file-read` grant; needs
 spec-data/5_4_5_10_input_same_variable_twice_last_wins	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_10_input_unopened_error52	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_10_input_unquoted_strings	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-data/5_4_5_11_get_dynamic_array_in_udt_member	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-data/5_4_5_11_get_dynamic_array_multidimensional	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-data/5_4_5_11_get_dynamic_array_takes_written_bounds	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-data/5_4_5_11_get_dynamic_string_array_random	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_get_variant_reads_descriptor	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_binary_string_no_prefix	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_boolean_ff_ff	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_class_data_invalid	safety	needs the `file-read` grant; needs the `file-write` grant; expects a compile error (needs a modal dialog in a real host)
+spec-data/5_4_5_11_put_dynamic_array_descriptor	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_fixed_string_no_prefix	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_get_binary_roundtrip_types	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_get_udt_roundtrip	safety	needs the `file-read` grant; needs the `file-write` grant
@@ -196,6 +202,7 @@ spec-data/5_4_5_11_put_long_little_endian_four_bytes	safety	needs the `file-read
 spec-data/5_4_5_11_put_object_data_invalid	safety	needs the `file-read` grant; needs the `file-write` grant; expects a compile error (needs a modal dialog in a real host)
 spec-data/5_4_5_11_put_sizes_single_double_currency_date	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_udt_members_in_declaration_order	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-data/5_4_5_11_put_unallocated_dynamic_array	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_unopened_error52	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_variant_decimal_sixteen_bytes	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_11_put_variant_double_descriptor	safety	needs the `file-read` grant; needs the `file-write` grant
@@ -608,6 +615,7 @@ spec-proc/5_3_1_function_private_udt_in_class_invalid	engine-only	expects a comp
 spec-proc/5_3_1_me_assignment_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_3_1_typed_name_with_function_type_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_4_1_1_label_named_randomize_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-proc/5_4_2_11_stop_halts_nested_call	ui	Stop breaks into the debugger
 spec-proc/5_4_2_12_goto_label_in_other_procedure_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_4_2_12_goto_undefined_label_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_4_2_13_on_goto_undefined_label_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
