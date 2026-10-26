@@ -1026,10 +1026,8 @@ fn financial_through_registry() {
     assert_eq!(e.call("SLN", &[n(30000), n(7500), n(0)]), Err(err(5)));
     assert_eq!(e.call("IRR", &[arr(&[n(1), n(2)])]), Err(err(5)));
     assert_eq!(e.call("IRR", &[n(1)]), Err(err(5)));
-    assert!(matches!(
-        e.call("DDB", &[n(2400), n(300), n(10), Variant::Double(1.5)]),
-        Err(StdError::Unsupported(_))
-    ));
+    let x = dbl(e.call("DDB", &[n(2400), n(300), n(10), Variant::Double(1.5)]));
+    assert!((x - 2400.0 * 0.8f64.powf(0.5) * 0.2).abs() < 1e-9);
     let x = dbl(e.call("DDB", &[n(2400), n(300), n(10), n(1)]));
     assert_eq!(x, 480.0);
 }

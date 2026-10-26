@@ -202,16 +202,19 @@ pub fn syd(cost: f64, salvage: f64, life: f64, period: f64) -> VbaResult<f64> {
     finite((cost - salvage) * (life - period + 1.0) * 2.0 / (life * (life + 1.0)))
 }
 
-/// `DDB`; only whole periods are supported.
+/// `DDB`. A whole period iterates the documented declining balance; a
+/// fractional period uses the book value `max(salvage, cost * (1 - factor /
+/// life) ^ t)` at the two ends of the period (**unverified** against Office).
 pub fn ddb(cost: f64, salvage: f64, life: f64, period: f64, factor: f64) -> StdResult<f64> {
     if cost < 0.0 || salvage < 0.0 || life <= 0.0 || period <= 0.0 || period > life || factor <= 0.0
     {
         return Err(E5.into());
     }
     if period.fract() != 0.0 {
-        return Err(crate::error::StdError::Unsupported(
-            "DDB with a fractional period",
-        ));
+        let keep = (1.0 - factor / life).max(0.0);
+        let book = |t: f64| (cost * keep.powf(t)).max(salvage.min(cost));
+        let dep = book((period - 1.0).max(0.0)) - book(period);
+        return Ok(finite(dep)?);
     }
     let mut book = cost;
     let mut dep = 0.0;
