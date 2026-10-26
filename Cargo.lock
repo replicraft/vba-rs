@@ -1222,6 +1222,7 @@ dependencies = [
  "annotate-snippets",
  "assert_cmd",
  "clap",
+ "serde_json",
  "tempfile",
  "thiserror",
  "vba-ast",

@@ -23,11 +23,16 @@ struct Cli {
 enum Command {
     /// List the contents of a VBA project file.
     ///
-    /// Accepts a raw `vbaProject.bin` compound file, or a standalone `.bas`,
-    /// `.cls` or `.frm` source file.
+    /// Accepts a raw `vbaProject.bin` compound file, a directory of exported
+    /// streams (files named by their stream path, `/` as a subdirectory:
+    /// `VBA/dir`, `VBA/_VBA_PROJECT`, `PROJECT`, ...), or a standalone
+    /// `.bas`, `.cls` or `.frm` source file.
     Inspect {
-        /// The file to inspect.
+        /// The file or directory to inspect.
         file: PathBuf,
+        /// Print machine-readable JSON (schema in docs/vba-format.md).
+        #[arg(long)]
+        json: bool,
     },
     /// Print the tokens of a source file and the lexer diagnostics.
     ///
@@ -169,7 +174,7 @@ fn finish(r: Result<tools::Report, tools::ToolError>) -> ExitCode {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Command::Inspect { file } => match inspect::run(&file) {
+        Command::Inspect { file, json } => match inspect::run(&file, json) {
             Ok(report) => {
                 print!("{report}");
                 ExitCode::SUCCESS
