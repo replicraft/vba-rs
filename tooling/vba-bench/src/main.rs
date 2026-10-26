@@ -16,19 +16,51 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("int_loop", include_str!("../programs/int_loop.bas")),
     ("string_build", include_str!("../programs/string_build.bas")),
     ("array_sort", include_str!("../programs/array_sort.bas")),
-    ("collection_calls", include_str!("../programs/collection_calls.bas")),
+    (
+        "collection_calls",
+        include_str!("../programs/collection_calls.bas"),
+    ),
+    ("class_calls", include_str!("../programs/class_calls.bas")),
     ("recursion", include_str!("../programs/recursion.bas")),
     ("variant_math", include_str!("../programs/variant_math.bas")),
     ("format_val", include_str!("../programs/format_val.bas")),
 ];
 
+/// Splits a program into modules at `'#MODULE Name standard|class` lines
+/// (the first module is standard and unnamed when there is no marker).
+fn modules(src: &str) -> Vec<vba_sema::SourceModule> {
+    let mut out = Vec::new();
+    let mut cur = ("Module1".to_owned(), ModuleKind::Standard, String::new());
+    for line in src.lines() {
+        if let Some(rest) = line.strip_prefix("'#MODULE ") {
+            if !cur.2.is_empty() {
+                out.push(cur);
+            }
+            let mut it = rest.split_whitespace();
+            let name = it.next().unwrap_or("Module1").to_owned();
+            let kind = match it.next() {
+                Some("class") => ModuleKind::Class,
+                _ => ModuleKind::Standard,
+            };
+            cur = (name, kind, String::new());
+        } else {
+            cur.2.push_str(line);
+            cur.2.push('\n');
+        }
+    }
+    out.push(cur);
+    out.into_iter()
+        .map(|(name, kind, source)| vba_sema::SourceModule {
+            name,
+            kind,
+            source: source.into_bytes(),
+        })
+        .collect()
+}
+
 fn compile(src: &str) -> Rc<vba_ir::IrProgram> {
     let a = vba_sema::analyze_sources(
-        &[vba_sema::SourceModule {
-            name: "M".to_owned(),
-            kind: ModuleKind::Standard,
-            source: src.as_bytes().to_vec(),
-        }],
+        &modules(src),
         vba_profile::default_profile(),
         &vba_sema::NoLibraries,
         &vba_sema::Options::default(),

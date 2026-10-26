@@ -385,7 +385,10 @@ impl Vm {
             Loc::Elem { base, idx } => {
                 let res = (|| -> VResult<Variant> {
                     let arr = self.array_mut(base)?;
-                    if !needs_adopt(&new) && !matches!(arr.get(idx)?, Variant::String(_)) && !needs_adopt(arr.get(idx)?) {
+                    if !needs_adopt(&new)
+                        && !matches!(arr.get(idx)?, Variant::String(_))
+                        && !needs_adopt(arr.get(idx)?)
+                    {
                         // The old value owns nothing to release; a String is excluded so the
                         // metered copies it makes stay as they were.
                         arr.set(idx, new.clone())?;

@@ -167,6 +167,8 @@ impl Vm {
             erl: 0,
             field_pos: Vec::new(),
             procs_by_name: HashMap::new(),
+            procs_lc: Vec::new(),
+            fields_lc: Vec::new(),
             pending_events: self.pending_events.clone(),
             debug_col: 0,
             declare: DeclareState::new(),

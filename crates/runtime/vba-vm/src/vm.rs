@@ -96,6 +96,12 @@ pub struct Vm {
     pub(crate) err: ErrState,
     pub(crate) erl: u64,
     pub(crate) field_pos: Vec<u32>,
+    /// The same procedures as `procs_by_name`, per module (by index) and
+    /// looked up by a borrowed lower-case name, without allocating.
+    pub(crate) procs_lc: Vec<HashMap<String, Vec<ProcId>>>,
+    /// Public-field candidates per module (by index): the first variable of
+    /// each lower-case name that is not a hoisted `Static` local.
+    pub(crate) fields_lc: Vec<HashMap<String, (vba_sema::GlobalId, vba_ast::Visibility)>>,
     pub(crate) procs_by_name: HashMap<(ModuleId, String), Vec<ProcId>>,
     pub(crate) pending_events: Rc<RefCell<VecDeque<PendingEvent>>>,
     pub(crate) debug_col: usize,
@@ -182,6 +188,8 @@ impl Vm {
             erl: 0,
             field_pos: Vec::new(),
             procs_by_name: HashMap::new(),
+            procs_lc: Vec::new(),
+            fields_lc: Vec::new(),
             pending_events: Rc::new(RefCell::new(VecDeque::new())),
             debug_col: 0,
             declare: DeclareState::new(),
@@ -216,7 +224,20 @@ impl Vm {
                 self.field_pos[g.index()] = i as u32;
             }
         }
+        self.procs_lc = vec![HashMap::new(); p.modules.len()];
+        self.fields_lc = vec![HashMap::new(); p.modules.len()];
+        for g in &p.globals {
+            if g.static_of.is_none() {
+                self.fields_lc[g.module.index()]
+                    .entry(g.name.to_string().to_ascii_lowercase())
+                    .or_insert((g.id, g.visibility));
+            }
+        }
         for proc_ in &p.procs {
+            self.procs_lc[proc_.module.index()]
+                .entry(proc_.name.to_string().to_ascii_lowercase())
+                .or_default()
+                .push(proc_.id);
             self.procs_by_name
                 .entry((proc_.module, proc_.name.to_string().to_ascii_lowercase()))
                 .or_default()

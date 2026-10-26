@@ -322,10 +322,10 @@ impl Vm {
         // What the host object behind a document or designer module answers
         // when the module does not define the member itself.
         let host_base = self.objects.get(&id).and_then(|o| o.host_base);
-        let name = match member {
-            Member::Named(n) => n.clone(),
+        let name: std::borrow::Cow<'_, str> = match member {
+            Member::Named(n) => std::borrow::Cow::Borrowed(n.as_str()),
             Member::Default => match mi.default_member.as_ref() {
-                Some(n) => n.to_string(),
+                Some(n) => std::borrow::Cow::Owned(n.to_string()),
                 None => {
                     return match host_base {
                         Some(h) => self.invoke_external(h, member, kind, args, want_value, None),
@@ -334,7 +334,17 @@ impl Vm {
                 }
             },
         };
-        let lname = name.to_ascii_lowercase();
+        let mut buf = [0u8; 48];
+        let lowered;
+        let lname: &str = if name.len() <= buf.len() && name.is_ascii() {
+            let b = &mut buf[..name.len()];
+            b.copy_from_slice(name.as_bytes());
+            b.make_ascii_lowercase();
+            std::str::from_utf8(b).unwrap_or_default()
+        } else {
+            lowered = name.to_ascii_lowercase();
+            &lowered
+        };
         let pick_proc = |cands: &[ProcId]| {
             cands.iter().copied().find(|p| {
                 let k = ir.program.proc(*p).kind;
@@ -362,7 +372,7 @@ impl Vm {
                 .and_then(|n| self.procs_by_name.get(&(module, n)))
                 .and_then(|c| pick_proc(c))
         });
-        let own = || self.procs_by_name.get(&(module, lname.clone()));
+        let own = || self.procs_lc[module.index()].get(lname);
         if let Some(pid) = through_iface.or_else(|| own().and_then(|c| pick_proc(c))) {
             {
                 let p = ir.program.proc(pid);
@@ -379,16 +389,7 @@ impl Vm {
             }
         }
         // A public variable.
-        let field = ir
-            .program
-            .globals
-            .iter()
-            .find(|g| {
-                g.module == module
-                    && g.static_of.is_none()
-                    && g.name.to_string().eq_ignore_ascii_case(&name)
-            })
-            .map(|g| (g.id, g.visibility));
+        let field = self.fields_lc[module.index()].get(lname).copied();
         if let Some((g, vis)) = field {
             if vis == vba_ast::Visibility::Private {
                 return Err(VbaError::new(438).into());

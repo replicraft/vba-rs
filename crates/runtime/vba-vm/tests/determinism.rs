@@ -143,7 +143,11 @@ fn every_corpus_program_is_deterministic() {
     let mut digest = String::new();
     let mut failures = Vec::new();
     for f in &files {
-        let id = f.strip_prefix(&base).unwrap().to_string_lossy().replace('\\', "/");
+        let id = f
+            .strip_prefix(&base)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         let text = std::fs::read_to_string(f).unwrap();
         let (mods, entry, max_steps) = parse(&text);
         let r = std::panic::catch_unwind(|| {
