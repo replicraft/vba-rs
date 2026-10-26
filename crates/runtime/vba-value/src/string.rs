@@ -4,6 +4,7 @@
 //! validity requirement, so unpaired surrogates are legal and must survive
 //! every operation. `Len` counts code units, not characters.
 
+use crate::collation::{Collation, EN_US};
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -13,12 +14,9 @@ pub enum CompareMode {
     /// `Option Compare Binary`: compare code units numerically.
     #[default]
     Binary,
-    /// `Option Compare Text`: case-insensitive comparison.
-    ///
-    /// Only a simple per-code-unit lower-case fold is applied. Windows LCID
-    /// collation (accent/width/kana handling, linguistic ordering) is NOT
-    /// reproduced; ordering of non-letters relative to letters may differ from
-    /// real VBA.
+    /// `Option Compare Text`: case-, width- and kana-type-insensitive
+    /// comparison through a [`Collation`]; the default is the documented en-US
+    /// approximation [`crate::collation::EN_US`] (NOT LCID-exact).
     Text,
 }
 
@@ -89,30 +87,19 @@ impl VbaString {
     pub fn compare(&self, other: &VbaString, mode: CompareMode) -> Ordering {
         match mode {
             CompareMode::Binary => self.0.cmp(&other.0),
-            CompareMode::Text => {
-                let a = self.0.iter().map(|&u| fold_unit(u));
-                let b = other.0.iter().map(|&u| fold_unit(u));
-                a.cmp(b)
-            }
+            CompareMode::Text => self.compare_with(other, &EN_US),
         }
+    }
+
+    /// Compares under `Option Compare Text` using a caller-supplied
+    /// collation.
+    pub fn compare_with(&self, other: &VbaString, collation: &dyn Collation) -> Ordering {
+        collation.compare(&self.0, &other.0)
     }
 
     /// Returns `true` if both strings are equal under the given mode.
     pub fn equals(&self, other: &VbaString, mode: CompareMode) -> bool {
         self.compare(other, mode) == Ordering::Equal
-    }
-}
-
-/// Simple case fold of one code unit: lower-case when the mapping is a single
-/// BMP character, otherwise unchanged. Surrogates are never altered.
-fn fold_unit(u: u16) -> u16 {
-    let Some(c) = char::from_u32(u32::from(u)) else {
-        return u;
-    };
-    let mut it = c.to_lowercase();
-    match (it.next(), it.next()) {
-        (Some(l), None) => u16::try_from(u32::from(l)).unwrap_or(u),
-        _ => u,
     }
 }
 

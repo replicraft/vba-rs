@@ -6,6 +6,7 @@
 //! depends only on `vba-core` and no host.
 
 pub mod array;
+pub mod collation;
 pub mod convert;
 pub mod currency;
 pub mod date;

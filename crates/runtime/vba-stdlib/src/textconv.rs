@@ -104,8 +104,7 @@ pub fn decode(bytes: &[u8], code_page: u32) -> StdResult<VbaString> {
 // ---------------------------------------------------------------------------
 // Width
 
-/// Fullwidth forms of U+FF61..=U+FF9F in order.
-const HALF_KANA_TO_FULL: &str = "。「」、・ヲァィゥェォャュョッーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン゛゜";
+use vba_value::collation::HALF_KANA_TO_FULL;
 
 /// Kana (fullwidth) that take a voiced mark by adding 1 to the code point.
 const VOICEABLE: &str = "カキクケコサシスセソタチツテトハヒフヘホ";

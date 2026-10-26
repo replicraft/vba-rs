@@ -71,8 +71,11 @@ against a real VBA host.
   small built-in table (`textconv::lcid_code_page`), is `Unsupported`.
 - `Str` of a `Date`, `DDB` with a fractional period: `Unsupported`.
 - `TypeName` of objects and user-defined types, `IsMissing`: `VmRequired`.
-- Windows LCID collation: `Option Compare Text` is a simple per-code-unit case
-  fold (inherited from `vba-value`).
+- Windows LCID collation: `Option Compare Text` uses the documented en-US
+  approximation of `vba-value::collation` (case, width, kana type; accents
+  significant, no linguistic ordering). `Host::collation` lets an embedder
+  replace it for `InStr`, `InStrRev`, `Replace`, `Split`, `Filter` and
+  `StrComp`; `Like` and operator comparison use the default.
 - Empty `Split`/`Filter`/`Array()` results are allocated arrays without
   elements (`LBound` 0, `UBound` -1; `Option Base 1` gives 1 and 0), built with
   `VbaArray::new_empty`. A user `ReDim` to an upper bound below the lower bound

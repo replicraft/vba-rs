@@ -16,7 +16,7 @@ covered by explicit tests but remain unverified against Office.
 | Area | Module | Notes |
 | --- | --- | --- |
 | Errors | re-exported from `vba-core` | `VbaError` (number + standard description), constants for 5, 6, 7, 9, 10, 11, 13, 94. |
-| Strings | `string` | `VbaString` is a `Vec<u16>`; unpaired surrogates survive every operation; `Len` counts code units; strict/lossy conversion to Rust text; Binary and Text comparison. |
+| Strings | `string`, `collation` | `VbaString` is a `Vec<u16>`; unpaired surrogates survive every operation; `Len` counts code units; strict/lossy conversion to Rust text; Binary and Text comparison (Text through the pluggable `Collation`, default `EnUs`). |
 | Currency | `currency` | Scaled `i64` (/10000), exact add/sub, mul/div rounded half to even, overflow error 6, division by zero error 11. |
 | Decimal | `decimal` | Own implementation: 96-bit mantissa, sign, scale 0..=28, 256-bit intermediates. See rules below. |
 | Date | `date` | `f64` OLE date, range 0100-01-01..9999-12-31, epoch 1899-12-30, negative-date quirk, `DateSerial`/`TimeSerial` roll-over, weekday, en-US `CStr`. |
@@ -95,9 +95,15 @@ covered by explicit tests but remain unverified against Office.
 
 ## Known gaps
 
-- Text comparison is a per-code-unit lower-case fold only. Windows LCID
-  collation (accents, width, kana, linguistic order, ligatures) is not
-  reproduced. Characters outside the BMP are compared by code unit.
+- Text comparison (`collation`) approximates Windows' `NORM_IGNORECASE |
+  NORM_IGNOREKANATYPE | NORM_IGNOREWIDTH` for en-US: BMP simple case folding,
+  fullwidth to ASCII, halfwidth to fullwidth katakana (no voiced-mark
+  combining), katakana to hiragana. Accents are significant but accented
+  letters do not sort next to their base letters (order is by folded code
+  unit); ligatures, linguistic ordering and non-BMP folding are not
+  reproduced. This is NOT LCID-exact. The `Collation` trait lets a host
+  supply its own (`VbaString::compare_with`; the stdlib `*_with` functions and
+  `Host::collation`).
 - Only en-US text formats (decimal point, `m/d/yyyy`, 12-hour clock) exist.
   Dates without a year are rejected (they depend on the current date).
   Parenthesized negatives, trailing type characters and currency symbols other

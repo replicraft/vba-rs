@@ -220,6 +220,73 @@ fn asc_chr() {
 }
 
 #[test]
+fn text_compare_ignores_case_width_and_kana() {
+    let mut e = Env::new();
+    // vbTextCompare = 1
+    assert_eq!(
+        e.call("StrComp", &[s("ABC"), s("ａｂｃ"), n(1)]),
+        Ok(Variant::Integer(0))
+    );
+    assert_eq!(
+        e.call("StrComp", &[s("ABC"), s("ａｂｃ"), n(0)]),
+        Ok(Variant::Integer(-1))
+    );
+    assert_eq!(
+        e.call("StrComp", &[s("ひら"), s("ヒラ"), n(1)]),
+        Ok(Variant::Integer(0))
+    );
+    assert_eq!(
+        e.call("StrComp", &[s("e"), s("é"), n(1)]),
+        Ok(Variant::Integer(-1))
+    );
+    assert_eq!(
+        e.call("InStr", &[n(1), s("xxＡＢx"), s("ab"), n(1)]),
+        Ok(Variant::Long(3))
+    );
+    assert_eq!(
+        e.call(
+            "Replace",
+            &[s("カタカナ"), s("かな"), s("-"), n(1), n(-1), n(1)]
+        ),
+        Ok(s("カタ-"))
+    );
+}
+
+#[test]
+fn custom_collation_is_honored() {
+    use std::cmp::Ordering;
+    use vba_stdlib::strings::{instr_with, split_with, str_comp_with};
+    use vba_value::collation::Collation;
+    // Treats every ASCII digit as the same character.
+    struct Digits;
+    impl Collation for Digits {
+        fn fold(&self, units: &[u16]) -> Vec<u16> {
+            units
+                .iter()
+                .map(|&u| if (0x30..=0x39).contains(&u) { 0x30 } else { u })
+                .collect()
+        }
+        fn compare(&self, a: &[u16], b: &[u16]) -> Ordering {
+            self.fold(a).cmp(&self.fold(b))
+        }
+    }
+    let v = |x: &str| vba_value::VbaString::from(x);
+    let t = CompareMode::Text;
+    assert_eq!(instr_with(1, &v("ab7"), &v("1"), t, &Digits), Ok(3));
+    assert_eq!(
+        instr_with(1, &v("ab7"), &v("1"), CompareMode::Binary, &Digits),
+        Ok(0)
+    );
+    assert_eq!(str_comp_with(&v("a1"), &v("a9"), t, &Digits), 0);
+    assert_eq!(
+        split_with(&v("a1b2c"), &v("9"), -1, t, &Digits)
+            .unwrap()
+            .len(),
+        3
+    );
+}
+
+#[test]
 fn byte_view_of_strings() {
     // Byte semantics are the UTF-16LE bytes: LenB = 2 * Len in code units.
     let smile = "\u{1F600}"; // two code units, four bytes

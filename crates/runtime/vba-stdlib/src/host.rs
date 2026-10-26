@@ -168,6 +168,13 @@ pub trait Environment {
 pub trait Host: Clock + Environment {
     /// The active locale.
     fn locale(&self) -> &Locale;
+
+    /// The text collation used by `Option Compare Text` / `vbTextCompare`.
+    /// The default is the documented en-US approximation
+    /// ([`vba_value::collation::EnUs`]); a host may supply its own.
+    fn collation(&self) -> &dyn vba_value::collation::Collation {
+        &vba_value::collation::EN_US
+    }
 }
 
 /// A fully deterministic host: fixed clock, fixed environment, en-US locale.

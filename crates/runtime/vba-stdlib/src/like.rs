@@ -16,7 +16,8 @@
 //! folding; Windows collation is not reproduced.
 
 use crate::error::INVALID_PATTERN;
-use crate::strings::{fold, upper};
+use crate::strings::upper;
+use vba_value::collation::fold_unit as cfold;
 use vba_value::{CompareMode, VbaResult, VbaString};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,7 +90,7 @@ fn matches_one(tok: &Tok, c: u16, mode: CompareMode) -> bool {
     match tok {
         Tok::Lit(l) => match mode {
             CompareMode::Binary => *l == c,
-            CompareMode::Text => fold(*l) == fold(c),
+            CompareMode::Text => cfold(*l) == cfold(c),
         },
         Tok::One => true,
         Tok::Digit => (0x30..=0x39).contains(&c),
@@ -100,11 +101,11 @@ fn matches_one(tok: &Tok, c: u16, mode: CompareMode) -> bool {
                 CompareMode::Text => {
                     let t = |x: u16| {
                         items.iter().any(|&(lo, hi)| {
-                            let (lo, hi) = (fold(lo), fold(hi));
+                            let (lo, hi) = (cfold(lo), cfold(hi));
                             lo <= x && x <= hi
                         })
                     };
-                    hit(c) || hit(fold(c)) || hit(upper(c)) || t(fold(c))
+                    hit(c) || hit(cfold(c)) || hit(upper(c)) || t(cfold(c))
                 }
             };
             found != *negate

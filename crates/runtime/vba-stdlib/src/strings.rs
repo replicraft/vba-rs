@@ -8,6 +8,7 @@
 
 use crate::call::{Args, Ctx, compare_arg, text};
 use crate::error::{StdError, StdResult};
+use vba_value::collation::{Collation, EN_US};
 use vba_value::{
     Bounds, CompareMode, VarType, Variant, VbaArray, VbaError, VbaResult, VbaString, convert,
 };
@@ -50,10 +51,10 @@ fn map_unit(u: u16, f: impl Fn(char) -> Option<char>) -> u16 {
         .unwrap_or(u)
 }
 
-fn prep(units: &[u16], mode: CompareMode) -> Vec<u16> {
+fn prep(units: &[u16], mode: CompareMode, col: &dyn Collation) -> Vec<u16> {
     match mode {
         CompareMode::Binary => units.to_vec(),
-        CompareMode::Text => units.iter().map(|&u| fold(u)).collect(),
+        CompareMode::Text => col.fold(units),
     }
 }
 
@@ -152,8 +153,20 @@ pub fn mid_b(s: &VbaString, start: i32, length: Option<i32>) -> StdResult<VbaStr
     from_bytes(&b[from..to])
 }
 
-/// `InStr(start, hay, needle, compare)` (1-based result, 0 = not found).
+/// `InStr(start, hay, needle, compare)` (1-based result, 0 = not found),
+/// with the default en-US text collation.
 pub fn instr(start: i32, hay: &VbaString, needle: &VbaString, mode: CompareMode) -> VbaResult<i32> {
+    instr_with(start, hay, needle, mode, &EN_US)
+}
+
+/// [`instr`] with a caller-supplied text collation.
+pub fn instr_with(
+    start: i32,
+    hay: &VbaString,
+    needle: &VbaString,
+    mode: CompareMode,
+    col: &dyn Collation,
+) -> VbaResult<i32> {
     if start < 1 {
         return Err(E5);
     }
@@ -164,7 +177,7 @@ pub fn instr(start: i32, hay: &VbaString, needle: &VbaString, mode: CompareMode)
     if needle.is_empty() {
         return Ok(start);
     }
-    let (h, n) = (prep(h, mode), prep(needle.as_units(), mode));
+    let (h, n) = (prep(h, mode, col), prep(needle.as_units(), mode, col));
     Ok(find_from(&h, &n, start as usize - 1).map_or(0, |i| i as i32 + 1))
 }
 
@@ -200,6 +213,17 @@ pub fn instr_b(
 
 /// `InStrRev(s, find, start, compare)`; `start = -1` means the end of `s`.
 pub fn instr_rev(s: &VbaString, find: &VbaString, start: i32, mode: CompareMode) -> VbaResult<i32> {
+    instr_rev_with(s, find, start, mode, &EN_US)
+}
+
+/// [`instr_rev`] with a caller-supplied text collation.
+pub fn instr_rev_with(
+    s: &VbaString,
+    find: &VbaString,
+    start: i32,
+    mode: CompareMode,
+    col: &dyn Collation,
+) -> VbaResult<i32> {
     if start == 0 || start < -1 {
         return Err(E5);
     }
@@ -211,7 +235,10 @@ pub fn instr_rev(s: &VbaString, find: &VbaString, start: i32, mode: CompareMode)
     if find.is_empty() {
         return Ok(start as i32);
     }
-    let (h, n) = (prep(s.as_units(), mode), prep(find.as_units(), mode));
+    let (h, n) = (
+        prep(s.as_units(), mode, col),
+        prep(find.as_units(), mode, col),
+    );
     Ok(rfind_within(&h, &n, start).map_or(0, |i| i as i32 + 1))
 }
 
@@ -224,6 +251,19 @@ pub fn replace(
     count: i32,
     mode: CompareMode,
 ) -> VbaResult<VbaString> {
+    replace_with(expr, find, with, start, count, mode, &EN_US)
+}
+
+/// [`replace`] with a caller-supplied text collation.
+pub fn replace_with(
+    expr: &VbaString,
+    find: &VbaString,
+    with: &VbaString,
+    start: i32,
+    count: i32,
+    mode: CompareMode,
+    col: &dyn Collation,
+) -> VbaResult<VbaString> {
     if start < 1 || count < -1 {
         return Err(E5);
     }
@@ -235,7 +275,7 @@ pub fn replace(
     if find.is_empty() || count == 0 {
         return Ok(vs(tail));
     }
-    let (h, n) = (prep(tail, mode), prep(find.as_units(), mode));
+    let (h, n) = (prep(tail, mode, col), prep(find.as_units(), mode, col));
     let mut out = Vec::with_capacity(tail.len());
     let (mut pos, mut done) = (0usize, 0i32);
     while count == -1 || done < count {
@@ -320,7 +360,16 @@ pub fn trim(s: &VbaString) -> VbaString {
 
 /// `StrComp`: -1, 0 or 1.
 pub fn str_comp(a: &VbaString, b: &VbaString, mode: CompareMode) -> i16 {
-    match a.compare(b, mode) {
+    str_comp_with(a, b, mode, &EN_US)
+}
+
+/// [`str_comp`] with a caller-supplied text collation.
+pub fn str_comp_with(a: &VbaString, b: &VbaString, mode: CompareMode, col: &dyn Collation) -> i16 {
+    let ord = match mode {
+        CompareMode::Binary => a.compare(b, mode),
+        CompareMode::Text => a.compare_with(b, col),
+    };
+    match ord {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
         std::cmp::Ordering::Greater => 1,
@@ -399,6 +448,17 @@ pub fn split(
     limit: i32,
     mode: CompareMode,
 ) -> VbaResult<Vec<VbaString>> {
+    split_with(expr, delim, limit, mode, &EN_US)
+}
+
+/// [`split`] with a caller-supplied text collation.
+pub fn split_with(
+    expr: &VbaString,
+    delim: &VbaString,
+    limit: i32,
+    mode: CompareMode,
+    col: &dyn Collation,
+) -> VbaResult<Vec<VbaString>> {
     if limit < -1 {
         return Err(E5);
     }
@@ -408,7 +468,10 @@ pub fn split(
     if delim.is_empty() || limit == 1 {
         return Ok(vec![expr.clone()]);
     }
-    let (h, d) = (prep(expr.as_units(), mode), prep(delim.as_units(), mode));
+    let (h, d) = (
+        prep(expr.as_units(), mode, col),
+        prep(delim.as_units(), mode, col),
+    );
     let e = expr.as_units();
     let mut out = Vec::new();
     let mut pos = 0;
@@ -456,11 +519,22 @@ pub fn filter(
     include: bool,
     mode: CompareMode,
 ) -> VbaResult<Vec<VbaString>> {
+    filter_with(source, pattern, include, mode, &EN_US)
+}
+
+/// [`filter`] with a caller-supplied text collation.
+pub fn filter_with(
+    source: &Variant,
+    pattern: &VbaString,
+    include: bool,
+    mode: CompareMode,
+    col: &dyn Collation,
+) -> VbaResult<Vec<VbaString>> {
     let items = string_items(source)?;
-    let p = prep(pattern.as_units(), mode);
+    let p = prep(pattern.as_units(), mode, col);
     Ok(items
         .into_iter()
-        .filter(|s| find_from(&prep(s.as_units(), mode), &p, 0).is_some() == include)
+        .filter(|s| find_from(&prep(s.as_units(), mode, col), &p, 0).is_some() == include)
         .collect())
 }
 
@@ -729,11 +803,12 @@ pub(crate) fn f_instr(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
         Some(i) => mode_arg(ctx, a, i)?,
         None => ctx.compare,
     };
-    Ok(Variant::Long(instr(
+    Ok(Variant::Long(instr_with(
         start,
         &a.string(i1)?,
         &a.string(i1 + 1)?,
         mode,
+        ctx.host.collation(),
     )?))
 }
 pub(crate) fn f_instr_b(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
@@ -758,11 +833,12 @@ pub(crate) fn f_instr_rev(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant>
     } else {
         mode
     };
-    Ok(Variant::Long(instr_rev(
+    Ok(Variant::Long(instr_rev_with(
         &a.string(0)?,
         &a.string(1)?,
         a.long_or(2, -1)?,
         mode,
+        ctx.host.collation(),
     )?))
 }
 pub(crate) fn f_replace(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
@@ -772,13 +848,14 @@ pub(crate) fn f_replace(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     } else {
         mode_arg(ctx, a, 5)?
     };
-    Ok(text(replace(
+    Ok(text(replace_with(
         &a.string(0)?,
         &a.string(1)?,
         &a.string(2)?,
         a.long_or(3, 1)?,
         a.long_or(4, -1)?,
         mode,
+        ctx.host.collation(),
     )?))
 }
 pub(crate) fn f_space(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
@@ -834,10 +911,11 @@ pub(crate) fn f_trim(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
 pub(crate) fn f_str_comp(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     let mode = mode_arg(ctx, a, 2)?;
     null_guard!(a, 0, 1);
-    Ok(Variant::Integer(str_comp(
+    Ok(Variant::Integer(str_comp_with(
         &a.string(0)?,
         &a.string(1)?,
         mode,
+        ctx.host.collation(),
     )))
 }
 pub(crate) fn f_str_conv(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
@@ -902,7 +980,13 @@ pub(crate) fn f_split(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     } else {
         mode_arg(ctx, a, 3)?
     };
-    let parts = split(&a.string(0)?, &delim, a.long_or(2, -1)?, mode)?;
+    let parts = split_with(
+        &a.string(0)?,
+        &delim,
+        a.long_or(2, -1)?,
+        mode,
+        ctx.host.collation(),
+    )?;
     Ok(string_array(parts)?)
 }
 pub(crate) fn f_join(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
@@ -918,7 +1002,13 @@ pub(crate) fn f_filter(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     } else {
         mode_arg(ctx, a, 3)?
     };
-    let r = filter(a.req(0)?, &a.string(1)?, a.bool_or(2, true)?, mode)?;
+    let r = filter_with(
+        a.req(0)?,
+        &a.string(1)?,
+        a.bool_or(2, true)?,
+        mode,
+        ctx.host.collation(),
+    )?;
     Ok(string_array(r)?)
 }
 pub(crate) fn f_len(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
