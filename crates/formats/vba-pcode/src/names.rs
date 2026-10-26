@@ -35,6 +35,9 @@ pub const CONFIRMED_BUILTINS: &[(u16, &str)] = &[
     (154, "Randomize"),
     (174, "String"),
     (178, "Text"),
+    // 9 uses, all on lines with the token; no other token shared by all
+    // of them (the dot and `Me` are separate operands).
+    (192, "Width"),
 ];
 
 /// Looks up a confirmed built-in spelling.
