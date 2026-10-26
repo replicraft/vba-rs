@@ -37,7 +37,7 @@ pub mod hresult;
 pub mod table;
 pub mod testing;
 
-pub use call::{CallArgs, Final, Step};
+pub use call::{CallArgs, Final, Step, invoke_early};
 pub use dispatch::{
     Arg, Bound, DispId, DispParams, Dispatch, InvokeFlags, MemberInfo, ParamInfo, bind, names_equal,
 };

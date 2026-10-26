@@ -366,6 +366,17 @@ pub trait Dispatch {
     /// treat ByVal parameters specially and assumes every argument is ByRef.
     fn member_info(&self, id: DispId) -> Option<MemberInfo>;
 
+    /// Whether `id` is the member id of the member called `name` on this
+    /// object, so that a caller that learned the id from a type library
+    /// (early binding) may invoke by id and skip the name lookup. The
+    /// default compares the name in [`member_info`](Dispatch::member_info);
+    /// objects that implement it cheaply should override this. An object
+    /// whose ids are private answers `false` and is called by name.
+    fn accepts_dispid(&self, id: DispId, name: &str) -> bool {
+        self.member_info(id)
+            .is_some_and(|i| names_equal(&i.name, name))
+    }
+
     /// `GetIDsOfNames`: `names[0]` is the member, the others are named
     /// parameters, resolved to their 0-based index through
     /// [`Dispatch::member_info`]. Any unknown name is `DISP_E_UNKNOWNNAME`.

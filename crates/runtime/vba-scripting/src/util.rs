@@ -189,6 +189,11 @@ macro_rules! dispatch_impl {
                 $crate::util::find_id(Self::DEFS, id).map($crate::util::info_of)
             }
 
+            fn accepts_dispid(&self, id: vba_automation::DispId, name: &str) -> bool {
+                $crate::util::find_id(Self::DEFS, id)
+                    .is_some_and(|d| vba_automation::names_equal(d.name, name))
+            }
+
             fn invoke(
                 &self,
                 table: &vba_automation::ObjectTable,

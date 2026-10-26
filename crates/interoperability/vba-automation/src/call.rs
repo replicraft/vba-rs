@@ -22,8 +22,12 @@
 //!   arguments (and arguments of ByVal parameters) never are.
 //! * Errors become [`ErrInfo`]; `Err.Source` defaults to the object's class
 //!   name.
+//! * **Early binding**: [`invoke_early`] calls a member by the id a type
+//!   library declares, skipping the name lookup, when the object says it
+//!   knows that id for that member ([`Dispatch::accepts_dispid`]); it
+//!   otherwise returns `None` so the caller falls back to the name.
 
-use crate::dispatch::{Arg, DispId, DispParams, InvokeFlags, MemberInfo, names_equal};
+use crate::dispatch::{Arg, DispId, DispParams, Dispatch, InvokeFlags, MemberInfo, names_equal};
 use crate::error::{AutoResult, ErrInfo};
 use crate::table::{ObjectTable, Owned};
 use vba_core::VbaError;
@@ -114,6 +118,8 @@ impl Step {
 #[derive(Clone, Copy)]
 enum Target<'a> {
     Named(&'a str),
+    /// A member id known in advance (early binding).
+    Id(DispId),
     Default,
     Evaluate,
 }
@@ -161,17 +167,31 @@ fn invoke_on(
     fin: &Final,
 ) -> AutoResult<Variant> {
     let obj = table.get(h)?;
-    let src = obj.class_name();
     let id = match target {
         Target::Named(n) => obj
             .get_ids_of_names(&[n])
-            .map_err(|_| err(438, &src))?
+            .map_err(|_| err(438, &obj.class_name()))?
             .first()
             .copied()
-            .ok_or_else(|| err(438, &src))?,
+            .ok_or_else(|| err(438, &obj.class_name()))?,
+        Target::Id(id) => id,
         Target::Default => DispId::VALUE,
         Target::Evaluate => DispId::EVALUATE,
     };
+    invoke_resolved(table, h, &*obj, id, target, args, fin)
+}
+
+fn invoke_resolved(
+    table: &ObjectTable,
+    h: ObjectHandle,
+    obj: &dyn Dispatch,
+    id: DispId,
+    target: Target<'_>,
+    args: &mut CallArgs,
+    fin: &Final,
+) -> AutoResult<Variant> {
+    // Only errors need the class name.
+    let src = || obj.class_name();
     let info = obj.member_info(id);
 
     // Default member chaining: surplus arguments go to the result's default.
@@ -188,7 +208,7 @@ fn invoke_on(
             Variant::Object(ObjectRef::Handle(rh)) => *rh,
             other => {
                 table.release_value(other);
-                return Err(err(450, &src));
+                return Err(err(450, &src()));
             }
         };
         let _keep = Owned::adopt(table, rh);
@@ -211,7 +231,7 @@ fn invoke_on(
             Variant::Object(ObjectRef::Handle(rh)) => *rh,
             other => {
                 table.release_value(other);
-                return Err(err(451, &src));
+                return Err(err(451, &src()));
             }
         };
         let _keep = Owned::adopt(table, rh);
@@ -226,13 +246,13 @@ fn invoke_on(
         let member_name = match (target, &info) {
             (Target::Named(n), _) => n.to_string(),
             (_, Some(i)) => i.name.clone(),
-            _ => return Err(err(448, &src)),
+            _ => return Err(err(448, &src())),
         };
         let mut names: Vec<&str> = vec![&member_name];
         names.extend(args.named.iter().map(|(n, _)| n.as_str()));
-        let ids = obj.get_ids_of_names(&names).map_err(|_| err(448, &src))?;
+        let ids = obj.get_ids_of_names(&names).map_err(|_| err(448, &src()))?;
         if ids.len() != names.len() {
-            return Err(err(448, &src));
+            return Err(err(448, &src()));
         }
         for ((_, a), id) in args.named.iter().zip(&ids[1..]) {
             dp.named.push((*id, a.clone()));
@@ -250,7 +270,7 @@ fn invoke_on(
         }
         Final::Set(v) => {
             if !matches!(v, Variant::Object(_)) {
-                return Err(err(424, &src));
+                return Err(err(424, &src()));
             }
             dp.named.push((DispId::PROPERTYPUT, Arg::val(v.clone())));
             InvokeFlags::PROPERTY_PUT_REF
@@ -266,7 +286,7 @@ fn invoke_on(
             Final::Let(_) | Final::Set(_) => Variant::Empty,
             _ => v,
         }),
-        Err(e) => Err(e.into_err_info(&src)),
+        Err(e) => Err(e.into_err_info(&src())),
     }
 }
 
@@ -279,6 +299,37 @@ pub fn invoke_member(
     fin: &Final,
 ) -> AutoResult<Variant> {
     invoke_on(table, h, Target::Named(name), args, fin)
+}
+
+/// Early-bound call: invokes member `name` of `h` by the id `id` that a type
+/// library declares for it, without a name lookup.
+///
+/// Returns `None`, with nothing invoked, when the object does not accept the
+/// id for that name ([`Dispatch::accepts_dispid`]) or the handle is stale;
+/// the caller then makes the late-bound call by name, which reports the
+/// proper error. Otherwise the call behaves exactly like
+/// [`invoke_member`], including ByRef write-back and error mapping.
+pub fn invoke_early(
+    table: &ObjectTable,
+    h: ObjectHandle,
+    id: DispId,
+    name: &str,
+    args: &mut CallArgs,
+    fin: &Final,
+) -> Option<AutoResult<Variant>> {
+    let obj = table.get(h).ok()?;
+    if !obj.accepts_dispid(id, name) {
+        return None;
+    }
+    Some(invoke_resolved(
+        table,
+        h,
+        &*obj,
+        id,
+        Target::Id(id),
+        args,
+        fin,
+    ))
 }
 
 /// Invokes the default member of `h` (`obj(args)`).
