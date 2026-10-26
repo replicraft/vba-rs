@@ -1,0 +1,19 @@
+[package]
+name = "vba-typelib"
+description = "Reader for Windows type libraries (MSFT format, .tlb/.olb files and TYPELIB resources of PE files) and a model for early-bound binding"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bitflags.workspace = true
+encoding_rs.workspace = true
+object.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

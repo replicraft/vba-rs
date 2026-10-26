@@ -37,6 +37,7 @@ vba-scripting = { path = "crates/runtime/vba-scripting" }
 vba-source = { path = "crates/foundation/vba-source" }
 vba-stdlib = { path = "crates/runtime/vba-stdlib" }
 vba-syntax = { path = "crates/language/vba-syntax" }
+vba-typelib = { path = "crates/interoperability/vba-typelib" }
 vba-value = { path = "crates/runtime/vba-value" }
 vba-vm = { path = "crates/runtime/vba-vm" }
 vba-winapi = { path = "crates/windows/vba-winapi" }
@@ -53,6 +54,9 @@ indexmap = "2"
 cfb = "0.15"
 encoding_rs = "0.8"
 uuid = "1"
+
+# Executable file formats
+object = { version = "0.40", default-features = false, features = ["read_core", "pe", "std"] }
 
 # Archives and XML
 flate2 = "1"
