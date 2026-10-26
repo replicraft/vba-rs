@@ -1037,6 +1037,178 @@ fn on_error_resume_next_continues_after_the_failing_statement() {
     assert!(res.is_err(), "no handler: division by zero propagates");
 }
 
+/// A `Line` with a leading opcode, a modifier and a name operand.
+fn named_with_modifier(op: Opcode, modifier: u16, name: u16) -> Line {
+    let mut l = Line::new().opm(op, modifier);
+    l.0.extend_from_slice(&name.to_le_bytes());
+    l
+}
+
+#[test]
+fn library_constants_run_time_functions_and_three_argument_instr() {
+    let mut t = Tables::default();
+    let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
+    // Function K() As String: K = "a" & vbCrLf & "b"
+    let k = t.name("K");
+    let crlf = t.name("vbCrLf");
+    lines.extend(function(
+        &mut t,
+        "K",
+        T_STRING,
+        &[],
+        vec![
+            Line::new()
+                .text("a")
+                .read(crlf)
+                .op(Opcode::TextJoin)
+                .text("b")
+                .op(Opcode::TextJoin)
+                .write(k),
+        ],
+    ));
+    // Function M() As Long: MsgBox "hi", vbInformation: M = vbYes
+    let m = t.name("M");
+    let msg = t.name("MsgBox");
+    let info = t.name("vbInformation");
+    let yes = t.name("vbYes");
+    lines.extend(function(
+        &mut t,
+        "M",
+        T_LONG,
+        &[],
+        vec![
+            Line::new()
+                .text("hi")
+                .read(info)
+                .name_args(Opcode::InvokeSimple, 16, msg, 2),
+            Line::new().read(yes).write(m),
+        ],
+    ));
+    // Function I() As Long: I = InStr(3, "abcabc", "b")
+    let i = t.name("I");
+    let instr = t.name("InStr");
+    let _ = instr;
+    lines.extend(function(
+        &mut t,
+        "I",
+        T_LONG,
+        &[],
+        vec![
+            Line::new()
+                .i16(3)
+                .text("abcabc")
+                .text("b")
+                .op(Opcode::IntrinsicSearchB)
+                .write(i),
+        ],
+    ));
+    let lp = lower(&t, &lines);
+    assert_eq!(lp.lowered_count(), 3, "{:?}", lp.procedures);
+    assert_eq!(value(&lp, "K", &[]), s("a\r\nb"));
+    // The headless host refuses dialogs: the call reached the run time.
+    let (res, _) = run(&lp, "M", &[]);
+    let err = format!("{:?}", res.expect_err("headless MsgBox is denied"));
+    assert!(err.contains("MsgBox"), "{err}");
+    assert_eq!(value(&lp, "I", &[]), l(5));
+}
+
+#[test]
+fn error_handler_with_labels_err_object_and_resume() {
+    let mut t = Tables::default();
+    let a = t.name("a");
+    let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
+    // Function H(a) As Long
+    //   On Error GoTo ErrTrap
+    //   H = 10 \ a
+    // ExitProcedure:
+    //   Exit Function
+    // ErrTrap:
+    //   Select Case Err.Number
+    //     Case Is <> 0: H = -1: Resume ExitProcedure
+    //     Case Else: Resume ExitProcedure
+    //   End Select
+    let h = t.name("H");
+    let trap = t.name("ErrTrap");
+    let exit = t.name("ExitProcedure");
+    let err = t.name("Err");
+    let number = t.name("Number");
+    let f = t.function("H", Some(T_LONG), &[("a", T_LONG, true)]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(named_with_modifier(Opcode::ErrHandlerSet, 0, trap));
+    lines.push(
+        Line::new()
+            .i16(10)
+            .read(a)
+            .op(Opcode::NumIntDivide)
+            .write(h),
+    );
+    lines.push(Line::new().name(Opcode::LabelNamed, exit));
+    lines.push(Line::new().op(Opcode::LeaveFunction));
+    lines.push(Line::new().name(Opcode::LabelNamed, trap));
+    lines.push(
+        Line::new()
+            .read(err)
+            .name(Opcode::ReadDot, number)
+            .op(Opcode::SwitchBegin),
+    );
+    lines.push(
+        Line::new()
+            .i16(0)
+            .op(Opcode::CaseIsNotEqual)
+            .op(Opcode::CaseListEnd),
+    );
+    lines.push(Line::new().i16(-1).write(h));
+    lines.push(named_with_modifier(Opcode::ErrResume, 0, exit));
+    lines.push(Line::new().op(Opcode::CaseDefault));
+    lines.push(named_with_modifier(Opcode::ErrResume, 0, exit));
+    lines.push(Line::new().op(Opcode::SwitchEnd));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    // Function S(a) As Long: On Error Resume Next
+    //   Select Case 1 \ a: Case 1: S = 1: Case Else: S = 2: End Select
+    // (a failing subject continues in the first case body)
+    let sn = t.name("S");
+    let f = t.function("S", Some(T_LONG), &[("a", T_LONG, true)]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(on_error(1));
+    lines.push(
+        Line::new()
+            .i16(1)
+            .read(a)
+            .op(Opcode::NumIntDivide)
+            .op(Opcode::SwitchBegin),
+    );
+    lines.push(
+        Line::new()
+            .i16(1)
+            .op(Opcode::CaseValue)
+            .op(Opcode::CaseListEnd),
+    );
+    lines.push(Line::new().i16(1).write(sn));
+    lines.push(Line::new().op(Opcode::CaseDefault));
+    lines.push(Line::new().i16(2).write(sn));
+    lines.push(Line::new().op(Opcode::SwitchEnd));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    let lp = lower(&t, &lines);
+    assert_eq!(lp.lowered_count(), 2, "{:?}", lp.procedures);
+    assert_eq!(value(&lp, "H", &[l(2)]), l(5));
+    assert_eq!(value(&lp, "H", &[l(0)]), l(-1));
+    assert_eq!(value(&lp, "S", &[l(0)]), l(1));
+    assert_eq!(value(&lp, "S", &[l(1)]), l(1));
+    assert_eq!(value(&lp, "S", &[l(3)]), l(2));
+    // An undefined label makes the procedure unsupported.
+    let mut t = Tables::default();
+    let nowhere = t.name("Nowhere");
+    let f = t.function("U", None, &[]);
+    let lines = vec![
+        Line::new().opm(Opcode::OptionStmt, 4),
+        Line::new().rec(Opcode::ProcHeader, 5, f),
+        named_with_modifier(Opcode::ErrHandlerSet, 0, nowhere),
+        Line::new().op(Opcode::ProcEndSub),
+    ];
+    let lp = lower(&t, &lines);
+    assert_eq!(lp.lowered_count(), 0);
+}
+
 #[test]
 fn hostile_caches_never_panic() {
     use proptest::prelude::*;

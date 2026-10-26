@@ -10,12 +10,14 @@ use std::collections::HashMap;
 
 use vba_ast::{BinaryOp as AstBin, CompareMode as AstCompare};
 use vba_ir::{
-    BinOp, Block, BlockId, CallArg, Callee, ErrMode, Function, Inst, InstKind,
-    Operand as IrOperand, OutItem, Point, RefPlace, Reg, Slot, SlotRole, StmtId, StmtInfo,
-    StoreMode, Terminator, UnOp,
+    BinOp, Block, BlockId, CallArg, Callee, ErrMode, Function, Inst, InstKind, InvokeKind, Member,
+    Operand as IrOperand, OutItem, Point, RefPlace, Reg, ResumeKind, Slot, SlotRole, StmtId,
+    StmtInfo, StoreMode, Terminator, UnOp,
 };
 use vba_pcode::{Evidence, Listed, Opcode, Operand};
 use vba_sema::bound::Constant;
+use vba_sema::builtins::BuiltinLibrary;
+use vba_sema::{LibGlobal, LibMember, LibMemberKind, LibraryType, TypeProvider};
 use vba_sema::{LocalId, LocalKind, ProcId, ProcInfo, Program, Type};
 use vba_source::Span;
 use vba_value::ops::{ArithOp, CompareOp, CompareOptions, LogicOp, Overflow, StringNumberRule};
@@ -63,6 +65,19 @@ enum Ex {
         args: Vec<ArgEx>,
     },
     Paren(Box<Ex>),
+    /// A global object of the built-in library (`Err`).
+    LibObj {
+        name: String,
+        lt: LibraryType,
+    },
+    /// A property read on a library object (`Err.Number`).
+    Member {
+        recv: Box<Ex>,
+        name: String,
+        ty: Type,
+        lt: LibraryType,
+        dispid: Option<i32>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +94,8 @@ impl Ex {
             Ex::Unary { ty, .. } | Ex::Binary { ty, .. } | Ex::Call { ty, .. } => ty.clone(),
             Ex::Convert { to, .. } => to.clone(),
             Ex::Paren(e) => e.ty(),
+            Ex::LibObj { lt, .. } => Type::Library(lt.clone()),
+            Ex::Member { ty, .. } => ty.clone(),
         }
     }
 }
@@ -105,6 +122,9 @@ enum Frame {
         exit: BlockId,
     },
     Select {
+        stmt: StmtId,
+        /// The first case body was reached (its start is the resume point).
+        first_body: bool,
         subject: IrOperand,
         subject_ty: Type,
         end: BlockId,
@@ -163,6 +183,10 @@ struct Lw<'a> {
     stmt_line: usize,
     /// The procedure contains `On Error`: statements need resume points.
     has_on_error: bool,
+    /// Blocks of the labels (lower-case name), created on first mention.
+    labels: HashMap<String, BlockId>,
+    /// Labels that were defined by a `LABEL_NAMED`.
+    defined: Vec<String>,
 }
 
 type R<T> = Result<T, Unsupported>;
@@ -245,6 +269,8 @@ pub(crate) fn lower_body(
         line: header_line,
         stmt_line: usize::MAX,
         has_on_error: body.iter().any(|(_, i)| i.opcode == Opcode::ErrHandlerSet),
+        labels: HashMap::new(),
+        defined: Vec::new(),
     };
     lw.begin_stmt();
     let mut last_op = Opcode::ProcHeader;
@@ -265,6 +291,10 @@ pub(crate) fn lower_body(
     }
     if !lw.stack.is_empty() {
         return Err(lw.no(last_op, "values left on the expression stack"));
+    }
+    if let Some(missing) = lw.labels.keys().find(|k| !lw.defined.contains(k)) {
+        let reason = format!("label `{missing}` is not defined in the procedure");
+        return Err(lw.no(last_op, reason));
     }
     lw.terminate(Terminator::Return);
     Ok(lw.finish(kind_template))
@@ -316,6 +346,17 @@ impl Lw<'_> {
             kind,
         };
         self.blocks[self.cur.0 as usize].insts.push(inst);
+    }
+
+    /// The block of a label, created on first use.
+    fn label_block(&mut self, name: &str) -> BlockId {
+        let key = name.to_ascii_lowercase();
+        if let Some(b) = self.labels.get(&key) {
+            return *b;
+        }
+        let b = self.new_block();
+        self.labels.insert(key, b);
+        b
     }
 
     fn is_terminated(&self) -> bool {
@@ -583,6 +624,9 @@ impl Lw<'_> {
             name.to_owned()
         };
         let Some(r) = vba_stdlib::lookup(&lookup) else {
+            if !dollar && let Some(LibGlobal::Function(m)) = BuiltinLibrary.global(name) {
+                return self.runtime_call(ins, &m, args);
+            }
             return Err(self.no(
                 ins.opcode,
                 format!("`{name}` is not a known library function"),
@@ -597,9 +641,11 @@ impl Lw<'_> {
         if is_instr {
             match args.len() {
                 2 => lead_missing = true,
-                4 => {}
+                // `start, string1, string2`: the form the source binding
+                // gives three arguments.
+                3 | 4 => {}
                 _ => {
-                    return Err(self.no(ins.opcode, "InStr with three arguments is ambiguous"));
+                    return Err(self.no(ins.opcode, "InStr with an unusual argument count"));
                 }
             }
         }
@@ -642,6 +688,40 @@ impl Lw<'_> {
         })
     }
 
+    /// A call of a function that the run time provides (`MsgBox`, `Beep`,
+    /// ...): arguments are converted to the parameter types and omitted
+    /// optional ones are passed as missing, as the source binding does.
+    fn runtime_call(&mut self, ins: &Listed, m: &LibMember, args: Vec<Ex>) -> R<Ex> {
+        if m.params.iter().any(|p| p.param_array || p.ty.is_object()) || m.ty.is_object() {
+            return Err(self.no(ins.opcode, "object or ParamArray run-time function"));
+        }
+        if args.len() > m.params.len() {
+            return Err(self.no(ins.opcode, "too many arguments"));
+        }
+        let mut out = Vec::new();
+        for (p, a) in m.params.iter().zip(args) {
+            out.push(ArgEx::Val(self.coerce(a, &p.ty)));
+        }
+        while out.len() < m.params.len() {
+            if !m.params[out.len()].optional {
+                return Err(self.no(ins.opcode, "missing required argument"));
+            }
+            out.push(ArgEx::Missing);
+        }
+        Ok(Ex::Call {
+            callee: Callee::Intrinsic {
+                name: m.name.clone(),
+                dollar: false,
+            },
+            ty: if m.is_sub {
+                Type::Variant
+            } else {
+                m.ty.clone()
+            },
+            args: out,
+        })
+    }
+
     // ---- emission ---------------------------------------------------------
 
     fn emit_ex(&mut self, e: &Ex) -> IrOperand {
@@ -653,6 +733,34 @@ impl Lw<'_> {
                 IrOperand::Reg(dst)
             }
             Ex::Paren(inner) => self.emit_ex(inner),
+            Ex::LibObj { name, lt } => {
+                let dst = self.reg(Type::Library(lt.clone()));
+                self.emit(InstKind::LoadLibGlobal {
+                    dst,
+                    name: name.clone(),
+                });
+                IrOperand::Reg(dst)
+            }
+            Ex::Member {
+                recv,
+                name,
+                ty,
+                lt,
+                dispid,
+            } => {
+                let r = self.emit_ex(recv);
+                let dst = self.reg(ty.clone());
+                self.emit(InstKind::Invoke {
+                    dst: Some(dst),
+                    receiver: r,
+                    member: Member::Named(name.clone()),
+                    kind: InvokeKind::Get,
+                    args: Vec::new(),
+                    static_receiver: Some(lt.clone()),
+                    dispid: *dispid,
+                });
+                IrOperand::Reg(dst)
+            }
             Ex::Unary { op, ty, e: inner } => {
                 let it = inner.ty();
                 let o = self.emit_ex(inner);
@@ -911,8 +1019,12 @@ impl Lw<'_> {
             Opcode::IntrinsicFloor => self.unary_intrinsic(ins, "Int")?,
             Opcode::IntrinsicSign => self.unary_intrinsic(ins, "Sgn")?,
             Opcode::IntrinsicLengthChars => self.unary_intrinsic(ins, "Len")?,
-            Opcode::IntrinsicSearchA | Opcode::IntrinsicSearchC => {
-                let n = if op == Opcode::IntrinsicSearchA { 2 } else { 4 };
+            Opcode::IntrinsicSearchA | Opcode::IntrinsicSearchB | Opcode::IntrinsicSearchC => {
+                let n = match op {
+                    Opcode::IntrinsicSearchA => 2,
+                    Opcode::IntrinsicSearchB => 3,
+                    _ => 4,
+                };
                 let args = self.pop_n(ins, n)?;
                 let c = self.intrinsic_call(ins, "InStr", false, args)?;
                 self.stack.push(c);
@@ -938,10 +1050,56 @@ impl Lw<'_> {
                 self.close_stmt();
             }
             Opcode::ErrHandlerSet => {
-                self.emit(InstKind::SetErrorMode {
-                    mode: ErrMode::ResumeNext,
-                });
+                let mode = if ins.modifier == 1 {
+                    ErrMode::ResumeNext
+                } else {
+                    let (name, _) = self.name_of(ins)?;
+                    ErrMode::Handler(self.label_block(&name))
+                };
+                self.emit(InstKind::SetErrorMode { mode });
                 self.close_stmt();
+            }
+            Opcode::ErrResume => {
+                let (name, _) = self.name_of(ins)?;
+                let b = self.label_block(&name);
+                // No resume point: the code after a jump is unreachable, and
+                // error 20 (`Resume` without an error) propagates.
+                self.terminate_and_continue(Terminator::Resume(ResumeKind::Block(b)));
+            }
+            Opcode::LabelNamed => {
+                let (name, _) = self.name_of(ins)?;
+                let b = self.label_block(&name);
+                let key = name.to_ascii_lowercase();
+                if self.defined.contains(&key) {
+                    return Err(self.no(op, "label defined twice"));
+                }
+                self.defined.push(key);
+                self.jump_to(b);
+                self.close_stmt();
+            }
+            Opcode::ReadDot => {
+                let (name, _) = self.name_of(ins)?;
+                let recv = self.pop(ins)?;
+                let Ex::LibObj { lt, .. } = &recv else {
+                    return Err(self.no(op, "member access outside the Err object"));
+                };
+                let lt = lt.clone();
+                let Some(m) = BuiltinLibrary.member(&lt, &name) else {
+                    return Err(self.no(op, format!("`{name}` is not a known member")));
+                };
+                if !matches!(m.kind, LibMemberKind::Property | LibMemberKind::PropertyGet)
+                    || !m.params.is_empty()
+                    || m.ty.is_object()
+                {
+                    return Err(self.no(op, "member is not a plain property"));
+                }
+                self.stack.push(Ex::Member {
+                    recv: Box::new(recv),
+                    name: m.name.clone(),
+                    ty: m.ty.clone(),
+                    lt,
+                    dispid: m.dispid,
+                });
             }
 
             // ---- statements ----
@@ -1061,7 +1219,6 @@ impl Lw<'_> {
             },
             Opcode::LeaveFunction | Opcode::LeaveSub => {
                 self.terminate_and_continue(Terminator::Return);
-                self.close_stmt();
             }
             Opcode::LeaveFor => {
                 let exit = self.frames.iter().rev().find_map(|f| match f {
@@ -1072,7 +1229,6 @@ impl Lw<'_> {
                     return Err(self.no(op, "Exit For outside a For loop"));
                 };
                 self.terminate_and_continue(Terminator::Jump(exit));
-                self.close_stmt();
             }
             Opcode::ForVarExprOpen => {
                 self.for_depth = Some(self.stack.len());
@@ -1163,16 +1319,16 @@ impl Lw<'_> {
                 }
             }
             Opcode::SwitchBegin => {
-                if self.has_on_error {
-                    return Err(self.no(op, "Select Case in a procedure with On Error"));
-                }
                 let s = self.pop(ins)?;
                 self.expect_empty(ins)?;
                 let ty = s.ty();
                 let so = self.emit_ex(&s);
                 let end = self.new_block();
                 let chain = self.cur;
+                let stmt = self.cur_stmt;
                 self.frames.push(Frame::Select {
+                    stmt,
+                    first_body: false,
                     subject: so,
                     subject_ty: ty,
                     end,
@@ -1183,7 +1339,10 @@ impl Lw<'_> {
                     in_else: false,
                 });
             }
-            Opcode::CaseValue | Opcode::CaseRange => {
+            Opcode::CaseValue
+            | Opcode::CaseRange
+            | Opcode::CaseIsEqual
+            | Opcode::CaseIsNotEqual => {
                 return self.case_item(body, i);
             }
             Opcode::CaseListEnd => {
@@ -1289,7 +1448,17 @@ impl Lw<'_> {
     /// inferred: the form is pinned by the differential run against the
     /// source-derived program (`On Error Resume Next`, modifier 1).
     fn accepted_without_verification(&self, ins: &Listed) -> bool {
-        ins.opcode == Opcode::ErrHandlerSet && ins.modifier == 1
+        match ins.opcode {
+            // `On Error Resume Next` (modifier 1) and `On Error GoTo label`
+            // (modifier 0 with a name).
+            Opcode::ErrHandlerSet => ins.modifier == 1 || ins.modifier == 0,
+            // `Resume label`.
+            Opcode::ErrResume => ins.modifier == 0,
+            Opcode::LabelNamed => true,
+            // Property reads on the `Err` object.
+            Opcode::ReadDot => matches!(self.stack.last(), Some(Ex::LibObj { .. })),
+            _ => false,
+        }
     }
 
     fn expect_empty(&self, ins: &Listed) -> R<()> {
@@ -1346,6 +1515,18 @@ impl Lw<'_> {
             let callee = self.cx.program.proc(pid);
             if callee.has_result && callee.params.is_empty() {
                 return self.project_call(ins, pid, args);
+            }
+        }
+        if args.is_empty() {
+            match BuiltinLibrary.global(name) {
+                Some(LibGlobal::Constant(v, ty)) => return Ok(Ex::Const(v, ty)),
+                Some(LibGlobal::Object(Type::Library(lt))) if name.eq_ignore_ascii_case("err") => {
+                    return Ok(Ex::LibObj {
+                        name: "Err".to_owned(),
+                        lt,
+                    });
+                }
+                _ => {}
             }
         }
         if let Some(r) = vba_stdlib::lookup(name)
@@ -1609,7 +1790,10 @@ impl Lw<'_> {
             self.switch_to(chain);
             let body_b = self.new_block();
             let miss = self.new_block();
+            let mut resume = None;
             if let Some(Frame::Select {
+                stmt,
+                first_body,
                 body,
                 miss: m,
                 in_body,
@@ -1619,6 +1803,16 @@ impl Lw<'_> {
                 *body = Some(body_b);
                 *m = Some(miss);
                 *in_body = false;
+                if !*first_body {
+                    *first_body = true;
+                    resume = Some(*stmt);
+                }
+            }
+            if let Some(st) = resume {
+                self.stmts[st.0 as usize].resume_next = Some(Point {
+                    block: body_b,
+                    index: 0,
+                });
             }
         }
         let (subject, subject_ty, body_b, miss) = match self.frames.last() {
@@ -1665,7 +1859,12 @@ impl Lw<'_> {
             };
             let vt = v.ty();
             let vo = self.emit_ex(&v);
-            let c = self.cmp(CompareOp::Eq, &subject, &subject_ty, vo, &vt);
+            let cop = if op == Opcode::CaseIsNotEqual {
+                CompareOp::Ne
+            } else {
+                CompareOp::Eq
+            };
+            let c = self.cmp(cop, &subject, &subject_ty, vo, &vt);
             self.terminate(Terminator::Branch {
                 cond: c,
                 then_block: body_b,
