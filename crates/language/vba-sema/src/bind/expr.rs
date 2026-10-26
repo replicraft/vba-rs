@@ -889,7 +889,21 @@ impl Binder<'_, '_> {
         {
             return self.call_intrinsic(r, span, args);
         }
+        // `Mk.X` inside `Function Mk As P` (P a user-defined type) names a
+        // field of the result variable, not a recursive call.
+        let result_udt = match &t.kind {
+            ExprKind::Name(id)
+                if self.info().has_result
+                    && id.name == self.info().name
+                    && !self.scope.contains_key(&id.name) =>
+            {
+                self.result_local
+                    .filter(|r| matches!(self.local_ty(*r), Type::Udt(_)))
+            }
+            _ => None,
+        };
         let recv = match &t.kind {
+            _ if let Some(r) = result_udt => self.local_expr(r, t.span),
             ExprKind::Name(id) if self.is_host_name(id) => self.host_member(id, t.span, None),
             _ => self.bind_expr(t),
         };

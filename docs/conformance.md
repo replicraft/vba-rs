@@ -28,7 +28,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | unsupported | 32 |
 | not-started | 0 |
 | Conformance programs | 656 |
-| Programs that are known deviations (XFAIL) | 31 |
+| Programs that are known deviations (XFAIL) | 30 |
 
 ## Entries per category and status
 
@@ -174,6 +174,5 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `logic/partition_interval_one` | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `logic/partition_null` | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `procedures/function_returns_array` | unsupported | a Function declared 'As Long()' (array result) is rejected: 'cannot convert Long() to Long' |
-| `procedures/function_returns_udt` | unsupported | assigning to a member of the function-result variable (Mk.X = 1 inside Function Mk As P) is rejected with SEM025 |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
 | `strings/string_to_byte_array` | unsupported | assigning a String to a Byte() array (b = s) is rejected: 'cannot convert String to Byte()' |

@@ -2,7 +2,6 @@
 ' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
 ' EXPECT:  1  2 
 ' EXPECT:  2 
-' XFAIL: unsupported assigning to a member of the function-result variable (Mk.X = 1 inside Function Mk As P) is rejected with SEM025
 Type P
     X As Long
     Y As Long
