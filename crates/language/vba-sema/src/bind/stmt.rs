@@ -549,6 +549,39 @@ impl Binder<'_, '_> {
                 },
             );
         }
+        // `w = 5` with an object target assigns the object's default member
+        // (MS-VBAL 5.4.3.8: let-assignment uses the default member).
+        if mode == AssignMode::Let
+            && let Type::Class(m) = &pty
+            && let Some(dm) = self.sema.program.modules[m.index()].default_member.clone()
+        {
+            let synth = Expr {
+                span: target.span,
+                kind: ExprKind::Member {
+                    target: Some(Box::new(target.clone())),
+                    name: vba_ast::Ident {
+                        name: dm,
+                        suffix: None,
+                        kind: vba_ast::IdentKind::Plain,
+                        span: target.span,
+                    },
+                },
+            };
+            let (place, pty) = self.bind_target(&synth, false)?;
+            let v = self.rvalue(v);
+            let v = self.coerce(v, &pty, Ctx::Let);
+            if v.ty.is_error() {
+                return None;
+            }
+            return self.stmt(
+                span,
+                BStmtKind::Assign {
+                    target: place,
+                    value: v,
+                    mode,
+                },
+            );
+        }
         if pty.is_object() {
             self.err(
                 codes::ASSIGNMENT_KIND,

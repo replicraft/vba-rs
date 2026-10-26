@@ -23,18 +23,18 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 296 |
-| partial | 8 |
+| implemented | 298 |
+| partial | 6 |
 | unsupported | 32 |
 | not-started | 0 |
-| Conformance programs | 657 |
-| Programs that are known deviations (XFAIL) | 29 |
+| Conformance programs | 658 |
+| Programs that are known deviations (XFAIL) | 28 |
 
 ## Entries per category and status
 
 | Category | Total | implemented | partial | unsupported | not-started |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| statement | 76 | 66 | 1 | 9 | 0 |
+| statement | 76 | 67 | 0 | 9 | 0 |
 | function-conversion | 8 | 8 | 0 | 0 | 0 |
 | function-math | 13 | 13 | 0 | 0 | 0 |
 | function-type-conversion | 13 | 13 | 0 | 0 | 0 |
@@ -56,15 +56,15 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | data-type | 18 | 14 | 3 | 1 | 0 |
 | identifier-type-character | 7 | 6 | 1 | 0 | 0 |
 | object | 13 | 3 | 0 | 10 | 0 |
-| language-element | 38 | 36 | 1 | 1 | 0 |
+| language-element | 38 | 37 | 0 | 1 | 0 |
 
 ## Entries per provenance
 
 | Provenance | Entries |
 | --- | ---: |
 | spec | 0 |
-| doc | 160 |
-| derived | 66 |
+| doc | 159 |
+| derived | 67 |
 | unverified | 110 |
 | (no program) | 0 |
 
@@ -73,7 +73,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Area | Programs | spec | doc | derived | unverified |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | arrays | 31 | 0 | 12 | 3 | 16 |
-| classes | 27 | 0 | 11 | 10 | 6 |
+| classes | 28 | 0 | 11 | 11 | 6 |
 | collections | 17 | 0 | 17 | 0 | 0 |
 | conversions | 39 | 0 | 18 | 16 | 5 |
 | datatypes | 52 | 0 | 38 | 0 | 14 |
@@ -101,7 +101,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.appactivate` | statement | AppActivate | unsupported | AppActivate is not defined ('Sub or Function not defined') |
 | `stmt.date` | statement | Date | unsupported | setting the system clock is not provided by the stdlib host |
 | `stmt.deletesetting` | statement | DeleteSetting | unsupported | the registry-backed settings statements have no host service |
-| `stmt.let` | statement | Let | partial | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
 | `stmt.load` | statement | Load | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
 | `stmt.reset` | statement | Reset | unsupported | the Reset statement is not bound by the analysis |
 | `stmt.savesetting` | statement | SaveSetting | unsupported | the registry-backed settings statements have no host service |
@@ -137,7 +136,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `obj.textstream` | object | TextStream | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
 | `obj.userform` | object | UserForm | unsupported | UserForm objects need a host that provides forms |
 | `expr.addressof` | language-element | AddressOf expression | unsupported | AddressOf produces no callable native pointer without the Declare bridge |
-| `expr.default-member` | language-element | Default member resolution | partial | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
 
 ## Known deviations
 
@@ -145,7 +143,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 
 | Program | Kind | Reason |
 | --- | --- | --- |
-| `classes/default_member_let` | unsupported | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
 | `collections/dictionary_not_provided` | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `collections/filesystemobject_not_provided` | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
 | `collections/userform_not_provided` | unsupported | UserForm objects need a host that provides forms |

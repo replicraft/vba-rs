@@ -279,8 +279,24 @@ const CASES: &[Case] = &[
                 "Sub F()\nDim b As Box, n As Long\nSet b = New Box\nn = b + 1\nn = b\nb = 5\nEnd Sub\n",
             ),
         ],
-        // `b = 5` assigns an object variable without Set.
-        expect: &["SEM007@6"],
+        // `b = 5` assigns the default member (`Property Let Value`).
+        expect: &[],
+    },
+    Case {
+        name: "let to an object whose default member is read-only",
+        mods: &[
+            (
+                "Box",
+                Class,
+                "Public Property Get Value() As Long\nAttribute Value.VB_UserMemId = 0\nEnd Property\n",
+            ),
+            (
+                "M",
+                Standard,
+                "Sub F()\nDim b As Box\nSet b = New Box\nb = 5\nEnd Sub\n",
+            ),
+        ],
+        expect: &["SEM007@4"],
     },
     Case {
         name: "class without default member",

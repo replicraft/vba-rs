@@ -1,7 +1,6 @@
 ' INV: expr.default-member, stmt.let
 ' SOURCE: derived assigning to an object variable assigns its default property (Let)
 ' EXPECT:  5 
-' XFAIL: unsupported 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set)
 '#MODULE Wrap class
 Private v As Long
 Public Property Get Value() As Long
