@@ -11,10 +11,12 @@
 //! [`Verification::SpecUnverified`].
 
 mod cache;
+mod decode;
 mod error;
 mod layout;
 mod lines;
 mod module;
+mod opcode;
 mod project_stream;
 mod reader;
 mod sections;
@@ -22,12 +24,16 @@ mod sections;
 pub use cache::{
     CodeAreaCheck, Coverage, ModuleCache, OpaqueKind, Region, RegionKind, TRAILER_SIZE,
 };
+pub use decode::{
+    DecodeError, DecodedLine, Instruction, NameRef, ObjRef, Operands, RecRef, decode_line,
+};
 pub use error::{PcodeError, Result, UnsupportedLayout};
 pub use layout::{Bitness, Layout, VERIFIED_VERSION, Verification, VersionFamily};
 pub use lines::{
     CODE_ALIGNMENT, LINE_MARKER, LINE_RECORD_SIZE, LINE_TRAILER_SIZE, LineRecord, LineTable,
 };
 pub use module::{Span, TableLocations};
+pub use opcode::{Opcode, Shape};
 pub use project_stream::{IdentTable, ProjectCache, SIGNATURE, parse_identifiers, version_word};
 pub use sections::{
     MEMBER_RECORD_SIZE, MemberRecord, MemberTable, REFERENCE_LIST_END, REFERENCE_LIST_MAGIC,
