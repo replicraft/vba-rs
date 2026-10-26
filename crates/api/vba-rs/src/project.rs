@@ -3,9 +3,9 @@
 use std::path::Path;
 
 use vba_diagnostics::{Diagnostic, Severity, render_plain};
-use vba_format::{Limits, WriteOptions};
+use vba_format::{Limits, ProjectStreams, ReadMode, WriteOptions, WriteReport};
 use vba_profile::Profile;
-use vba_project::{Module, ModuleKind, VbaProject};
+use vba_project::{Module, ModuleKind, ProjectVersion, VbaProject};
 
 use crate::Error;
 
@@ -55,6 +55,17 @@ impl Project {
     pub fn from_bytes_with(bytes: &[u8], limits: &Limits) -> Result<Project, Error> {
         Ok(Project {
             model: vba_format::read_project(bytes, limits).map_err(Error::Format)?,
+        })
+    }
+
+    /// Reads a project from named streams (`VBA/dir`, `VBA/_VBA_PROJECT`,
+    /// `VBA/<module>`, `PROJECT`, ...) that the embedding application
+    /// extracted itself, for example from a database table. No container is
+    /// involved; see `docs/vba-format.md`.
+    pub fn from_streams(streams: &ProjectStreams, limits: &Limits) -> Result<Project, Error> {
+        Ok(Project {
+            model: vba_format::read_project_from_streams(streams, ReadMode::Strict, limits)
+                .map_err(Error::Format)?,
         })
     }
 
@@ -131,6 +142,25 @@ impl Project {
     /// Writes the project with explicit [`WriteOptions`].
     pub fn to_bytes_with(&self, options: &WriteOptions) -> Result<Vec<u8>, Error> {
         vba_format::write_project(&self.model, options).map_err(Error::Format)
+    }
+
+    /// Writes the project as a complete set of streams, with a report of
+    /// which of them changed since the project was read, so an embedder can
+    /// write back only those (and delete the ones the report lists but the
+    /// set no longer contains).
+    pub fn to_streams(
+        &self,
+        options: &WriteOptions,
+    ) -> Result<(ProjectStreams, WriteReport), Error> {
+        vba_format::write_project_streams(&self.model, options).map_err(Error::Format)
+    }
+
+    /// Version-related facts about the project: the `_VBA_PROJECT` version
+    /// word, platform, code page, locale, reference hints and whether it is
+    /// compiled-only. These are facts, not a detection of the producing
+    /// Office build; see [`ProjectVersion::profile_hint`].
+    pub fn version(&self) -> ProjectVersion {
+        self.model.project_version()
     }
 
     /// Parses and analyses the project without running anything.

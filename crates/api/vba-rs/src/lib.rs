@@ -208,8 +208,12 @@ pub use vba_profile::{
 };
 
 // Project model and format.
-pub use vba_format::{Limits as ReadLimits, StaleCache, WriteOptions};
-pub use vba_project::{Module, ModuleKind, Reference, VbaProject};
+pub use vba_format::{
+    Limits as ReadLimits, ProjectStreams, ReadMode, StaleCache, WriteOptions, WriteReport,
+};
+pub use vba_project::{
+    Module, ModuleKind, ProjectVersion, Reference, ReferenceHint, SysKind, VbaProject,
+};
 
 // Diagnostics.
 pub use vba_diagnostics::{Diagnostic, Severity};

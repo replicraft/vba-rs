@@ -386,7 +386,7 @@ fn edit_layout(
         original.insert(format!("{vba}/{}", dm.stream_name), bytes);
     }
     for (path, bytes) in project.preserved.iter_prefixed(keys::STREAM_PREFIX) {
-        original.insert(path.to_owned(), bytes.to_vec());
+        original.insert(path, bytes.to_vec());
     }
     for sp in spellings(project) {
         original.respell(sp);

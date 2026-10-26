@@ -235,3 +235,34 @@ fn raw_layer_reaches_the_lower_crates() {
     assert_eq!(*profile, *vba::default_profile());
     let _ = vba::raw::host::Policy::deny_all();
 }
+
+#[test]
+fn streams_round_trip_through_the_facade() {
+    let p = project("Public Sub Main()\n  Debug.Print \"x\"\nEnd Sub\n");
+    let (streams, report) = p.to_streams(&vba::WriteOptions::default()).unwrap();
+    assert!(streams.contains("vba/DIR") && streams.contains("PROJECT"));
+    assert_eq!(report.changed_streams.len(), streams.len());
+    let back = Project::from_streams(&streams, &ReadLimits::default()).unwrap();
+    assert_eq!(back.module_source("Module1"), p.module_source("Module1"));
+    let (again, report) = back.to_streams(&vba::WriteOptions::default()).unwrap();
+    assert_eq!(again, streams);
+    assert!(report.changed_streams.is_empty());
+}
+
+#[test]
+fn version_facts_and_the_profile_hint_name_a_real_profile() {
+    let mut p = project("");
+    let v = p.version();
+    assert_eq!(v.version_word, None);
+    assert_eq!(v.profile_hint(), None);
+    let mut header = vec![0xCC, 0x61, 0x97, 0x00, 0x00, 0x01, 0x00];
+    header.extend([0; 8]);
+    p.model_mut()
+        .preserved
+        .insert("ovba:vba-project-stream", header);
+    let v = p.version();
+    assert_eq!(v.version_word, Some(0x97));
+    assert_eq!(v.sys_kind, vba::SysKind::Win32);
+    let hint = v.profile_hint().unwrap();
+    assert!(vba::find_profile(hint).is_some(), "{hint}");
+}
