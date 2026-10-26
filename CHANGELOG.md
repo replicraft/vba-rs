@@ -17,6 +17,10 @@ All notable changes are recorded here. The format follows
 - `vba`: `Engine::call_timeout` and a 60-second wall-clock allowance per call by default
   (`Engine::unlimited()` removes it); `vbars run --timeout SECONDS` with the same default.
 - Root `README.md`, `CONTRIBUTING.md`, `SECURITY.md` and this changelog.
+- File I/O: `Lock`/`Unlock` ranges, `Open ... Lock` clauses and shared contents between file
+  numbers of one file, `Write #` with `Spc`, `Tab` and a trailing separator, `Width` breaking
+  of long `Print` items, `Get`/`Put` of `Decimal` and error Variants, static checks of the
+  operands of `Input`, `Line Input`, `Get` and `Put`.
 
 - `AddressOf` yields a session-bound callback token (never a native address) that the emulated
   `Declare` shims `EnumWindows`, `EnumChildWindows`, `SetTimer`/`KillTimer` (delivered at
@@ -26,6 +30,9 @@ All notable changes are recorded here. The format follows
 
 ### Fixed
 
+- File I/O: `Len` outside 1 to 32767 in `Open`, a file number that does not convert to
+  Integer, `SetAttr` on an open file and an unmarked `Date` read by `Input #` raise the
+  documented errors.
 - Cancellation and the time allowance of a call are honoured inside long library calls and
   after large charges, not only every 1024 instructions or at `DoEvents`.
 
