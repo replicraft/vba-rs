@@ -1,0 +1,123 @@
+# Wine bridge (`vba-wine`, `vba-wine-host`)
+
+A fallback for `Declare` calls into Windows DLLs that `vba-winapi` does not
+emulate: a native process drives a small Windows helper running under Wine.
+Crates: `crates/windows/vba-wine` (client, protocol, helper dispatcher) and
+`apps/vba-wine-host` (the helper executable). Nothing else depends on them.
+
+## Security model (read first)
+
+* **Wine is not a sandbox.** A DLL loaded in the helper runs with the full
+  rights of the user that started Wine, can read and write that user's files
+  (Wine maps the host filesystem as drive `Z:`), use the network and start
+  processes. The bridge adds no confinement. Use an OS-level sandbox or a
+  separate user if the DLLs are not trusted.
+* **Nothing runs without an explicit grant and an explicit start.** The
+  embedder must (1) choose the Wine and helper paths, (2) call
+  `Session::spawn` itself, (3) hand the session to `WineProvider::new`, which
+  fails unless the `vba-host` policy grants `Capability::NativeDeclare`, and
+  (4) list the allowed exports. No code path starts Wine on its own, and
+  `PATH` is read only if the embedder calls `find_wine_in_env`.
+* **Capability mapping.** No capability was added to `vba-host`. The Wine
+  bridge is `NativeDeclare`; each call re-checks
+  `policy.check(NativeDeclare, "library!symbol")`, so a prefix grant such as
+  `"kernel32!Get"` restricts it. `ProcessSpawn` is *not* implied or consulted:
+  starting the helper is the embedder's act, outside VBA reach.
+* **Only registered exports are reachable**, with a fixed signature (`WineExport`).
+  The helper itself cannot tell a harmless export from a dangerous one; it will
+  call whatever it is asked to, so the export table and policy are the control.
+
+## What crosses the boundary
+
+| Crosses | Does not cross |
+| --- | --- |
+| Library names, export names/ordinals | Raw pointers or addresses of either process |
+| Integer and float scalars by value | Emulated-memory addresses (`NativeArg::Int` pointers are refused, see below) |
+| Byte buffers, copied by value in and/or out | Shared memory, file descriptors, handles of the OS |
+| Opaque ids for libraries/procedures, minted by the helper per request, mapped to session- and provider-scoped `vba-ffi` handles on the client | HMODULE / function addresses (kept in the helper's `Server` table) |
+| `GetLastError` captured right after the call | Callbacks, function pointers, window messages |
+
+`WineProvider` as a `vba-winapi::Provider` forwards only scalar-only exports:
+`NativeArg::Int` is an integer or an address into the *emulated* address space,
+and the bridge cannot know which, so passing it to a real process would be
+meaningless and unsafe. Buffer-taking exports go through
+`WineProvider::call_with_buffers`, with explicit `WireArg::BufIn/BufInOut/BufOut`.
+Wiring `vba-ffi` marshaling plans to buffers automatically is not done.
+
+## Protocol (version 1)
+
+Frame: `u32` LE length + body (max 16 MiB, checked before allocation). Body:
+tag, `u64` request id, fields; strings are `u16` length + UTF-8 (max 4096);
+at most 60 arguments. Requests: Hello, Ping, LoadLibrary, GetProc (name or
+ordinal), Call (convention, return kind, arguments), FreeLibrary, Shutdown.
+Responses echo the id: Hello (version, bitness, OS, Wine version, helper name,
+capability bits), Ok, Library, Proc, CallResult (value, last error, out
+buffers) and Error with a kind: `ProtocolViolation`, `LibraryNotFound`,
+`SymbolNotFound`, `CallFault`, `PermissionDenied`, `Unsupported`,
+`InvalidHandle`, `VersionMismatch`. Hello must come first and carries the
+protocol version; a mismatch is an error on both sides.
+
+Client-side errors (`WineError`) add `Unavailable` (Wine/helper not configured
+or missing; nothing was started), `Transport`, `Protocol` (malformed frame,
+wrong id or response type, undeclared out buffer), `HelperCrashed`, `Timeout`,
+`BadRequest` (rejected locally), `SessionClosed`. Transport, protocol, crash
+and timeout errors kill the helper and close the session permanently; remote
+errors such as `LibraryNotFound` leave it usable.
+
+Through the `Provider` trait, which has no bridge error type, every
+`WineError` becomes `WinApiError::Unsupported` whose reason starts with
+`wine bridge <Kind>:`; callers wanting the distinct error use `Session` or
+`WineProvider::call_with_buffers`. A bridge failure is never a success value.
+
+## Operation
+
+* One request in flight per session: `Session` methods take `&mut self`;
+  `WineProvider` serializes behind a `Mutex`. Use several sessions for
+  parallelism. Default timeout 10 s per request (configurable); on expiry the
+  child is killed.
+* Dropping a session (or its transport) kills and reaps the helper.
+* The helper's stderr is discarded; stdout carries only frames.
+* `WineConfig::wine(wine, helper)` runs `wine helper.exe` (optional
+  `WINEPREFIX`, `WINEDEBUG=-all`); `WineConfig::direct(helper)` runs the helper
+  natively (tests, or a real Windows host).
+* The helper must match the declared target's bitness (checked per call; a
+  32-bit `Declare` needs a 32-bit helper build, run with a 32-bit capable Wine).
+* Build the helper for Windows, for example
+  `cargo build -p vba-wine-host --target x86_64-pc-windows-gnu` (or `-msvc`,
+  `i686-` for 32-bit).
+
+## Implemented and tested (on Linux/macOS CI)
+
+* Protocol encode/decode round trips, truncation at every byte, trailing
+  bytes, unknown tags, hostile counts/lengths, bad UTF-8, oversized frames,
+  pseudo-random garbage (no panics).
+* Client against an in-process mock helper: hello, load/resolve/call/free,
+  in/out buffers, last error, handle scoping across sessions and after free,
+  local validation, 32-bit argument width, timeout, crash, version mismatch,
+  malformed/mismatched/misplaced responses, Hello-first enforcement.
+* `WineProvider`: grant requirement, scoped grants, export-table validation,
+  Registry integration, visible failures.
+* Client against the real `vba-wine-host` binary in protocol-only mode:
+  hello, ping, `Unsupported` for library operations, version mismatch, helper
+  exit, hang with timeout and kill, garbage output, missing files, kill on drop.
+* The Windows code path type-checks and passes clippy for
+  `x86_64-pc-windows-msvc` (cross `cargo clippy`; it cannot be linked or run here).
+
+## Unverified / not implemented
+
+* **The real Windows path (`apps/vba-wine-host/src/native.rs`) has never been
+  run**, under Wine or on Windows. LoadLibrary/GetProcAddress/FreeLibrary and the
+  stdcall/cdecl trampoline are written from the Win32 documentation only. Do
+  not rely on it until it has been exercised.
+* The trampoline passes integer-class arguments only (up to 16) and returns
+  integers. Float arguments/returns return `Unsupported`; x64 needs per-position
+  XMM selection, and x86 float returns need `st0` handling.
+* A fault inside the called DLL (access violation) takes the helper down; the
+  client reports `HelperCrashed`. There is no structured exception guard, so
+  `CallFault` only covers faults the helper detects before calling.
+* No `ByRef String` pointer-to-pointer or UDT marshaling over the bridge, no
+  callbacks, no automatic `vba-ffi` plan to `WireArg` conversion.
+* `GetLastError` is read straight after the call; nothing in the helper runs in
+  between, but this is unverified under Wine.
+* The `--inject` and `--advertise-version` helper switches exist only for the
+  tests.
