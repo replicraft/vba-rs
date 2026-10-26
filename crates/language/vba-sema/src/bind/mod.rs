@@ -65,6 +65,9 @@ pub(crate) struct Binder<'s, 'a> {
     pub result_local: Option<LocalId>,
     pub explicit: bool,
     pub class_like: bool,
+    /// Set while binding the argument of `Len`/`LenB`, the only functions
+    /// that accept a user-defined type value as their `Variant` argument.
+    pub udt_arg_ok: bool,
 }
 
 /// Constant scope of a procedure: its local constants, then module scope.
@@ -116,6 +119,7 @@ pub(crate) fn bind_proc(sema: &Sema<'_>, id: ProcId) -> BoundProc {
         result_local: None,
         explicit: mi.options.explicit,
         class_like: mi.is_class_like(),
+        udt_arg_ok: false,
     };
     b.declare_params();
     b.prescan();

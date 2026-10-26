@@ -539,7 +539,9 @@ impl Binder<'_, '_> {
             }
             other => other,
         };
+        let outer = std::mem::replace(&mut self.udt_arg_ok, matches!(r.info.name, "Len" | "LenB"));
         let bargs = self.match_args(&sig, args.unwrap_or(&[]), span);
+        self.udt_arg_ok = outer;
         let ty = sig.ret.clone().unwrap_or(Type::Variant);
         self.call_expr(
             span,

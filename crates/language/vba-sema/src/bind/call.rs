@@ -348,6 +348,9 @@ impl Binder<'_, '_> {
                     return self.rvalue(e);
                 }
                 match from {
+                    Type::Udt(_) if ctx == Ctx::Arg && self.udt_arg_ok => {
+                        self.mk_convert(e, Type::Variant)
+                    }
                     Type::Udt(_) => {
                         mismatch(self);
                         self.error_expr(span)

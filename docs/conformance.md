@@ -23,12 +23,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 300 |
-| partial | 4 |
+| implemented | 302 |
+| partial | 2 |
 | unsupported | 32 |
 | not-started | 0 |
-| Conformance programs | 658 |
-| Programs that are known deviations (XFAIL) | 27 |
+| Conformance programs | 659 |
+| Programs that are known deviations (XFAIL) | 26 |
 
 ## Entries per category and status
 
@@ -39,7 +39,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | function-math | 13 | 13 | 0 | 0 | 0 |
 | function-type-conversion | 13 | 13 | 0 | 0 | 0 |
 | derived-math | 21 | 21 | 0 | 0 | 0 |
-| function-string | 20 | 18 | 2 | 0 | 0 |
+| function-string | 20 | 19 | 1 | 0 | 0 |
 | function-datetime | 20 | 20 | 0 | 0 | 0 |
 | function-financial | 13 | 13 | 0 | 0 | 0 |
 | function-information | 11 | 10 | 0 | 1 | 0 |
@@ -53,7 +53,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operator-comparison | 8 | 8 | 0 | 0 | 0 |
 | operator-logical | 6 | 6 | 0 | 0 | 0 |
 | operator-precedence | 1 | 1 | 0 | 0 | 0 |
-| data-type | 18 | 15 | 2 | 1 | 0 |
+| data-type | 18 | 16 | 1 | 1 | 0 |
 | identifier-type-character | 7 | 7 | 0 | 0 | 0 |
 | object | 13 | 3 | 0 | 10 | 0 |
 | language-element | 38 | 37 | 0 | 1 | 0 |
@@ -63,8 +63,8 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Provenance | Entries |
 | --- | ---: |
 | spec | 0 |
-| doc | 159 |
-| derived | 67 |
+| doc | 158 |
+| derived | 68 |
 | unverified | 110 |
 | (no program) | 0 |
 
@@ -81,7 +81,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | derived-math | 21 | 0 | 21 | 0 | 0 |
 | errors | 26 | 0 | 17 | 0 | 9 |
 | events | 7 | 0 | 5 | 2 | 0 |
-| file-io | 29 | 0 | 27 | 1 | 1 |
+| file-io | 30 | 0 | 27 | 2 | 1 |
 | financial | 12 | 0 | 2 | 10 | 0 |
 | host | 33 | 0 | 20 | 10 | 3 |
 | language | 16 | 0 | 3 | 0 | 13 |
@@ -107,7 +107,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.sendkeys` | statement | SendKeys | unsupported | SendKeys is not defined ('Sub or Function not defined'); with UiAutomation as the gating capability it should be error 70 |
 | `stmt.time` | statement | Time | unsupported | setting the system clock is not provided by the stdlib host |
 | `stmt.unload` | statement | Unload | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
-| `func.len` | function-string | Len | partial | Len() of a user-defined type variable is rejected ('cannot convert Rec to Variant') |
 | `func.strconv` | function-string | StrConv | partial | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
 | `func.imestatus` | function-information | IMEStatus | unsupported | IME status needs a host IME |
 | `func.partition` | function-logic | Partition | unsupported | Partition is not defined ('Sub or Function not defined') |
@@ -121,7 +120,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `func.qbcolor` | function-interaction | QBColor | unsupported | QBColor is not defined ('Sub or Function not defined') |
 | `func.rgb` | function-interaction | RGB | unsupported | RGB is not defined ('Sub or Function not defined') |
 | `type.string` | data-type | String | partial | assigning a String to a Byte() array (b = s) is rejected: 'cannot convert String to Byte()' |
-| `type.udt` | data-type | User-defined type (Type) | partial | Len() of a user-defined type variable is rejected ('cannot convert Rec to Variant') |
 | `type.dictionary` | data-type | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.dictionary` | object | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.drive` | object | Drive | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
@@ -149,7 +147,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `file-io/fileattr_mode` | unsupported | FileAttr is not defined ('Sub or Function not defined') |
 | `file-io/input_function` | unsupported | the Input function is not defined ('Sub or Function not defined') |
 | `file-io/input_function_past_end` | unsupported | the Input function is not defined ('Sub or Function not defined') |
-| `file-io/len_of_user_defined_type` | unsupported | Len() of a user-defined type variable is rejected ('cannot convert Rec to Variant') |
 | `file-io/reset_statement` | unsupported | the Reset statement is not bound by the analysis |
 | `host/appactivate_denied` | unsupported | AppActivate is not defined ('Sub or Function not defined') |
 | `host/deletesetting` | unsupported | the registry-backed settings statements have no host service |

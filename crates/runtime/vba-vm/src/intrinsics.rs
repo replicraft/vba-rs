@@ -197,6 +197,21 @@ impl Vm {
                     .map_err(Fault::from)?;
                 Variant::from_text(&r.unwrap_or_default())
             }
+            "len" | "lenb" if matches!(a.first(), Some(Some(Variant::UserDefined(_)))) => {
+                let Some(Some(cur)) = a.first() else {
+                    return Err(VbaError::new(449).into());
+                };
+                let Variant::UserDefined(h) = cur else {
+                    return Err(VbaError::TYPE_MISMATCH.into());
+                };
+                let udt = self
+                    .udts
+                    .get(&h.0)
+                    .map(|u| u.udt)
+                    .ok_or_else(|| Fault::Internal("dangling user-defined type".into()))?;
+                let n = self.record_len(&Type::Udt(udt), cur)?;
+                Variant::Long(i32::try_from(n).map_err(|_| VbaError::OVERFLOW)?)
+            }
             "midstatement" => {
                 self.exec_mid_statement(args, &a)?;
                 Variant::Empty
@@ -505,6 +520,86 @@ impl Vm {
             other => {
                 return Err(Fault::Unsupported(format!(
                     "Get/Put of a value of type {other}"
+                )));
+            }
+        })
+    }
+
+    /// The number of bytes a value of static type `t` occupies in a `Put`
+    /// record of a Random file: the size `Len` reports for a user-defined
+    /// type (a variable-length `String` counts its two-byte length and its
+    /// ANSI bytes, a `Variant` its two-byte subtype and data). The sizes of
+    /// the numeric types are the documented ones; the treatment of
+    /// variable-length members is unverified.
+    fn record_len(&self, t: &Type, cur: &Variant) -> VResult<u64> {
+        let ir = self.ir.clone();
+        Ok(match t {
+            Type::Byte => 1,
+            Type::Boolean | Type::Integer => 2,
+            Type::Long | Type::Enum(_) | Type::Single => 4,
+            Type::LongLong | Type::Double | Type::Currency | Type::Date => 8,
+            Type::Decimal => 16,
+            Type::FixedString(n) => u64::from(*n),
+            Type::String => match cur {
+                Variant::String(s) => 2 + s.len() as u64,
+                _ => 2,
+            },
+            Type::Variant => {
+                2 + match cur {
+                    Variant::Empty | Variant::Null => 0,
+                    Variant::Byte(_) => 1,
+                    Variant::Boolean(_) | Variant::Integer(_) => 2,
+                    Variant::Long(_) | Variant::Single(_) => 4,
+                    Variant::String(s) => 2 + s.len() as u64,
+                    Variant::Decimal(_) => 16,
+                    Variant::Array(_)
+                    | Variant::Object(_)
+                    | Variant::UserDefined(_)
+                    | Variant::Error(_) => {
+                        return Err(Fault::Unsupported(
+                            "Len of a user-defined type with a Variant holding an array, \
+                             object, user-defined type or error"
+                                .into(),
+                        ));
+                    }
+                    _ => 8,
+                }
+            }
+            Type::Udt(u) => {
+                let info = &ir.program.udts[u.index()];
+                let vals: Vec<Variant> = match cur {
+                    Variant::UserDefined(h) => self
+                        .udts
+                        .get(&h.0)
+                        .map(|x| x.fields.clone())
+                        .unwrap_or_default(),
+                    _ => Vec::new(),
+                };
+                let mut total = 0;
+                for (i, f) in info.fields.iter().enumerate() {
+                    let cv = vals.get(i).cloned().unwrap_or(Variant::Empty);
+                    total += self.record_len(&f.ty, &cv)?;
+                }
+                total
+            }
+            Type::Array { elem, .. } => {
+                let Variant::Array(a) = cur else {
+                    return Err(VbaError::TYPE_MISMATCH.into());
+                };
+                if !a.is_fixed() {
+                    return Err(Fault::Unsupported(
+                        "Len of a user-defined type with a dynamic array member".into(),
+                    ));
+                }
+                let mut total = 0;
+                for e in a.iter() {
+                    total += self.record_len(elem, e)?;
+                }
+                total
+            }
+            other => {
+                return Err(Fault::Unsupported(format!(
+                    "Len of a user-defined type with a member of type {other}"
                 )));
             }
         })
