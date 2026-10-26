@@ -4,6 +4,7 @@ mod decl;
 mod expr;
 mod stmt;
 
+use bitflags::bitflags;
 use vba_diagnostics::{Code, Diagnostic};
 use vba_lexer::{Keyword, LexOptions, Token, TokenKind, lex};
 use vba_profile::Profile;
@@ -20,24 +21,29 @@ pub(crate) const MISPLACED: Code = Code("SYN004");
 pub(crate) const DEVIATION: Code = Code("SYN005");
 pub(crate) const VERSION_GATE: Code = Code("SYN010");
 
-// Block terminators, as a bit set per open construct.
-pub(crate) const T_ENDIF: u32 = 1;
-pub(crate) const T_ELSE: u32 = 1 << 1;
-pub(crate) const T_ELSEIF: u32 = 1 << 2;
-pub(crate) const T_CASE: u32 = 1 << 3;
-pub(crate) const T_ENDSELECT: u32 = 1 << 4;
-pub(crate) const T_NEXT: u32 = 1 << 5;
-pub(crate) const T_LOOP: u32 = 1 << 6;
-pub(crate) const T_WEND: u32 = 1 << 7;
-pub(crate) const T_ENDWITH: u32 = 1 << 8;
-pub(crate) const T_ENDSUB: u32 = 1 << 9;
-pub(crate) const T_ENDFUNCTION: u32 = 1 << 10;
-pub(crate) const T_ENDPROPERTY: u32 = 1 << 11;
-pub(crate) const T_ENDTYPE: u32 = 1 << 12;
-pub(crate) const T_ENDENUM: u32 = 1 << 13;
-/// A procedure header at the start of a line: ends every open construct.
-pub(crate) const T_PROCSTART: u32 = 1 << 14;
-pub(crate) const T_ENDPROC: u32 = T_ENDSUB | T_ENDFUNCTION | T_ENDPROPERTY;
+bitflags! {
+    /// Block terminators, as a set per open construct.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct Term: u32 {
+        const ENDIF = 1;
+        const ELSE = 1 << 1;
+        const ELSEIF = 1 << 2;
+        const CASE = 1 << 3;
+        const ENDSELECT = 1 << 4;
+        const NEXT = 1 << 5;
+        const LOOP = 1 << 6;
+        const WEND = 1 << 7;
+        const ENDWITH = 1 << 8;
+        const ENDSUB = 1 << 9;
+        const ENDFUNCTION = 1 << 10;
+        const ENDPROPERTY = 1 << 11;
+        const ENDTYPE = 1 << 12;
+        const ENDENUM = 1 << 13;
+        /// A procedure header at the start of a line: ends every open construct.
+        const PROCSTART = 1 << 14;
+        const ENDPROC = Self::ENDSUB.bits() | Self::ENDFUNCTION.bits() | Self::ENDPROPERTY.bits();
+    }
+}
 
 /// Maximum nesting of blocks, statements and expressions; deeper input is
 /// reported instead of risking stack exhaustion.
@@ -184,7 +190,7 @@ pub(crate) struct Parser<'a> {
     pub(crate) diags: Vec<Diagnostic>,
     pub(crate) cc: CcInfo,
     /// Terminator sets of the open constructs, innermost last.
-    pub(crate) frames: Vec<u32>,
+    pub(crate) frames: Vec<Term>,
     /// Number of enclosing `For` loops closed by the same `Next i, j, ...`.
     pub(crate) pending_closes: usize,
     pub(crate) depth: u32,
@@ -472,31 +478,31 @@ impl<'a> Parser<'a> {
     // ---- terminators -----------------------------------------------
 
     /// Classifies the current token as a block terminator.
-    pub(crate) fn term_at(&self) -> Option<u32> {
+    pub(crate) fn term_at(&self) -> Option<Term> {
         use Keyword as K;
         let Some(TokenKind::Keyword(k)) = self.cur() else {
-            return self.proc_start_at().then_some(T_PROCSTART);
+            return self.proc_start_at().then_some(Term::PROCSTART);
         };
         match k {
-            K::Else => Some(T_ELSE),
-            K::ElseIf => Some(T_ELSEIF),
-            K::EndIf => Some(T_ENDIF),
-            K::Case => Some(T_CASE),
-            K::Next => Some(T_NEXT),
-            K::Loop => Some(T_LOOP),
-            K::Wend => Some(T_WEND),
+            K::Else => Some(Term::ELSE),
+            K::ElseIf => Some(Term::ELSEIF),
+            K::EndIf => Some(Term::ENDIF),
+            K::Case => Some(Term::CASE),
+            K::Next => Some(Term::NEXT),
+            K::Loop => Some(Term::LOOP),
+            K::Wend => Some(Term::WEND),
             K::End => match self.kind(1) {
-                Some(TokenKind::Keyword(K::If)) => Some(T_ENDIF),
-                Some(TokenKind::Keyword(K::Select)) => Some(T_ENDSELECT),
-                Some(TokenKind::Keyword(K::With)) => Some(T_ENDWITH),
-                Some(TokenKind::Keyword(K::Sub)) => Some(T_ENDSUB),
-                Some(TokenKind::Keyword(K::Function)) => Some(T_ENDFUNCTION),
-                Some(TokenKind::Keyword(K::Type)) => Some(T_ENDTYPE),
-                Some(TokenKind::Keyword(K::Enum)) => Some(T_ENDENUM),
-                _ if self.word_at(1, "property") => Some(T_ENDPROPERTY),
+                Some(TokenKind::Keyword(K::If)) => Some(Term::ENDIF),
+                Some(TokenKind::Keyword(K::Select)) => Some(Term::ENDSELECT),
+                Some(TokenKind::Keyword(K::With)) => Some(Term::ENDWITH),
+                Some(TokenKind::Keyword(K::Sub)) => Some(Term::ENDSUB),
+                Some(TokenKind::Keyword(K::Function)) => Some(Term::ENDFUNCTION),
+                Some(TokenKind::Keyword(K::Type)) => Some(Term::ENDTYPE),
+                Some(TokenKind::Keyword(K::Enum)) => Some(Term::ENDENUM),
+                _ if self.word_at(1, "property") => Some(Term::ENDPROPERTY),
                 _ => None,
             },
-            _ => self.proc_start_at().then_some(T_PROCSTART),
+            _ => self.proc_start_at().then_some(Term::PROCSTART),
         }
     }
 
@@ -536,11 +542,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(crate) fn terminates(&self, t: u32) -> bool {
-        if t == T_PROCSTART {
+    pub(crate) fn terminates(&self, t: Term) -> bool {
+        if t == Term::PROCSTART {
             return !self.frames.is_empty();
         }
-        self.frames.iter().any(|f| f & t != 0)
+        self.frames.iter().any(|f| f.intersects(t))
     }
 
     // ---- module ------------------------------------------------------

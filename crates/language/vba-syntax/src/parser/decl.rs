@@ -4,9 +4,7 @@
 use vba_lexer::{Keyword, KeywordClass, TokenKind};
 use vba_profile::{Bitness, Feature};
 
-use super::{
-    EXPECTED, MISPLACED, MISSING_CLOSER, Parser, T_ENDENUM, T_ENDPROC, T_ENDTYPE, VERSION_GATE,
-};
+use super::{EXPECTED, MISPLACED, MISSING_CLOSER, Parser, Term, VERSION_GATE};
 use crate::NodeKind;
 
 fn is_modifier(k: Option<TokenKind>) -> bool {
@@ -306,7 +304,7 @@ impl Parser<'_> {
         self.bump_modifiers();
         self.bump();
         self.name_token("type name");
-        self.parse_members(T_ENDTYPE, |p| {
+        self.parse_members(Term::ENDTYPE, |p| {
             if matches!(p.cur(), Some(TokenKind::Ident | TokenKind::ForeignName)) {
                 p.parse_declarator(NodeKind::TypeMember);
             } else {
@@ -323,7 +321,7 @@ impl Parser<'_> {
         self.bump_modifiers();
         self.bump();
         self.name_token("enum name");
-        self.parse_members(T_ENDENUM, |p| {
+        self.parse_members(Term::ENDENUM, |p| {
             if matches!(p.cur(), Some(TokenKind::Ident | TokenKind::ForeignName)) {
                 p.start(NodeKind::EnumMember);
                 p.bump();
@@ -340,7 +338,7 @@ impl Parser<'_> {
         self.finish();
     }
 
-    fn parse_members(&mut self, term: u32, member: fn(&mut Self)) {
+    fn parse_members(&mut self, term: Term, member: fn(&mut Self)) {
         self.frames.push(term);
         loop {
             if self.cc_item() {
@@ -385,18 +383,18 @@ impl Parser<'_> {
     pub(crate) fn parse_proc(&mut self) {
         self.start(NodeKind::ProcDecl);
         self.bump_modifiers();
-        let mut expect_end = T_ENDPROC;
+        let mut expect_end = Term::ENDPROC;
         if self.at_kw(Keyword::Sub) {
             self.bump();
-            expect_end = super::T_ENDSUB;
+            expect_end = Term::ENDSUB;
         } else if self.at_kw(Keyword::Function) {
             self.bump();
-            expect_end = super::T_ENDFUNCTION;
+            expect_end = Term::ENDFUNCTION;
         } else {
             // `Property Get|Let|Set`
             self.bump();
             self.bump();
-            expect_end &= super::T_ENDPROPERTY;
+            expect_end &= Term::ENDPROPERTY;
         }
         self.name_token("procedure name");
         if self.at(TokenKind::LParen) {
@@ -408,10 +406,10 @@ impl Parser<'_> {
         if !self.at_eos() {
             self.unexpected_line(false);
         }
-        self.parse_block(T_ENDPROC);
+        self.parse_block(Term::ENDPROC);
         // Closing `End Sub|Function|Property`.
-        if self.at_kw(Keyword::End) && self.term_at().is_some_and(|t| t & T_ENDPROC != 0) {
-            let t = self.term_at().unwrap_or(0);
+        if self.at_kw(Keyword::End) && self.term_at().is_some_and(|t| t.intersects(Term::ENDPROC)) {
+            let t = self.term_at().unwrap_or(Term::empty());
             if t != expect_end {
                 self.error(MISPLACED, "closing `End` does not match the procedure kind");
             }

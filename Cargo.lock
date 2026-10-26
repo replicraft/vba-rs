@@ -1391,6 +1391,7 @@ dependencies = [
 name = "vba-syntax"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.2",
  "expect-test",
  "proptest",
  "vba-diagnostics",

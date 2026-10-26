@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+bitflags.workspace = true
 vba-diagnostics.workspace = true
 vba-lexer.workspace = true
 vba-profile.workspace = true

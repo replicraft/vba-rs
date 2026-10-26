@@ -2,16 +2,13 @@
 
 use vba_lexer::{Keyword, TokenKind};
 
-use super::{
-    DEVIATION, EXPECTED, MISPLACED, MISSING_CLOSER, Parser, T_CASE, T_ELSE, T_ELSEIF, T_ENDIF,
-    T_ENDSELECT, T_ENDWITH, T_LOOP, T_NEXT, T_WEND,
-};
+use super::{DEVIATION, EXPECTED, MISPLACED, MISSING_CLOSER, Parser, Term};
 use crate::NodeKind;
 
 impl Parser<'_> {
     /// A statement list ending at a terminator of any open construct.
     /// `bits` are the terminators the caller accepts.
-    pub(crate) fn parse_block(&mut self, bits: u32) {
+    pub(crate) fn parse_block(&mut self, bits: Term) {
         if self.depth >= super::MAX_DEPTH {
             self.error(MISPLACED, "statements are nested too deeply");
             self.start(NodeKind::Block);
@@ -364,7 +361,7 @@ impl Parser<'_> {
         self.bump();
         self.parse_expr(0);
         self.expect_kw(Keyword::Then, "`Then`");
-        self.parse_block(T_ENDIF | T_ELSE | T_ELSEIF);
+        self.parse_block(Term::ENDIF | Term::ELSE | Term::ELSEIF);
         let mut seen_else = false;
         loop {
             if self.at_kw(Keyword::ElseIf) {
@@ -372,7 +369,7 @@ impl Parser<'_> {
                 self.bump();
                 self.parse_expr(0);
                 self.expect_kw(Keyword::Then, "`Then`");
-                self.parse_block(T_ENDIF | T_ELSE | T_ELSEIF);
+                self.parse_block(Term::ENDIF | Term::ELSE | Term::ELSEIF);
                 self.finish();
             } else if self.at_kw(Keyword::Else) {
                 if seen_else {
@@ -389,7 +386,7 @@ impl Parser<'_> {
                         "statement on the same line as the `Else` of a block `If`",
                     );
                 }
-                self.parse_block(T_ENDIF | T_ELSE | T_ELSEIF);
+                self.parse_block(Term::ENDIF | Term::ELSE | Term::ELSEIF);
                 self.finish();
             } else {
                 break;
@@ -459,7 +456,7 @@ impl Parser<'_> {
         self.bump();
         self.expect_kw(Keyword::Case, "`Case`");
         self.parse_expr(0);
-        self.frames.push(T_CASE | T_ENDSELECT);
+        self.frames.push(Term::CASE | Term::ENDSELECT);
         loop {
             if self.cc_item() {
                 continue;
@@ -508,7 +505,7 @@ impl Parser<'_> {
                 }
             }
         }
-        self.parse_block(T_CASE | T_ENDSELECT);
+        self.parse_block(Term::CASE | Term::ENDSELECT);
         self.finish();
     }
 
@@ -564,7 +561,7 @@ impl Parser<'_> {
                 }
             }
         }
-        self.parse_block(T_NEXT);
+        self.parse_block(Term::NEXT);
         if self.pending_closes > 0 {
             // Closed by an inner `Next i, j`.
             self.pending_closes -= 1;
@@ -593,7 +590,7 @@ impl Parser<'_> {
             self.bump();
             self.parse_expr(0);
         }
-        self.parse_block(T_LOOP);
+        self.parse_block(Term::LOOP);
         if self.at_kw(Keyword::Loop) {
             self.bump();
             if self.at_kw(Keyword::While) || self.at_kw(Keyword::Until) {
@@ -610,7 +607,7 @@ impl Parser<'_> {
         self.start(NodeKind::WhileStmt);
         self.bump();
         self.parse_expr(0);
-        self.parse_block(T_WEND);
+        self.parse_block(Term::WEND);
         if !self.eat_kw(Keyword::Wend) {
             self.error(MISSING_CLOSER, "missing `Wend`");
         }
@@ -621,7 +618,7 @@ impl Parser<'_> {
         self.start(NodeKind::WithStmt);
         self.bump();
         self.parse_expr(0);
-        self.parse_block(T_ENDWITH);
+        self.parse_block(Term::ENDWITH);
         self.end_closer(Keyword::With, "End With");
         self.finish();
     }
