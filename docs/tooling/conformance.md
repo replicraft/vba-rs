@@ -24,18 +24,18 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 511 |
-| partial | 159 |
+| implemented | 527 |
+| partial | 143 |
 | unsupported | 5 |
 | not-started | 33 |
-| Conformance programs | 2097 |
-| Programs that are known deviations (XFAIL) | 174 |
+| Conformance programs | 2102 |
+| Programs that are known deviations (XFAIL) | 154 |
 
 ## Entries per category and status
 
 | Category | Total | implemented | partial | unsupported | not-started |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| statement | 76 | 55 | 19 | 2 | 0 |
+| statement | 76 | 62 | 12 | 2 | 0 |
 | function-conversion | 8 | 6 | 2 | 0 | 0 |
 | function-math | 13 | 13 | 0 | 0 | 0 |
 | function-type-conversion | 13 | 11 | 2 | 0 | 0 |
@@ -63,18 +63,18 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-organization | 3 | 1 | 0 | 0 | 2 |
 | spec-declarations | 21 | 11 | 10 | 0 | 0 |
 | spec-procedures | 12 | 6 | 5 | 0 | 1 |
-| spec-statements | 55 | 34 | 20 | 0 | 1 |
+| spec-statements | 55 | 42 | 12 | 0 | 1 |
 | spec-coercion | 18 | 9 | 8 | 0 | 1 |
 | spec-expressions | 53 | 22 | 26 | 0 | 5 |
-| spec-library | 193 | 147 | 23 | 0 | 23 |
+| spec-library | 193 | 148 | 22 | 0 | 23 |
 
 ## Entries per provenance
 
 | Provenance | Entries |
 | --- | ---: |
 | oracle | 0 |
-| spec | 440 |
-| doc | 99 |
+| spec | 438 |
+| doc | 101 |
 | derived | 39 |
 | unverified | 97 |
 | (no program) | 33 |
@@ -101,11 +101,11 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operators | 66 | 0 | 59 | 1 | 5 | 1 |
 | procedures | 34 | 0 | 23 | 2 | 4 | 5 |
 | spec-coerce | 187 | 0 | 187 | 0 | 0 | 0 |
-| spec-data | 274 | 0 | 274 | 0 | 0 | 0 |
+| spec-data | 277 | 0 | 277 | 0 | 0 | 0 |
 | spec-decl | 155 | 0 | 155 | 0 | 0 | 0 |
 | spec-lex | 145 | 0 | 145 | 0 | 0 | 0 |
 | spec-lib-a | 96 | 0 | 96 | 0 | 0 | 0 |
-| spec-lib-b | 61 | 0 | 61 | 0 | 0 | 0 |
+| spec-lib-b | 63 | 0 | 62 | 1 | 0 | 0 |
 | spec-lib-c | 58 | 0 | 58 | 0 | 0 | 0 |
 | spec-lib-d | 74 | 0 | 74 | 0 | 0 | 0 |
 | spec-ops | 131 | 0 | 131 | 0 | 0 | 0 |
@@ -121,12 +121,8 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | --- | --- | --- | --- | --- |
 | `stmt.call` | statement | Call | partial |  |
 | `stmt.dim` | statement | Dim | partial |  |
-| `stmt.get` | statement | Get | partial |  |
-| `stmt.input` | statement | Input # | partial |  |
 | `stmt.let` | statement | Let | partial | 'w = 5' on an object whose default member has a Property Let is rejected with SEM007 (requires Set) |
-| `stmt.line-input` | statement | Line Input # | partial |  |
 | `stmt.load` | statement | Load | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
-| `stmt.lock-unlock` | statement | Lock, Unlock | partial |  |
 | `stmt.lset` | statement | LSet | partial |  |
 | `stmt.mid` | statement | Mid | partial |  |
 | `stmt.on-error` | statement | On Error | partial |  |
@@ -136,10 +132,7 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.redim` | statement | ReDim | partial | element assignment into an array held in a Variant (ReDim v(..); v(i) = x) is rejected as 'late binding' |
 | `stmt.seek` | statement | Seek | partial |  |
 | `stmt.set` | statement | Set | partial |  |
-| `stmt.setattr` | statement | SetAttr | partial |  |
 | `stmt.unload` | statement | Unload | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
-| `stmt.width` | statement | Width # | partial |  |
-| `stmt.write` | statement | Write # | partial |  |
 | `func.hex` | function-conversion | Hex | partial |  |
 | `func.str` | function-conversion | Str | partial |  |
 | `func.cbyte` | function-type-conversion | CByte | partial |  |
@@ -219,17 +212,9 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.4.3.8` | spec-statements | Let Statement | partial |  |
 | `vbal.5.4.4.1` | spec-statements | On Error Statement | partial |  |
 | `vbal.5.4.5.1` | spec-statements | Open Statement | partial |  |
-| `vbal.5.4.5.1.1` | spec-statements | File Numbers | partial |  |
 | `vbal.5.4.5.3` | spec-statements | Seek Statement | partial |  |
-| `vbal.5.4.5.4` | spec-statements | Lock Statement | partial |  |
-| `vbal.5.4.5.5` | spec-statements | Unlock Statement | partial |  |
-| `vbal.5.4.5.6` | spec-statements | Line Input Statement | partial |  |
-| `vbal.5.4.5.7` | spec-statements | Width Statement | partial |  |
 | `vbal.5.4.5.8` | spec-statements | Print Statement | partial |  |
-| `vbal.5.4.5.9` | spec-statements | Write Statement | partial |  |
-| `vbal.5.4.5.10` | spec-statements | Input Statement | partial |  |
 | `vbal.5.4.5.11` | spec-statements | Put Statement | partial |  |
-| `vbal.5.4.5.12` | spec-statements | Get Statement | partial |  |
 | `vbal.5.5.1.1` | spec-coercion | Static semantics | partial |  |
 | `vbal.5.5.1.2.1.1` | spec-coercion | Banker’s rounding | not-started |  |
 | `vbal.5.5.1.2.2` | spec-coercion | Let-coercion to and from Boolean | partial |  |
@@ -282,7 +267,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.6.1.2.4.1.14` | spec-library | Year | partial |  |
 | `vbal.6.1.2.5.1.3` | spec-library | EOF | partial |  |
 | `vbal.6.1.2.5.1.6` | spec-library | FileLen | partial |  |
-| `vbal.6.1.2.5.2.7` | spec-library | SetAttr | partial |  |
 | `vbal.6.1.2.7.1.1` | spec-library | IMEStatus | not-started |  |
 | `vbal.6.1.2.7.1.8` | spec-library | IsNumeric | partial |  |
 | `vbal.6.1.2.8.1.3` | spec-library | Command | not-started |  |
@@ -370,37 +354,18 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-data/5_4_3_8_let_object_variable_without_default_error438` | wrong | VBA behaviour kept where MS-VBAL text differs: misuse of Let on objects and read-only properties is rejected at analysis, not at run time |
 | `spec-data/5_4_3_8_let_property_get_only_variant_error451` | wrong | VBA behaviour kept where MS-VBAL text differs: misuse of Let on objects and read-only properties is rejected at analysis, not at run time |
 | `spec-data/5_4_4_1_on_error_resets_err` | wrong | VBA behaviour kept where MS-VBAL text differs: On Error does not reset Err |
-| `spec-data/5_4_5_10_input_date_without_hash_overflow` | wrong | not implemented: error 6 for Input into a Date from text without # |
-| `spec-data/5_4_5_10_input_object_variable_invalid` | wrong | not implemented: static rejection of Object operands in Input/Put/Get |
-| `spec-data/5_4_5_11_put_object_data_invalid` | wrong | not implemented: static rejection of Object operands in Input/Put/Get |
 | `spec-data/5_4_5_11_put_variant_string_descriptor` | wrong | VBA behaviour kept where MS-VBAL text differs: a Variant String is written with its length descriptor |
-| `spec-data/5_4_5_12_get_object_variable_invalid` | wrong | not implemented: static rejection of Object operands in Input/Put/Get |
-| `spec-data/5_4_5_1_1_file_number_not_coercible_error52` | wrong | not implemented: error 52 for a non-numeric file number (13 is raised) |
 | `spec-data/5_4_5_1_open_append_with_access_read_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: incompatible Open mode/access pairs fail at run time, not at analysis |
 | `spec-data/5_4_5_1_open_append_with_access_write_accepted` | wrong | VBA behaviour kept where MS-VBAL text differs: incompatible Open mode/access pairs fail at run time, not at analysis |
 | `spec-data/5_4_5_1_open_input_with_access_read_write_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: incompatible Open mode/access pairs fail at run time, not at analysis |
 | `spec-data/5_4_5_1_open_input_with_access_write_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: incompatible Open mode/access pairs fail at run time, not at analysis |
-| `spec-data/5_4_5_1_open_len_out_of_range_is_error` | wrong | not implemented: validation of Len above 32767 in Open |
 | `spec-data/5_4_5_1_open_output_with_access_read_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: incompatible Open mode/access pairs fail at run time, not at analysis |
 | `spec-data/5_4_5_1_open_output_with_access_read_write_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: incompatible Open mode/access pairs fail at run time, not at analysis |
 | `spec-data/5_4_5_1_table_print_on_random_errors` | wrong | VBA behaviour kept where MS-VBAL text differs: Print on a Random file is allowed |
 | `spec-data/5_4_5_3_seek_extends_binary_file` | wrong | VBA behaviour kept where MS-VBAL text differs: Seek beyond the end does not extend the file |
-| `spec-data/5_4_5_4_lock_record_range_random` | wrong | not implemented: tracking of Lock/Unlock ranges |
-| `spec-data/5_4_5_4_lock_start_greater_than_end_is_error` | wrong | not implemented: tracking of Lock/Unlock ranges |
-| `spec-data/5_4_5_4_lock_start_zero_is_error` | wrong | not implemented: tracking of Lock/Unlock ranges |
-| `spec-data/5_4_5_5_close_removes_locks` | wrong | not implemented: tracking of Lock/Unlock ranges |
-| `spec-data/5_4_5_5_unlock_different_range_is_error` | wrong | not implemented: tracking of Lock/Unlock ranges |
-| `spec-data/5_4_5_5_unlock_never_locked_range_is_error` | wrong | not implemented: tracking of Lock/Unlock ranges |
-| `spec-data/5_4_5_5_unlock_twice_second_is_error` | wrong | not implemented: tracking of Lock/Unlock ranges |
-| `spec-data/5_4_5_5_unlock_whole_file_removes_range_locks` | wrong | not implemented: tracking of Lock/Unlock ranges |
-| `spec-data/5_4_5_6_line_input_long_variable_invalid` | wrong | not implemented: static checks of Line Input operands |
-| `spec-data/5_4_5_6_line_input_unmarked_number_invalid` | wrong | not implemented: static checks of Line Input operands |
-| `spec-data/5_4_5_7_width_wraps_output_lines` | wrong | not implemented: wrapping of a single long output item at the Width line length |
 | `spec-data/5_4_5_8_bare_print_not_in_revision3_grammar` | wrong | VBA behaviour kept where MS-VBAL text differs: the file Print statement keeps its form without a Debug./Me. prefix (revision 3.0 grammar taken as additive) |
 | `spec-data/5_4_5_8_me_print_form` | unsupported | Me.Print needs a host that provides forms |
 | `spec-data/5_4_5_8_print_number_has_surrounding_spaces` | wrong | VBA behaviour kept where MS-VBAL text differs: the sign takes the leading space of a printed number |
-| `spec-data/5_4_5_9_write_spc_item` | wrong | not implemented: Write with a trailing semicolon and Spc items |
-| `spec-data/5_4_5_9_write_trailing_semicolon_continues_line` | wrong | not implemented: Write with a trailing semicolon and Spc items |
 | `spec-decl/5_1_declaration_after_procedure` | wrong | not implemented: a declaration after a procedure is accepted |
 | `spec-decl/5_2_3_1_1_as_new_lazy_array` | wrong | VBA behaviour kept where MS-VBAL text differs: As New is rejected for arrays and Type members |
 | `spec-decl/5_2_3_1_1_typed_name_with_array` | wrong | not implemented: Dim a&(n) at module level |
@@ -443,7 +408,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-lib-b/6_1_2_5_1_3_eof_binary_short_get` | wrong | VBA behaviour kept where MS-VBAL text differs: EOF on an Output file is error 54; EOF is True after the last full record |
 | `spec-lib-b/6_1_2_5_1_3_eof_output_true` | wrong | VBA behaviour kept where MS-VBAL text differs: EOF on an Output file is error 54; EOF is True after the last full record |
 | `spec-lib-b/6_1_2_5_1_6_filelen_open_file_size_before_open` | wrong | VBA behaviour kept where MS-VBAL text differs: FileLen of an open file is its current size |
-| `spec-lib-b/6_1_2_5_2_7_setattr_sets_and_open_errors` | wrong | not implemented: error when SetAttr names an open file |
 | `spec-lib-b/6_1_2_7_1_8_isnumeric_empty_false` | wrong | VBA behaviour kept where MS-VBAL text differs: IsNumeric accepts numeric strings and Empty |
 | `spec-lib-b/6_1_2_7_1_8_isnumeric_string_false` | wrong | VBA behaviour kept where MS-VBAL text differs: IsNumeric accepts numeric strings and Empty |
 | `spec-lib-c/6_1_2_8_1_14_partition_interval_one` | wrong | VBA behaviour kept where MS-VBAL text differs: Partition pads to Len(Stop) as the Learn page shows |
