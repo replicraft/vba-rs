@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.1, stmt.open
 ' SOURCE: spec ms-vbal 5.4.5.1 Len must be in 1 to 32767
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: validation of Len above 32767 in Open
 ' EXPECT: err=True
 ' GRANT: file-read
 ' GRANT: file-write

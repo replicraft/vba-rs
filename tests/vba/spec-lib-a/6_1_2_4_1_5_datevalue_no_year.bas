@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.4.1.5, func.datevalue
 ' SOURCE: spec ms-vbal 6.1.2.4.1.5 DateValue with omitted year uses the current year
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: DateValue of a date without a year
 ' EXPECT: noYear=True
 ' EXPECT: month=12
 ' EXPECT: day=30

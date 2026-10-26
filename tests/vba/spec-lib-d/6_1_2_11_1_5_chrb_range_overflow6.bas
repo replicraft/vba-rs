@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.11.1.5
 ' SOURCE: spec ms-vbal 6.1.2.11.1.5 ChrB outside 0..255 raises error 6 (Overflow)
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: ChrB range error 6
 ' EXPECT: err256=6
 ' EXPECT: errm1=6
 Public Sub Main()

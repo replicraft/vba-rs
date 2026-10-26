@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.10, func.left
 ' SOURCE: spec ms-vbal 5.6.10 name Left with two arguments skips a parameterless user function of non-Variant type
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: library functions named Left/Mid/... shadowed by a project procedure
 ' EXPECT: ab
 ' EXPECT: 99
 Public Function Left() As Long

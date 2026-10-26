@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.5, op.lt
 ' SOURCE: spec ms-vbal 5.6.9.5 relational non-Error with Error operand raises 13
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13
 ' EXPECT: before
 ' ERROR: 13
 Public Sub Main()

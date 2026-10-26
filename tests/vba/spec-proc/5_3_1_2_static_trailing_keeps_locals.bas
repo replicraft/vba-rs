@@ -1,6 +1,6 @@
 ' INV: vbal.5.3.1.2
 ' SOURCE: spec ms-vbal 5.3.1.2 trailing Static gives module extent to locals
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: trailing Static in a procedure header
 ' EXPECT: 1
 ' EXPECT: 2
 ' EXPECT: 3

@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3.3, op.sub
 ' SOURCE: spec ms-vbal 5.6.9.3.3 Binary - operator, Date minus a number that overflows Date gives the Double when an operand is a Variant
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: Double promotion on Date/Single overflow with a Variant operand
 ' EXPECT: Double
 ' EXPECT: -700000
 Public Sub Main()

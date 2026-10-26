@@ -1,6 +1,6 @@
 ' INV: vbal.5.2.3.1.1
 ' SOURCE: spec ms-vbal 5.2.3.1.1 As New array: each dependent variable is automatic instantiation
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: As New is rejected for arrays and Type members
 ' EXPECT: 5 0
 Public Sub Main()
     Dim a(1) As New Box

@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.7, expr.typeof
 ' SOURCE: spec ms-vbal 5.6.7 TypeOf...Is expressions, the operand must be classified as variable, function, property or unbound member (not a value)
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: static rejection of TypeOf on a non-variable operand
 ' ERROR: load
 Public Sub Main()
     Dim b As Boolean

@@ -1,6 +1,6 @@
 ' INV: vbal.5.2.4.3
 ' SOURCE: spec ms-vbal 5.2.4.3 an event name may equal a module variable, constant or procedure name
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: event name versus member names, event parameters as procedure variables
 ' EXPECT: ok
 Public Sub Main()
     Dim s As New Src

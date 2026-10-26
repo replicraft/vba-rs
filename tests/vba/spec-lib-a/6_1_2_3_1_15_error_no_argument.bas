@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.3.1.15, func.error
 ' SOURCE: spec ms-vbal 6.1.2.3.1.15 Error without argument uses most recently raised error
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: Error$ with no argument and the 0..65535 range
 ' EXPECT: before=[]
 ' EXPECT: after=Type mismatch
 ' EXPECT: afterDollar=Type mismatch

@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.16.1, op.like
 ' SOURCE: spec ms-vbal 5.6.16.1 constant expressions allow Like, relational and Eqv Imp operators
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: function calls and Like are rejected in Const initialisers
 ' EXPECT: True
 ' EXPECT: False
 ' EXPECT: True

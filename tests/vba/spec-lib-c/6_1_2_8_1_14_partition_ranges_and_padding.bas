@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.8.1.14, func.partition
 ' SOURCE: spec ms-vbal 6.1.2.8.1.14 Partition ranges lowervalue:uppervalue, padded to len(Stop)+1 on each side of the colon
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: Partition pads to Len(Stop) as the Learn page shows
 ' EXPECT: [  0:  4]
 ' EXPECT: [  5:  9]
 ' EXPECT: [ 95: 99]

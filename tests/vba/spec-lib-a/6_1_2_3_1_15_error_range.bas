@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.3.1.15, func.error
 ' SOURCE: spec ms-vbal 6.1.2.3.1.15 Error/Error$ argument range
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: Error$ with no argument and the 0..65535 range
 ' EXPECT: over=6
 ' EXPECT: overDollar=6
 ' EXPECT: max=0

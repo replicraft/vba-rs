@@ -1,6 +1,6 @@
 ' INV: vbal.5.2.3.4
 ' SOURCE: spec ms-vbal 5.2.3.4 public enum name distinct from other public enums in the project
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: uniqueness of public Type/Enum names across modules and modules/types
 ' ERROR: load
 Public Enum E
     A1 = 1

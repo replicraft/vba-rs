@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.3.3, stmt.redim
 ' SOURCE: spec ms-vbal 5.4.3.3 As clause must be as-type, not as-auto-object
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: ReDim ... As New is accepted
 ' ERROR: load
 '#MODULE C1 class
 Public x As Integer

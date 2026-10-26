@@ -1,6 +1,6 @@
 ' INV: vbal.5.2.3.6
 ' SOURCE: spec ms-vbal 5.2.3.6 circular module dependency through Enum declarations is illegal
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: detection of circular module dependencies
 ' ERROR: load
 Public Sub Main()
 End Sub

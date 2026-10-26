@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.1, stmt.open
 ' SOURCE: spec ms-vbal 5.4.5.1 Append accepts Access Write and Access Read Write
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: incompatible Open mode/access pairs fail at run time, not at analysis
 ' EXPECT: ok
 ' GRANT: file-read
 ' GRANT: file-write

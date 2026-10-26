@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.7, stmt.width, stmt.print
 ' SOURCE: spec ms-vbal 5.4.5.7 Width sets the maximum line length; output wraps at it
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: wrapping of a single long output item at the Width line length
 ' EXPECT: [abcde]
 ' EXPECT: [fghij]
 ' EXPECT: [kl]

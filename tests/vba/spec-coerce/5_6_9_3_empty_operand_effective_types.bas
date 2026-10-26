@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3, op.add
 ' SOURCE: spec ms-vbal 5.6.9.3 Arithmetic operators, effective value types when an operand is Empty
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: result types of mixed operands follow the Learn operator pages, not the type tables of 5.6.9.3
 ' EXPECT: Empty+Empty=Integer
 ' EXPECT: Empty+Byte=Byte
 ' EXPECT: Byte+Empty=Byte

@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.11.1.5
 ' SOURCE: spec ms-vbal 6.1.2.11.1.5 ChrB yields a single byte; Variant vs String result types
-' XFAIL: wrong pending
+' XFAIL: unsupported ChrB yields a one-byte string
 ' EXPECT: a=1
 ' EXPECT: b=1
 ' EXPECT: t1=String

@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3.2, op.add
 ' SOURCE: spec ms-vbal 5.6.9.3.2 + Operator, Date effective type: Double sum Let-coerced to Date
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: Double promotion on Date/Single overflow with a Variant operand
 ' EXPECT: Date 7.5
 ' EXPECT: Date 7.5
 ' EXPECT: Date 5

@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.5, op.eq
 ' SOURCE: spec ms-vbal 5.6.9.5 relational Single vs Double has effective type Single
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: effective-type rules for comparisons involving Single/Currency/Decimal/LongLong and String
 ' EXPECT: True
 ' EXPECT: True
 ' EXPECT: True

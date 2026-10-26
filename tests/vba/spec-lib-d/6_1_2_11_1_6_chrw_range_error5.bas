@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.11.1.6
 ' SOURCE: spec ms-vbal 6.1.2.11.1.6 ChrW outside -32767..65535 raises error 5
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: ChrW(-32768) is accepted
 ' EXPECT: hi=5
 ' EXPECT: lo=5
 Public Sub Main()

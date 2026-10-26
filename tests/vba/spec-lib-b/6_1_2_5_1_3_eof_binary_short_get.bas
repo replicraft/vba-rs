@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.5.1.3, func.eof
 ' SOURCE: spec ms-vbal 6.1.2.5.1.3 EOF for Binary/Random is False until a Get cannot read an entire record
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: EOF on an Output file is error 54; EOF is True after the last full record
 ' EXPECT: g1=False
 ' EXPECT: g2=False
 ' EXPECT: g3=True

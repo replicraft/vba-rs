@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.10, stmt.input
 ' SOURCE: spec ms-vbal 5.4.5.10 declared type of an input variable must not be Object
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: static rejection of Object operands in Input/Put/Get
 ' ERROR: load
 ' GRANT: file-read
 ' GRANT: file-write

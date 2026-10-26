@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.8, stmt.print
 ' SOURCE: spec ms-vbal 5.4.5.8 revision 3.0 grammar: Me. is an alternative object part of the print statement
-' XFAIL: wrong pending
+' XFAIL: unsupported Me.Print needs a host that provides forms
 ' EXPECT: [viaMe]
 ' GRANT: file-read
 ' GRANT: file-write

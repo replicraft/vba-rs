@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.8.1.14, func.partition
 ' SOURCE: spec ms-vbal 6.1.2.8.1.14 Partition last range extends to Stop when Interval does not divide the span
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: Partition pads to Len(Stop) as the Learn page shows
 ' EXPECT: [  100:  119]
 ' EXPECT: [ 1000: 1010]
 ' EXPECT: [ 1000: 1010]

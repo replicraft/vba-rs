@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.4.1.11, func.timeserial
 ' SOURCE: spec ms-vbal 6.1.2.4.1.11 TimeSerial normal and overflowing arguments
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: TimeSerial minute overflow carrying into the date part
 ' EXPECT: normal=11:59:59
 ' EXPECT: min75=1:15:0
 ' EXPECT: negMin=0:30:0

@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.11, stmt.put
 ' SOURCE: spec ms-vbal 5.4.5.11 Variant String: descriptor 08 00 then the ANSI characters
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: a Variant String is written with its length descriptor
 ' EXPECT: len=4 8 0 65 66
 ' GRANT: file-read
 ' GRANT: file-write

@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.5.1.6, func.filelen
 ' SOURCE: spec ms-vbal 6.1.2.5.1.6 FileLen of an open file is the size before it was opened
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: FileLen of an open file is its current size
 ' EXPECT: open=3
 ' EXPECT: closed=5
 ' GRANT: file-read

@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3
 ' SOURCE: spec ms-vbal 5.6.9.3 Arithmetic operators runtime semantics, an Error operand combined with a non-Error value raises Type mismatch
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13
 ' ERROR: 13
 Public Sub Main()
     Dim v As Variant

@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.5, op.eq, op.lt
 ' SOURCE: spec ms-vbal 5.6.9.5 relational Error vs Error compares standard error codes
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13
 ' EXPECT: True
 ' EXPECT: False
 ' EXPECT: True

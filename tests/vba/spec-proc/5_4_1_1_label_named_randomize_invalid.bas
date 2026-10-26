@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.1.1
 ' SOURCE: spec ms-vbal 5.4.1.1 an identifier label may not be named Randomize
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: statement keywords as label names
 ' ERROR: load
 Public Sub Main()
 Randomize:

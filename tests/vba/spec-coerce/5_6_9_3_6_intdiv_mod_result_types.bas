@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3.6, op.intdiv, op.mod
 ' SOURCE: spec ms-vbal 5.6.9.3.6 \ Operator and Mod Operator, effective value types
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: result types of mixed operands follow the Learn operator pages, not the type tables of 5.6.9.3
 ' EXPECT: Integer\Integer=Integer
 ' EXPECT: Byte\Byte=Byte
 ' EXPECT: Long\Integer=Long

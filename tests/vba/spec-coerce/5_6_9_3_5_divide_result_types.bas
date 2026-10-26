@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3.5, op.div
 ' SOURCE: spec ms-vbal 5.6.9.3.5 / Operator, integral operands and Double/String/Currency/Date operands give Double; Single and Decimal keep their type
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: result types of mixed operands follow the Learn operator pages, not the type tables of 5.6.9.3
 ' EXPECT: Integer/Integer=Double 3.5
 ' EXPECT: Byte/Byte=Double 0.5
 ' EXPECT: Long/Long=Double 2

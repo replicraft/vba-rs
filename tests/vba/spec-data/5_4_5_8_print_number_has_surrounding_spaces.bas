@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.8, stmt.print
 ' SOURCE: spec ms-vbal 5.4.5.8 numeric output gets a space before and after
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: the sign takes the leading space of a printed number
 ' EXPECT: [ 5 ]
 ' EXPECT: [ -5 ]
 ' EXPECT: [ 1.5 ]

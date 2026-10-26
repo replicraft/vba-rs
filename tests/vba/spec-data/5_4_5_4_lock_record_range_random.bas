@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.4, stmt.lock-unlock
 ' SOURCE: spec ms-vbal 5.4.5.4 record ranges on a Random file; Unlock with identical range
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: tracking of Lock/Unlock ranges
 ' EXPECT: err=0
 ' GRANT: file-read
 ' GRANT: file-write

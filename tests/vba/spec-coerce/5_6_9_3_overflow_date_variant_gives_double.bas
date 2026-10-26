@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3, op.add
 ' SOURCE: spec ms-vbal 5.6.9.3 Arithmetic operators, Date overflow with a Variant operand yields a Double result
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: Double promotion on Date/Single overflow with a Variant operand
 ' EXPECT: Date
 ' EXPECT: Double
 ' EXPECT: 2958475

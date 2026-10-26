@@ -1,6 +1,6 @@
 ' INV: vbal.5.2.4.1.2
 ' SOURCE: spec ms-vbal 5.2.4.1.2 PredeclaredId and GlobalNamespace share the same default instance
-' XFAIL: wrong pending
+' XFAIL: unsupported VB_GlobalNameSpace classes
 ' EXPECT: 9
 Public Sub Main()
     GlobVar = 9

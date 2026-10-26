@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.5
 ' SOURCE: spec ms-vbal 5.6.5 Literal expressions, a type suffix after a literal identifier has no effect
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: type suffix on True/False/Empty/Null
 ' EXPECT: Boolean
 ' EXPECT: Boolean
 ' EXPECT: Empty

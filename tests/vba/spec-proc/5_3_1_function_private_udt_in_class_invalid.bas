@@ -1,6 +1,6 @@
 ' INV: vbal.5.3.1
 ' SOURCE: spec ms-vbal 5.3.1 function in class module may not return a private UDT
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: private types as function result types
 ' ERROR: load
 '#MODULE Cls class
 Private Type Pt

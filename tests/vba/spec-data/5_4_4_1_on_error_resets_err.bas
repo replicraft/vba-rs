@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.4.1, stmt.on-error
 ' SOURCE: spec ms-vbal 5.4.4.1 On Error resets the Err object
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: On Error does not reset Err
 ' EXPECT: in=11
 ' EXPECT: after=0
 Public Sub Main()

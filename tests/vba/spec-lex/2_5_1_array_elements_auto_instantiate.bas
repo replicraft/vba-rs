@@ -1,6 +1,6 @@
 ' INV: vbal.2.5.1, decl.dim-as-new
 ' SOURCE: spec ms-vbal 2.5.1 automatic object instantiation, elements of an array declared with New are automatic instantiation variables
-' XFAIL: wrong pending
+' XFAIL: unsupported arrays declared As New
 ' EXPECT: created
 ' EXPECT: 7
 ' EXPECT: created

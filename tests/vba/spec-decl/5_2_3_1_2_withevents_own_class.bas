@@ -1,6 +1,6 @@
 ' INV: vbal.5.2.3.1.2, decl.withevents
 ' SOURCE: spec ms-vbal 5.2.3.1.2 WithEvents type must not be the containing class
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: static checks that a WithEvents class declares events and is not the containing class
 ' ERROR: load
 Public Sub Main()
 End Sub

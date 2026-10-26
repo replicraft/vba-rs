@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.16.1
 ' SOURCE: spec ms-vbal 5.6.16.1 constant expressions may invoke Int Fix Abs Sgn Len LenB CBool CByte CCur CDate CDbl CInt CLng CLngLng CLngPtr CSng CStr CVar
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: function calls and Like are rejected in Const initialisers
 ' EXPECT: -3
 ' EXPECT: -3
 ' EXPECT: 4

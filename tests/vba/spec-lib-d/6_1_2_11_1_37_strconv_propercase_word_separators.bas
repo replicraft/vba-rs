@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.11.1.37, func.strconv
 ' SOURCE: spec ms-vbal 6.1.2.11.1.37 StrConv proper case word separators: tab, linefeed, vertical tab, form feed, carriage return, space, NUL
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: proper case also capitalises after a hyphen
 ' EXPECT: tab=A/B
 ' EXPECT: lf=A/B
 ' EXPECT: vt=A/B

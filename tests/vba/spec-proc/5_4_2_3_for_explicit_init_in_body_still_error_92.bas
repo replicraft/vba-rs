@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.2.3
 ' SOURCE: spec ms-vbal 5.4.2.3 error 92 occurs even if the body assigns the counter explicitly
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: error 92 when control enters a For body without initialisation
 ' ERROR: 92
 ' MAX_STEPS: 100000
 Public Sub Main()

@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.2.1, stmt.call
 ' SOURCE: spec ms-vbal 5.4.2.1 Call on an object whose default member is a property raises error 450
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: error 450 for Call on an object whose default member is a property
 ' ERROR: 450
 '#MODULE Wrap class
 Public Property Get Value() As Long

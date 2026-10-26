@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3, op.mul
 ' SOURCE: spec ms-vbal 5.6.9.3 Arithmetic operators, a Single overflow with a Variant operand widens to the narrowest of Integer, Long, Double that holds the value
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: Double promotion on Date/Single overflow with a Variant operand
 ' EXPECT: Double
 ' EXPECT: True
 Public Sub Main()

@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.8.1.7, func.getallsettings
 ' SOURCE: spec ms-vbal 6.1.2.8.1.7 GetAllSettings array is two-dimensional, lower bounds 1, upper bounds count and 2
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: GetAllSettings returns a zero-based array
 ' EXPECT: lb1=1 ub1=2
 ' EXPECT: lb2=1 ub2=2
 ' EXPECT: pairs=True

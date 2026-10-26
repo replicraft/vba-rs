@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.3.2.1.1
 ' SOURCE: spec ms-vbal 6.1.3.2.1.1 Err.Clear is called automatically by an On Error statement
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: On Error does not clear Err
 ' EXPECT: raised=5
 ' EXPECT: afterResumeNext=0
 ' EXPECT: raised2=5

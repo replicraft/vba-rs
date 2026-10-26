@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.11, stmt.put
 ' SOURCE: spec ms-vbal 5.4.5.11 data expression must not have declared type Object
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: static rejection of Object operands in Input/Put/Get
 ' ERROR: load
 ' GRANT: file-read
 ' GRANT: file-write

@@ -1,6 +1,6 @@
 ' INV: vbal.5.5.1.2.2, expr.implicit-conv
 ' SOURCE: spec ms-vbal 5.5.1.2.2 Let-coercion to and from Boolean, Boolean to numeric (Byte gets 255)
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: Byte = True is error 6
 ' EXPECT: int=-1,0
 ' EXPECT: long=-1,0
 ' EXPECT: byte=255,0

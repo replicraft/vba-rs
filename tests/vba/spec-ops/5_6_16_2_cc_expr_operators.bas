@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.16.2, cc.const
 ' SOURCE: spec ms-vbal 5.6.16.2 conditional compilation expressions with operators and cc constants
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: function calls and Like in conditional compilation expressions
 ' EXPECT: a
 ' EXPECT: b
 ' EXPECT: c

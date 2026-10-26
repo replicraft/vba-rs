@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.2.1
 ' SOURCE: spec ms-vbal 5.6.2.1 Evaluation to a data value, the function's own name read inside the function refers to the return value rather than recursing
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: reading the function name inside its own body is a recursive call
 ' EXPECT: f=6
 ' EXPECT: calls=1
 Dim calls As Long

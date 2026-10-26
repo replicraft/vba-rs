@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.8.6, op.imp, lit.null
 ' SOURCE: spec ms-vbal 5.6.9.8.6 Imp with Null operands
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: Or/Imp with a Null operand yield Null
 ' EXPECT: Null
 ' EXPECT: -6
 ' EXPECT: 3

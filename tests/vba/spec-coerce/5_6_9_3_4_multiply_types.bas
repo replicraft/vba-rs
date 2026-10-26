@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.3.4, op.mul
 ' SOURCE: spec ms-vbal 5.6.9.3.4 * Operator, exceptions: Currency with Single/Double/String and anything with Date give Double
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: result types of mixed operands follow the Learn operator pages, not the type tables of 5.6.9.3
 ' EXPECT: Currency*Integer=Currency
 ' EXPECT: Integer*Currency=Currency
 ' EXPECT: Currency*Currency=Currency

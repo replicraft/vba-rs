@@ -1,6 +1,6 @@
 ' INV: vbal.5.5.1.2.4, expr.implicit-conv
 ' SOURCE: spec ms-vbal 5.5.1.2.4 Let-coercion to and from String, String to numeric (whitespace, sign, exponent clause)
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: whitespace between a sign and the digits of a numeric string
 ' EXPECT: plain=12
 ' EXPECT: spaces=12
 ' EXPECT: plus=5

@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.5, stmt.lock-unlock
 ' SOURCE: spec ms-vbal 5.4.5.4 a lock is removed by an Unlock with the same range
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: tracking of Lock/Unlock ranges
 ' EXPECT: first=0
 ' EXPECT: second=True
 ' GRANT: file-read

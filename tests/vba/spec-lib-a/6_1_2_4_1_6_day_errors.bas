@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.4.1.6, vbal.6.1.2.4.1.9, vbal.6.1.2.4.1.14, func.day
 ' SOURCE: spec ms-vbal 6.1.2.4.1.6 Day/Month/Year argument is Let-coerced to Date (Error and non-date text fail with 13)
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: error 13 for Day/Year of an Error value
 ' EXPECT: dayText=13
 ' EXPECT: monthText=13
 ' EXPECT: yearText=13

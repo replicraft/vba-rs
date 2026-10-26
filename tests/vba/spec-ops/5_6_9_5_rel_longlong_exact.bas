@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.9.5, op.eq, op.lt
 ' SOURCE: spec ms-vbal 5.6.9.5 relational LongLong effective type compares exactly, with String and integral
-' XFAIL: wrong pending
+' XFAIL: wrong not implemented: effective-type rules for comparisons involving Single/Currency/Decimal/LongLong and String
 ' EXPECT: False
 ' EXPECT: True
 ' EXPECT: True

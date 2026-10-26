@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.5.3, stmt.seek
 ' SOURCE: spec ms-vbal 5.4.5.3 Seek beyond the end extends the file to the new position
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: Seek beyond the end does not extend the file
 ' EXPECT: 10
 ' GRANT: file-read
 ' GRANT: file-write

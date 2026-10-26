@@ -1,6 +1,6 @@
 ' INV: vbal.5.4.3.6, stmt.lset
 ' SOURCE: spec ms-vbal 5.4.3.6 UDT is a valid declared type for LSet
-' XFAIL: wrong pending
+' XFAIL: unsupported LSet/RSet between user-defined types
 ' EXPECT: ok
 Private Type T
     a As Long

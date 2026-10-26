@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.4.1.3, func.datepart
 ' SOURCE: spec ms-vbal 6.1.2.4.1.3 DatePart interval table, Integer result
-' XFAIL: wrong pending
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: DatePart returns a Long
 ' EXPECT: yyyy=2020
 ' EXPECT: q=1
 ' EXPECT: q4=4
