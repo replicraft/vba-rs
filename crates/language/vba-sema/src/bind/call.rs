@@ -385,6 +385,10 @@ impl Binder<'_, '_> {
                     }
                 }
                 Type::Variant => self.mk_convert(e, to.clone()),
+                // `b = s`: a String converts to a `Byte` array.
+                Type::String | Type::FixedString(_) if **te == Type::Byte => {
+                    self.mk_convert(e, to.clone())
+                }
                 _ => {
                     mismatch(self);
                     self.error_expr(span)
@@ -399,6 +403,10 @@ impl Binder<'_, '_> {
                     return self.coerce(v, to, ctx);
                 }
                 match from {
+                    // `s = b`: a `Byte` array converts to a String.
+                    Type::Array { ref elem, .. } if **elem == Type::Byte && to.is_string() => {
+                        self.mk_convert(e, to.clone())
+                    }
                     Type::Udt(_) | Type::Array { .. } => {
                         mismatch(self);
                         self.error_expr(span)

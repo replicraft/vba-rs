@@ -108,6 +108,36 @@ impl VbaArray {
         }
     }
 
+    /// A one-dimensional dynamic `Byte` array indexed from 0 holding `bytes`
+    /// (empty input gives the allocated empty array `0 To -1`).
+    pub fn from_bytes(bytes: &[u8]) -> VbaResult<Self> {
+        if bytes.is_empty() {
+            return Ok(Self::new_empty(VarType::Byte, 0));
+        }
+        let upper = i32::try_from(bytes.len() - 1).map_err(|_| VbaError::OUT_OF_MEMORY)?;
+        let mut a = Self::new_dynamic(VarType::Byte);
+        a.redim(&[Bounds::new(0, upper)], false)?;
+        for (slot, b) in a.data.iter_mut().zip(bytes) {
+            *slot = Variant::Byte(*b);
+        }
+        Ok(a)
+    }
+
+    /// The elements of a `Byte` array in storage order; `None` when the
+    /// element type is not `Byte`.
+    pub fn to_bytes(&self) -> Option<Vec<u8>> {
+        if self.elem != VarType::Byte {
+            return None;
+        }
+        self.data
+            .iter()
+            .map(|v| match v {
+                Variant::Byte(b) => Some(*b),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The declared element type.
     pub fn element_type(&self) -> VarType {
         self.elem

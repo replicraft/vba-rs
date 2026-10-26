@@ -65,6 +65,23 @@ impl VbaString {
         self.0.len() * 2
     }
 
+    /// The bytes of the UTF-16LE representation (what `b = s` stores in a
+    /// `Byte` array): two bytes per code unit, low byte first.
+    pub fn to_bytes_le(&self) -> Vec<u8> {
+        self.0.iter().flat_map(|u| u.to_le_bytes()).collect()
+    }
+
+    /// Builds a string from UTF-16LE bytes (what `s = b` does with a `Byte`
+    /// array). An odd number of bytes has no representation in this type
+    /// (a native `BSTR` can carry a trailing half unit) and gives `None`.
+    pub fn from_bytes_le(bytes: &[u8]) -> Option<Self> {
+        let (pairs, rest) = bytes.as_chunks::<2>();
+        if !rest.is_empty() {
+            return None;
+        }
+        Some(Self(pairs.iter().map(|c| u16::from_le_bytes(*c)).collect()))
+    }
+
     /// Converts to a Rust `String`, failing if there are unpaired surrogates.
     pub fn to_string_strict(&self) -> Result<String, std::string::FromUtf16Error> {
         String::from_utf16(&self.0)
@@ -145,6 +162,15 @@ mod tests {
         assert_eq!(t.as_units(), &[0xD800, 0x41, 0xDC00, 0x78]);
         assert!(s.to_string_strict().is_err());
         assert_eq!(s.to_string_lossy(), "\u{FFFD}A\u{FFFD}");
+    }
+
+    #[test]
+    fn utf16le_bytes_roundtrip() {
+        let s = VbaString::from("ab");
+        assert_eq!(s.to_bytes_le(), vec![97, 0, 98, 0]);
+        assert_eq!(VbaString::from_bytes_le(&[97, 0, 98, 0]), Some(s));
+        assert_eq!(VbaString::from_bytes_le(&[97, 0, 98]), None);
+        assert_eq!(VbaString::from_bytes_le(&[]), Some(VbaString::new()));
     }
 
     #[test]

@@ -230,8 +230,12 @@ impl Vm {
                 Variant::UserDefined(_) => Ok(v),
                 _ => Err(VbaError::TYPE_MISMATCH.into()),
             },
-            Type::Array { .. } => match v {
+            Type::Array { elem, .. } => match v {
                 Variant::Array(_) => Ok(v),
+                // `b = s`: the UTF-16LE bytes of the string.
+                Variant::String(s) if **elem == Type::Byte => Ok(Variant::Array(Box::new(
+                    VbaArray::from_bytes(&s.to_bytes_le())?,
+                ))),
                 _ => Err(VbaError::TYPE_MISMATCH.into()),
             },
             Type::FixedString(n) => {
@@ -240,6 +244,21 @@ impl Vm {
                 let mut units = s.into_units();
                 units.resize(*n as usize, u16::from(b' '));
                 Ok(Variant::String(VbaString::from_units(units)))
+            }
+            Type::String if matches!(&v, Variant::Array(a) if a.element_type() == VarType::Byte) => {
+                // `s = b`: the string whose UTF-16LE bytes are the array's.
+                let Variant::Array(a) = &v else {
+                    return Err(VbaError::TYPE_MISMATCH.into());
+                };
+                let bytes = a.to_bytes().ok_or(VbaError::TYPE_MISMATCH)?;
+                match VbaString::from_bytes_le(&bytes) {
+                    Some(s) => Ok(Variant::String(s)),
+                    None => Err(Fault::Unsupported(
+                        "a Byte array of odd length converted to a String (the trailing \
+                         half code unit has no representation)"
+                            .into(),
+                    )),
+                }
             }
             t => {
                 let v = self.value_of(v)?;

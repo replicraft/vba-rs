@@ -926,7 +926,14 @@ pub(crate) fn f_str_conv(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> 
             "StrConv LocaleID without a known code page",
         ))?,
     };
-    Ok(text(str_conv_cp(&a.string(0)?, a.long(1)?, page)?))
+    // A `Byte` array argument is read as the string holding those bytes.
+    let input = match a.req(0)? {
+        Variant::Array(arr) if arr.to_bytes().is_some() => {
+            from_bytes(&arr.to_bytes().unwrap_or_default())?
+        }
+        _ => a.string(0)?,
+    };
+    Ok(text(str_conv_cp(&input, a.long(1)?, page)?))
 }
 pub(crate) fn f_asc(ctx: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     if a.is_null(0) {

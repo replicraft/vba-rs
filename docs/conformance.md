@@ -23,12 +23,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 302 |
-| partial | 2 |
+| implemented | 303 |
+| partial | 1 |
 | unsupported | 32 |
 | not-started | 0 |
-| Conformance programs | 659 |
-| Programs that are known deviations (XFAIL) | 26 |
+| Conformance programs | 661 |
+| Programs that are known deviations (XFAIL) | 25 |
 
 ## Entries per category and status
 
@@ -53,7 +53,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operator-comparison | 8 | 8 | 0 | 0 | 0 |
 | operator-logical | 6 | 6 | 0 | 0 | 0 |
 | operator-precedence | 1 | 1 | 0 | 0 | 0 |
-| data-type | 18 | 16 | 1 | 1 | 0 |
+| data-type | 18 | 17 | 0 | 1 | 0 |
 | identifier-type-character | 7 | 7 | 0 | 0 | 0 |
 | object | 13 | 3 | 0 | 10 | 0 |
 | language-element | 38 | 37 | 0 | 1 | 0 |
@@ -63,8 +63,8 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Provenance | Entries |
 | --- | ---: |
 | spec | 0 |
-| doc | 158 |
-| derived | 68 |
+| doc | 157 |
+| derived | 69 |
 | unverified | 110 |
 | (no program) | 0 |
 
@@ -90,7 +90,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operators | 65 | 0 | 22 | 41 | 2 |
 | procedures | 34 | 0 | 15 | 8 | 11 |
 | statements | 88 | 0 | 78 | 8 | 2 |
-| strings | 69 | 0 | 36 | 17 | 16 |
+| strings | 71 | 0 | 36 | 18 | 17 |
 
 ## Gaps
 
@@ -119,7 +119,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `func.macscript` | function-interaction | MacScript | unsupported | Macintosh-only functions |
 | `func.qbcolor` | function-interaction | QBColor | unsupported | QBColor is not defined ('Sub or Function not defined') |
 | `func.rgb` | function-interaction | RGB | unsupported | RGB is not defined ('Sub or Function not defined') |
-| `type.string` | data-type | String | partial | assigning a String to a Byte() array (b = s) is rejected: 'cannot convert String to Byte()' |
 | `type.dictionary` | data-type | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.dictionary` | object | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.drive` | object | Drive | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
@@ -164,4 +163,3 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `logic/partition_interval_one` | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `logic/partition_null` | unsupported | Partition is not defined ('Sub or Function not defined') |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
-| `strings/string_to_byte_array` | unsupported | assigning a String to a Byte() array (b = s) is rejected: 'cannot convert String to Byte()' |

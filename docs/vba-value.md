@@ -95,6 +95,23 @@ covered by explicit tests but remain unverified against Office.
 
 ## Known gaps
 
+- **Strings with an odd number of bytes are not representable.** `VbaString`
+  is a sequence of 16-bit code units; a native `BSTR` can carry a trailing
+  odd byte (`StrConv(s, vbFromUnicode)` of an odd number of characters,
+  `ChrB`, `LeftB`). Decision: the representation is not widened. A pending
+  half unit would have to be preserved or rejected by every unit-based
+  operation (concatenation shifts it, comparison, `Mid`, file output), and a
+  silent drop is wrong, so each producer of an odd byte count returns the
+  explicit `Unsupported` error instead (see `docs/vba-stdlib.md`), and the
+  conformance program `strings/strconv_unicode_roundtrip` stays an XFAIL with
+  that reason. Even byte counts are exact.
+- `b = s` / `s = b` between a String and a dynamic `Byte` array use the
+  UTF-16LE layout (two bytes per code unit, low byte first; the array is
+  indexed from 0). `StrConv(b, ...)` with a Byte array reads it as the string
+  holding those bytes. A Byte array of odd length converted to a String is
+  `Unsupported` for the reason above. **unverified** against real VBA (derived
+  from the documented "Unicode string stored in a byte array" behaviour).
+
 - Text comparison (`collation`) approximates Windows' `NORM_IGNORECASE |
   NORM_IGNOREKANATYPE | NORM_IGNOREWIDTH` for en-US: BMP simple case folding,
   fullwidth to ASCII, halfwidth to fullwidth katakana (no voiced-mark
