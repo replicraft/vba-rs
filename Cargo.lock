@@ -1440,6 +1440,7 @@ dependencies = [
  "thiserror",
  "vba-ast",
  "vba-automation",
+ "vba-core",
  "vba-diagnostics",
  "vba-ffi",
  "vba-host",
@@ -1459,6 +1460,7 @@ version = "0.1.0"
 dependencies = [
  "indexmap",
  "vba-automation",
+ "vba-core",
  "vba-ffi",
  "vba-host",
  "vba-value",
@@ -1564,6 +1566,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "thiserror",
+ "vba-core",
  "vba-ffi",
  "vba-profile",
  "vba-value",

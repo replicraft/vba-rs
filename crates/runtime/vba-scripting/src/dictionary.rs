@@ -25,6 +25,7 @@
 use indexmap::IndexMap;
 use std::cell::RefCell;
 use vba_automation::{Bound, DispError, InvokeFlags, ObjectHandle, ObjectTable};
+use vba_core::Charge;
 use vba_value::collation::{Collation, EN_US};
 use vba_value::{Bounds, ObjectRef, VarType, Variant, VbaArray, convert};
 
@@ -56,9 +57,30 @@ enum NormKey {
     Err(i32),
 }
 
+/// Bytes charged for an entry besides the heap data of its key and item
+/// (bucket, normalised key, two variants), which strings and arrays charge
+/// for themselves.
+const ENTRY_OVERHEAD: u64 = 128;
+
 struct Entry {
     key: Variant,
     item: Variant,
+    /// Credited when the entry is removed or the dictionary dropped.
+    _charge: Charge,
+}
+
+impl Entry {
+    fn new(norm: &NormKey, key: Variant, item: Variant) -> Entry {
+        let extra = match norm {
+            NormKey::Str(u) => u.capacity() as u64 * 2,
+            _ => 0,
+        };
+        Entry {
+            key,
+            item,
+            _charge: Charge::new(ENTRY_OVERHEAD + extra),
+        }
+    }
 }
 
 struct State {
@@ -173,13 +195,8 @@ impl Dictionary {
                 }
                 table.add_ref_value(arg(0));
                 table.add_ref_value(arg(1));
-                st.map.insert(
-                    k,
-                    Entry {
-                        key: arg(0).clone(),
-                        item: arg(1).clone(),
-                    },
-                );
+                let e = Entry::new(&k, arg(0).clone(), arg(1).clone());
+                st.map.insert(k, e);
                 Ok(Variant::Empty)
             }
             EXISTS => {
@@ -197,13 +214,8 @@ impl Dictionary {
                     }
                     None => {
                         table.add_ref_value(arg(0));
-                        st.map.insert(
-                            k,
-                            Entry {
-                                key: arg(0).clone(),
-                                item: new,
-                            },
-                        );
+                        let e = Entry::new(&k, arg(0).clone(), new);
+                        st.map.insert(k, e);
                     }
                 }
                 Ok(Variant::Empty)
@@ -217,13 +229,8 @@ impl Dictionary {
                 }
                 // Documented: reading a missing key creates it, left empty.
                 table.add_ref_value(arg(0));
-                st.map.insert(
-                    k,
-                    Entry {
-                        key: arg(0).clone(),
-                        item: Variant::Empty,
-                    },
-                );
+                let e = Entry::new(&k, arg(0).clone(), Variant::Empty);
+                st.map.insert(k, e);
                 Ok(Variant::Empty)
             }
             ITEMS => Self::array_of(table, st.map.values().map(|e| e.item.clone()).collect()),

@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 indexmap.workspace = true
 vba-automation.workspace = true
+vba-core.workspace = true
 vba-ffi.workspace = true
 vba-host.workspace = true
 vba-value.workspace = true
