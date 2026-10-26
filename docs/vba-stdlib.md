@@ -98,7 +98,11 @@ against a real VBA host.
   else 5. `Compare` 0 binary, 1 text, -1 option default, other (including 2,
   Access-only) 5; omitted uses `Option Compare` (except `InStrRev`, which
   defaults to binary as documented).
-- `Split` with `Limit = 0` returns no elements (**unverified**).
+- `Split` with `Limit = 0` returns no elements (**unverified**; the Learn page
+  defines only `-1`). The page's examples, the empty array for `""` and the
+  single-element array for an empty delimiter are asserted. Empty results
+  of `Split`, `Filter` and `Array()` are allocated empty arrays: `LBound` 0
+  (`Option Base` for `Array()`), `UBound` -1 (**doc**).
 - `StrReverse` reverses UTF-16 code units, splitting surrogate pairs
   (**unverified**). `StrConv(vbProperCase)` capitalizes after any character
   that is not a letter, digit or apostrophe (**unverified**).
@@ -117,7 +121,13 @@ against a real VBA host.
   returning a signed `Integer` (**spec**).
 - `Like` (**spec** §5.6.9, **doc**): `? * # [list] [!list]`, ranges, `-`/`!`
   literal at the edges, `[]` matches the empty string. An unterminated `[` and
-  a descending range are error 93 (descending range: **unverified**).
+  a descending range are error 93. The Microsoft Learn page confirms error 93 for
+  an unterminated `[` and lists all its examples (asserted in `like::tests`);
+  it only says a descending range `[Z-A]` "is not" valid, so error 93 for it
+  stays **unverified**. Known gap: in text mode the page says `[A-E]` also
+  matches `À`/`à` (accents sort next to their base letter) and that
+  ligature letters such as `æ` equal their two-letter expansion; neither is
+  reproduced.
 
 ### Format family (**doc**)
 - Source checked: Microsoft Learn, "Format function (Visual Basic for
@@ -164,14 +174,19 @@ against a real VBA host.
   12820163) mod 2^24`, `Rnd = seed / 2^24` as `Single`, initial seed `0x50000`.
   The first five values with the default seed, `0.7055475 0.533424 0.5795186
   0.2895625 0.301948`, match the sequence published in the KB and are asserted.
-  `Rnd(0)` repeats the last value. `Rnd(x<0)` sets `seed = (b + (b >> 24)) &
+  `Rnd(0)` repeats the last value; the Learn page confirms the rules
+  (negative: the same number every time; positive or omitted: next; zero: last;
+  `Rnd(-1)` then `Randomize n` repeats a sequence), asserted in
+  `learn_rnd_rules`; only the arithmetic below is unverified. `Rnd(x<0)` sets `seed = (b + (b >> 24)) &
   0xFFFFFF` with `b` the 32 bits of `x` as a `Single`, then advances
   (**unverified** for the exact reseed formula). `Randomize n` replaces the
   middle 16 bits of the seed with `((hi & 0xFFFF) ^ (hi >> 16)) << 8`, `hi`
   being the high 32 bits of `n` as a `Double` (**unverified**);
   `Randomize` alone uses the host `Timer`.
-- `Round` uses ties-to-even on the 15-digit decimal value (**doc**: banker's
-  rounding; **unverified**: behavior for values like `1.005`); negative digits
+- `Round` uses ties-to-even on the 15-digit decimal value (**doc**, verified
+  against the Microsoft Learn examples `Round(0.12335,4)`=0.1234, 0.12345 ->
+  0.1234, 0.12355 -> 0.1236, 0.12365 -> 0.1236, `Round(0.00005,4)`=0; still
+  **unverified**: behavior for values like `1.005`); negative digits
   is 5. `Abs(Integer -32768)` is 6. `Sqr(<0)`, `Log(<=0)` are 5; `Exp` overflow 6.
   `Int`/`Fix` keep the subtype; strings become `Double`.
 

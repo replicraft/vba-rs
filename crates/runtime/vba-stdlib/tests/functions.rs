@@ -219,6 +219,84 @@ fn asc_chr() {
     assert_eq!(e.call("ChrB", &[n(256)]), Err(err(5)));
 }
 
+/// Examples of the Microsoft Learn pages for `Round` and `Split`.
+#[test]
+fn learn_round_and_split_examples() {
+    let d = |x: f64, p: i32| {
+        (
+            "Round",
+            vec![Variant::Double(x), n(p)],
+            dbl(match x {
+                v if v == 0.12335 => 0.1234,
+                v if v == 0.12345 => 0.1234,
+                v if v == 0.12355 => 0.1236,
+                v if v == 0.12365 => 0.1236,
+                _ => 0.0,
+            }),
+        )
+    };
+    run(vec![
+        d(0.12335, 4),
+        d(0.12345, 4),
+        d(0.12355, 4),
+        d(0.12365, 4),
+        d(0.00005, 4),
+    ]);
+    let mut e = Env::new();
+    let full = "Dow - Fonseca - Graham - Kopke - Noval - Offley - Sandeman - Taylor - Warre";
+    let Variant::Array(a) = e.call("Split", &[s(full), s("-")]).unwrap() else {
+        panic!()
+    };
+    assert_eq!((a.lbound(1), a.ubound(1)), (Ok(0), Ok(8)));
+    assert_eq!(a.get(&[0]).unwrap(), &s("Dow "));
+    assert_eq!(a.get(&[1]).unwrap(), &s(" Fonseca "));
+    let Variant::Array(a) = e.call("Split", &[s(full), s(" - ")]).unwrap() else {
+        panic!()
+    };
+    assert_eq!(a.ubound(1), Ok(8));
+    assert_eq!(a.get(&[0]).unwrap(), &s("Dow"));
+    assert_eq!(a.get(&[3]).unwrap(), &s("Kopke"));
+    // Zero-length expression: "an empty array, that is, an array with no
+    // elements"; zero-length delimiter: a single-element array.
+    let Variant::Array(a) = e.call("Split", &[s("")]).unwrap() else {
+        panic!()
+    };
+    assert_eq!((a.len(), a.ubound(1)), (0, Ok(-1)));
+    let Variant::Array(a) = e.call("Split", &[s("abc"), s("")]).unwrap() else {
+        panic!()
+    };
+    assert_eq!((a.len(), a.get(&[0]).unwrap()), (1, &s("abc")));
+}
+
+/// Behavioral rules of the Microsoft Learn `Rnd` page (not the generator's
+/// exact arithmetic, which stays unverified).
+#[test]
+fn learn_rnd_rules() {
+    let mut e = Env::new();
+    let sng = |x: f64| Variant::Single(x as f32);
+    let a = e.call("Rnd", &[sng(-3.0)]).unwrap();
+    let b = e.call("Rnd", &[sng(-3.0)]).unwrap();
+    assert_eq!(a, b, "negative argument: the same number every time");
+    let next = e.call("Rnd", &[sng(1.0)]).unwrap();
+    assert_ne!(next, a);
+    assert_eq!(
+        e.call("Rnd", &[sng(0.0)]).unwrap(),
+        next,
+        "zero: last number"
+    );
+    let Variant::Single(x) = next else { panic!() };
+    assert!((0.0..1.0).contains(&x));
+    // Rnd(-1) then Randomize n repeats the sequence.
+    let mut seq = || {
+        e.call("Rnd", &[sng(-1.0)]).unwrap();
+        e.call("Randomize", &[n(7)]).unwrap();
+        (0..3)
+            .map(|_| e.call("Rnd", &[]).unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(seq(), seq());
+}
+
 #[test]
 fn text_compare_ignores_case_width_and_kana() {
     let mut e = Env::new();

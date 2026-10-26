@@ -178,6 +178,30 @@ mod tests {
         assert_eq!(l("ab", "a[]b", B), Ok(true));
     }
 
+    /// Remaining examples of the reference page (Microsoft Learn, Like
+    /// operator), including the documented error 93.
+    #[test]
+    fn documented_examples_with_brackets() {
+        assert_eq!(l("ab", "a*b", B), Ok(true));
+        assert_eq!(l("a*b", "a [*]b", B), Ok(false));
+        assert_eq!(l("axxxxxb", "a [*]b", B), Ok(false));
+        assert_eq!(l("a [xyz", "a [[]*", B), Ok(true));
+        assert_eq!(l("a [xyz", "a [*", B), Err(INVALID_PATTERN));
+        // `[A-E]` in text mode matches A a B b E e; accented letters sort
+        // after the unaccented ones, so the page says Ê/ê do not match.
+        for c in ["A", "a", "B", "b", "E", "e"] {
+            assert_eq!(l(c, "[A-E]", T), Ok(true), "{c}");
+        }
+        assert_eq!(l("\u{ca}", "[A-E]", T), Ok(false));
+        assert_eq!(l("\u{ea}", "[A-E]", T), Ok(false));
+        // Binary: A, B and E only (and not a).
+        assert_eq!(l("a", "[A-E]", B), Ok(false));
+        // Known gap: the page says À and à also match [A-E] in text mode
+        // (accents ordered next to their base letter); the en-US
+        // approximation does not reproduce that.
+        assert_eq!(l("\u{c0}", "[A-E]", T), Ok(false));
+    }
+
     #[test]
     fn text_mode_and_errors() {
         assert_eq!(l("ABC", "abc", B), Ok(false));
