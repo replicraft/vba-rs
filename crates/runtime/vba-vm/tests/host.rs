@@ -520,3 +520,29 @@ fn runs_are_deterministic() {
     assert_eq!(a.out, b.out);
     assert!(a.out.contains("2000-01-01 00:00:00"), "{}", a.out);
 }
+
+#[test]
+fn call_by_name_on_a_host_object() {
+    let host = ScriptedHost::new()
+        .with_policy(allow_com())
+        .with_factory("Test.Thing", |t| {
+            let o = MemObject::new("Thing")
+                .property("Count", Variant::Long(1))
+                .method(
+                    "Add",
+                    vec![ParamInfo::required("a"), ParamInfo::required("b")],
+                    |_, c| match (&c.args[0].value, &c.args[1].value) {
+                        (Variant::Integer(a), Variant::Integer(b)) => {
+                            Ok(Variant::Long(i32::from(*a) + i32::from(*b)))
+                        }
+                        _ => Err(DispError::TYPE_MISMATCH),
+                    },
+                );
+            Ok(object(t, o))
+        });
+    let o = run_host(
+        "Sub Main()\nDim o As Object\nSet o = CreateObject(\"Test.Thing\")\nCallByName o, \"Count\", VbLet, 9\nDebug.Print CallByName(o, \"Count\", VbGet)\nDebug.Print CallByName(o, \"Add\", VbMethod, 2, 3)\nEnd Sub\n",
+        host,
+    );
+    assert_eq!(o.out, " 9 \n 5 \n", "{:?}", o.result);
+}

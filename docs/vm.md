@@ -113,6 +113,20 @@ strings, `Mid`, `Set`/`Let`, property calls, `RaiseEvent`, `Debug.Print`, `Open`
 `Close`, `Print #`, `Write #`, `Input #`, `Line Input #`, `Get`, `Put`, `Seek`,
 `Lock`, `Unlock`, `Width`, `Name`.
 
+## Run-time provided functions
+
+`CallByName(object, name, calltype, args...)` dispatches like a late-bound access:
+`vbMethod` (1) and `vbGet` (2) are a get/call, `vbLet` (4) a property put (or a public
+field store; the value is the last argument), `vbSet` (8) a `PutRef`. It works on class
+instances (procedures, properties, public fields; a private member is error 438, an
+assumed number), the built-in `Collection`/`Err`, and host objects through the automation
+traits. Any other call type is error 5 (assumed). `Reset`, `Input()` and `FileAttr()` are
+served by the file system layer (`docs/runtime.md`); the settings statements,
+`Date =`/`Time =`, `SendKeys` and `AppActivate` go through host hooks (`docs/host.md`).
+`AddressOf` stays an explicit `Unsupported` error: producing a callable address would need
+a native thunk, and a made-up pointer would be a fake; the conformance program
+`language/addressof_without_native` records that.
+
 ## Rules not verified against a real VBA host
 
 These follow documentation or a reading of the specification; each is covered
@@ -154,7 +168,7 @@ by a test of our own expectation and none was compared with Office.
   VBA classes (`_NewEnum`) are not supported (error 438).
 - `Implements` of library interfaces is analysed but calls through the library
   interface type are late bound by name and do not reach `Iface_Member`.
-- Late-bound assignment to an element of an array stored in a `Variant`.
+- Late-bound assignment to an element of an array nested inside another array (`v(1)(2) = x`); `v(i) = x` on a `Variant` variable that holds an array works (the value is converted to the array's element type).
 - The `Declare` bridge has no native backend: only the `vba-winapi` shims and
   host hooks exist; `Variant` arguments, `Object` parameters and variable-length
   strings inside UDTs are refused.

@@ -2,7 +2,6 @@
 ' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/callbyname-function
 ' EXPECT:  3 
 ' EXPECT:  42 
-' XFAIL: unsupported CallByName is not defined ('Sub or Function not defined')
 '#MODULE Box class
 Public V As Long
 Public Function Twice(ByVal n As Long) As Long

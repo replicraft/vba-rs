@@ -44,6 +44,7 @@ const RAW_OBJECT_ARGS: &[&str] = &[
     "array",
     "isdate",
     "isnumeric",
+    "callbyname",
 ];
 
 impl Vm {
@@ -235,6 +236,41 @@ impl Vm {
                 };
                 self.host.set_clock(part, d).map_err(Fault::from)?;
                 Variant::Empty
+            }
+            "callbyname" => {
+                // **doc**: vbMethod 1, vbGet 2, vbLet 4, vbSet 8.
+                let Some(Some(recv)) = a.first() else {
+                    return Err(VbaError::new(449).into());
+                };
+                let name = self.text_arg(a.get(1).unwrap_or(&None))?;
+                let call_type = match a.get(2) {
+                    Some(Some(v)) => convert::to_long(v)?,
+                    _ => return Err(VbaError::new(449).into()),
+                };
+                let kind = match call_type {
+                    1 | 2 => vba_ir::InvokeKind::Get,
+                    4 => vba_ir::InvokeKind::Put,
+                    8 => vba_ir::InvokeKind::PutRef,
+                    _ => return Err(VbaError::INVALID_PROCEDURE_CALL.into()),
+                };
+                let largs: Vec<(Option<String>, crate::calls::BoundArg)> = a
+                    .iter()
+                    .skip(3)
+                    .map(|v| {
+                        let b = match v {
+                            Some(v) => crate::calls::BoundArg::Val(v.clone()),
+                            None => crate::calls::BoundArg::Missing,
+                        };
+                        (None, b)
+                    })
+                    .collect();
+                self.invoke_value(
+                    recv.clone(),
+                    &vba_ir::Member::Named(name),
+                    kind,
+                    largs,
+                    true,
+                )?
             }
             "reset" => {
                 // **doc**: closes every open file and writes the buffers.

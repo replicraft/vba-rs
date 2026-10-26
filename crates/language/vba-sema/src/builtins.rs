@@ -110,6 +110,11 @@ const LONG_CONSTANTS: &[(&str, i32)] = &[
     ("vbDirectory", 16),
     ("vbArchive", 32),
     ("vbAlias", 64),
+    // CallType (CallByName)
+    ("vbMethod", 1),
+    ("vbGet", 2),
+    ("vbLet", 4),
+    ("vbSet", 8),
     // Misc
     ("vbObjectError", -2_147_221_504),
 ];
@@ -236,6 +241,20 @@ pub fn runtime_function(name: &str) -> Option<LibMember> {
             Type::Long,
         ),
         "reset" => LibMember::sub("Reset", vec![]),
+        "callbyname" => LibMember::function(
+            "CallByName",
+            vec![
+                p("Object", Type::Variant),
+                p("ProcName", Type::String),
+                p("CallType", Type::Long),
+                LibParam {
+                    param_array: true,
+                    optional: true,
+                    ..LibParam::required("Args", Type::Variant)
+                },
+            ],
+            Type::Variant,
+        ),
         // Settings (`VBA.Interaction`); the store is a host service.
         "savesetting" => LibMember::sub(
             "SaveSetting",
