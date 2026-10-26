@@ -616,6 +616,10 @@ impl Vm {
                         self.hold(Variant::Object(vba_value::ObjectRef::Handle(h)));
                         Ok(Iter::Coll { id, pos: 0 })
                     }
+                    Some(ObjKind::Class { module, .. }) => {
+                        let module = *module;
+                        self.class_enumerator(id, module)
+                    }
                     _ => Err(VbaError::new(438).into()),
                 },
                 None => {
@@ -628,6 +632,53 @@ impl Vm {
                 Err(VbaError::new(91).into())
             }
             _ => Err(VbaError::TYPE_MISMATCH.into()),
+        }
+    }
+
+    /// `For Each` over an instance of a class that declares its enumerator
+    /// member (`VB_UserMemId = -4`): the member returns the enumerator, a
+    /// collection's `_NewEnum` or a host object's.
+    fn class_enumerator(&mut self, id: u64, module: vba_sema::ModuleId) -> VResult<Iter> {
+        let ir = self.ir.clone();
+        let Some(name) = ir.program.module(module).enumerator_member.as_ref() else {
+            return Err(VbaError::new(438).into());
+        };
+        let pick = self
+            .procs_by_name
+            .get(&(module, name.to_string().to_ascii_lowercase()))
+            .and_then(|c| {
+                c.iter().copied().find(|p| {
+                    matches!(
+                        ir.program.proc(*p).kind,
+                        vba_ast::ProcKind::Function | vba_ast::ProcKind::PropertyGet
+                    )
+                })
+            })
+            .ok_or(VbaError::new(438))?;
+        let r = self.call_nested(pick, Some(id), Vec::new())?;
+        // The result carries a reference, released when the frame ends.
+        self.hold(r.clone());
+        match r {
+            Variant::Object(vba_value::ObjectRef::Handle(eh)) => match vm_id(eh) {
+                Some(cid) => match self.objects.get(&cid).map(|o| &o.kind) {
+                    Some(ObjKind::Collection(_)) => Ok(Iter::Coll { id: cid, pos: 0 }),
+                    _ => Err(VbaError::new(438).into()),
+                },
+                None => {
+                    let host = self.host.clone();
+                    if host
+                        .objects()
+                        .get(eh)
+                        .is_ok_and(|o| o.enumerator().is_some())
+                    {
+                        Ok(Iter::Ext { enumerator: eh })
+                    } else {
+                        Err(VbaError::new(438).into())
+                    }
+                }
+            },
+            Variant::Object(vba_value::ObjectRef::Nothing) => Err(VbaError::new(91).into()),
+            _ => Err(VbaError::new(438).into()),
         }
     }
 

@@ -496,6 +496,20 @@ impl<'a> Sema<'a> {
                     self.add_proc_symbol(m, id, p);
                     for a in p.attributes() {
                         if a.name.name.eq_ignore_case("VB_UserMemId")
+                            && class_like
+                            && matches!(
+                                a.values.first().map(|e| &e.kind),
+                                Some(ExprKind::Unary { op: vba_ast::UnaryOp::Neg, operand })
+                                    if matches!(
+                                        operand.kind,
+                                        ExprKind::Literal(Literal::Integer { value: Some(4), .. })
+                                    )
+                            )
+                        {
+                            self.program.modules[m.index()].enumerator_member =
+                                Some(p.name.name.clone());
+                        }
+                        if a.name.name.eq_ignore_case("VB_UserMemId")
                             && matches!(
                                 a.values.first().map(|e| &e.kind),
                                 Some(ExprKind::Literal(Literal::Integer { value: Some(0), .. }))

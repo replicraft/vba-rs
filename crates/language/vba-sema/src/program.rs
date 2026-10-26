@@ -167,6 +167,9 @@ pub struct ModuleInfo {
     pub predeclared: bool,
     /// The class default member (`Attribute x.VB_UserMemId = 0`).
     pub default_member: Option<Name>,
+    /// The member `For Each` enumerates with (`Attribute x.VB_UserMemId = -4`,
+    /// `DISPID_NEWENUM`): it returns the enumerator object.
+    pub enumerator_member: Option<Name>,
     /// `Class_Initialize`.
     pub initialize: Option<ProcId>,
     /// `Class_Terminate`.

@@ -251,12 +251,12 @@ by a test of our own expectation and none was compared with Office.
 ## Not implemented / known gaps
 
 - `AddressOf` is a token for the emulated shims only: no native function can call a VBA procedure (no thunk is generated), and `AddressOf` of a `Declare` is rejected by the analysis.
-- `MidB` statement, `LSet`/`RSet` between user-defined types, `Get`/`Put` of
-  dynamic arrays and `Decimal` values are explicit `Unsupported` errors.
+- `LSet`/`RSet` between user-defined types whose members differ in type (the
+  byte image would be needed), `Get`/`Put` of dynamic arrays
+  are explicit `Unsupported` errors.
 - A VBA object passed to a host is an opaque handle in the host's table; the host
   calls its members through `HostContext` (`call_on`, `get_member`...), not through
-  `Dispatch` on the handle. Custom `For Each` enumerators on
-  VBA classes (`_NewEnum`) are not supported (error 438).
+  `Dispatch` on the handle.
 - `Implements` of library interfaces is analysed but calls through the library
   interface type are late bound by name and do not reach `Iface_Member`.
 - The `Declare` bridge has no native backend: only the `vba-winapi` shims and

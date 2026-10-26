@@ -220,6 +220,7 @@ pub fn analyze_sources(
             handlers: Vec::new(),
             predeclared: false,
             default_member: None,
+            enumerator_member: None,
             initialize: None,
             terminate: None,
             has_syntax_errors: has_errors,

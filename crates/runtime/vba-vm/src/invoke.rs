@@ -626,6 +626,13 @@ impl Vm {
         const ADD: [&str; 4] = ["item", "key", "before", "after"];
         match name.as_str() {
             "count" => Ok(Variant::Long(self.coll_items(id)?.len() as i32)),
+            // The enumerator of a collection is the collection itself: a
+            // program can only hand it to `For Each` (it is an `IUnknown`).
+            "_newenum" => {
+                let v = Variant::Object(ObjectRef::Handle(vm_handle(id)));
+                self.retain_value(&v);
+                Ok(v)
+            }
             "item" | "remove" => {
                 let (_, b) = args.first().ok_or(VbaError::new(449))?;
                 let idx = self.bound_value(b)?.ok_or(VbaError::new(449))?;
