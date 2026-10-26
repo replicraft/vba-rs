@@ -1,12 +1,12 @@
 //! The real Windows call path (cfg(windows) only).
 //!
-//! UNVERIFIED: this module type-checks and lints for the Windows MSVC targets
-//! (see docs/wine-bridge.md) but has never been executed, under Wine or on Windows. Treat every behavior here as
-//! a claim to be tested, not a fact.
+//! Verification status is in docs/wine-bridge.md: the x86-64 path has been
+//! executed under Wine (exact configuration there); the 32-bit path and
+//! genuine Windows hosts have not.
 //!
 //! Limits, all reported as explicit errors rather than approximated:
-//! * integer-class arguments and returns only (`F32`/`F64` need per-position
-//!   register selection that a generic trampoline cannot do) -> `Unsupported`;
+//! * floating-point arguments and returns work on x86-64 only (see
+//!   [`invoke_float`]); on 32-bit they are `Unsupported`;
 //! * at most [`MAX_CALL_ARGS`] arguments;
 //! * a fault inside the called function (access violation, abort) kills this
 //!   process; the client then reports `HelperCrashed`. There is no SEH guard.
@@ -96,6 +96,82 @@ unsafe fn invoke(conv: WireConv, addr: usize, words: &[usize]) -> usize {
         // `system` is stdcall on x86 Windows and the single convention on x64.
         WireConv::Stdcall => all_arities!("system"),
         WireConv::Cdecl => all_arities!("C"),
+    }
+}
+
+/// Calls `addr` with arguments that may include `f32`/`f64`, x86-64 only.
+///
+/// The Win64 convention selects the register of argument `i < 4` by its
+/// type (`rcx, rdx, r8, r9` or `xmm0..xmm3`), which a generic trampoline
+/// cannot know. A *variadic* call, however, makes the caller place every
+/// `double` among the first four arguments in both the integer and the XMM
+/// register of its position (the callee of a variadic function cannot know
+/// the types). Passing every word as an `f64` with the same bits therefore
+/// fills both registers of each position, so a non-variadic callee finds an
+/// integer in `rcx..r9` or a float in `xmm0..xmm3`, whichever it reads. An
+/// `f32` is passed as its bits in the low half of the word (the callee reads
+/// only the low 32 bits of the XMM register). Arguments beyond the fourth go
+/// to the stack as 8-byte slots in both conventions.
+///
+/// # Safety
+/// As for [`invoke`]; additionally the real signature must only use
+/// integer-class, `f32` and `f64` parameters, and `ret` selects the register
+/// (`rax` or `xmm0`) the result is read from.
+#[cfg(target_arch = "x86_64")]
+unsafe fn invoke_float(conv: WireConv, addr: usize, words: &[u64], ret: RetKind) -> WireRet {
+    // Win64 has one convention, so `conv` does not matter here.
+    let _ = conv;
+    macro_rules! call_as {
+        ($r:ty, $($n:literal => [$($i:literal),*]),* $(,)?) => {
+            match words.len() {
+                0 => {
+                    // SAFETY: see function contract; no arguments.
+                    let f: unsafe extern "C" fn() -> $r = unsafe { std::mem::transmute::<usize, _>(addr) };
+                    unsafe { f() }
+                }
+                $(
+                    $n => {
+                        // SAFETY: see function contract; variadic call through a
+                        // pointer is how the dual register placement is obtained.
+                        let f: unsafe extern "C" fn(f64, ...) -> $r =
+                            unsafe { std::mem::transmute::<usize, _>(addr) };
+                        unsafe { f(f64::from_bits(words[0]) $(, f64::from_bits(words[$i]))*) }
+                    }
+                )*
+                _ => unreachable!("argument count checked by caller"),
+            }
+        };
+    }
+    macro_rules! arities {
+        ($r:ty) => {
+            call_as!($r,
+                1 => [], 2 => [1], 3 => [1, 2], 4 => [1, 2, 3], 5 => [1, 2, 3, 4],
+                6 => [1, 2, 3, 4, 5], 7 => [1, 2, 3, 4, 5, 6], 8 => [1, 2, 3, 4, 5, 6, 7],
+                9 => [1, 2, 3, 4, 5, 6, 7, 8], 10 => [1, 2, 3, 4, 5, 6, 7, 8, 9],
+                11 => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                12 => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+                13 => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                14 => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+                15 => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+                16 => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            )
+        };
+    }
+    match ret {
+        RetKind::F64 => WireRet::Float(arities!(f64)),
+        RetKind::F32 => WireRet::Float(f64::from(arities!(f32))),
+        RetKind::Int => WireRet::Int(arities!(usize) as i64),
+        RetKind::Void => {
+            let _ = arities!(usize);
+            WireRet::Void
+        }
+    }
+}
+
+fn int_value(ret: RetKind, raw: usize) -> WireRet {
+    match ret {
+        RetKind::Void => WireRet::Void,
+        _ => WireRet::Int(raw as i64),
     }
 }
 
@@ -199,16 +275,20 @@ impl Backend for Native {
         ret: RetKind,
         args: &mut [WireArg],
     ) -> Result<(WireRet, u32), RemoteError> {
-        if matches!(ret, RetKind::F32 | RetKind::F64) {
-            return Err(RemoteError::new(
-                RemoteErrorKind::Unsupported,
-                "floating-point returns are not supported by the generic trampoline",
-            ));
-        }
         if args.len() > MAX_CALL_ARGS {
             return Err(fault(format!("more than {MAX_CALL_ARGS} arguments")));
         }
-        let mut words = Vec::with_capacity(args.len());
+        let uses_float = matches!(ret, RetKind::F32 | RetKind::F64)
+            || args
+                .iter()
+                .any(|a| matches!(a, WireArg::F32(_) | WireArg::F64(_)));
+        if uses_float && cfg!(not(target_arch = "x86_64")) {
+            return Err(RemoteError::new(
+                RemoteErrorKind::Unsupported,
+                "floating-point arguments and returns need the x86-64 helper",
+            ));
+        }
+        let mut words: Vec<usize> = Vec::with_capacity(args.len());
         for (i, a) in args.iter_mut().enumerate() {
             words.push(match a {
                 WireArg::Int(v) => {
@@ -220,12 +300,10 @@ impl Backend for Native {
                     }
                     *v as usize
                 }
-                WireArg::F32(_) | WireArg::F64(_) => {
-                    return Err(RemoteError::new(
-                        RemoteErrorKind::Unsupported,
-                        "floating-point arguments are not supported by the generic trampoline",
-                    ));
-                }
+                // Bit patterns; only reachable on x86-64 (checked above), where
+                // usize is 64 bits.
+                WireArg::F32(f) => f.to_bits() as usize,
+                WireArg::F64(f) => f.to_bits() as usize,
                 // The Vec outlives the call; its heap block does not move.
                 WireArg::BufIn(b) | WireArg::BufInOut(b) => b.as_mut_ptr() as usize,
                 WireArg::BufOut(_) => return Err(fault("BufOut must be expanded by the server")),
@@ -237,14 +315,18 @@ impl Backend for Native {
         // embedder's export-table contract and cannot be verified here.
         // `words` holds integers and pointers into `args`' vectors, which are
         // alive and not otherwise borrowed until after the call returns.
-        let (raw, last_error) = unsafe {
+        let (value, last_error) = unsafe {
             SetLastError(0);
-            let raw = invoke(conv, proc as usize, &words);
-            (raw, GetLastError())
-        };
-        let value = match ret {
-            RetKind::Void => WireRet::Void,
-            _ => WireRet::Int(raw as i64),
+            #[cfg(target_arch = "x86_64")]
+            let value = if uses_float {
+                let w: Vec<u64> = words.iter().map(|&x| x as u64).collect();
+                invoke_float(conv, proc as usize, &w, ret)
+            } else {
+                int_value(ret, invoke(conv, proc as usize, &words))
+            };
+            #[cfg(not(target_arch = "x86_64"))]
+            let value = int_value(ret, invoke(conv, proc as usize, &words));
+            (value, GetLastError())
         };
         Ok((value, last_error))
     }
