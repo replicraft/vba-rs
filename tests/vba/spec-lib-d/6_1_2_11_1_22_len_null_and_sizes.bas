@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.11.1.22, func.len
 ' SOURCE: spec ms-vbal 6.1.2.11.1.22 Len/LenB: characters in a string, Null gives Null, Variant treated as String, byte size of numeric variables
-' XFAIL: wrong pending
 ' EXPECT: a=3
 ' EXPECT: b=0
 ' EXPECT: c=True

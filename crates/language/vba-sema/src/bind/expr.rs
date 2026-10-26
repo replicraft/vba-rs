@@ -554,11 +554,38 @@ impl Binder<'_, '_> {
         let bargs = self.match_args(&sig, args.unwrap_or(&[]), span);
         self.udt_arg_ok = outer;
         let ty = sig.ret.clone().unwrap_or(Type::Variant);
+        // MS-VBAL 6.1.2.11.1.22: `Len` of a variable of a numeric type is the
+        // number of bytes needed to store it. The run-time value alone cannot
+        // tell `Dim i As Integer` from a Variant holding an Integer, so the
+        // static type selects the byte-size intrinsic.
+        let mut name = r.info.name;
+        if matches!(name, "Len" | "LenB")
+            && let [BArg::Value(e)] = bargs.as_slice()
+        {
+            let inner = match &e.kind {
+                BExprKind::Convert(inner) => inner.ty.clone(),
+                _ => e.ty.clone(),
+            };
+            if matches!(
+                inner,
+                Type::Boolean
+                    | Type::Byte
+                    | Type::Integer
+                    | Type::Long
+                    | Type::LongLong
+                    | Type::Single
+                    | Type::Double
+                    | Type::Currency
+                    | Type::Date
+            ) {
+                name = "LenSize";
+            }
+        }
         self.call_expr(
             span,
             ty,
             CallTarget::Intrinsic {
-                name: r.info.name.to_owned(),
+                name: name.to_owned(),
                 dollar: r.dollar,
             },
             None,

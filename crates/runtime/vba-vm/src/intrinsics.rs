@@ -369,6 +369,21 @@ impl Vm {
                 let n = self.record_len(&Type::Udt(udt), cur)?;
                 Variant::Long(i32::try_from(n).map_err(|_| VbaError::OVERFLOW)?)
             }
+            "lensize" => {
+                let n: i32 = match a.first() {
+                    Some(Some(Variant::Boolean(_) | Variant::Integer(_))) => 2,
+                    Some(Some(Variant::Byte(_))) => 1,
+                    Some(Some(Variant::Long(_) | Variant::Single(_))) => 4,
+                    Some(Some(
+                        Variant::LongLong(_)
+                        | Variant::Double(_)
+                        | Variant::Currency(_)
+                        | Variant::Date(_),
+                    )) => 8,
+                    _ => return Err(VbaError::TYPE_MISMATCH.into()),
+                };
+                Variant::Long(n)
+            }
             "midstatement" => {
                 self.exec_mid_statement(args, &a)?;
                 Variant::Empty
