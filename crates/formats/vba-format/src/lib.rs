@@ -19,6 +19,7 @@ extern crate self as vba_format;
 mod testsupport;
 
 pub mod codepage;
+mod codepage_tables;
 pub mod compression;
 pub mod crypt;
 mod dir;
