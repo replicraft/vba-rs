@@ -51,7 +51,7 @@ mod state;
 mod vm;
 
 pub use config::{BufferSink, DebugSink, NullSink, VmConfig};
-pub use error::{ErrOrigin, LimitKind, RtErr, RuntimeError, VmError, describe};
+pub use error::{ErrOrigin, LimitKind, RtErr, RuntimeError, StackFrame, VmError, describe};
 pub use printfmt::{ZONE, format_print, format_print_width, print_value};
 pub use services::{
     IoReply, IoRequest, NoServices, PrintItem, RecordValue, ServiceError, Services, Shape,

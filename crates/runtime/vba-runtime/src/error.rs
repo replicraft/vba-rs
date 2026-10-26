@@ -16,8 +16,49 @@ use std::fmt;
 use vba_automation::ErrInfo;
 use vba_vm::{ErrOrigin, LimitKind, VmError};
 
+pub use vba_vm::StackFrame;
+
+/// The contents of the `Err` object together with where the error was
+/// raised: what a host logs or shows when VBA code fails.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct VbaErrorInfo {
+    /// `Err.Number`.
+    pub number: i32,
+    /// `Err.Description`.
+    pub description: String,
+    /// `Err.Source`; empty if the error did not name one.
+    pub source: String,
+    /// `Err.HelpFile`.
+    pub help_file: String,
+    /// `Err.HelpContext`.
+    pub help_context: i32,
+    /// `Err.LastDllError`.
+    pub last_dll_error: i32,
+    /// The line to blame: the `Erl` line number when the procedure uses
+    /// line numbers, else the 1-based source line of the failing statement,
+    /// else 0.
+    pub line: u64,
+    /// The `Erl` line number in effect, 0 if none.
+    pub erl: u64,
+    /// The module of the failing procedure.
+    pub module: String,
+    /// The failing procedure (without the module).
+    pub procedure: String,
+}
+
 /// An unhandled run-time error with the place it was raised.
+///
+/// `{}` prints one line; `{:#}` adds the error source and the call stack:
+///
+/// ```text
+/// Run-time error '11': Division by zero (in Form_Orders.Form_BeforeUpdate, source line 12)
+///   source: VBAProject
+///   at Form_Orders.Form_BeforeUpdate (source line 12)
+///   at Module1.Helper (source line 3)
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ErrorReport {
     /// `Err.Number`.
     pub number: i32,
@@ -29,8 +70,86 @@ pub struct ErrorReport {
     pub procedure: String,
     /// The `Erl` line in effect, 0 if none.
     pub line: u64,
-    /// Call stack, innermost first.
+    /// Call stack, innermost first (`Module.Procedure`).
     pub stack: Vec<String>,
+    /// `Err.HelpFile`.
+    pub help_file: String,
+    /// `Err.HelpContext`.
+    pub help_context: i32,
+    /// `Err.LastDllError`.
+    pub last_dll_error: i32,
+    /// The module of the procedure that raised the error.
+    pub module: String,
+    /// The 1-based source line of the failing statement, 0 when unknown.
+    pub source_line: u32,
+    /// The call stack with lines, innermost first. Host code has no
+    /// frames: a call that went through a host object shows the VBA frames
+    /// only.
+    pub frames: Vec<StackFrame>,
+}
+
+impl ErrorReport {
+    /// A report for an error that was not raised inside a procedure.
+    pub fn plain(number: i32, description: impl Into<String>, source: impl Into<String>) -> Self {
+        ErrorReport {
+            number,
+            description: description.into(),
+            source: source.into(),
+            procedure: String::new(),
+            line: 0,
+            stack: Vec::new(),
+            help_file: String::new(),
+            help_context: 0,
+            last_dll_error: 0,
+            module: String::new(),
+            source_line: 0,
+            frames: Vec::new(),
+        }
+    }
+
+    /// The error as the `Err` object shows it, with its location.
+    pub fn info(&self) -> VbaErrorInfo {
+        let procedure = self
+            .procedure
+            .split_once('.')
+            .map_or(self.procedure.as_str(), |(_, p)| p)
+            .to_owned();
+        VbaErrorInfo {
+            number: self.number,
+            description: self.description.clone(),
+            source: self.source.clone(),
+            help_file: self.help_file.clone(),
+            help_context: self.help_context,
+            last_dll_error: self.last_dll_error,
+            line: if self.line > 0 {
+                self.line
+            } else {
+                u64::from(self.source_line)
+            },
+            erl: self.line,
+            module: self.module.clone(),
+            procedure,
+        }
+    }
+}
+
+impl From<vba_vm::RuntimeError> for ErrorReport {
+    fn from(r: vba_vm::RuntimeError) -> ErrorReport {
+        ErrorReport {
+            number: r.error.number,
+            description: r.error.description,
+            source: r.error.source,
+            procedure: r.procedure,
+            line: r.line,
+            stack: r.stack,
+            help_file: r.error.help_file,
+            help_context: r.error.help_context,
+            last_dll_error: r.last_dll_error,
+            module: r.module,
+            source_line: r.source_line,
+            frames: r.frames,
+        }
+    }
 }
 
 impl fmt::Display for ErrorReport {
@@ -42,8 +161,22 @@ impl fmt::Display for ErrorReport {
         )?;
         if self.line > 0 {
             write!(f, ", line {}", self.line)?;
+        } else if self.source_line > 0 {
+            write!(f, ", source line {}", self.source_line)?;
         }
-        f.write_str(")")
+        f.write_str(")")?;
+        if f.alternate() {
+            if !self.source.is_empty() {
+                write!(f, "\n  source: {}", self.source)?;
+            }
+            if !self.help_file.is_empty() {
+                write!(f, "\n  help: {} #{}", self.help_file, self.help_context)?;
+            }
+            for fr in &self.frames {
+                write!(f, "\n  at {fr}")?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -142,6 +275,36 @@ pub enum Error {
 }
 
 impl Error {
+    /// The unhandled VBA error behind this failure, for the families that
+    /// carry one ([`Error::Vba`], [`Error::Host`] and
+    /// [`Error::PermissionDenied`]).
+    pub fn report(&self) -> Option<&ErrorReport> {
+        match self {
+            Error::Vba(r) | Error::Host(r) | Error::PermissionDenied(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    /// [`ErrorReport::info`] of [`Error::report`].
+    pub fn error_info(&self) -> Option<VbaErrorInfo> {
+        self.report().map(|r| r.info())
+    }
+
+    /// The VBA call stack at the failure, innermost first (empty for the
+    /// families that carry no report).
+    pub fn stack(&self) -> &[StackFrame] {
+        self.report().map_or(&[], |r| r.frames.as_slice())
+    }
+
+    /// A multi-line description for logs: the one-line message followed by
+    /// the error source and the call stack when there is one.
+    pub fn detail(&self) -> String {
+        match self.report() {
+            Some(r) => format!("{r:#}"),
+            None => self.to_string(),
+        }
+    }
+
     /// A short stable name of the family, for exit codes and logs.
     pub fn kind(&self) -> &'static str {
         match self {
@@ -170,15 +333,9 @@ impl From<VmError> for Error {
     fn from(e: VmError) -> Error {
         match e {
             VmError::Runtime(r) => {
-                let report = Box::new(ErrorReport {
-                    number: r.error.number,
-                    description: r.error.description,
-                    source: r.error.source,
-                    procedure: r.procedure,
-                    line: r.line,
-                    stack: r.stack,
-                });
-                match r.error.origin {
+                let origin = r.error.origin;
+                let report = Box::new(ErrorReport::from(*r));
+                match origin {
                     ErrOrigin::Vba => Error::Vba(report),
                     ErrOrigin::Host => Error::Host(report),
                     ErrOrigin::Denied => Error::PermissionDenied(report),

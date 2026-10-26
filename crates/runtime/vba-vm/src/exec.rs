@@ -11,7 +11,7 @@ use vba_value::{
 };
 
 use crate::calls::BoundArg;
-use crate::error::{Fault, RtErr, VResult};
+use crate::error::{Fault, RtErr, StackFrame, VResult};
 use crate::state::*;
 use crate::vm::Vm;
 
@@ -103,6 +103,42 @@ impl Vm {
         }
     }
 
+    /// Where the error being dispatched was raised: the call stack from the
+    /// innermost frame out.
+    fn capture_site(&self, ir: &IrProgram) -> Site {
+        let frame_of = |f: &Frame| -> StackFrame {
+            let func = &ir.functions[f.func];
+            let (module, procedure) = match func.name.split_once('.') {
+                Some((m, p)) => (m.to_owned(), p.to_owned()),
+                None => (String::new(), func.name.clone()),
+            };
+            let stmt = Self::stmt_at(func, f.block, f.idx);
+            let source_line = self
+                .source_lines
+                .get(f.func)
+                .and_then(|l| l.get(stmt.0 as usize))
+                .copied()
+                .unwrap_or(0);
+            StackFrame {
+                module,
+                procedure,
+                line: f.line,
+                source_line,
+            }
+        };
+        let frames: Vec<StackFrame> = self.frames.iter().rev().map(frame_of).collect();
+        let top = frames.first().cloned().unwrap_or_default();
+        let name_of = |f: &StackFrame| format!("{}.{}", f.module, f.procedure);
+        Site {
+            module: top.module.clone(),
+            procedure: name_of(&top),
+            line: top.line,
+            source_line: top.source_line,
+            stack: frames.iter().map(name_of).collect(),
+            frames,
+        }
+    }
+
     /// Routes a trappable error to the innermost active handler, unwinding
     /// frames above `base`. `Ok` means execution continues in a handler or
     /// after the failing statement; `Err` means it reached `base`.
@@ -113,14 +149,7 @@ impl Vm {
                 return Err(Fault::Err(e));
             }
             if self.last_site.is_none() {
-                let stack: Vec<String> = self
-                    .frames
-                    .iter()
-                    .rev()
-                    .map(|f| ir.functions[f.func].name.clone())
-                    .collect();
-                let top = self.frames.last().expect("frame");
-                self.last_site = Some((ir.functions[top.func].name.clone(), top.line, stack));
+                self.last_site = Some(self.capture_site(ir));
             }
             let fi = self.frames.len() - 1;
             let (mode, in_handler, func_idx, block, idx) = {
@@ -138,7 +167,7 @@ impl Vm {
                     f.block = b.0;
                     f.idx = 0;
                     self.erl = f.line;
-                    self.last_site = None;
+                    self.err.site = self.last_site.take();
                     return Ok(());
                 }
                 ErrMode::ResumeNext => {
@@ -149,7 +178,7 @@ impl Vm {
                         f.block = p.block.0;
                         f.idx = p.index;
                         self.erl = f.line;
-                        self.last_site = None;
+                        self.err.site = self.last_site.take();
                         return Ok(());
                     }
                 }

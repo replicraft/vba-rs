@@ -227,7 +227,8 @@ pub use vba_diagnostics::{Diagnostic, Severity};
 // Sessions and runtime.
 pub use vba_runtime::{
     Error as RunError, ErrorReport, MemFs, ModuleSummary, NoShell, ParamSummary, ProcedureSummary,
-    RealFs, Session, SessionBuilder, ShellHook, StdShell, SystemHost, VariableSummary, Vfs,
+    RealFs, Session, SessionBuilder, ShellHook, StackFrame, StdShell, SystemHost, VariableSummary,
+    VbaErrorInfo, Vfs,
 };
 pub use vba_vm::{BufferSink, DebugSink, LimitKind, RunStatus, VmConfig};
 

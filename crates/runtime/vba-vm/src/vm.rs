@@ -99,7 +99,9 @@ pub struct Vm {
     /// How many host calls the VM is suspended in (nested embedder runs).
     pub(crate) nesting: u32,
     pub(crate) stop_reason: Option<String>,
-    pub(crate) last_site: Option<(String, u64, Vec<String>)>,
+    pub(crate) last_site: Option<Site>,
+    /// Source line of each statement, per function (see `set_source_lines`).
+    pub(crate) source_lines: Vec<Vec<u32>>,
     pub(crate) push_request: Option<Option<vba_ir::Reg>>,
     pub(crate) push_done: bool,
     pub(crate) cascade: Option<crate::state::Cascade>,
@@ -169,6 +171,7 @@ impl Vm {
             nesting: 0,
             stop_reason: None,
             last_site: None,
+            source_lines: Vec::new(),
             push_request: None,
             push_done: false,
             settings: vba_host::MemorySettings::new(),
@@ -253,13 +256,22 @@ impl Vm {
 
     pub(crate) fn fault_to_error(&mut self, f: Fault) -> VmError {
         match f {
-            Fault::Err(e) => {
+            Fault::Err(mut e) => {
+                // Like `Err.Source`: the project name unless the error
+                // names a source.
+                if e.source.is_empty() {
+                    e.source = self.cfg.project_name.clone();
+                }
                 let site = self.last_site.take().unwrap_or_default();
                 VmError::Runtime(Box::new(RuntimeError {
                     error: e,
-                    procedure: site.0,
-                    line: site.1,
-                    stack: site.2,
+                    procedure: site.procedure,
+                    line: site.line,
+                    stack: site.stack,
+                    module: site.module,
+                    source_line: site.source_line,
+                    frames: site.frames,
+                    last_dll_error: self.err.last_dll_error,
                 }))
             }
             Fault::End | Fault::Stop => VmError::Internal("End/Stop escaped the VM".into()),
@@ -269,6 +281,14 @@ impl Vm {
             Fault::Bridge(s) => VmError::Bridge(s),
             Fault::Internal(s) => VmError::Internal(s),
         }
+    }
+
+    /// Tells the VM the 1-based source line of every statement, indexed by
+    /// function and then by statement, so that errors can report lines. The
+    /// VM does not own the source text; the embedding layer computes this
+    /// table (missing entries read as unknown).
+    pub fn set_source_lines(&mut self, lines: Vec<Vec<u32>>) {
+        self.source_lines = lines;
     }
 
     /// The program the VM runs.
@@ -320,12 +340,9 @@ impl Vm {
         args: Vec<Arg>,
     ) -> Result<RunOutput, VmError> {
         let ObjectRef::Handle(h) = object else {
-            return Err(VmError::Runtime(Box::new(RuntimeError {
-                error: RtErr::standard(91),
-                procedure: String::new(),
-                line: 0,
-                stack: Vec::new(),
-            })));
+            return Err(VmError::Runtime(Box::new(RuntimeError::new(
+                RtErr::standard(91),
+            ))));
         };
         let Some(id) = vm_id(h) else {
             return Err(VmError::Unsupported(
@@ -415,6 +432,34 @@ impl Vm {
     /// The reason of the last `Stop`, for example a failed `Debug.Assert`.
     pub fn stop_reason(&self) -> Option<&str> {
         self.stop_reason.as_deref()
+    }
+
+    /// The error `Err` currently holds, with where it was raised, or `None`
+    /// when `Err.Number` is 0. This is how the embedder sees an error the
+    /// program handled (`On Error Resume Next`, `On Error GoTo`); an
+    /// unhandled one ends the call with a [`VmError`].
+    pub fn current_error(&self) -> Option<RuntimeError> {
+        if self.err.number == 0 {
+            return None;
+        }
+        let site = self.err.site.clone().unwrap_or_default();
+        Some(RuntimeError {
+            error: RtErr {
+                number: self.err.number,
+                description: self.err.description.clone(),
+                source: self.err.source.clone(),
+                help_file: self.err.help_file.clone(),
+                help_context: self.err.help_context,
+                origin: crate::error::ErrOrigin::Vba,
+            },
+            procedure: site.procedure,
+            line: if site.line > 0 { site.line } else { self.erl },
+            stack: site.stack,
+            module: site.module,
+            source_line: site.source_line,
+            frames: site.frames,
+            last_dll_error: self.err.last_dll_error,
+        })
     }
 
     /// The current `Err` contents `(number, description)`.

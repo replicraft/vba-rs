@@ -47,7 +47,7 @@ mod shell;
 mod system;
 mod vfs;
 
-pub use error::{Error, ErrorReport, FsError, LoadError};
+pub use error::{Error, ErrorReport, FsError, LoadError, StackFrame, VbaErrorInfo};
 pub use files::{DEFAULT_MAX_FILE_BYTES, FileSystem, FsServices, ScriptFsAdapter, write_value};
 pub use members::{ModuleSummary, ParamSummary, ProcedureSummary, VariableSummary};
 pub use memfs::MemFs;

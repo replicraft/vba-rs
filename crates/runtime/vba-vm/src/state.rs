@@ -164,9 +164,23 @@ pub(crate) struct PendingEvent {
     pub args: Vec<Variant>,
 }
 
+/// Where an error was raised.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Site {
+    pub module: String,
+    /// `Module.Procedure`.
+    pub procedure: String,
+    pub line: u64,
+    pub source_line: u32,
+    pub stack: Vec<String>,
+    pub frames: Vec<crate::error::StackFrame>,
+}
+
 /// The `Err` object's contents.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ErrState {
+    /// Where the error in `number` was raised (set when it is handled).
+    pub site: Option<Site>,
     pub number: i32,
     pub description: String,
     pub source: String,

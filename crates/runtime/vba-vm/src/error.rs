@@ -234,6 +234,34 @@ impl From<vba_stdlib::StdError> for Fault {
 /// Convenience alias.
 pub type VResult<T> = Result<T, Fault>;
 
+/// One frame of the call stack at the point of an error.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct StackFrame {
+    /// The module of the procedure.
+    pub module: String,
+    /// The procedure name (without the module).
+    pub procedure: String,
+    /// The line number (`Erl`) in effect in that frame, 0 if none.
+    pub line: u64,
+    /// The 1-based source line of the statement being executed in that
+    /// frame (in the module source as it was given to the engine), 0 when
+    /// unknown.
+    pub source_line: u32,
+}
+
+impl fmt::Display for StackFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.module, self.procedure)?;
+        match (self.line, self.source_line) {
+            (0, 0) => Ok(()),
+            (0, s) => write!(f, " (source line {s})"),
+            (l, 0) => write!(f, " (line {l})"),
+            (l, s) => write!(f, " (line {l}, source line {s})"),
+        }
+    }
+}
+
 /// An unhandled VBA run-time error that ended a run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -246,6 +274,14 @@ pub struct RuntimeError {
     pub line: u64,
     /// The call stack at the time, innermost first (`Module.Procedure`).
     pub stack: Vec<String>,
+    /// The module of the procedure that raised the error.
+    pub module: String,
+    /// The 1-based source line of the failing statement, 0 when unknown.
+    pub source_line: u32,
+    /// The call stack with lines, innermost first.
+    pub frames: Vec<StackFrame>,
+    /// `Err.LastDllError` at the time.
+    pub last_dll_error: i32,
 }
 
 impl RuntimeError {
@@ -256,6 +292,10 @@ impl RuntimeError {
             procedure: String::new(),
             line: 0,
             stack: Vec::new(),
+            module: String::new(),
+            source_line: 0,
+            frames: Vec::new(),
+            last_dll_error: 0,
         }
     }
 }

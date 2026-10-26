@@ -14,7 +14,7 @@ use vba_sema::{NoLibraries, Options, SourceModule, TypeProvider};
 use vba_value::{ObjectRef, Variant};
 use vba_vm::{Arg, DebugSink, NullSink, RunOutput, Vm, VmConfig, VmError};
 
-use crate::error::{Error, LoadError};
+use crate::error::{Error, ErrorReport, LoadError};
 use crate::files::{FileSystem, FsServices, ScriptFsAdapter};
 use crate::memfs::MemFs;
 use crate::shell::{NoShell, ShellHook};
@@ -266,7 +266,8 @@ impl SessionBuilder {
         let scripting = ScriptingHost::new(self.host.clone());
         scripting.set_fs(Rc::new(ScriptFsAdapter(Rc::downgrade(&fs))));
         let host: Rc<dyn Host> = scripting;
-        let vm = Vm::new(
+        let source_lines = statement_lines(&ir, &analysis.sources);
+        let mut vm = Vm::new(
             ir.clone(),
             host.clone(),
             Box::new(FsServices(fs.clone())),
@@ -274,6 +275,7 @@ impl SessionBuilder {
             self.debug,
             self.config,
         )?;
+        vm.set_source_lines(source_lines);
         Ok(Session {
             vm,
             fs,
@@ -284,6 +286,25 @@ impl SessionBuilder {
             absent: None,
         })
     }
+}
+
+/// The 1-based source line of every statement of every function, for error
+/// locations.
+fn statement_lines(ir: &IrProgram, sources: &vba_source::SourceMap) -> Vec<Vec<u32>> {
+    ir.functions
+        .iter()
+        .map(|f| {
+            let module = match f.kind {
+                vba_ir::FuncKind::Proc(p) => ir.program.proc(p).module,
+                vba_ir::FuncKind::ModuleInit(m) => m,
+            };
+            let file = sources.get(ir.program.module(module).file);
+            f.stmts
+                .iter()
+                .map(|s| file.map_or(0, |file| file.line_col(s.span.start).line + 1))
+                .collect()
+        })
+        .collect()
 }
 
 /// A loaded project: its own module variables, objects, `Err`, random
@@ -336,6 +357,10 @@ impl Session {
     /// The file system state (open files, working directory, the `Vfs`).
     pub fn file_system(&self) -> &Rc<RefCell<FileSystem>> {
         &self.fs
+    }
+
+    pub(crate) fn vm_ref(&self) -> &Vm {
+        &self.vm
     }
 
     /// Direct access to the interpreter, for embedders that need it.
@@ -634,6 +659,15 @@ impl Session {
         Ok(self.vm.set_member(object, name, value)?)
     }
 
+    /// The error the `Err` object holds now, with where it was raised and
+    /// the call stack at that point, or `None` when `Err.Number` is 0. After
+    /// a call that returned normally this is an error the program handled
+    /// (`On Error Resume Next`, `On Error GoTo`); `Err` keeps it until the
+    /// program clears it or another error replaces it, exactly as in VBA.
+    pub fn last_error(&self) -> Option<ErrorReport> {
+        self.vm_ref().current_error().map(ErrorReport::from)
+    }
+
     /// Releases the object references inside a value a call returned (the
     /// result or a `ByRef` value).
     pub fn release(&mut self, value: &Variant) {
@@ -679,14 +713,9 @@ impl Session {
         let closed = self.fs.borrow_mut().close_all();
         r.map_err(Error::from)?;
         closed.map_err(|e| match e {
-            vba_vm::ServiceError::Vba(i) => Error::Host(Box::new(crate::error::ErrorReport {
-                number: i.number,
-                description: i.description,
-                source: i.source,
-                procedure: String::new(),
-                line: 0,
-                stack: Vec::new(),
-            })),
+            vba_vm::ServiceError::Vba(i) => Error::Host(Box::new(
+                crate::error::ErrorReport::plain(i.number, i.description, i.source),
+            )),
             vba_vm::ServiceError::Unsupported(s) => Error::Unsupported(s),
             vba_vm::ServiceError::Limit(l) => Error::Limit(l),
         })

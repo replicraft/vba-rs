@@ -1,6 +1,6 @@
 //! Module-level state and project metadata.
 
-use vba_runtime::ModuleSummary;
+use vba_runtime::{ErrorReport, ModuleSummary};
 use vba_value::Variant;
 
 use crate::{Error, Instance};
@@ -48,6 +48,19 @@ impl Instance {
     /// [`NotAccessible`](vba_runtime::Error::NotAccessible).
     pub fn set_global(&mut self, name: &str, value: Variant) -> Result<(), Error> {
         self.session.set_global(name, value).map_err(Error::Run)
+    }
+
+    /// The error the `Err` object holds now, with where it was raised and
+    /// the call stack at that point, or `None` when `Err.Number` is 0.
+    ///
+    /// After a call that returned `Ok` this is an error the program handled
+    /// (`On Error Resume Next`, `On Error GoTo`); like VBA's `Err` it stays
+    /// until the program clears it (`Err.Clear`) or another error replaces
+    /// it, so compare against a call's own result rather than assuming it
+    /// belongs to the last call. An unhandled error is reported in the
+    /// `Err` of the failed call instead (see [`Error`](crate::Error)).
+    pub fn last_error(&self) -> Option<ErrorReport> {
+        self.session.last_error()
     }
 
     /// Describes every module, procedure and module-level variable of the

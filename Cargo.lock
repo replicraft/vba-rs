@@ -1449,6 +1449,7 @@ dependencies = [
  "vba-project",
  "vba-scripting",
  "vba-sema",
+ "vba-source",
  "vba-stdlib",
  "vba-value",
  "vba-vm",
