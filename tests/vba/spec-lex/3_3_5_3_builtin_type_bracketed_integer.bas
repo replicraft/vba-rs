@@ -1,6 +1,5 @@
 ' INV: vbal.3.3.5.3
 ' SOURCE: spec ms-vbal 3.3.5.3 special identifier forms, BUILTIN-TYPE allows [Integer] as a type name
-' XFAIL: wrong pending
 ' EXPECT: Integer
 ' EXPECT: String
 ' EXPECT: 5

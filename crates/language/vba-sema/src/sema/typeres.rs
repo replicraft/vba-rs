@@ -141,7 +141,35 @@ impl Sema<'_> {
                     }
                 }
             },
-            TypeRefKind::Named(idents) => self.resolve_named_type(module, idents, t.span),
+            TypeRefKind::Named(idents) => {
+                // MS-VBAL 3.3.5.3 BUILTIN-TYPE: `[Integer]` names the built-in
+                // type of the same name.
+                if let [one] = idents.as_slice() {
+                    use BuiltinType as B;
+                    const NAMES: [(&str, BuiltinType); 12] = [
+                        ("Boolean", B::Boolean),
+                        ("Byte", B::Byte),
+                        ("Currency", B::Currency),
+                        ("Date", B::Date),
+                        ("Double", B::Double),
+                        ("Integer", B::Integer),
+                        ("Long", B::Long),
+                        ("LongLong", B::LongLong),
+                        ("LongPtr", B::LongPtr),
+                        ("Single", B::Single),
+                        ("String", B::String),
+                        ("Variant", B::Variant),
+                    ];
+                    if let Some((_, b)) = NAMES.iter().find(|(n, _)| one.name.eq_ignore_case(n)) {
+                        let synthetic = TypeRef {
+                            span: t.span,
+                            kind: TypeRefKind::Builtin(*b),
+                        };
+                        return self.resolve_type_ref(module, &synthetic, allow_any);
+                    }
+                }
+                self.resolve_named_type(module, idents, t.span)
+            }
         }
     }
 
