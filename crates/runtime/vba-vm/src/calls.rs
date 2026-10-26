@@ -65,7 +65,7 @@ impl Vm {
     }
 
     /// Coerces an argument value to the declared parameter type.
-    fn coerce_arg(&mut self, v: Variant, ty: &Type) -> VResult<Variant> {
+    pub(crate) fn coerce_arg(&mut self, v: Variant, ty: &Type) -> VResult<Variant> {
         match ty {
             Type::Variant | Type::Any | Type::Error => Ok(v),
             _ => self.convert_value(v, ty),

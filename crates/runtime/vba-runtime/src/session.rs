@@ -37,6 +37,17 @@ pub struct ProcedureInfo {
     pub class_like: bool,
 }
 
+/// What a call by name is addressed to.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum Target {
+    /// The project: `Proc` of the standard modules, or `Module.Proc`
+    /// (a document or designer module runs on its default instance).
+    Project,
+    /// One instance of a class, document or designer module.
+    Object(ObjectRef),
+}
+
 /// Collects everything a [`Session`] needs; nothing runs until the embedder
 /// builds the session, trusts it and asks it to run something.
 pub struct SessionBuilder {
@@ -391,25 +402,88 @@ impl Session {
     /// module runs on the module's default instance, a class module's does
     /// not run by name.
     pub fn run_procedure(&mut self, name: &str, args: Vec<Variant>) -> Result<RunOutput, Error> {
+        let args = args.into_iter().map(Arg::Value).collect();
+        self.call(&Target::Project, name, args, Vec::new())
+    }
+
+    /// Calls a procedure with full control over the arguments: values,
+    /// `ByRef` variables whose final values come back in
+    /// [`RunOutput::byref`], omitted (`Missing`) and named arguments.
+    ///
+    /// With [`Target::Project`] the name is resolved like
+    /// [`run_procedure`](Session::run_procedure). With [`Target::Object`]
+    /// the procedure is looked up in the object's own class-like module
+    /// (`Sub`, `Function` or `Property Get`, `Public` only).
+    pub fn call(
+        &mut self,
+        target: &Target,
+        name: &str,
+        positional: Vec<Arg>,
+        named: Vec<(String, Arg)>,
+    ) -> Result<RunOutput, Error> {
         self.require_trust()?;
-        let id = self.find(name)?;
-        let pr = self.ir.program.proc(id);
-        if matches!(pr.visibility, Visibility::Private) {
+        let (id, receiver) = match target {
+            Target::Object(obj) => (self.find_in_object(obj, name, true)?, Some(*obj)),
+            _ => {
+                let id = self.find(name)?;
+                let pr = self.ir.program.proc(id);
+                if matches!(pr.visibility, Visibility::Private) {
+                    return Err(Error::NotCallable(name.to_owned(), "it is private"));
+                }
+                let module = self.ir.program.module(pr.module);
+                if module.is_class_like() {
+                    if !module.predeclared {
+                        return Err(Error::NotCallable(
+                            name.to_owned(),
+                            "it belongs to a class module without a default instance",
+                        ));
+                    }
+                    (id, Some(self.vm.default_instance_object(pr.module)?))
+                } else {
+                    (id, None)
+                }
+            }
+        };
+        let args = self.vm.arrange_call_args(id, positional, named)?;
+        Ok(match receiver {
+            Some(obj) => self.vm.run_method(obj, id, args)?,
+            None => self.vm.run_procedure(id, args)?,
+        })
+    }
+
+    /// The procedure `name` of the class-like module `obj` is an instance
+    /// of. `public_only` rejects private procedures (event handlers are
+    /// usually private).
+    fn find_in_object(
+        &self,
+        obj: &ObjectRef,
+        name: &str,
+        public_only: bool,
+    ) -> Result<vba_sema::ProcId, Error> {
+        let Some(module) = self.vm.object_module(obj) else {
+            return Err(Error::NotCallable(
+                name.to_owned(),
+                "the object is not an instance of a project class",
+            ));
+        };
+        let p = &self.ir.program;
+        let id = p
+            .module(module)
+            .procs
+            .iter()
+            .copied()
+            .find(|id| {
+                let pr = p.proc(*id);
+                matches!(
+                    pr.kind,
+                    ProcKind::Sub | ProcKind::Function | ProcKind::PropertyGet
+                ) && pr.name.eq_ignore_case(name)
+            })
+            .ok_or_else(|| Error::NoSuchProcedure(name.to_owned()))?;
+        if public_only && matches!(p.proc(id).visibility, Visibility::Private) {
             return Err(Error::NotCallable(name.to_owned(), "it is private"));
         }
-        let module = self.ir.program.module(pr.module);
-        let args: Vec<Arg> = args.into_iter().map(Arg::Value).collect();
-        if module.is_class_like() {
-            if !module.predeclared {
-                return Err(Error::NotCallable(
-                    name.to_owned(),
-                    "it belongs to a class module without a default instance",
-                ));
-            }
-            let obj = self.vm.default_instance_object(pr.module)?;
-            return Ok(self.vm.run_method(obj, id, args)?);
-        }
-        Ok(self.vm.run_procedure(id, args)?)
+        Ok(id)
     }
 
     /// Delivers a host event, for example `Workbook` / `Open`, to the

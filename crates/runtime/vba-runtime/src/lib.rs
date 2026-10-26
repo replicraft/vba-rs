@@ -50,7 +50,7 @@ pub use error::{Error, ErrorReport, FsError, LoadError};
 pub use files::{DEFAULT_MAX_FILE_BYTES, FileSystem, FsServices, ScriptFsAdapter, write_value};
 pub use memfs::MemFs;
 pub use realfs::RealFs;
-pub use session::{ProcedureInfo, Session, SessionBuilder};
+pub use session::{ProcedureInfo, Session, SessionBuilder, Target};
 pub use shell::{NoShell, ShellHook, StdShell};
 pub use system::SystemHost;
 pub use vfs::{

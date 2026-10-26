@@ -190,6 +190,7 @@
 //!   `unsafe`), still behind the `NativeDeclare` capability.
 //! * `wine`: the opt-in Wine bridge client (`raw::wine`), implies `winapi`.
 
+mod call;
 mod engine;
 mod host;
 mod project;
@@ -197,6 +198,7 @@ mod project;
 pub mod prelude;
 pub mod raw;
 
+pub use call::{Arg, CallResult, CallTarget};
 pub use engine::{Engine, Instance, Outcome};
 pub use host::{CancelToken, Factory};
 pub use project::{DEFAULT_PROJECT_NAME, Project, Report};

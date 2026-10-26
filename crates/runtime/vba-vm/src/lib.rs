@@ -39,6 +39,7 @@
 mod calls;
 mod config;
 mod declare;
+mod embed;
 mod error;
 mod exec;
 mod heap;

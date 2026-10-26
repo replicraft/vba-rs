@@ -236,6 +236,7 @@ pub type VResult<T> = Result<T, Fault>;
 
 /// An unhandled VBA run-time error that ended a run.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RuntimeError {
     /// The error.
     pub error: RtErr,
@@ -245,6 +246,18 @@ pub struct RuntimeError {
     pub line: u64,
     /// The call stack at the time, innermost first (`Module.Procedure`).
     pub stack: Vec<String>,
+}
+
+impl RuntimeError {
+    /// An error that was not raised inside a procedure.
+    pub fn new(error: RtErr) -> RuntimeError {
+        RuntimeError {
+            error,
+            procedure: String::new(),
+            line: 0,
+            stack: Vec::new(),
+        }
+    }
 }
 
 impl fmt::Display for RuntimeError {

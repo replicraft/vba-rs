@@ -9,7 +9,6 @@ use vba_ir::IrProgram;
 use vba_sema::{ModuleId, ProcId};
 use vba_value::{ObjectRef, Variant};
 
-use crate::calls::BoundArg;
 use crate::config::{DebugSink, VmConfig};
 use crate::declare::DeclareState;
 use crate::error::{Fault, RtErr, RuntimeError, VResult, VmError};
@@ -29,21 +28,36 @@ pub enum RunStatus {
 
 /// The result of running a procedure.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RunOutput {
     /// The function result (`Empty` for a `Sub`, or if the run did not
     /// complete).
     pub value: Variant,
     /// How the run finished.
     pub status: RunStatus,
+    /// The final value of every argument passed as [`Arg::ByRef`], in the
+    /// order of the arguments (which is the order of the parameters they
+    /// bound to). A parameter declared `ByVal` keeps the value the caller
+    /// passed; a `ByRef` parameter holds what the procedure left in it,
+    /// converted to the declared type. Empty when the run did not complete.
+    pub byref: Vec<Variant>,
 }
 
 /// An argument for a procedure called from outside the VM.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Arg {
     /// A value, passed as if `ByVal` (a `ByRef` parameter receives a copy).
     Value(Variant),
     /// The omitted-argument marker for an `Optional` parameter.
     Missing,
+    /// A caller-owned variable passed by reference: a `ByRef` parameter
+    /// writes through to it and its final value is returned in
+    /// [`RunOutput::byref`]. The value is first converted to the declared
+    /// type of the parameter (error 13 when it cannot be). A `ByVal`
+    /// parameter, or the elements of a `ParamArray`, receive a copy and do
+    /// not write back.
+    ByRef(Variant),
 }
 
 impl From<Variant> for Arg {
@@ -322,21 +336,24 @@ impl Vm {
         me: Option<u64>,
         args: Vec<Arg>,
     ) -> Result<RunOutput, VmError> {
-        let bound: Vec<BoundArg> = args
-            .into_iter()
-            .map(|a| match a {
-                Arg::Value(v) => BoundArg::Val(v),
-                Arg::Missing => BoundArg::Missing,
-            })
-            .collect();
         self.last_site = None;
         self.stop_reason = None;
         let _meter = self.host.budget().enter();
+        let temp_base = self.globals.len();
+        let (bound, outs) = match self.prepare_args(proc_, args) {
+            Ok(x) => x,
+            Err(f) => {
+                self.frames.clear();
+                return Err(self.fault_to_error(f));
+            }
+        };
         let r = self.call_nested(proc_, me, bound);
+        let byref = self.collect_byref(temp_base, outs, matches!(r, Ok(_) | Err(Fault::Stop)));
         match r {
             Ok(v) => Ok(RunOutput {
                 value: v,
                 status: RunStatus::Completed,
+                byref,
             }),
             Err(Fault::End) => {
                 self.frames.clear();
@@ -345,6 +362,7 @@ impl Vm {
                 Ok(RunOutput {
                     value: Variant::Empty,
                     status: RunStatus::Ended,
+                    byref: Vec::new(),
                 })
             }
             Err(Fault::Stop) => {
@@ -352,6 +370,7 @@ impl Vm {
                 Ok(RunOutput {
                     value: Variant::Empty,
                     status: RunStatus::Stopped,
+                    byref,
                 })
             }
             Err(f) => {
@@ -373,6 +392,18 @@ impl Vm {
                 self.frames.clear();
                 Err(self.fault_to_error(f))
             }
+        }
+    }
+
+    /// The module a VM-owned object is an instance of, `None` for `Nothing`,
+    /// host objects, stale handles and the built-in objects.
+    pub fn object_module(&self, object: &ObjectRef) -> Option<ModuleId> {
+        let ObjectRef::Handle(h) = object else {
+            return None;
+        };
+        match self.objects.get(&vm_id(*h)?)?.kind {
+            ObjKind::Class { module, .. } => Some(module),
+            _ => None,
         }
     }
 

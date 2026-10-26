@@ -10,6 +10,7 @@ use vba_value::{ObjectRef, Variant};
 use vba_vm::{BufferSink, RunStatus, VmConfig};
 
 use crate::Error;
+use crate::call::{Arg, CallResult, CallTarget, split_args};
 use crate::host::{CancelToken, EngineHost, Factory};
 use crate::project::{Project, Report};
 
@@ -331,8 +332,8 @@ pub struct Outcome {
 /// assert_send::<vba::Instance>();
 /// ```
 pub struct Instance {
-    session: Session,
-    sink: BufferSink,
+    pub(crate) session: Session,
+    pub(crate) sink: BufferSink,
 }
 
 impl Instance {
@@ -360,6 +361,57 @@ impl Instance {
         Ok(Outcome {
             value: out.value,
             status: out.status,
+            output,
+        })
+    }
+
+    /// Calls a procedure with full control over the arguments.
+    ///
+    /// * `target` selects the project (`Proc` / `Module.Proc`, like
+    ///   [`run`](Instance::run)) or one object instance.
+    /// * Arguments may be values, [`Arg::by_ref`] variables (their final
+    ///   values come back in [`CallResult::byref`]), [`Arg::missing`] and
+    ///   [`Arg::named`] ones. Only parameters declared `ByRef` (the VBA
+    ///   default) write back; the value is converted to the declared type
+    ///   first (error 13 when it cannot be). A wrong argument count is
+    ///   error 450, a missing required argument 449, an unknown parameter
+    ///   name 448 and a parameter given twice 446.
+    /// * An unhandled error ends the call with an `Err` that carries the
+    ///   error, the failing procedure and the call stack.
+    ///
+    /// ```
+    /// use vba::{Arg, Engine, Project, CallTarget, Variant};
+    ///
+    /// let project = Project::from_source(
+    ///     "Module1",
+    ///     "Public Sub BeforeUpdate(Cancel As Integer)\n  Cancel = True\nEnd Sub\n",
+    /// );
+    /// let mut inst = Engine::new().load(&project).unwrap();
+    /// inst.trust();
+    /// let r = inst
+    ///     .call(CallTarget::Project, "BeforeUpdate", vec![Arg::by_ref(Variant::Integer(0))])
+    ///     .unwrap();
+    /// assert_eq!(r.byref, vec![Variant::Integer(-1)]);
+    /// ```
+    pub fn call(
+        &mut self,
+        target: CallTarget,
+        procedure: &str,
+        args: Vec<Arg>,
+    ) -> Result<CallResult, Error> {
+        let before = self.sink.contents().len();
+        let (positional, named) = split_args(args).map_err(|why| {
+            Error::Run(vba_runtime::Error::NotCallable(procedure.to_owned(), why))
+        })?;
+        let r = self
+            .session
+            .call(&target.to_runtime(), procedure, positional, named);
+        let output = self.sink.contents()[before..].to_owned();
+        let out = r.map_err(Error::Run)?;
+        Ok(CallResult {
+            value: out.value,
+            status: out.status,
+            byref: out.byref,
             output,
         })
     }
