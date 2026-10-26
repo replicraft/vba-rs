@@ -7,10 +7,10 @@ use vba_project::{Module, ModuleKind, SysKind, VbaProject, VersionInfo};
 
 use crate::codepage;
 use crate::compression::decompress;
-use crate::dir::{DirInfo, DirModule};
+use crate::dir::{DirInfo, DirModule, UnknownRecord};
 use crate::error::Error;
 use crate::keys;
-use crate::options::Limits;
+use crate::options::{Limits, ReadMode};
 use crate::project_stream::{self, ProjectProps};
 
 /// Size of the version-independent header of the `_VBA_PROJECT` stream
@@ -135,6 +135,21 @@ pub(crate) fn module_kind(props: &ProjectProps, m: &DirModule) -> ModuleKind {
 /// data. Projects whose module streams hold no source (stripped or
 /// compiled-only) are read with `has_source == false` on those modules.
 pub fn read_project(bytes: &[u8], limits: &Limits) -> Result<VbaProject, Error> {
+    read_project_with(bytes, limits, ReadMode::Strict)
+}
+
+/// Like [`read_project`], with a choice of [`ReadMode`].
+///
+/// In [`ReadMode::Tolerant`], `dir` records with identifiers outside the
+/// MS-OVBA grammar are kept as opaque blobs in the model's `Preserved` slots
+/// (see [`keys::DIR_UNKNOWN`] and [`keys::MODULE_DIR_UNKNOWN`]) and are
+/// written back unchanged. Everything else is as strict as in
+/// [`ReadMode::Strict`].
+pub fn read_project_with(
+    bytes: &[u8],
+    limits: &Limits,
+    mode: ReadMode,
+) -> Result<VbaProject, Error> {
     let (mut cf, nodes) = open_and_list(bytes, limits)?;
 
     let vba =
@@ -149,7 +164,7 @@ pub fn read_project(bytes: &[u8], limits: &Limits) -> Result<VbaProject, Error> 
 
     let dir_compressed = read_stream(&mut cf, dir_node, limits)?;
     let dir_bytes = decompress_stream(&dir_compressed, &dir_node.path, limits)?;
-    let info = DirInfo::parse(&dir_bytes)?;
+    let info = DirInfo::parse_with(&dir_bytes, mode == ReadMode::Tolerant)?;
 
     let project_raw = read_stream(&mut cf, project_node, limits)?;
     let props = project_stream::parse(&project_raw, info.code_page)?;
@@ -216,6 +231,12 @@ pub fn read_project(bytes: &[u8], limits: &Limits) -> Result<VbaProject, Error> 
         module
             .preserved
             .insert(keys::MODULE_COMPRESSED_SOURCE, compressed.to_vec());
+        if !dm.unknown.is_empty() {
+            module.preserved.insert(
+                keys::MODULE_DIR_UNKNOWN,
+                UnknownRecord::encode_list(&dm.unknown),
+            );
+        }
         project.modules.push(module);
     }
 
@@ -225,6 +246,9 @@ pub fn read_project(bytes: &[u8], limits: &Limits) -> Result<VbaProject, Error> 
     p.insert(keys::VBA_PROJECT_STREAM, vp_raw);
     if !info.trailing.is_empty() {
         p.insert(keys::DIR_TRAILING, info.trailing.clone());
+    }
+    if !info.unknown.is_empty() {
+        p.insert(keys::DIR_UNKNOWN, UnknownRecord::encode_list(&info.unknown));
     }
     p.insert(keys::CFB_VERSION, vec![cf.version().number() as u8]);
 

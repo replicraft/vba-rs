@@ -42,6 +42,19 @@ impl Limits {
     }
 }
 
+/// How strictly the `dir` stream grammar is enforced when reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReadMode {
+    /// A record identifier outside the MS-OVBA grammar is
+    /// [`Error::DirUnexpectedRecord`](crate::Error::DirUnexpectedRecord).
+    #[default]
+    Strict,
+    /// Records with unrecognized identifiers are kept as opaque blobs (and
+    /// written back). They are assumed to be shaped as identifier, 32-bit
+    /// size, payload. Known records in the wrong place are still errors.
+    Tolerant,
+}
+
 /// What to do with cached compiled state when a module's source changes.
 ///
 /// The performance cache holds a compiled form of the source. A host that

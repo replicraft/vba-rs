@@ -68,7 +68,94 @@ pub(crate) struct DirModule {
     pub procedural: bool,
     pub read_only: bool,
     pub private: bool,
+    /// Unrecognized records inside this module's record group (tolerant
+    /// reads only).
+    pub unknown: Vec<UnknownRecord>,
 }
+
+/// A `dir` record whose identifier this crate does not know, kept opaque.
+///
+/// MS-OVBA fixes the set of records by version; a record outside it can only
+/// come from a newer or non-conforming producer. In tolerant mode it is
+/// assumed to have the general shape of nearly every `dir` record: a 16-bit
+/// identifier, a 32-bit size and `size` payload bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UnknownRecord {
+    /// Number of known records that precede it within its scope (the project
+    /// scope, or one module's scope).
+    pub anchor: u32,
+    /// The record identifier.
+    pub id: u16,
+    /// The payload after the size field.
+    pub data: Vec<u8>,
+}
+
+impl UnknownRecord {
+    /// Serializes a list for a `Preserved` slot: per record `anchor` (u32 LE),
+    /// `id` (u16 LE), payload length (u32 LE) and the payload.
+    pub(crate) fn encode_list(list: &[UnknownRecord]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for r in list {
+            out.extend_from_slice(&r.anchor.to_le_bytes());
+            out.extend_from_slice(&r.id.to_le_bytes());
+            out.extend_from_slice(&(r.data.len() as u32).to_le_bytes());
+            out.extend_from_slice(&r.data);
+        }
+        out
+    }
+
+    /// Inverse of [`encode_list`](Self::encode_list); `None` if malformed.
+    pub(crate) fn decode_list(mut b: &[u8]) -> Option<Vec<UnknownRecord>> {
+        let mut out = Vec::new();
+        while !b.is_empty() {
+            let head = b.get(..10)?;
+            let anchor = u32::from_le_bytes(head[0..4].try_into().ok()?);
+            let id = u16::from_le_bytes(head[4..6].try_into().ok()?);
+            let len = u32::from_le_bytes(head[6..10].try_into().ok()?) as usize;
+            let data = b.get(10..10usize.checked_add(len)?)?.to_vec();
+            b = &b[10 + len..];
+            out.push(UnknownRecord { anchor, id, data });
+        }
+        Some(out)
+    }
+}
+
+/// Every record identifier the grammar defines.
+const KNOWN_IDS: [u16; 33] = [
+    ID_SYSKIND,
+    ID_LCID,
+    ID_CODEPAGE,
+    ID_NAME,
+    ID_DOCSTRING,
+    ID_HELPFILE,
+    ID_HELPCONTEXT,
+    ID_LIBFLAGS,
+    ID_VERSION,
+    ID_CONSTANTS,
+    ID_REF_REGISTERED,
+    ID_REF_PROJECT,
+    ID_MODULES,
+    ID_TERMINATOR,
+    ID_PROJECT_COOKIE,
+    ID_LCID_INVOKE,
+    ID_REF_NAME,
+    ID_MODULE_NAME,
+    ID_MODULE_STREAM_NAME,
+    ID_MODULE_DOCSTRING,
+    ID_MODULE_HELPCONTEXT,
+    ID_MODULE_TYPE_PROCEDURAL,
+    ID_MODULE_TYPE_OTHER,
+    ID_MODULE_READONLY,
+    ID_MODULE_PRIVATE,
+    ID_MODULE_TERMINATOR,
+    ID_MODULE_COOKIE,
+    ID_REF_CONTROL,
+    ID_REF_CONTROL_EXT,
+    ID_MODULE_OFFSET,
+    ID_REF_ORIGINAL,
+    ID_COMPAT_VERSION,
+    ID_MODULE_NAME_UNICODE,
+];
 
 /// The decompressed `dir` stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +178,8 @@ pub(crate) struct DirInfo {
     pub modules: Vec<DirModule>,
     /// Bytes after the terminator record; empty in conforming streams.
     pub trailing: Vec<u8>,
+    /// Unrecognized records outside the modules (tolerant reads only).
+    pub unknown: Vec<UnknownRecord>,
 }
 
 // ---------------------------------------------------------------- reading
@@ -98,12 +187,44 @@ pub(crate) struct DirInfo {
 struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
+    tolerant: bool,
+    /// Known records consumed in the current scope.
+    count: u32,
+    /// Unknown records collected in the current scope.
+    unknown: Vec<UnknownRecord>,
 }
 
 impl<'a> Reader<'a> {
-    fn peek_u16(&self) -> Option<u16> {
-        let b = self.data.get(self.pos..self.pos + 2)?;
+    fn raw_peek(&self) -> Option<u16> {
+        let b = self.data.get(self.pos..self.pos.checked_add(2)?)?;
         Some(u16::from_le_bytes([b[0], b[1]]))
+    }
+
+    /// In tolerant mode, consumes records with unknown identifiers.
+    fn skip_unknown(&mut self) -> Result<(), Error> {
+        while self.tolerant {
+            let Some(id) = self.raw_peek() else {
+                return Ok(());
+            };
+            if KNOWN_IDS.contains(&id) {
+                return Ok(());
+            }
+            self.pos += 2;
+            let data = self.sized_bytes("unknown record")?.to_vec();
+            self.unknown.push(UnknownRecord {
+                anchor: self.count,
+                id,
+                data,
+            });
+        }
+        Ok(())
+    }
+
+    /// The next record id, after skipping unknown records when tolerant.
+    /// A truncated unknown record surfaces when the record is consumed.
+    fn peek_u16(&mut self) -> Option<u16> {
+        let _ = self.skip_unknown();
+        self.raw_peek()
     }
 
     fn take(&mut self, n: usize, detail: &'static str) -> Result<&'a [u8], Error> {
@@ -132,6 +253,7 @@ impl<'a> Reader<'a> {
 
     /// Reads a record id and fails unless it is `id`.
     fn expect_id(&mut self, id: u16, expected: &'static str) -> Result<(), Error> {
+        self.skip_unknown()?;
         let at = self.pos;
         let found = self.u16(expected)?;
         if found != id {
@@ -141,6 +263,7 @@ impl<'a> Reader<'a> {
                 found,
             });
         }
+        self.count += 1;
         Ok(())
     }
 
@@ -252,8 +375,22 @@ fn guid_from_string(s: &str) -> Option<[u8; 16]> {
 
 impl DirInfo {
     /// Parses a decompressed `dir` stream.
+    #[cfg(test)]
     pub(crate) fn parse(data: &[u8]) -> Result<DirInfo, Error> {
-        let mut r = Reader { data, pos: 0 };
+        Self::parse_with(data, false)
+    }
+
+    /// Parses a decompressed `dir` stream. With `tolerant`, records with
+    /// unrecognized identifiers are kept as [`UnknownRecord`]s instead of
+    /// being an error.
+    pub(crate) fn parse_with(data: &[u8], tolerant: bool) -> Result<DirInfo, Error> {
+        let mut r = Reader {
+            data,
+            pos: 0,
+            tolerant,
+            count: 0,
+            unknown: Vec::new(),
+        };
 
         // PROJECTINFORMATION (§2.3.4.2.1)
         let sys_kind = r.fixed_u32(ID_SYSKIND, "PROJECTSYSKIND")?;
@@ -315,13 +452,19 @@ impl DirInfo {
         r.fixed(ID_PROJECT_COOKIE, 2, "PROJECTCOOKIE")?;
         let mut modules = Vec::with_capacity(count.min(r.data.len() / 40));
         for _ in 0..count {
-            modules.push(parse_module(&mut r, code_page)?);
+            let saved = (r.count, std::mem::take(&mut r.unknown));
+            r.count = 0;
+            let mut module = parse_module(&mut r, code_page)?;
+            module.unknown = std::mem::replace(&mut r.unknown, saved.1);
+            r.count = saved.0;
+            modules.push(module);
         }
 
         // Terminator and Reserved
         r.expect_id(ID_TERMINATOR, "dir terminator")?;
         r.u32("dir terminator")?;
         let trailing = r.data[r.pos..].to_vec();
+        let unknown = std::mem::take(&mut r.unknown);
 
         Ok(DirInfo {
             sys_kind,
@@ -340,6 +483,7 @@ impl DirInfo {
             references,
             modules,
             trailing,
+            unknown,
         })
     }
 }
@@ -466,6 +610,7 @@ fn parse_module(r: &mut Reader<'_>, cp: u16) -> Result<DirModule, Error> {
     let text_offset = r.fixed_u32(ID_MODULE_OFFSET, "MODULEOFFSET")?;
     let help_context = r.fixed_u32(ID_MODULE_HELPCONTEXT, "MODULEHELPCONTEXT")?;
     r.fixed(ID_MODULE_COOKIE, 2, "MODULECOOKIE")?;
+    r.skip_unknown()?;
     let at = r.pos;
     let type_id = r.u16("MODULETYPE")?;
     let procedural = match type_id {
@@ -479,6 +624,7 @@ fn parse_module(r: &mut Reader<'_>, cp: u16) -> Result<DirModule, Error> {
             });
         }
     };
+    r.count += 1;
     r.u32("MODULETYPE")?; // Reserved
     let mut read_only = false;
     let mut private = false;
@@ -507,6 +653,7 @@ fn parse_module(r: &mut Reader<'_>, cp: u16) -> Result<DirModule, Error> {
         procedural,
         read_only,
         private,
+        unknown: Vec::new(),
     })
 }
 
@@ -521,12 +668,52 @@ impl Reader<'_> {
 
 // ---------------------------------------------------------------- writing
 
+type Scope = (u32, std::collections::VecDeque<UnknownRecord>);
+
 struct Writer {
     out: Vec<u8>,
     code_page: u16,
+    /// Known records written in the current scope.
+    count: u32,
+    /// Unknown records of the current scope still to be written.
+    pending: std::collections::VecDeque<UnknownRecord>,
 }
 
 impl Writer {
+    /// Starts a known record: first writes unknown records anchored here.
+    fn rec(&mut self, id: u16) {
+        self.flush(false);
+        self.count += 1;
+        self.u16(id);
+    }
+
+    fn flush(&mut self, all: bool) {
+        while let Some(front) = self.pending.front() {
+            if !all && front.anchor > self.count {
+                break;
+            }
+            let r = self.pending.pop_front().expect("front exists");
+            self.u16(r.id);
+            self.u32(r.data.len() as u32);
+            self.out.extend_from_slice(&r.data);
+        }
+    }
+
+    /// Enters a scope with its own record count and unknown records; returns
+    /// the state to restore with [`leave`](Self::leave).
+    fn enter(&mut self, unknown: &[UnknownRecord]) -> Scope {
+        let saved = (self.count, std::mem::take(&mut self.pending));
+        self.count = 0;
+        self.pending = unknown.iter().cloned().collect();
+        saved
+    }
+
+    fn leave(&mut self, saved: Scope) {
+        self.flush(true);
+        self.count = saved.0;
+        self.pending = saved.1;
+    }
+
     fn u16(&mut self, v: u16) {
         self.out.extend_from_slice(&v.to_le_bytes());
     }
@@ -536,7 +723,7 @@ impl Writer {
     }
 
     fn fixed_u32(&mut self, id: u16, v: u32) {
-        self.u16(id);
+        self.rec(id);
         self.u32(4);
         self.u32(v);
     }
@@ -560,7 +747,7 @@ impl Writer {
     }
 
     fn string_pair(&mut self, id: u16, reserved: u16, text: &str, what: &str) -> Result<(), Error> {
-        self.u16(id);
+        self.rec(id);
         self.mbcs(text, what)?;
         self.u16(reserved);
         self.unicode(text, what)
@@ -574,6 +761,8 @@ impl DirInfo {
         let mut w = Writer {
             out: Vec::new(),
             code_page: self.code_page,
+            count: 0,
+            pending: self.unknown.iter().cloned().collect(),
         };
         w.fixed_u32(ID_SYSKIND, self.sys_kind);
         if let Some(v) = self.compat_version {
@@ -581,10 +770,10 @@ impl DirInfo {
         }
         w.fixed_u32(ID_LCID, self.lcid);
         w.fixed_u32(ID_LCID_INVOKE, self.lcid_invoke);
-        w.u16(ID_CODEPAGE);
+        w.rec(ID_CODEPAGE);
         w.u32(2);
         w.u16(self.code_page);
-        w.u16(ID_NAME);
+        w.rec(ID_NAME);
         w.mbcs(&self.name, "project name")?;
         w.string_pair(
             ID_DOCSTRING,
@@ -592,13 +781,13 @@ impl DirInfo {
             &self.doc_string,
             "project description",
         )?;
-        w.u16(ID_HELPFILE);
+        w.rec(ID_HELPFILE);
         w.mbcs(&self.help_file, "help file path")?;
         w.u16(RESERVED_HELPFILE);
         w.mbcs(&self.help_file, "help file path")?;
         w.fixed_u32(ID_HELPCONTEXT, self.help_context);
         w.fixed_u32(ID_LIBFLAGS, self.lib_flags);
-        w.u16(ID_VERSION);
+        w.rec(ID_VERSION);
         w.u32(4);
         w.u32(self.version_major);
         w.u16(self.version_minor);
@@ -612,17 +801,18 @@ impl DirInfo {
 
         let count = u16::try_from(self.modules.len())
             .map_err(|_| Error::TooLarge("a project holds at most 65535 modules".into()))?;
-        w.u16(ID_MODULES);
+        w.rec(ID_MODULES);
         w.u32(2);
         w.u16(count);
-        w.u16(ID_PROJECT_COOKIE);
+        w.rec(ID_PROJECT_COOKIE);
         w.u32(2);
         w.u16(0xFFFF);
         for m in &self.modules {
-            w.u16(ID_MODULE_NAME);
+            let saved = w.enter(&m.unknown);
+            w.rec(ID_MODULE_NAME);
             w.mbcs(&m.name, "module name")?;
             if m.has_unicode_name {
-                w.u16(ID_MODULE_NAME_UNICODE);
+                w.rec(ID_MODULE_NAME_UNICODE);
                 w.unicode(&m.name, "module name")?;
             }
             w.string_pair(
@@ -639,28 +829,30 @@ impl DirInfo {
             )?;
             w.fixed_u32(ID_MODULE_OFFSET, m.text_offset);
             w.fixed_u32(ID_MODULE_HELPCONTEXT, m.help_context);
-            w.u16(ID_MODULE_COOKIE);
+            w.rec(ID_MODULE_COOKIE);
             w.u32(2);
             w.u16(0xFFFF);
-            w.u16(if m.procedural {
+            w.rec(if m.procedural {
                 ID_MODULE_TYPE_PROCEDURAL
             } else {
                 ID_MODULE_TYPE_OTHER
             });
             w.u32(0);
             if m.read_only {
-                w.u16(ID_MODULE_READONLY);
+                w.rec(ID_MODULE_READONLY);
                 w.u32(0);
             }
             if m.private {
-                w.u16(ID_MODULE_PRIVATE);
+                w.rec(ID_MODULE_PRIVATE);
                 w.u32(0);
             }
-            w.u16(ID_MODULE_TERMINATOR);
+            w.rec(ID_MODULE_TERMINATOR);
             w.u32(0);
+            w.leave(saved);
         }
-        w.u16(ID_TERMINATOR);
+        w.rec(ID_TERMINATOR);
         w.u32(0);
+        w.flush(true);
         w.out.extend_from_slice(&self.trailing);
         Ok(w.out)
     }
@@ -677,7 +869,7 @@ fn serialize_reference(w: &mut Writer, reference: &Reference) -> Result<(), Erro
         Reference::Registered { name, libid } => {
             name_record(w, name)?;
             let bytes = codepage::encode(w.code_page, libid, "reference libid")?;
-            w.u16(ID_REF_REGISTERED);
+            w.rec(ID_REF_REGISTERED);
             w.u32((4 + bytes.len() + 4 + 2) as u32);
             w.sized(&bytes, "reference libid")?;
             w.u32(0);
@@ -693,7 +885,7 @@ fn serialize_reference(w: &mut Writer, reference: &Reference) -> Result<(), Erro
             name_record(w, name)?;
             let abs = codepage::encode(w.code_page, libid_absolute, "reference libid")?;
             let rel = codepage::encode(w.code_page, libid_relative, "reference libid")?;
-            w.u16(ID_REF_PROJECT);
+            w.rec(ID_REF_PROJECT);
             w.u32((4 + abs.len() + 4 + rel.len() + 4 + 2) as u32);
             w.sized(&abs, "reference libid")?;
             w.sized(&rel, "reference libid")?;
@@ -711,11 +903,11 @@ fn serialize_reference(w: &mut Writer, reference: &Reference) -> Result<(), Erro
         } => {
             name_record(w, name)?;
             if let Some(orig) = libid_original {
-                w.u16(ID_REF_ORIGINAL);
+                w.rec(ID_REF_ORIGINAL);
                 w.mbcs(orig, "reference libid")?;
             }
             let twiddled = codepage::encode(w.code_page, libid_twiddled, "reference libid")?;
-            w.u16(ID_REF_CONTROL);
+            w.rec(ID_REF_CONTROL);
             w.u32((4 + twiddled.len() + 4 + 2) as u32);
             w.sized(&twiddled, "reference libid")?;
             w.u32(0);
@@ -725,7 +917,7 @@ fn serialize_reference(w: &mut Writer, reference: &Reference) -> Result<(), Erro
             let guid = guid_from_string(original_type_lib).ok_or_else(|| {
                 Error::UnsupportedEdit(format!("invalid type library GUID {original_type_lib:?}"))
             })?;
-            w.u16(ID_REF_CONTROL_EXT);
+            w.rec(ID_REF_CONTROL_EXT);
             w.u32((4 + ext.len() + 4 + 2 + 16 + 4) as u32);
             w.sized(&ext, "reference libid")?;
             w.u32(0);

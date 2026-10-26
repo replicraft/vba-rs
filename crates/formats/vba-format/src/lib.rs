@@ -30,8 +30,8 @@ mod write;
 
 pub use compression::{DecompressError, compress, decompress};
 pub use error::Error;
-pub use options::{Limits, StaleCache, WriteOptions};
-pub use read::read_project;
+pub use options::{Limits, ReadMode, StaleCache, WriteOptions};
+pub use read::{read_project, read_project_with};
 pub use write::write_project;
 
 /// Keys under which this crate stores uninterpreted data in the model's
@@ -41,6 +41,14 @@ pub mod keys {
     pub const DIR: &str = "ovba:dir";
     /// Project: bytes following the `dir` stream's terminator record.
     pub const DIR_TRAILING: &str = "ovba:dir-trailing";
+    /// Project: unrecognized `dir` records outside modules, read in
+    /// [`ReadMode::Tolerant`](crate::ReadMode::Tolerant). Per record, in
+    /// order: anchor (u32 LE, count of known records before it in the scope),
+    /// identifier (u16 LE), payload length (u32 LE), payload.
+    pub const DIR_UNKNOWN: &str = "ovba:dir-unknown";
+    /// Module: unrecognized `dir` records inside the module's record group;
+    /// same encoding as [`DIR_UNKNOWN`].
+    pub const MODULE_DIR_UNKNOWN: &str = "ovba:module/dir-unknown";
     /// Project: the original `PROJECT` stream.
     pub const PROJECT_STREAM: &str = "ovba:project-stream";
     /// Project: the original `_VBA_PROJECT` stream, including its cache.

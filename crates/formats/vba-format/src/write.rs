@@ -24,7 +24,7 @@ use vba_project::{Module, ModuleKind, VbaProject};
 
 use crate::codepage;
 use crate::compression::compress;
-use crate::dir::{DirInfo, DirModule};
+use crate::dir::{DirInfo, DirModule, UnknownRecord};
 use crate::error::Error;
 use crate::keys;
 use crate::options::{Limits, StaleCache, WriteOptions};
@@ -112,7 +112,7 @@ fn edit_layout(project: &VbaProject, options: &WriteOptions) -> Result<Layout, E
         .get(keys::DIR)
         .ok_or_else(|| missing(keys::DIR))?;
     let orig_dir_bytes = decompress_stream(orig_dir_compressed, "dir", &limits)?;
-    let mut orig = DirInfo::parse(&orig_dir_bytes)?;
+    let mut orig = DirInfo::parse_with(&orig_dir_bytes, true)?;
     if let Some(t) = project.preserved.get(keys::DIR_TRAILING) {
         orig.trailing = t.to_vec();
     }
@@ -162,6 +162,17 @@ fn edit_layout(project: &VbaProject, options: &WriteOptions) -> Result<Layout, E
     // Apply the model to the dir records.
     let mut info = orig.clone();
     apply_model(&mut info, project);
+    let decode_unknown = |bytes: Option<&[u8]>| -> Result<Vec<UnknownRecord>, Error> {
+        bytes.map_or(Ok(Vec::new()), |b| {
+            UnknownRecord::decode_list(b).ok_or_else(|| {
+                Error::UnsupportedEdit("preserved unknown dir records are malformed".into())
+            })
+        })
+    };
+    info.unknown = decode_unknown(project.preserved.get(keys::DIR_UNKNOWN))?;
+    for (dm, m) in info.modules.iter_mut().zip(&project.modules) {
+        dm.unknown = decode_unknown(m.preserved.get(keys::MODULE_DIR_UNKNOWN))?;
+    }
     for (i, dm) in info.modules.iter_mut().enumerate() {
         if changed[i] && invalidate {
             dm.text_offset = 0;
@@ -365,6 +376,7 @@ fn fresh_layout(project: &VbaProject) -> Result<Layout, Error> {
         references: project.references.clone(),
         modules: project.modules.iter().map(fresh_dir_module).collect(),
         trailing: Vec::new(),
+        unknown: Vec::new(),
     };
     let mut layout = Layout {
         streams: BTreeMap::new(),
@@ -408,6 +420,7 @@ fn fresh_dir_module(m: &Module) -> DirModule {
         procedural: m.kind == ModuleKind::Standard,
         read_only: m.read_only,
         private: m.private,
+        unknown: Vec::new(),
     }
 }
 
