@@ -31,7 +31,9 @@ impl WorkMeter for BudgetWork<'_> {
     }
 }
 use vba_stdlib::interaction::PrintHelper;
-use vba_value::{CompareMode, PointerWidth, VarType, Variant, VbaError, VbaString, convert};
+use vba_value::{
+    Bounds, CompareMode, PointerWidth, VarType, Variant, VbaError, VbaString, convert,
+};
 
 use crate::calls::is_missing_marker;
 use crate::error::{Fault, RtErr, VResult};
@@ -808,12 +810,12 @@ impl Vm {
                 let Variant::Array(a) = cur else {
                     return Err(VbaError::TYPE_MISMATCH.into());
                 };
-                if !a.is_fixed() {
-                    return Err(Fault::Unsupported(
-                        "Get/Put of a dynamic array (the array descriptor is not modelled)".into(),
-                    ));
-                }
                 let first = a.iter().next().cloned().unwrap_or(Variant::Empty);
+                if !a.is_fixed() {
+                    return Ok(Shape::DynArray {
+                        elem: Box::new(self.shape_of(elem, &first)?),
+                    });
+                }
                 Shape::Array {
                     elem: Box::new(self.shape_of(elem, &first)?),
                     count: a.len(),
@@ -919,6 +921,17 @@ impl Vm {
                         .collect::<VResult<_>>()?,
                 )
             }
+            Variant::Array(a) if !a.is_fixed() => RecordValue::Dynamic {
+                dims: a
+                    .bounds()
+                    .iter()
+                    .map(|b| (b.lower, b.len() as u32))
+                    .collect(),
+                elems: a
+                    .iter()
+                    .map(|f| self.record_of(f))
+                    .collect::<VResult<_>>()?,
+            },
             Variant::Array(a) => RecordValue::Fields(
                 a.iter()
                     .map(|f| self.record_of(f))
@@ -959,6 +972,34 @@ impl Vm {
                 let firsts: Vec<Variant> = a.iter().cloned().collect();
                 for ((e, r), c) in a.iter_mut().zip(fs).zip(firsts) {
                     *e = self.value_from_record(elem, r, &c)?;
+                }
+                Ok(Variant::Array(Box::new(a)))
+            }
+            (Type::Array { elem, .. }, RecordValue::Dynamic { dims, elems }) => {
+                let Variant::Array(a) = cur else {
+                    return Err(VbaError::TYPE_MISMATCH.into());
+                };
+                let mut a = (**a).clone();
+                let old: Vec<Variant> = a.iter().cloned().collect();
+                if dims.is_empty() {
+                    a.erase();
+                } else {
+                    let bounds: Vec<Bounds> = dims
+                        .iter()
+                        .map(|(l, c)| Bounds::new(*l, (i64::from(*l) + i64::from(*c) - 1) as i32))
+                        .collect();
+                    let total = elems.len() as u64;
+                    if total > self.cfg.max_array_elements {
+                        return Err(VbaError::OUT_OF_MEMORY.into());
+                    }
+                    self.check_room(vba_value::ELEMENT_BYTES.saturating_mul(total))?;
+                    a.redim(&bounds, false)?;
+                    for (e, r) in a.iter_mut().zip(elems) {
+                        *e = self.value_from_record(elem, r, &Variant::Empty)?;
+                    }
+                }
+                for v in old {
+                    self.release_value(v)?;
                 }
                 Ok(Variant::Array(Box::new(a)))
             }

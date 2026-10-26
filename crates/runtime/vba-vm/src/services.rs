@@ -49,6 +49,13 @@ pub enum Shape {
         /// Number of elements.
         count: usize,
     },
+    /// A dynamic array: a descriptor (dimension count, then per dimension
+    /// the element count and the lower bound) followed by the elements in
+    /// storage order. `Get` takes the bounds from the descriptor.
+    DynArray {
+        /// Element shape.
+        elem: Box<Shape>,
+    },
 }
 
 /// A record value matching a [`Shape`].
@@ -58,6 +65,14 @@ pub enum RecordValue {
     Scalar(Variant),
     /// The fields of a user-defined type, or the elements of an array.
     Fields(Vec<RecordValue>),
+    /// A dynamic array: `(lower bound, element count)` per dimension, and
+    /// the elements in storage order. No dimensions is an unallocated array.
+    Dynamic {
+        /// `(lower bound, element count)` of each dimension.
+        dims: Vec<(i32, u32)>,
+        /// The elements.
+        elems: Vec<RecordValue>,
+    },
 }
 
 /// A file statement with evaluated operands.

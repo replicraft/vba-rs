@@ -165,7 +165,12 @@ the policy sees the normalized path.
   `String * n` space padded ANSI, variable strings raw in binary mode and with a
   two-byte length in random mode, `Variant` with a two-byte type tag (a `Decimal`
   is the 16 bytes of MS-OAUT 2.2.26, an error its HRESULT `0x800A0000 + n`), UDTs and
-  fixed arrays as the concatenation of their members; random records are padded
+  fixed arrays as the concatenation of their members; a dynamic array (also as
+  a UDT member) is a descriptor of 2 + 8 bytes per dimension (a two-byte
+  dimension count, then each dimension's element count and lower bound as two
+  `Long`s; the order of the two is **unverified**) followed by the elements, and
+  `Get` re-dimensions the target from it (an unallocated array writes the
+  two-byte count alone and reads back as unallocated); random records are padded
   to `Len` (error 59 if larger). Unknown `Variant` tags are error 321.
 - `Dir` supports `*` and `?`, the `vbDirectory`/`vbHidden`/`vbSystem`
   attributes, and a plain name to test existence. `Kill` accepts wildcards.
@@ -193,9 +198,7 @@ the policy sees the normalized path.
   `Reset` closes every open file and writes the buffers.
 
 **Not implemented:** `ChDrive` to another drive (error 68), `Get`/`Put` of
-variants holding arrays or objects and of dynamic arrays (the array descriptor of
-the documentation, 2 + 8 bytes per dimension, has no documented layout), UNC
-paths. `Lock` clauses
+variants holding arrays or objects, UNC paths. `Lock` clauses
 and `Lock` ranges only restrict other file numbers of the same session, never
 other processes.
 

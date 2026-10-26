@@ -274,8 +274,7 @@ by a test of our own expectation and none was compared with Office.
 
 - `AddressOf` is a token for the emulated shims only: no native function can call a VBA procedure (no thunk is generated), and `AddressOf` of a `Declare` is rejected by the analysis.
 - `LSet`/`RSet` between user-defined types whose members differ in type (the
-  byte image would be needed), `Get`/`Put` of dynamic arrays
-  are explicit `Unsupported` errors.
+  byte image would be needed) is an explicit `Unsupported` error.
 - A VBA object passed to a host is an opaque handle in the host's table; the host
   calls its members through `HostContext` (`call_on`, `get_member`...), not through
   `Dispatch` on the handle.

@@ -6,7 +6,11 @@
 //! mode and a two-byte length followed by its bytes in random mode. A
 //! `Variant` is a two-byte `VarType` followed by its data (**doc**: layout of
 //! VBA's own files; unverified). User-defined types and fixed arrays are the
-//! concatenation of their members.
+//! concatenation of their members. A dynamic array is a descriptor of
+//! `2 + 8 * dimensions` bytes (a two-byte dimension count, then for each
+//! dimension a four-byte element count and a four-byte lower bound) followed
+//! by its elements in storage order (**doc**: the Get and Put statement
+//! pages; the order of the two fields of a dimension is unverified).
 
 use vba_ffi::{Codepage, Unmappable};
 use vba_value::{Currency, Date, VarType, Variant, VbaError, VbaString, convert};
@@ -63,6 +67,25 @@ pub fn encode(
         }
         (Shape::Array { elem, count }, RecordValue::Fields(vals)) if vals.len() == *count => {
             for v in vals {
+                encode(elem, v, random, out)?;
+            }
+            Ok(())
+        }
+        (Shape::DynArray { elem }, RecordValue::Dynamic { dims, elems }) => {
+            let n = u16::try_from(dims.len()).map_err(|_| type_mismatch())?;
+            let mut total: u64 = u64::from(!dims.is_empty());
+            for (_, c) in dims {
+                total = total.saturating_mul(u64::from(*c));
+            }
+            if total != elems.len() as u64 {
+                return Err(type_mismatch());
+            }
+            out.extend_from_slice(&n.to_le_bytes());
+            for (lower, count) in dims {
+                out.extend_from_slice(&count.to_le_bytes());
+                out.extend_from_slice(&lower.to_le_bytes());
+            }
+            for v in elems {
                 encode(elem, v, random, out)?;
             }
             Ok(())
@@ -186,6 +209,10 @@ impl<'a> Reader<'a> {
         self.pos
     }
 
+    fn remaining(&self) -> usize {
+        self.data.len().saturating_sub(self.pos)
+    }
+
     fn take(&mut self, n: usize) -> Result<&'a [u8], FsError> {
         let end = self.pos.checked_add(n).ok_or(FsError::Vba(62))?;
         if end > self.data.len() {
@@ -225,6 +252,33 @@ pub fn decode(shape: &Shape, r: &mut Reader<'_>, random: bool) -> Result<RecordV
                 .map(|_| decode(elem, r, random))
                 .collect::<Result<_, _>>()?,
         ),
+        Shape::DynArray { elem } => {
+            let n = usize::from(u16::from_le_bytes(
+                r.take(2)?.try_into().expect("two bytes"),
+            ));
+            let mut dims = Vec::new();
+            let mut total: u64 = u64::from(n > 0);
+            for _ in 0..n {
+                let b = r.take(8)?;
+                let count = u32::from_le_bytes(b[0..4].try_into().expect("4"));
+                let lower = i32::from_le_bytes(b[4..8].try_into().expect("4"));
+                // Not a descriptor VBA writes: an upper bound beyond Long.
+                if i64::from(lower) + i64::from(count) - 1 > i64::from(i32::MAX) {
+                    return Err(FsError::Vba(321));
+                }
+                total = total.saturating_mul(u64::from(count));
+                dims.push((lower, count));
+            }
+            // Every element takes at least one byte, so a count beyond the
+            // remaining bytes is a short file, whatever it would allocate.
+            if total > r.remaining() as u64 {
+                return Err(FsError::Vba(62));
+            }
+            let elems = (0..total)
+                .map(|_| decode(elem, r, random))
+                .collect::<Result<_, _>>()?;
+            RecordValue::Dynamic { dims, elems }
+        }
     })
 }
 
@@ -258,7 +312,9 @@ fn decode_scalar(vt: VarType, r: &mut Reader<'_>) -> Result<Variant, FsError> {
                 Some(VarType::String) => {
                     match decode(&Shape::VarString { current_len: 0 }, r, true)? {
                         RecordValue::Scalar(v) => v,
-                        RecordValue::Fields(_) => return Err(type_mismatch()),
+                        RecordValue::Fields(_) | RecordValue::Dynamic { .. } => {
+                            return Err(type_mismatch());
+                        }
                     }
                 }
                 Some(
@@ -314,6 +370,7 @@ fn fixed_size(shape: &Shape) -> Option<usize> {
         Shape::VarString { .. } => return None,
         Shape::Udt(s) => s.iter().map(fixed_size).sum::<Option<usize>>()?,
         Shape::Array { elem, count } => fixed_size(elem)? * count,
+        Shape::DynArray { .. } => return None,
     })
 }
 
@@ -385,6 +442,42 @@ mod tests {
             let rv = RecordValue::Scalar(v);
             assert_eq!(roundtrip(&shape, &rv, true), rv);
         }
+    }
+
+    #[test]
+    fn dynamic_arrays_carry_a_descriptor() {
+        let shape = Shape::DynArray {
+            elem: Box::new(Shape::Scalar(VarType::Integer)),
+        };
+        let v = RecordValue::Dynamic {
+            dims: vec![(1, 2), (0, 2)],
+            elems: (1..=4)
+                .map(|i| RecordValue::Scalar(Variant::Integer(i)))
+                .collect(),
+        };
+        let mut b = Vec::new();
+        encode(&shape, &v, false, &mut b).unwrap();
+        // 2 + 8 * dimensions bytes of descriptor, then 4 * 2 bytes of data.
+        assert_eq!(b.len(), 2 + 16 + 8);
+        assert_eq!(&b[..10], [2, 0, 2, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(roundtrip(&shape, &v, false), v);
+        let none = RecordValue::Dynamic {
+            dims: vec![],
+            elems: vec![],
+        };
+        assert_eq!(roundtrip(&shape, &none, true), none);
+    }
+
+    #[test]
+    fn a_descriptor_larger_than_the_file_is_error_62() {
+        let shape = Shape::DynArray {
+            elem: Box::new(Shape::Scalar(VarType::Byte)),
+        };
+        let mut data = vec![1, 0];
+        data.extend_from_slice(&1_000_000u32.to_le_bytes());
+        data.extend_from_slice(&0i32.to_le_bytes());
+        let mut r = Reader::new(&data, 0);
+        assert_eq!(decode(&shape, &mut r, false), Err(FsError::Vba(62)));
     }
 
     #[test]
