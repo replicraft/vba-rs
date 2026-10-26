@@ -150,6 +150,15 @@ const CASES: &[Case] = &[
         )],
         expect: &["SEM021@1", "SEM010@3"],
     },
+    Case {
+        name: "a type containing itself, directly and through others",
+        mods: &[(
+            "M",
+            Standard,
+            "Private Type A\nx As A\nEnd Type\nPrivate Type B\ny As C\nEnd Type\nPrivate Type C\nz As B\nEnd Type\nPrivate Type D\nw As B\nEnd Type\nPrivate Type E\nv As Long\nEnd Type\n",
+        )],
+        expect: &["SEM027@1", "SEM027@4", "SEM027@7"],
+    },
     // ---- parameters ----------------------------------------------------
     Case {
         name: "parameter rules",
@@ -543,4 +552,35 @@ fn diagnostics_table() {
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n\n"));
+}
+
+#[test]
+fn a_chain_of_thousands_of_nested_types_is_analysed_in_linear_time() {
+    // T0 contains T1 contains ... T(n-1): no cycle, and the check must not
+    // walk the whole chain once per type.
+    let n = 20_000;
+    let mut src = String::new();
+    for k in 0..n {
+        src.push_str(&format!("Private Type T{k}\nx As Long\n"));
+        if k + 1 < n {
+            src.push_str(&format!("y As T{}\n", k + 1));
+        }
+        src.push_str("End Type\n");
+    }
+    let start = std::time::Instant::now();
+    let a = vba_sema::analyze_sources(
+        &[bas("M", &src)],
+        &profile64(),
+        &vba_sema::NoLibraries,
+        &vba_sema::Options::default(),
+    );
+    let took = start.elapsed();
+    assert!(
+        a.diagnostics
+            .iter()
+            .all(|d| d.severity != vba_diagnostics::Severity::Error),
+        "{:?}",
+        a.diagnostics.first()
+    );
+    assert!(took < std::time::Duration::from_secs(10), "{took:?}");
 }

@@ -583,7 +583,44 @@ fn definite_assignment(cx: &mut Ctx<'_>) {
     let f = cx.f;
     let n = f.blocks.len();
     let nregs = f.regs.len();
-    let words = nregs.div_ceil(64).max(1);
+    // Registers are defined exactly once (checked by the caller). Most are
+    // used only in the block that defines them, and for those the check is a
+    // walk through that block. Only registers used in another block take part
+    // in the data-flow, so the sets are as wide as the number of such
+    // registers and not as wide as all registers; otherwise a function with
+    // many blocks would need blocks x registers bits.
+    let mut def_block = vec![u32::MAX; nregs];
+    for (bi, b) in f.blocks.iter().enumerate() {
+        for i in &b.insts {
+            if let Some(r) = inst_def(&i.kind) {
+                def_block[r.0 as usize] = bi as u32;
+            }
+        }
+        if let Some(r) = term_def(&b.term) {
+            def_block[r.0 as usize] = bi as u32;
+        }
+    }
+    let mut dense = vec![u32::MAX; nregs];
+    let mut shared = 0usize;
+    {
+        let mut mark = |r: Reg, bi: usize| {
+            if def_block[r.0 as usize] != bi as u32 && dense[r.0 as usize] == u32::MAX {
+                dense[r.0 as usize] = shared as u32;
+                shared += 1;
+            }
+        };
+        for (bi, b) in f.blocks.iter().enumerate() {
+            for i in &b.insts {
+                for u in inst_uses(&i.kind) {
+                    mark(u, bi);
+                }
+            }
+            for u in term_uses(&b.term) {
+                mark(u, bi);
+            }
+        }
+    }
+    let words = shared.div_ceil(64).max(1);
     // Roots with an empty entry set: the entry and every handler entry.
     let mut root = vec![false; n];
     root[0] = true;
@@ -597,7 +634,6 @@ fn definite_assignment(cx: &mut Ctx<'_>) {
             }
         }
     }
-    let top = vec![u64::MAX; words];
     let mut inset: Vec<Option<Vec<u64>>> = vec![None; n];
     for (i, r) in root.iter().enumerate() {
         if *r {
@@ -606,13 +642,19 @@ fn definite_assignment(cx: &mut Ctx<'_>) {
     }
     let defs_of = |b: &Block| -> Vec<u64> {
         let mut d = vec![0u64; words];
+        let mut add = |r: Reg| {
+            let x = dense[r.0 as usize];
+            if x != u32::MAX {
+                d[x as usize / 64] |= 1 << (x % 64);
+            }
+        };
         for i in &b.insts {
             if let Some(r) = inst_def(&i.kind) {
-                d[r.0 as usize / 64] |= 1 << (r.0 % 64);
+                add(r);
             }
         }
         if let Some(r) = term_def(&b.term) {
-            d[r.0 as usize / 64] |= 1 << (r.0 % 64);
+            add(r);
         }
         d
     };
@@ -645,14 +687,23 @@ fn definite_assignment(cx: &mut Ctx<'_>) {
             }
         }
     }
-    let _ = top;
+    // `stamp[r] == bi + 1` once `r` is defined in block `bi` (for registers
+    // that never leave their block).
+    let mut stamp = vec![0u32; nregs];
     for (bi, b) in f.blocks.iter().enumerate() {
         let Some(mut have) = inset[bi].clone() else {
             continue;
         };
         let bid = BlockId(bi as u32);
-        let check = |cx: &mut Ctx<'_>, have: &Vec<u64>, r: Reg| {
-            if have[r.0 as usize / 64] & (1 << (r.0 % 64)) == 0 {
+        let tag = bi as u32 + 1;
+        let check = |cx: &mut Ctx<'_>, have: &[u64], stamp: &[u32], r: Reg| {
+            let x = dense[r.0 as usize];
+            let ok = if x == u32::MAX {
+                stamp[r.0 as usize] == tag
+            } else {
+                have[x as usize / 64] & (1 << (x % 64)) != 0
+            };
+            if !ok {
                 cx.err(
                     Some(bid),
                     format!("register r{} used before it is defined", r.0),
@@ -661,14 +712,18 @@ fn definite_assignment(cx: &mut Ctx<'_>) {
         };
         for i in &b.insts {
             for u in inst_uses(&i.kind) {
-                check(cx, &have, u);
+                check(cx, &have, &stamp, u);
             }
             if let Some(d) = inst_def(&i.kind) {
-                have[d.0 as usize / 64] |= 1 << (d.0 % 64);
+                stamp[d.0 as usize] = tag;
+                let x = dense[d.0 as usize];
+                if x != u32::MAX {
+                    have[x as usize / 64] |= 1 << (x % 64);
+                }
             }
         }
         for u in term_uses(&b.term) {
-            check(cx, &have, u);
+            check(cx, &have, &stamp, u);
         }
     }
 }
