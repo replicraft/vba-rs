@@ -173,7 +173,7 @@ impl Vm {
         self.store(
             &Loc::Elem {
                 base: Box::new(loc.clone()),
-                idx,
+                idx: idx.into(),
             },
             v,
         )

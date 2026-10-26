@@ -22,6 +22,42 @@ pub(crate) fn vm_id(h: ObjectHandle) -> Option<u64> {
     (h.0 & OBJ_BIT != 0).then_some(h.0 & !OBJ_BIT)
 }
 
+/// Array subscripts; up to three are stored inline so that taking a
+/// reference to an element does not allocate for them.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Idx {
+    Inline(u8, [i32; 3]),
+    Heap(Vec<i32>),
+}
+
+impl Idx {
+    pub(crate) fn from_slice(s: &[i32]) -> Idx {
+        if s.len() <= 3 {
+            let mut v = [0; 3];
+            v[..s.len()].copy_from_slice(s);
+            Idx::Inline(s.len() as u8, v)
+        } else {
+            Idx::Heap(s.to_vec())
+        }
+    }
+}
+
+impl From<Vec<i32>> for Idx {
+    fn from(v: Vec<i32>) -> Idx {
+        Idx::from_slice(&v)
+    }
+}
+
+impl std::ops::Deref for Idx {
+    type Target = [i32];
+    fn deref(&self) -> &[i32] {
+        match self {
+            Idx::Inline(n, v) => &v[..usize::from(*n)],
+            Idx::Heap(v) => v,
+        }
+    }
+}
+
 /// A storage location a reference can designate.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Loc {
@@ -32,7 +68,7 @@ pub(crate) enum Loc {
     /// A field of a class instance (index into the instance's fields).
     Field { obj: u64, index: u32 },
     /// An element of the array stored at `base`.
-    Elem { base: Box<Loc>, idx: Vec<i32> },
+    Elem { base: Box<Loc>, idx: Idx },
     /// A field of the user-defined-type value stored at `base`.
     UdtField { base: Box<Loc>, index: u32 },
 }

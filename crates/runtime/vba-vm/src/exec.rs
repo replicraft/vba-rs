@@ -244,13 +244,26 @@ impl Vm {
         Ok(convert::to_long(&v)?)
     }
 
-    fn indices(&mut self, ops_: &[Operand]) -> VResult<Vec<i32>> {
+    fn indices(&mut self, ops_: &[Operand]) -> VResult<Idx> {
+        if ops_.len() <= 3 {
+            let mut v = [0; 3];
+            for (slot, o) in v.iter_mut().zip(ops_) {
+                *slot = match self.operand_ref(o) {
+                    Some(Variant::Long(n)) => *n,
+                    _ => {
+                        let x = self.val(o)?;
+                        self.long_of(x)?
+                    }
+                };
+            }
+            return Ok(Idx::Inline(ops_.len() as u8, v));
+        }
         let mut out = Vec::with_capacity(ops_.len());
         for o in ops_ {
             let v = self.val(o)?;
             out.push(self.long_of(v)?);
         }
-        Ok(out)
+        Ok(Idx::Heap(out))
     }
 
     /// Converts a value to a declared type.
