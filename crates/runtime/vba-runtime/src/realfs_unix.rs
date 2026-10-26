@@ -10,6 +10,12 @@
 //! A file is opened without following a final link and without creating
 //! anything through one, so a write cannot leave an empty file at a place
 //! the policy never saw.
+//!
+//! Metadata (`stat`) and directory listings go through the same handles:
+//! the parent is opened without following links and the entry is read with
+//! `fstatat` relative to it, so a parent swapped for a link after the policy
+//! was applied is refused instead of showing the program a directory it was
+//! never granted.
 
 use std::fs::File;
 use std::io::{self, Write};
@@ -231,4 +237,73 @@ pub(crate) fn set_readonly(path: &str, readonly: bool) -> VfsResult<()> {
     let mut perm = file.metadata().map_err(|e| map_err(&e))?.permissions();
     perm.set_readonly(readonly);
     file.set_permissions(perm).map_err(|e| map_err(&e))
+}
+
+fn stat_from_raw(st: &rustix::fs::Stat) -> Stat {
+    let is_dir = FileType::from_raw_mode(st.st_mode) == FileType::Directory;
+    let mut attributes = if is_dir { ATTR_DIRECTORY } else { ATTR_ARCHIVE };
+    // The same rule as `std::fs::Permissions::readonly`: no write bit at all.
+    if st.st_mode & 0o222 == 0 {
+        attributes |= ATTR_READONLY;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    let secs = st.st_mtime as f64 + (st.st_mtime_nsec as f64) / 1e9;
+    Stat {
+        is_dir,
+        len: if is_dir { 0 } else { st.st_size.max(0) as u64 },
+        modified: 25569.0 + secs / 86_400.0,
+        attributes,
+    }
+}
+
+/// Metadata of `path`; `None` when it does not exist. A final link is
+/// refused (the path given is already canonical, so one means a swap).
+pub(crate) fn stat(path: &str) -> VfsResult<Option<Stat>> {
+    let st = if split_parent(path).1.is_empty() {
+        // The root has no parent: stat the verified handle itself.
+        let fd = open_dir(path)?;
+        rustix::fs::fstat(&fd).map_err(io_err)?
+    } else {
+        let (dir, name) = match open_parent(path) {
+            Ok(v) => v,
+            // A missing parent is a missing path, as `fs::metadata` said.
+            Err(VfsError::PathNotFound) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        checkpoint("opened");
+        match rustix::fs::statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(st) => st,
+            Err(Errno::NOENT | Errno::NOTDIR) => return Ok(None),
+            Err(e) => return Err(io_err(e)),
+        }
+    };
+    if FileType::from_raw_mode(st.st_mode) == FileType::Symlink {
+        return Err(VfsError::Denied);
+    }
+    Ok(Some(stat_from_raw(&st)))
+}
+
+/// The entries of the directory `path`, with the metadata of what each
+/// names (a link inside the directory shows its target, relative to the
+/// verified handle). Unreadable entries are skipped.
+pub(crate) fn list(path: &str) -> VfsResult<Vec<DirEntry>> {
+    let fd = open_dir(path)?;
+    checkpoint("opened");
+    let dir_fd = rustix::io::fcntl_dupfd_cloexec(&fd, 0).map_err(io_err)?;
+    let mut rd = rustix::fs::Dir::new(dir_fd).map_err(io_err)?;
+    let mut v = Vec::new();
+    while let Some(entry) = rd.read() {
+        let Ok(entry) = entry else { continue };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "." || name == ".." {
+            continue;
+        }
+        if let Ok(st) = rustix::fs::statat(&fd, entry.file_name(), AtFlags::empty()) {
+            v.push(DirEntry {
+                name,
+                stat: stat_from_raw(&st),
+            });
+        }
+    }
+    Ok(v)
 }

@@ -10,6 +10,7 @@ use std::fs;
 use std::io::Write;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
+#[cfg(not(unix))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::vfs::*;
@@ -98,6 +99,7 @@ fn resolve_dangling(p: &Path) -> Option<PathBuf> {
     None
 }
 
+#[cfg(not(unix))]
 fn ole_date(t: SystemTime) -> f64 {
     let secs = match t.duration_since(UNIX_EPOCH) {
         Ok(d) => d.as_secs_f64(),
@@ -106,6 +108,7 @@ fn ole_date(t: SystemTime) -> f64 {
     25569.0 + secs / 86_400.0
 }
 
+#[cfg(not(unix))]
 fn stat_of(m: &fs::Metadata) -> Stat {
     let mut attributes = if m.is_dir() {
         ATTR_DIRECTORY
@@ -212,6 +215,12 @@ impl Vfs for RealFs {
 
     fn stat(&mut self, path: &str) -> VfsResult<Option<Stat>> {
         self.exact(path)?;
+        checkpoint("checked");
+        #[cfg(unix)]
+        {
+            sys::stat(path)
+        }
+        #[cfg(not(unix))]
         match fs::metadata(path) {
             Ok(m) => Ok(Some(stat_of(&m))),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -385,11 +394,17 @@ impl Vfs for RealFs {
 
     fn list(&mut self, dir: &str) -> VfsResult<Vec<DirEntry>> {
         self.exact(dir)?;
+        checkpoint("checked");
+        #[cfg(unix)]
+        let mut v = sys::list(dir)?;
+        #[cfg(not(unix))]
+        let mut v = Vec::new();
+        #[cfg(not(unix))]
         let rd = fs::read_dir(dir).map_err(|e| match e.kind() {
             ErrorKind::NotFound => VfsError::PathNotFound,
             _ => map_err(&e),
         })?;
-        let mut v = Vec::new();
+        #[cfg(not(unix))]
         for e in rd.flatten() {
             if let Ok(m) = fs::metadata(e.path()) {
                 v.push(DirEntry {
@@ -645,6 +660,60 @@ mod tests {
                 t.assert_outside_untouched(&format!("{name} at {stage}"));
             }
         }
+    }
+
+    /// Metadata and listings go through the verified directory too: a parent
+    /// swapped for a link never shows the program what is behind the link.
+    #[cfg(unix)]
+    #[test]
+    fn metadata_and_listings_do_not_follow_a_swapped_parent() {
+        for stage in ["checked", "opened"] {
+            let t = Tree::new();
+            let base = t.base.clone();
+            on_stage(stage, move || swap_dir_for_link(&base));
+            let mut f = RealFs::new();
+            let st = f.stat(&t.p("allowed/dir/file"));
+            clear_hook();
+            match st {
+                // Refused, or reported missing (a link is not a directory
+                // to the system, and the platforms differ in the error).
+                Err(VfsError::Denied) | Ok(None) => {}
+                // Already behind the handle: the file that was verified.
+                Ok(Some(s)) => assert_eq!((stage, s.len), ("opened", 6)),
+                other => panic!("{stage}: {other:?}"),
+            }
+            let t = Tree::new();
+            let base = t.base.clone();
+            on_stage(stage, move || swap_dir_for_link(&base));
+            let names = f.list(&t.p("allowed/dir"));
+            clear_hook();
+            match names {
+                Err(VfsError::Denied | VfsError::PathNotFound) => {}
+                Ok(v) => {
+                    let n: Vec<_> = v.iter().map(|e| e.name.as_str()).collect();
+                    assert_eq!((stage, n), ("opened", vec!["file", "sub"]));
+                }
+                other => panic!("{stage}: {other:?}"),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stat_of_the_root_and_of_a_missing_parent() {
+        let mut f = RealFs::new();
+        assert!(f.stat("/").unwrap().unwrap().is_dir);
+        let t = Tree::new();
+        assert_eq!(f.stat(&t.p("nowhere/x")), Ok(None));
+        assert_eq!(f.stat(&t.p("allowed/nothing")), Ok(None));
+        let s = f.stat(&t.p("allowed/loose")).unwrap().unwrap();
+        assert_eq!((s.is_dir, s.len), (false, 5));
+        let entries = f.list(&t.p("allowed")).unwrap();
+        assert_eq!(
+            entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["dir", "loose"]
+        );
+        assert!(entries[0].stat.is_dir);
     }
 
     /// The same swap, played for a final component: a link to a name that
