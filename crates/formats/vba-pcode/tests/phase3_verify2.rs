@@ -44,7 +44,7 @@ fn show(v: &[Ex]) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "needs the local reference project"]
+#[ignore = "needs the local project (VBA_PCODE_PROJECT)"]
 fn for_case_print_call_streams_agree() {
     let Some(p) = common::load() else { return };
     let v = version_word(&p.project_stream).unwrap();

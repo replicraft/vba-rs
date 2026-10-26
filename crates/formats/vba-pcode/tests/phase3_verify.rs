@@ -80,7 +80,7 @@ fn shape(t: &[common::Tok]) -> Option<Shape<'_>> {
 }
 
 #[test]
-#[ignore = "needs the local reference project"]
+#[ignore = "needs the local project (VBA_PCODE_PROJECT)"]
 fn expression_streams_agree_with_source() {
     let Some(p) = common::load() else { return };
     let v = version_word(&p.project_stream).unwrap();

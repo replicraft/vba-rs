@@ -1,4 +1,4 @@
-//! Built-in name evidence against the local reference project (ignored).
+//! Built-in name evidence against the local project (ignored).
 mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -52,7 +52,7 @@ fn names_of(op: &Operand, out: &mut Vec<Name>) {
 type Evidence = (usize, Option<BTreeSet<String>>, Vec<String>);
 
 #[test]
-#[ignore = "needs the local reference project"]
+#[ignore = "needs the local project (VBA_PCODE_PROJECT)"]
 #[allow(clippy::needless_range_loop)]
 fn explore_unknown_builtins() {
     let Some(p) = common::load() else { return };

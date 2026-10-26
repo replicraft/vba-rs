@@ -142,7 +142,7 @@ fn predicates() -> Vec<(Opcode, &'static str, Pred)> {
 }
 
 #[test]
-#[ignore = "needs the local reference project"]
+#[ignore = "needs the local project (VBA_PCODE_PROJECT)"]
 fn statement_markers_agree_with_source() {
     let Some(p) = common::load() else { return };
     let v = version_word(&p.project_stream).unwrap();

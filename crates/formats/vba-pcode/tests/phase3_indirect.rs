@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use vba_pcode::*;
 
 #[test]
-#[ignore = "needs the local reference project"]
+#[ignore = "needs the local project (VBA_PCODE_PROJECT)"]
 fn indirect_table_coverage() {
     let Some(p) = common::load() else { return };
     let v = version_word(&p.project_stream).unwrap();
