@@ -129,3 +129,27 @@ fn long_chains_of_collections_are_released_iteratively() {
     assert_eq!(o.out, "released\n", "{:?}", o.result);
     assert_eq!(o.vm.live_objects(), 0);
 }
+
+fn type_chain(n: usize) -> String {
+    let mut s = String::new();
+    for i in 0..n {
+        s.push_str(&format!("Private Type T{i}\n x As T{}\nEnd Type\n", i + 1));
+    }
+    s.push_str(&format!("Private Type T{n}\n y As Long\nEnd Type\n"));
+    s.push_str("Sub Main()\nDim a As T0\nDebug.Print \"allocated\"\nEnd Sub\n");
+    s
+}
+
+#[test]
+fn user_defined_types_nested_absurdly_deep_are_a_limit_not_a_stack_overflow() {
+    let o = run_with_limits(
+        &[module("M", ModuleKind::Standard, &type_chain(100))],
+        ResourceLimits::default(),
+    );
+    assert_eq!(o.out, "allocated\n", "{:?}", o.result);
+    let o = run_with_limits(
+        &[module("M", ModuleKind::Standard, &type_chain(1000))],
+        ResourceLimits::default(),
+    );
+    assert_eq!(o.result, Err(VmError::Limit(LimitKind::CallDepth)));
+}

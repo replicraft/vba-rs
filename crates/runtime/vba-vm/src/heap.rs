@@ -66,6 +66,19 @@ impl Vm {
 
     /// Allocates a user-defined-type value with default fields.
     pub(crate) fn alloc_udt(&mut self, id: UdtId) -> VResult<u64> {
+        // Types containing types containing types ... are allocated, copied,
+        // marked and released recursively; a chain deeper than any real
+        // program needs would exhaust the native stack.
+        if self.udt_depth >= MAX_UDT_NESTING {
+            return Err(Fault::Limit(LimitKind::CallDepth));
+        }
+        self.udt_depth += 1;
+        let r = self.alloc_udt_fields(id);
+        self.udt_depth -= 1;
+        r
+    }
+
+    fn alloc_udt_fields(&mut self, id: UdtId) -> VResult<u64> {
         let ir = self.ir.clone();
         let info_fields = ir.program.udt_fields(id);
         self.charge_memory(32 + 32 * info_fields.len() as u64)?;
@@ -550,6 +563,9 @@ impl Vm {
         self.gc_threshold = (self.udts.len() * 2).max(4096);
     }
 }
+
+/// Deepest nesting of user-defined types inside user-defined types.
+const MAX_UDT_NESTING: u32 = 256;
 
 pub(crate) fn no_frame() -> Fault {
     Fault::Internal("no active frame".into())

@@ -70,6 +70,9 @@ pub struct Vm {
     pub(crate) udts: BTreeMap<u64, UdtVal>,
     pub(crate) next_udt: u64,
     pub(crate) gc_threshold: usize,
+    /// Nesting of `alloc_udt` calls in progress (user-defined types that
+    /// contain user-defined types).
+    pub(crate) udt_depth: u32,
     pub(crate) default_instances: HashMap<ModuleId, u64>,
     pub(crate) err: ErrState,
     pub(crate) erl: u64,
@@ -134,6 +137,7 @@ impl Vm {
             udts: BTreeMap::new(),
             next_udt: 1,
             gc_threshold: 4096,
+            udt_depth: 0,
             default_instances: HashMap::new(),
             err: ErrState::default(),
             erl: 0,
