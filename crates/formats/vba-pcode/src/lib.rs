@@ -14,6 +14,7 @@ mod cache;
 mod decode;
 mod disasm;
 mod error;
+mod indirect;
 mod layout;
 mod lines;
 mod module;
@@ -36,6 +37,7 @@ pub use disasm::{
     ResolvedType, VariableInfo,
 };
 pub use error::{PcodeError, Result, UnsupportedLayout};
+pub use indirect::{IndirectCoverage, IndirectKind, IndirectMap};
 pub use layout::{Bitness, Layout, VERIFIED_VERSION, Verification, VersionFamily};
 pub use lines::{
     CODE_ALIGNMENT, LINE_MARKER, LINE_RECORD_SIZE, LINE_TRAILER_SIZE, LineRecord, LineTable,
