@@ -1061,6 +1061,7 @@ dependencies = [
  "vba-host",
  "vba-winapi",
  "vba-wine",
+ "windows-sys",
 ]
 
 [[package]]

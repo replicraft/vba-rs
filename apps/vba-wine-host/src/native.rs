@@ -1,7 +1,7 @@
 //! The real Windows call path (cfg(windows) only).
 //!
-//! UNVERIFIED: this module type-checks for `x86_64-pc-windows-msvc` but has
-//! never been executed, under Wine or on Windows. Treat every behavior here as
+//! UNVERIFIED: this module type-checks and lints for the Windows MSVC targets
+//! (see docs/wine-bridge.md) but has never been executed, under Wine or on Windows. Treat every behavior here as
 //! a claim to be tested, not a fact.
 //!
 //! Limits, all reported as explicit errors rather than approximated:
@@ -14,25 +14,17 @@
 //!   principle clobber it in between, though nothing runs there.
 #![allow(unsafe_code)]
 
-use std::ffi::{CStr, CString, c_char, c_void};
+use std::ffi::{CStr, CString, c_char};
 use vba_wine::helper::Backend;
 use vba_wine::protocol::{
     CAP_NATIVE_CALLS, HelloInfo, PROTOCOL_VERSION, ProcRef, RemoteError, RemoteErrorKind, RetKind,
     WireArg, WireConv, WireRet,
 };
+use windows_sys::Win32::Foundation::{FreeLibrary, GetLastError, SetLastError};
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress, LoadLibraryA};
 
 /// Most arguments the trampoline supports.
 pub const MAX_CALL_ARGS: usize = 16;
-
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn LoadLibraryA(name: *const c_char) -> *mut c_void;
-    fn FreeLibrary(module: *mut c_void) -> i32;
-    fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
-    fn GetModuleHandleA(name: *const c_char) -> *mut c_void;
-    fn GetLastError() -> u32;
-    fn SetLastError(code: u32);
-}
 
 fn os_err(kind: RemoteErrorKind, what: &str) -> RemoteError {
     // SAFETY: GetLastError has no preconditions.
@@ -121,14 +113,13 @@ fn wine_version() -> String {
     // present in ntdll, is `const char *wine_get_version(void)` returning a
     // static NUL-terminated string.
     unsafe {
-        let ntdll = GetModuleHandleA(c"ntdll.dll".as_ptr());
+        let ntdll = GetModuleHandleA(c"ntdll.dll".as_ptr().cast());
         if ntdll.is_null() {
             return String::new();
         }
-        let p = GetProcAddress(ntdll, c"wine_get_version".as_ptr());
-        if p.is_null() {
+        let Some(p) = GetProcAddress(ntdll, c"wine_get_version".as_ptr().cast()) else {
             return String::new();
-        }
+        };
         let f: unsafe extern "C" fn() -> *const c_char = std::mem::transmute(p);
         let s = f();
         if s.is_null() {
@@ -158,7 +149,7 @@ impl Backend for Native {
     fn load_library(&mut self, name: &str) -> Result<u64, RemoteError> {
         let c = CString::new(name).map_err(|_| fault("library name contains NUL"))?;
         // SAFETY: `c` is a valid NUL-terminated string for the call.
-        let m = unsafe { LoadLibraryA(c.as_ptr()) };
+        let m = unsafe { LoadLibraryA(c.as_ptr().cast()) };
         if m.is_null() {
             return Err(os_err(
                 RemoteErrorKind::LibraryNotFound,
@@ -169,13 +160,16 @@ impl Backend for Native {
     }
 
     fn get_proc(&mut self, lib: u64, proc: &ProcRef) -> Result<u64, RemoteError> {
-        let module = lib as usize as *mut c_void;
+        let module = lib as usize as windows_sys::Win32::Foundation::HMODULE;
         let (p, what) = match proc {
             ProcRef::Name(n) => {
                 let c = CString::new(n.as_str()).map_err(|_| fault("symbol contains NUL"))?;
                 // SAFETY: `module` came from LoadLibraryA via the Server's id
                 // table (never from the client); `c` is NUL-terminated.
-                (unsafe { GetProcAddress(module, c.as_ptr()) }, n.clone())
+                (
+                    unsafe { GetProcAddress(module, c.as_ptr().cast()) },
+                    n.clone(),
+                )
             }
             ProcRef::Ordinal(o) => {
                 if *o == 0 {
@@ -184,17 +178,17 @@ impl Backend for Native {
                 // SAFETY: an ordinal is passed as a pointer whose value is the
                 // ordinal (high word zero), per the GetProcAddress contract.
                 (
-                    unsafe { GetProcAddress(module, usize::from(*o) as *const c_char) },
+                    unsafe { GetProcAddress(module, usize::from(*o) as *const u8) },
                     format!("#{o}"),
                 )
             }
         };
-        if p.is_null() {
+        let Some(p) = p else {
             return Err(os_err(
                 RemoteErrorKind::SymbolNotFound,
                 &format!("GetProcAddress({what}) failed"),
             ));
-        }
+        };
         Ok(p as usize as u64)
     }
 
@@ -257,7 +251,7 @@ impl Backend for Native {
 
     fn free_library(&mut self, lib: u64) -> Result<(), RemoteError> {
         // SAFETY: `lib` came from LoadLibraryA via the Server's id table.
-        if unsafe { FreeLibrary(lib as usize as *mut c_void) } == 0 {
+        if unsafe { FreeLibrary(lib as usize as windows_sys::Win32::Foundation::HMODULE) } == 0 {
             return Err(os_err(RemoteErrorKind::CallFault, "FreeLibrary failed"));
         }
         Ok(())

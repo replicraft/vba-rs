@@ -100,8 +100,11 @@ Through the `Provider` trait, which has no bridge error type, every
 * Client against the real `vba-wine-host` binary in protocol-only mode:
   hello, ping, `Unsupported` for library operations, version mismatch, helper
   exit, hang with timeout and kill, garbage output, missing files, kill on drop.
-* The Windows code path type-checks and passes clippy for
-  `x86_64-pc-windows-msvc` (cross `cargo clippy`; it cannot be linked or run here).
+* The Windows code path (Win32 bindings from `windows-sys`, features
+  `Win32_Foundation` and `Win32_System_LibraryLoader`) type-checks and passes
+  `cargo clippy --all-targets -- -D warnings` for both `x86_64-pc-windows-msvc`
+  and `i686-pc-windows-msvc`, cross-checked from macOS. Checked only: it was
+  not linked and **not executed**.
 
 ## Unverified / not implemented
 

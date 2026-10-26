@@ -9,13 +9,16 @@ license.workspace = true
 [dependencies]
 vba-wine.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [dev-dependencies]
 vba-ffi.workspace = true
 vba-host.workspace = true
 vba-winapi.workspace = true
 
 # Not `workspace = true`: the Windows call path needs `unsafe` (FFI to kernel32
-# and a function-pointer call). The workspace forbids unsafe code, and `forbid`
+# via windows-sys and a function-pointer call). The workspace forbids unsafe code, and `forbid`
 # cannot be relaxed per module, so this crate restates the workspace lints with
 # `unsafe_code = "deny"`; the only `#[allow(unsafe_code)]` is the cfg(windows)
 # module `native`.
