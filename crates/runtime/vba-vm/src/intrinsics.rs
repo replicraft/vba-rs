@@ -90,6 +90,85 @@ impl Vm {
         }
     }
 
+    fn opt_bool(&mut self, v: &Option<Variant>) -> VResult<bool> {
+        match v {
+            None | Some(Variant::Empty) => Ok(false),
+            Some(v) => Ok(convert::to_boolean(v)?),
+        }
+    }
+
+    /// `SaveSetting`, `GetSetting`, `GetAllSettings` and `DeleteSetting`
+    /// against the host's store, or the VM's in-memory one.
+    fn exec_settings(&mut self, name: &str, a: &[Option<Variant>]) -> VResult<Variant> {
+        let app = self.text_arg(a.first().unwrap_or(&None))?;
+        let section = self.opt_text(a.get(1).unwrap_or(&None))?;
+        let key = match name {
+            "savesetting" | "getsetting" => Some(self.text_arg(a.get(2).unwrap_or(&None))?),
+            "deletesetting" => self.opt_text(a.get(2).unwrap_or(&None))?,
+            _ => None,
+        };
+        let value = match (name, a.get(3)) {
+            ("savesetting", _) => Some(self.text_arg(a.get(3).unwrap_or(&None))?),
+            ("getsetting", Some(Some(v))) => Some(convert::to_vba_string(v)?.to_string_lossy()),
+            _ => None,
+        };
+        let host = self.host.clone();
+        let store: &dyn vba_host::SettingsStore = match host.settings() {
+            Some(s) => s,
+            None => &self.settings,
+        };
+        let need = |section: Option<String>| section.ok_or(VbaError::new(449));
+        let key_or_empty = key.clone().unwrap_or_default();
+        match name {
+            "savesetting" => {
+                store
+                    .save(
+                        &app,
+                        &need(section)?,
+                        &key_or_empty,
+                        &value.unwrap_or_default(),
+                    )
+                    .map_err(Fault::from)?;
+                Ok(Variant::Empty)
+            }
+            "getsetting" => {
+                let got = store
+                    .get(&app, &need(section)?, &key_or_empty)
+                    .map_err(Fault::from)?;
+                Ok(Variant::from_text(&got.or(value).unwrap_or_default()))
+            }
+            "getallsettings" => {
+                let rows = store.get_all(&app, &need(section)?).map_err(Fault::from)?;
+                // **doc**: an uninitialized Variant when the application or
+                // section does not exist.
+                let Some(rows) = rows.filter(|r| !r.is_empty()) else {
+                    return Ok(Variant::Empty);
+                };
+                let upper = i32::try_from(rows.len() - 1).map_err(|_| VbaError::OUT_OF_MEMORY)?;
+                let mut arr = vba_value::VbaArray::new_dynamic(vba_value::VarType::Variant);
+                arr.redim(
+                    &[
+                        vba_value::Bounds::new(0, upper),
+                        vba_value::Bounds::new(0, 1),
+                    ],
+                    false,
+                )?;
+                for (i, (k, v)) in rows.iter().enumerate() {
+                    let i = i as i32;
+                    arr.set(&[i, 0], Variant::from_text(k))?;
+                    arr.set(&[i, 1], Variant::from_text(v))?;
+                }
+                Ok(Variant::Array(Box::new(arr)))
+            }
+            _ => {
+                store
+                    .delete(&app, section.as_deref(), key.as_deref())
+                    .map_err(Fault::from)?;
+                Ok(Variant::Empty)
+            }
+        }
+    }
+
     // ---- dispatch ---------------------------------------------------------------------
 
     pub(crate) fn exec_intrinsic(
@@ -129,6 +208,34 @@ impl Vm {
                 Variant::Boolean(matches!(a.first(), Some(Some(v)) if is_missing_marker(v)))
             }
             "erl" => Variant::Long(self.erl as i32),
+            "savesetting" | "getsetting" | "getallsettings" | "deletesetting" => {
+                self.exec_settings(&lname, &a)?
+            }
+            "sendkeys" => {
+                let keys = self.text_arg(a.first().unwrap_or(&None))?;
+                let wait = self.opt_bool(a.get(1).unwrap_or(&None))?;
+                self.host.send_keys(&keys, wait).map_err(Fault::from)?;
+                Variant::Empty
+            }
+            "appactivate" => {
+                let title = self.text_arg(a.first().unwrap_or(&None))?;
+                let wait = self.opt_bool(a.get(1).unwrap_or(&None))?;
+                self.host.app_activate(&title, wait).map_err(Fault::from)?;
+                Variant::Empty
+            }
+            "datestatement" | "timestatement" => {
+                let Some(Some(v)) = a.first() else {
+                    return Err(VbaError::new(449).into());
+                };
+                let d = convert::to_date(v)?;
+                let part = if lname == "datestatement" {
+                    vba_host::ClockPart::Date
+                } else {
+                    vba_host::ClockPart::Time
+                };
+                self.host.set_clock(part, d).map_err(Fault::from)?;
+                Variant::Empty
+            }
             "reset" => {
                 // **doc**: closes every open file and writes the buffers.
                 self.services.reset();

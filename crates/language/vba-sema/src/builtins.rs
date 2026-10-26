@@ -236,6 +236,49 @@ pub fn runtime_function(name: &str) -> Option<LibMember> {
             Type::Long,
         ),
         "reset" => LibMember::sub("Reset", vec![]),
+        // Settings (`VBA.Interaction`); the store is a host service.
+        "savesetting" => LibMember::sub(
+            "SaveSetting",
+            vec![
+                p("AppName", Type::String),
+                p("Section", Type::String),
+                p("Key", Type::String),
+                p("Setting", Type::String),
+            ],
+        ),
+        "getsetting" => LibMember::function(
+            "GetSetting",
+            vec![
+                p("AppName", Type::String),
+                p("Section", Type::String),
+                p("Key", Type::String),
+                o("Default", Type::Variant),
+            ],
+            Type::String,
+        ),
+        "getallsettings" => LibMember::function(
+            "GetAllSettings",
+            vec![p("AppName", Type::String), p("Section", Type::String)],
+            Type::Variant,
+        ),
+        "deletesetting" => LibMember::sub(
+            "DeleteSetting",
+            vec![
+                p("AppName", Type::String),
+                o("Section", Type::String),
+                o("Key", Type::String),
+            ],
+        ),
+        // UI automation: refused by the host unless granted, and then still
+        // only forwarded to a host hook.
+        "sendkeys" => LibMember::sub(
+            "SendKeys",
+            vec![p("String", Type::String), o("Wait", Type::Boolean)],
+        ),
+        "appactivate" => LibMember::sub(
+            "AppActivate",
+            vec![p("Title", Type::Variant), o("Wait", Type::Boolean)],
+        ),
         "filelen" => LibMember::function("FileLen", vec![p("PathName", Type::String)], Type::Long),
         "filedatetime" => LibMember::function(
             "FileDateTime",

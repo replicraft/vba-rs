@@ -1,8 +1,14 @@
-' INV: stmt.deletesetting, func.getsetting, func.getallsettings
+' INV: stmt.deletesetting, stmt.savesetting, func.getsetting
 ' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/deletesetting-statement
-' EXPECT: ok
-' XFAIL: unsupported the registry-backed settings statements have no host service
+' EXPECT: 75
+' EXPECT: 25
+' EXPECT: 25
 Public Sub Main()
-    DeleteSetting "app"
-    Debug.Print "ok"
+    SaveSetting appname:="MyApp", section:="Startup", key:="Top", setting:=75
+    SaveSetting "MyApp", "Startup", "Left", 50
+    Debug.Print GetSetting("MyApp", "Startup", "Top", "25")
+    DeleteSetting "MyApp", "Startup", "Top"
+    Debug.Print GetSetting("MyApp", "Startup", "Top", "25")
+    DeleteSetting "MyApp", "Startup"
+    Debug.Print GetSetting(appname:="MyApp", section:="Startup", key:="Left", default:="25")
 End Sub

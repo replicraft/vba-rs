@@ -511,6 +511,44 @@ impl Binder<'_, '_> {
         {
             return self.bind_mid_statement(id, args, value, span);
         }
+        if kind == AssignKind::Let
+            && let ExprKind::Name(id) = &target.kind
+            && matches!(
+                id.name.to_string_lossy().to_ascii_lowercase().as_str(),
+                "date" | "time"
+            )
+            && matches!(id.suffix, None | Some(vba_lexer::TypeSuffix::String))
+            && !self.scope.contains_key(&id.name)
+            && matches!(
+                self.sema.lookup_module_scope(self.module, &id.name),
+                crate::sema::Found::None
+            )
+        {
+            // `Date = x` / `Time = x` set the system clock (through the host).
+            let is_date = id.name.eq_ignore_case("date");
+            let v = self.bind_expr(value);
+            let v = self.rvalue(v);
+            let v = self.coerce(v, &Type::Date, Ctx::Let);
+            if v.ty.is_error() {
+                return None;
+            }
+            let call = self.call_expr(
+                span,
+                Type::Variant,
+                CallTarget::Intrinsic {
+                    name: if is_date {
+                        "DateStatement"
+                    } else {
+                        "TimeStatement"
+                    }
+                    .to_owned(),
+                    dollar: false,
+                },
+                None,
+                vec![BArg::Value(v)],
+            );
+            return self.stmt(span, BStmtKind::Call(call));
+        }
         let tgt = self.bind_target(target, false);
         let v = self.bind_expr(value);
         let (place, pty) = tgt?;

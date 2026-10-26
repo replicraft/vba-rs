@@ -84,6 +84,7 @@ pub struct Vm {
     pub(crate) push_request: Option<Option<vba_ir::Reg>>,
     pub(crate) push_done: bool,
     pub(crate) cascade: Option<crate::state::Cascade>,
+    pub(crate) settings: vba_host::MemorySettings,
 }
 
 impl Vm {
@@ -128,6 +129,7 @@ impl Vm {
             last_site: None,
             push_request: None,
             push_done: false,
+            settings: vba_host::MemorySettings::new(),
             cascade: None,
         };
         vm.index_program();

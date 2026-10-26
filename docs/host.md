@@ -28,6 +28,19 @@ Error choices that have no exact VBA analogue: the headless UI uses 70; an
 exhausted step budget uses 18 ("User interrupt occurred"). They are
 documented decisions, not claims about real VBA behaviour.
 
+## Settings, clock and UI-automation hooks
+
+* `Host::settings()` returns an optional `SettingsStore` behind `SaveSetting`, `GetSetting`,
+  `GetAllSettings` and `DeleteSetting`. Without one the VM uses a `MemorySettings` of its own that
+  lives as long as the VM; the registry is never touched. Names are case-insensitive, values are
+  strings, `GetAllSettings` returns rows ordered by key (**unverified**), a missing target of
+  `DeleteSetting` is error 5 (**unverified** number; the page only says a run-time error occurs).
+* `Host::set_clock` (`Date =`, `Time =`) forwards to `set_clock_hook`, whose default refuses with
+  error 70. The policy has no capability for the clock; refusing is the default behaviour of the hook.
+* `Host::send_keys` / `Host::app_activate` (`SendKeys`, `AppActivate`) check
+  `Capability::UiAutomation` and then call `send_keys_hook` / `app_activate_hook`. The default hooks
+  have no UI to drive and fail with error 70, so granting the capability alone never sends input.
+
 ## Not implemented
 
 * `vba-vm` calls these hooks: `lookup_global` for library globals, `create_object` / `get_object` for
@@ -36,6 +49,6 @@ documented decisions, not claims about real VBA behaviour.
   budget for steps, memory and call depth. Limit exhaustion is an untrappable fault in the VM, not
   the trappable errors 18 / 7 / 28 that `LimitExceeded::into_err_info` describes. See `docs/vm.md`.
 * File and process operations themselves are not provided, only the capability checks for them. Path canonicalisation (symlinks, `.`, drive aliases) is left to the embedder; the policy compares text prefixes.
-* No network, process or UI-automation hooks beyond the capability names.
+* No network or process hooks beyond the capability names; the UI-automation hooks above only forward to the embedder.
 * `MsgBox` help-file and context arguments, `InputBox` position and `DoEvents` form counts are not modelled.
 * Threading: hosts are single-threaded (`Cell`/`RefCell`); no `Send`/`Sync`.
