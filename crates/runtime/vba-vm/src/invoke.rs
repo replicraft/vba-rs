@@ -653,6 +653,7 @@ impl Vm {
                 self.store(l, arg.value.clone())?;
             }
         }
+        let applied = self.apply_foreign_refs();
         let v = result.map_err(|e| {
             let mut r = RtErr::from(e);
             if r.origin == ErrOrigin::Vba {
@@ -660,6 +661,7 @@ impl Vm {
             }
             Fault::Err(r)
         })?;
+        applied?;
         self.drain_events()?;
         Ok(v)
     }
@@ -700,8 +702,11 @@ impl Vm {
         let table = host.objects();
         let eo = table.get(enumerator)?;
         let en = eo.enumerator().ok_or(VbaError::new(438))?;
-        en.next(table)
-            .map_err(|e| Fault::Err(RtErr::from(e.into_err_info(&eo.class_name()))))
+        let r = en
+            .next(table)
+            .map_err(|e| Fault::Err(RtErr::from(e.into_err_info(&eo.class_name()))));
+        self.apply_foreign_refs()?;
+        r
     }
 
     /// The `TypeName` of an object.

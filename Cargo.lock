@@ -1413,10 +1413,22 @@ dependencies = [
  "vba-ir",
  "vba-profile",
  "vba-project",
+ "vba-scripting",
  "vba-sema",
  "vba-stdlib",
  "vba-value",
  "vba-vm",
+]
+
+[[package]]
+name = "vba-scripting"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "vba-automation",
+ "vba-ffi",
+ "vba-host",
+ "vba-value",
 ]
 
 [[package]]

@@ -52,6 +52,14 @@ flags, EXCEPINFO, HRESULT) and MS-VBAL §5 call semantics. Everything marked
 | `CO_E_CLASSSTRING`, `REGDB_E_CLASSNOTREG`, `CO_E_SERVER_EXEC_FAILURE` | 429 |
 | `0x800A0000` OR `n`; any other value | `n`; unchanged |
 
+### Foreign handles
+
+Handles with `FOREIGN_HANDLE_BIT` (bit 62) set name objects owned by someone else (the VM's own
+objects). `ObjectTable::add_ref` / `release` on such a handle cannot count it; they record `+1` /
+`-1` and the owner collects the list with `take_foreign_refs`. The VM applies it after every call
+into a host object, so a host object that stores or returns a VM-owned class instance (for example
+`Scripting.Dictionary`) keeps it alive with the ordinary reference-counting discipline.
+
 ## Not implemented / unverified
 
 * `vbObjectError + 0x154` and `+ 0x1F3` coincide with the COM class-registration HRESULTs and map to 429.

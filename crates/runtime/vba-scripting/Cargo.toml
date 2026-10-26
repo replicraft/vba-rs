@@ -1,0 +1,17 @@
+[package]
+name = "vba-scripting"
+description = "Native Scripting.Dictionary and Scripting.FileSystemObject for vba-rs, over the automation traits and a virtual file system"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+vba-automation.workspace = true
+vba-ffi.workspace = true
+vba-host.workspace = true
+vba-value.workspace = true
+
+[lints]
+workspace = true

@@ -8,12 +8,13 @@ use vba_diagnostics::{Severity, render_plain};
 use vba_host::{HeadlessHost, Host};
 use vba_ir::IrProgram;
 use vba_project::VbaProject;
+use vba_scripting::ScriptingHost;
 use vba_sema::{NoLibraries, Options, SourceModule, TypeProvider};
 use vba_value::{ObjectRef, Variant};
 use vba_vm::{Arg, DebugSink, NullSink, RunOutput, Vm, VmConfig, VmError};
 
 use crate::error::{Error, LoadError};
-use crate::files::{FileSystem, FsServices};
+use crate::files::{FileSystem, FsServices, ScriptFsAdapter};
 use crate::memfs::MemFs;
 use crate::shell::{NoShell, ShellHook};
 use crate::vfs::Vfs;
@@ -224,9 +225,15 @@ impl SessionBuilder {
             self.shell,
         )));
         fs.borrow_mut().set_command(&self.command);
+        // `CreateObject("Scripting.Dictionary" / "Scripting.FileSystemObject")`
+        // answers with the native classes; their file access is this
+        // session's policy-checked file system.
+        let scripting = ScriptingHost::new(self.host.clone());
+        scripting.set_fs(Rc::new(ScriptFsAdapter(Rc::downgrade(&fs))));
+        let host: Rc<dyn Host> = scripting;
         let vm = Vm::new(
             ir.clone(),
-            self.host.clone(),
+            host.clone(),
             Box::new(FsServices(fs.clone())),
             self.std_host,
             self.debug,
@@ -236,7 +243,7 @@ impl SessionBuilder {
             vm,
             fs,
             ir,
-            host: self.host,
+            host,
             warnings,
             trusted: false,
             absent: None,

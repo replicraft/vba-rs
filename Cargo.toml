@@ -33,6 +33,7 @@ vba-project = { path = "crates/model/vba-project" }
 vba-rs = { path = "crates/api/vba-rs" }
 vba-runtime = { path = "crates/runtime/vba-runtime" }
 vba-sema = { path = "crates/language/vba-sema" }
+vba-scripting = { path = "crates/runtime/vba-scripting" }
 vba-source = { path = "crates/foundation/vba-source" }
 vba-stdlib = { path = "crates/runtime/vba-stdlib" }
 vba-syntax = { path = "crates/language/vba-syntax" }

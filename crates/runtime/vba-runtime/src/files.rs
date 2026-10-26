@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
 use vba_ast::{OpenAccess, OpenLock, OpenMode};
+use vba_automation::ErrInfo;
 use vba_ffi::{Codepage, Unmappable};
 use vba_host::{Capability, Host};
 use vba_value::{Date, VarType, Variant, VbaString, convert};
@@ -1038,6 +1039,157 @@ fn read_token(f: &mut OpenFile, kind: VarType) -> R<Variant> {
             let n = conv(vba_stdlib::conversion::val(&trimmed))?;
             conv(convert::convert_to(&Variant::Double(n), kind))
         }
+    }
+}
+
+// ---- the Scripting.FileSystemObject view --------------------------------------------
+
+fn to_info(e: FsError) -> ErrInfo {
+    match e {
+        FsError::Vba(n) => ErrInfo::new(n, vba_vm::describe(n)),
+        FsError::Info(i) => i,
+        FsError::Unsupported(s) => ErrInfo::new(5, format!("unsupported: {s}")),
+        FsError::Limit(_) => ErrInfo::standard(7),
+    }
+}
+
+fn script_stat(s: Stat) -> vba_scripting::EntryStat {
+    vba_scripting::EntryStat {
+        is_dir: s.is_dir,
+        len: s.len,
+        modified: s.modified,
+        attributes: s.attributes,
+    }
+}
+
+impl FileSystem {
+    /// A grant for a folder may be written with or without the trailing
+    /// slash; either form of the resource is accepted.
+    fn allow_entry(&self, cap: Capability, abs: &str) -> R<()> {
+        self.allow(cap, abs)
+            .or_else(|e| self.allow(cap, &dir_resource(abs)).map_err(|_| e))
+    }
+
+    fn script_open_file_guard(&self, abs: &str) -> R<()> {
+        if self
+            .files
+            .values()
+            .any(|f| f.path.eq_ignore_ascii_case(abs))
+        {
+            return vba(55);
+        }
+        Ok(())
+    }
+
+    fn script_stat(&mut self, abs: &str) -> R<Option<Stat>> {
+        self.allow_entry(Capability::FileRead, abs)?;
+        self.vfs.stat(abs).map_err(map_vfs)
+    }
+
+    fn script_read(&mut self, abs: &str) -> R<Vec<u8>> {
+        self.allow(Capability::FileRead, abs)?;
+        let data = self.vfs.read(abs).map_err(map_vfs)?;
+        self.charge(data.len())?;
+        Ok(data)
+    }
+
+    fn script_write(&mut self, abs: &str, data: &[u8]) -> R<()> {
+        self.allow(Capability::FileWrite, abs)?;
+        if data.len() > self.max_file_bytes {
+            return vba(61);
+        }
+        self.script_open_file_guard(abs)?;
+        self.charge(data.len())?;
+        self.vfs.write(abs, data).map_err(map_vfs)
+    }
+}
+
+/// The file system of a session as seen by `Scripting.FileSystemObject`:
+/// every call is checked against the host policy exactly like the file
+/// statements. It holds the session's file system weakly, so it creates no
+/// reference cycle with the host that owns it.
+pub struct ScriptFsAdapter(pub std::rc::Weak<std::cell::RefCell<FileSystem>>);
+
+impl ScriptFsAdapter {
+    fn with<T>(&self, f: impl FnOnce(&mut FileSystem) -> R<T>) -> vba_scripting::FsResult<T> {
+        let fs = self
+            .0
+            .upgrade()
+            .ok_or_else(|| ErrInfo::new(5, "the session's file system is gone"))?;
+        let mut guard = fs
+            .try_borrow_mut()
+            .map_err(|_| ErrInfo::new(5, "the file system is busy"))?;
+        f(&mut guard).map_err(to_info)
+    }
+}
+
+impl vba_scripting::ScriptFs for ScriptFsAdapter {
+    fn resolve(&self, path: &str) -> vba_scripting::FsResult<String> {
+        self.with(|f| f.resolve(path))
+    }
+    fn stat(&self, abs: &str) -> vba_scripting::FsResult<Option<vba_scripting::EntryStat>> {
+        self.with(|f| Ok(f.script_stat(abs)?.map(script_stat)))
+    }
+    fn read(&self, abs: &str) -> vba_scripting::FsResult<Vec<u8>> {
+        self.with(|f| f.script_read(abs))
+    }
+    fn write(&self, abs: &str, data: &[u8]) -> vba_scripting::FsResult<()> {
+        self.with(|f| f.script_write(abs, data))
+    }
+    fn remove_file(&self, abs: &str) -> vba_scripting::FsResult<()> {
+        self.with(|f| {
+            f.allow(Capability::FileWrite, abs)?;
+            f.script_open_file_guard(abs)?;
+            f.vfs.remove_file(abs).map_err(map_vfs)
+        })
+    }
+    fn remove_dir(&self, abs: &str) -> vba_scripting::FsResult<()> {
+        self.with(|f| {
+            f.allow_entry(Capability::FileWrite, abs)?;
+            f.vfs.remove_dir(abs).map_err(map_vfs)
+        })
+    }
+    fn create_dir(&self, abs: &str) -> vba_scripting::FsResult<()> {
+        self.with(|f| {
+            f.allow_entry(Capability::FileWrite, abs)?;
+            f.vfs.create_dir(abs).map_err(map_vfs)
+        })
+    }
+    fn copy_file(&self, from: &str, to: &str) -> vba_scripting::FsResult<()> {
+        self.with(|f| {
+            f.allow(Capability::FileRead, from)?;
+            f.allow(Capability::FileWrite, to)?;
+            f.script_open_file_guard(to)?;
+            f.vfs.copy(from, to).map_err(map_vfs)
+        })
+    }
+    fn rename(&self, from: &str, to: &str) -> vba_scripting::FsResult<()> {
+        self.with(|f| {
+            f.allow_entry(Capability::FileWrite, from)?;
+            f.allow_entry(Capability::FileWrite, to)?;
+            f.script_open_file_guard(from)?;
+            f.vfs.rename(from, to).map_err(map_vfs)
+        })
+    }
+    fn list(&self, abs: &str) -> vba_scripting::FsResult<Vec<vba_scripting::EntryInfo>> {
+        self.with(|f| {
+            f.allow(Capability::FileRead, &dir_resource(abs))?;
+            Ok(f.vfs
+                .list(abs)
+                .map_err(map_vfs)?
+                .into_iter()
+                .map(|e| vba_scripting::EntryInfo {
+                    name: e.name,
+                    stat: script_stat(e.stat),
+                })
+                .collect())
+        })
+    }
+    fn set_attributes(&self, abs: &str, attributes: u8) -> vba_scripting::FsResult<()> {
+        self.with(|f| {
+            f.allow_entry(Capability::FileWrite, abs)?;
+            f.vfs.set_attributes(abs, attributes).map_err(map_vfs)
+        })
     }
 }
 

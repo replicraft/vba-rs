@@ -546,3 +546,39 @@ fn call_by_name_on_a_host_object() {
     );
     assert_eq!(o.out, " 9 \n 5 \n", "{:?}", o.result);
 }
+
+#[test]
+fn a_vba_object_kept_by_a_host_object_stays_alive() {
+    // The host object stores the class instance (AddRef through the table,
+    // which records it for the VM-owned handle) and hands it back later.
+    let host = ScriptedHost::new()
+        .with_policy(allow_com())
+        .with_factory("Test.Holder", |t| {
+            Ok(object(
+                t,
+                MemObject::new("Holder").property("Kept", Variant::Empty),
+            ))
+        });
+    let o = run_with(
+        &[
+            module(
+                "Box",
+                ModuleKind::Class,
+                "Public V As Long\nPrivate Sub Class_Terminate()\nDebug.Print \"terminate\"\nEnd Sub\n",
+            ),
+            module(
+                "M",
+                ModuleKind::Standard,
+                "Sub Keep(h As Object)\nDim b As New Box\nb.V = 42\nSet h.Kept = b\nEnd Sub\nSub Main()\nDim h As Object, x As Object\nSet h = CreateObject(\"Test.Holder\")\nKeep h\nDebug.Print \"kept\"\nSet x = h.Kept\nDebug.Print x.V\nSet x = Nothing\nSet h = Nothing\nDebug.Print \"done\"\nEnd Sub\n",
+            ),
+        ],
+        "Main",
+        vec![],
+        Rc::new(host),
+        Box::new(NoServices),
+    );
+    // The instance survives the end of Keep because the holder owns a
+    // reference (`MemObject` never gives it back, so it terminates only
+    // when the VM is dropped, after the output above).
+    assert_eq!(o.out, "kept\n 42 \ndone\n", "{:?}", o.result);
+}

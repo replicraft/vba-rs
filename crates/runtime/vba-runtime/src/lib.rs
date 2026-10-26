@@ -47,7 +47,7 @@ mod system;
 mod vfs;
 
 pub use error::{Error, ErrorReport, FsError, LoadError};
-pub use files::{DEFAULT_MAX_FILE_BYTES, FileSystem, FsServices, write_value};
+pub use files::{DEFAULT_MAX_FILE_BYTES, FileSystem, FsServices, ScriptFsAdapter, write_value};
 pub use memfs::MemFs;
 pub use realfs::RealFs;
 pub use session::{ProcedureInfo, Session, SessionBuilder};

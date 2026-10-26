@@ -14,6 +14,7 @@ vba-ffi.workspace = true
 vba-host.workspace = true
 vba-ir.workspace = true
 vba-project.workspace = true
+vba-scripting.workspace = true
 vba-sema.workspace = true
 vba-stdlib.workspace = true
 vba-value.workspace = true

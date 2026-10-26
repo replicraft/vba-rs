@@ -14,7 +14,7 @@ listings) must never depend on hash order or on thread scheduling.
 | --- | --- | --- |
 | `thiserror` | `Error` derive for library error enums | vba-cli, vba-format, vba-ffi, vba-ir, vba-project, vba-runtime, vba-winapi, vba-wine |
 | `bitflags` | Typed flag sets with `|`, `contains`, `intersects` | vba-automation (`InvokeFlags`), vba-syntax (parser block terminators) |
-| `indexmap` | Hash map with insertion-ordered iteration, so order is structural | vba-lsp-core (open-document table) |
+| `indexmap` | Hash map with insertion-ordered iteration, so order is structural | vba-lsp-core (open-document table), vba-scripting (`Scripting.Dictionary` key order) |
 | `cfb` | Compound File Binary container reading and writing | vba-format |
 | `encoding_rs` | Windows code page decoding and encoding | vba-format, vba-lsp-core, vba-stdlib |
 | `uuid` | GUIDs in project and type-library records | vba-format |

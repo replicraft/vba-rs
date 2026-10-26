@@ -23,12 +23,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 321 |
+| implemented | 329 |
 | partial | 1 |
-| unsupported | 14 |
+| unsupported | 6 |
 | not-started | 0 |
-| Conformance programs | 664 |
-| Programs that are known deviations (XFAIL) | 6 |
+| Conformance programs | 679 |
+| Programs that are known deviations (XFAIL) | 5 |
 
 ## Entries per category and status
 
@@ -53,9 +53,9 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operator-comparison | 8 | 8 | 0 | 0 | 0 |
 | operator-logical | 6 | 6 | 0 | 0 | 0 |
 | operator-precedence | 1 | 1 | 0 | 0 | 0 |
-| data-type | 18 | 17 | 0 | 1 | 0 |
+| data-type | 18 | 18 | 0 | 0 | 0 |
 | identifier-type-character | 7 | 7 | 0 | 0 | 0 |
-| object | 13 | 3 | 0 | 10 | 0 |
+| object | 13 | 10 | 0 | 3 | 0 |
 | language-element | 38 | 37 | 0 | 1 | 0 |
 
 ## Entries per provenance
@@ -63,9 +63,9 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Provenance | Entries |
 | --- | ---: |
 | spec | 0 |
-| doc | 148 |
+| doc | 140 |
 | derived | 71 |
-| unverified | 117 |
+| unverified | 125 |
 | (no program) | 0 |
 
 ## Programs per area and provenance
@@ -74,14 +74,14 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | --- | ---: | ---: | ---: | ---: | ---: |
 | arrays | 31 | 0 | 12 | 3 | 16 |
 | classes | 28 | 0 | 11 | 11 | 6 |
-| collections | 17 | 0 | 17 | 0 | 0 |
+| collections | 23 | 0 | 21 | 0 | 2 |
 | conversions | 39 | 0 | 18 | 16 | 5 |
 | datatypes | 52 | 0 | 38 | 0 | 14 |
 | datetime | 44 | 0 | 21 | 2 | 21 |
 | derived-math | 21 | 0 | 21 | 0 | 0 |
 | errors | 26 | 0 | 17 | 0 | 9 |
 | events | 7 | 0 | 5 | 2 | 0 |
-| file-io | 31 | 0 | 27 | 2 | 2 |
+| file-io | 40 | 0 | 30 | 4 | 6 |
 | financial | 12 | 0 | 2 | 10 | 0 |
 | host | 34 | 0 | 17 | 10 | 7 |
 | language | 17 | 0 | 3 | 0 | 14 |
@@ -101,16 +101,8 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `stmt.load` | statement | Load | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
 | `stmt.unload` | statement | Unload | unsupported | UserForm objects need a host that provides forms; forms require a host that provides them |
 | `func.strconv` | function-string | StrConv | partial | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
-| `type.dictionary` | data-type | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
-| `obj.dictionary` | object | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.drive` | object | Drive | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
 | `obj.drives` | object | Drives | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
-| `obj.file` | object | File | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
-| `obj.files` | object | Files | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
-| `obj.filesystemobject` | object | FileSystemObject | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
-| `obj.folder` | object | Folder | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
-| `obj.folders` | object | Folders | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
-| `obj.textstream` | object | TextStream | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
 | `obj.userform` | object | UserForm | unsupported | UserForm objects need a host that provides forms |
 | `expr.addressof` | language-element | AddressOf expression | unsupported | AddressOf produces no callable native pointer without the Declare bridge |
 
@@ -120,9 +112,8 @@ Programs whose documented expectation the implementation does not meet (kept fai
 
 | Program | Kind | Reason |
 | --- | --- | --- |
-| `collections/dictionary_not_provided` | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
-| `collections/filesystemobject_not_provided` | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
 | `collections/userform_not_provided` | unsupported | UserForm objects need a host that provides forms |
+| `file-io/fso_drives_not_provided` | unsupported | FileSystemObject.Drives, GetDrive and DriveExists are not provided: a virtual file system has no drives to describe (error 438) |
 | `host/load_unload_form` | unsupported | forms require a host that provides them |
 | `language/addressof_without_native` | unsupported | AddressOf produces no callable native pointer without the Declare bridge |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |

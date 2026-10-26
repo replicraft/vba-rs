@@ -15,6 +15,15 @@ use std::rc::Rc;
 use vba_core::{VbaError, VbaResult};
 use vba_value::{ObjectHandle, ObjectRef, Variant};
 
+/// Handles with this bit set name objects that live outside the table (the
+/// VM's own objects). The table cannot count them: [`ObjectTable::add_ref`] and
+/// [`ObjectTable::release`] on such a handle record the adjustment, and the
+/// owner of those objects collects it with
+/// [`ObjectTable::take_foreign_refs`]. This lets a host object that stores or
+/// returns a VM-owned object (a `Scripting.Dictionary` holding a class
+/// instance) keep the usual COM reference-counting discipline.
+pub const FOREIGN_HANDLE_BIT: u64 = 1 << 62;
+
 struct Entry {
     obj: DispatchRef,
     refs: u32,
@@ -26,6 +35,7 @@ struct Entry {
 pub struct ObjectTable {
     next: Cell<u64>,
     entries: RefCell<HashMap<u64, Entry>>,
+    foreign: RefCell<Vec<(ObjectHandle, i32)>>,
 }
 
 impl ObjectTable {
@@ -34,7 +44,14 @@ impl ObjectTable {
         ObjectTable {
             next: Cell::new(1),
             entries: RefCell::default(),
+            foreign: RefCell::default(),
         }
+    }
+
+    /// The reference adjustments recorded for foreign handles since the last
+    /// call (`+1` for `AddRef`, `-1` for `Release`), in order.
+    pub fn take_foreign_refs(&self) -> Vec<(ObjectHandle, i32)> {
+        std::mem::take(&mut *self.foreign.borrow_mut())
     }
 
     /// Registers an object with one reference owned by the caller.
@@ -83,6 +100,10 @@ impl ObjectTable {
 
     /// `AddRef`. Returns the new count; stale handle is error 91.
     pub fn add_ref(&self, h: ObjectHandle) -> VbaResult<u32> {
+        if h.0 & FOREIGN_HANDLE_BIT != 0 {
+            self.foreign.borrow_mut().push((h, 1));
+            return Ok(1);
+        }
         let mut e = self.entries.borrow_mut();
         let entry = e.get_mut(&h.0).ok_or(VbaError::new(91))?;
         entry.refs += 1;
@@ -92,6 +113,10 @@ impl ObjectTable {
     /// `Release`. Returns the new count. At zero the object is terminated and
     /// removed unless `terminate` took a new reference to it.
     pub fn release(&self, h: ObjectHandle) -> VbaResult<u32> {
+        if h.0 & FOREIGN_HANDLE_BIT != 0 {
+            self.foreign.borrow_mut().push((h, -1));
+            return Ok(1);
+        }
         let obj = {
             let mut e = self.entries.borrow_mut();
             let entry = e.get_mut(&h.0).ok_or(VbaError::new(91))?;

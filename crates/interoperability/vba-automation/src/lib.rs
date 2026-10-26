@@ -44,5 +44,5 @@ pub use dispatch::{
 pub use enumerate::{ForEach, VariantEnum};
 pub use error::{AutoResult, DispError, ErrInfo, ExcepInfo};
 pub use events::{ConnectionPoint, Cookie, EventSink, EventSource, WithEventsVar};
-pub use table::{ObjectTable, Owned};
+pub use table::{FOREIGN_HANDLE_BIT, ObjectTable, Owned};
 pub use vba_value::{ObjectHandle, ObjectRef};

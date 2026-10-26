@@ -341,7 +341,30 @@ impl Vm {
             Some(id) => self.release_obj(id),
             None => {
                 let _ = self.host.objects().release(h);
-                Ok(())
+                // Releasing a host object may release VM objects it held.
+                self.apply_foreign_refs()
+            }
+        }
+    }
+
+    /// Applies the reference adjustments host objects recorded for VM-owned
+    /// objects (see `vba_automation::FOREIGN_HANDLE_BIT`).
+    pub(crate) fn apply_foreign_refs(&mut self) -> VResult<()> {
+        let host = self.host.clone();
+        let mut first: VResult<()> = Ok(());
+        loop {
+            let pending = host.objects().take_foreign_refs();
+            if pending.is_empty() {
+                return first;
+            }
+            for (h, delta) in pending {
+                if delta > 0 {
+                    self.retain_handle(h);
+                } else if let Err(e) = self.release_handle(h)
+                    && first.is_ok()
+                {
+                    first = Err(e);
+                }
             }
         }
     }

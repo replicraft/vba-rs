@@ -8,7 +8,7 @@ use vba_value::{ObjectHandle, UdtHandle, Variant, VbaString};
 
 /// Handles with this bit set name objects owned by the VM; all others name
 /// objects in the host's [`vba_automation::ObjectTable`].
-pub(crate) const OBJ_BIT: u64 = 1 << 62;
+pub(crate) const OBJ_BIT: u64 = vba_automation::FOREIGN_HANDLE_BIT;
 /// Id of the `Err` object.
 pub(crate) const ERR_ID: u64 = 1;
 /// Id of the `Debug` object.

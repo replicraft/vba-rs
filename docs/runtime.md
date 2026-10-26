@@ -138,6 +138,14 @@ the policy sees the normalized path.
 (error 68), `Get`/`Put` of `Decimal` and of variants holding arrays or objects,
 UNC paths and `Open ... Lock` semantics beyond bookkeeping.
 
+## Scripting classes
+
+Every `Session` answers `CreateObject("Scripting.Dictionary")` and
+`CreateObject("Scripting.FileSystemObject")` with the native objects of `vba-scripting`
+(`docs/scripting.md`), through a `ScriptingHost` that wraps the embedder's host. The
+`FileSystemObject` uses the session's `FileSystem` (`ScriptFsAdapter`), so its file access has the
+same policy checks and scoped grants as the file statements.
+
 ## Other services
 
 - `Shell` needs the `ProcessSpawn` grant for the command line **and** a
