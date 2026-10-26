@@ -312,6 +312,24 @@ fn analyses_a_project_with_conditional_compilation_constants() {
 }
 
 #[test]
+fn string_variable_for_byval_string_declare_parameter_is_passed_by_reference() {
+    let a = analyze(&[bas(
+        "M",
+        "Private Declare PtrSafe Function GetUserNameA Lib \"advapi32\" (ByVal buf As String, n As Long) As Long\nSub P()\nDim b As String, n As Long, r As Long\nr = GetUserNameA(b, n)\nr = GetUserNameA(\"literal\", n)\nr = GetUserNameA(b & \"x\", n)\nEnd Sub\n",
+    )]);
+    assert_clean(&a);
+    let p = a.program.find_proc("M", "P").unwrap();
+    let dbg = format!("{:?}", p.body);
+    // Only the variable argument becomes a reference.
+    assert_eq!(dbg.matches("Ref(Local").count(), 4, "{dbg}");
+    assert_eq!(
+        dbg.matches("args: [Ref(Local(LocalId(0)))").count(),
+        1,
+        "{dbg}"
+    );
+}
+
+#[test]
 fn instr_without_start_binds_the_strings() {
     let a = analyze(&[bas(
         "M",

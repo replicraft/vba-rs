@@ -22,6 +22,10 @@ pub(crate) struct SigParam {
     pub by_val: bool,
     pub optional: bool,
     pub param_array: bool,
+    /// A `ByVal String` parameter of a `Declare`: the callee fills the
+    /// buffer, so a variable argument is passed by reference and receives
+    /// the converted-back buffer.
+    pub buffer: bool,
 }
 
 /// The callable part of a procedure-like thing.
@@ -64,6 +68,7 @@ impl Sig {
                     by_val: q.by_val,
                     optional: q.optional,
                     param_array: q.param_array,
+                    buffer: false,
                 })
                 .collect(),
             ret: p.has_result.then(|| p.ret.clone()),
@@ -82,6 +87,7 @@ impl Sig {
                     by_val: q.by_val,
                     optional: q.optional,
                     param_array: q.param_array,
+                    buffer: q.by_val && q.ty.is_string(),
                 })
                 .collect(),
             ret: d.is_function.then(|| d.ret.clone()),
@@ -100,6 +106,7 @@ impl Sig {
                     by_val: q.by_val,
                     optional: q.optional,
                     param_array: q.param_array,
+                    buffer: false,
                 })
                 .collect(),
             ret: None,
@@ -118,6 +125,7 @@ impl Sig {
                     by_val: !q.by_ref,
                     optional: q.optional,
                     param_array: q.param_array,
+                    buffer: false,
                 })
                 .collect(),
             ret: (!m.is_sub).then(|| m.ty.clone()),
@@ -136,6 +144,7 @@ impl Sig {
                     by_val: !q.by_ref,
                     optional: q.optional,
                     param_array: q.param_array,
+                    buffer: false,
                 })
                 .collect(),
             ret: Some(if dollar && f.dollar {
@@ -585,6 +594,13 @@ impl Binder<'_, '_> {
         let be = self.bind_expr(e);
         if be.ty.is_error() {
             return BArg::Value(be);
+        }
+        if p.buffer
+            && !forced_value
+            && be.ty.is_string()
+            && let Some(place) = self.expr_to_place(&be)
+        {
+            return BArg::Ref(place);
         }
         if p.by_val || forced_value {
             let be = if forced_value {
