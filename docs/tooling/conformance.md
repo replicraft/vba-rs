@@ -28,7 +28,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | partial | 159 |
 | unsupported | 6 |
 | not-started | 33 |
-| Conformance programs | 2085 |
+| Conformance programs | 2086 |
 | Programs that are known deviations (XFAIL) | 175 |
 
 ## Entries per category and status
@@ -111,7 +111,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-ops | 131 | 0 | 131 | 0 | 0 | 0 |
 | spec-proc | 214 | 0 | 214 | 0 | 0 | 0 |
 | statements | 88 | 0 | 74 | 13 | 1 | 0 |
-| strings | 72 | 0 | 33 | 16 | 8 | 15 |
+| strings | 73 | 0 | 33 | 17 | 8 | 15 |
 
 ## Gaps
 

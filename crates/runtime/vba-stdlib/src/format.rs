@@ -411,6 +411,17 @@ fn is_date_format(fmt: &str) -> bool {
                 }
             }
             ch if "dymhnswqtc".contains(ch.to_ascii_lowercase()) => return true,
+            ch if ch.eq_ignore_ascii_case(&'a') => {
+                // The AM/PM, A/P and AMPM designators make a date/time format.
+                let word: String = c[i..c.len().min(i + 5)]
+                    .iter()
+                    .map(char::to_ascii_lowercase)
+                    .collect();
+                if word.starts_with("am/pm") || word.starts_with("a/p") || word.starts_with("ampm")
+                {
+                    return true;
+                }
+            }
             _ => {}
         }
         i += 1;
