@@ -13,6 +13,7 @@ verified, and `unverified` provenance means the expected value is the implementa
 
 Provenance of the expected values (the weakest among an entry's passing programs):
 
+* `oracle`: confirmed by running the program in real VBA (environment pinned in `tests/oracle/ENVIRONMENTS.md`)
 * `spec`: stated by MS-VBAL (a section is cited)
 * `doc`: stated by the cited Microsoft language-reference page (example or remark)
 * `derived`: derived by reasoning from documented semantics, not stated verbatim
@@ -62,6 +63,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 
 | Provenance | Entries |
 | --- | ---: |
+| oracle | 0 |
 | spec | 0 |
 | doc | 140 |
 | derived | 71 |
@@ -70,27 +72,27 @@ Provenance of the expected values (the weakest among an entry's passing programs
 
 ## Programs per area and provenance
 
-| Area | Programs | spec | doc | derived | unverified |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| arrays | 31 | 0 | 12 | 3 | 16 |
-| classes | 28 | 0 | 11 | 11 | 6 |
-| collections | 23 | 0 | 21 | 0 | 2 |
-| conversions | 39 | 0 | 18 | 16 | 5 |
-| datatypes | 52 | 0 | 38 | 0 | 14 |
-| datetime | 44 | 0 | 21 | 2 | 21 |
-| derived-math | 21 | 0 | 21 | 0 | 0 |
-| errors | 26 | 0 | 17 | 0 | 9 |
-| events | 7 | 0 | 5 | 2 | 0 |
-| file-io | 40 | 0 | 30 | 4 | 6 |
-| financial | 12 | 0 | 2 | 10 | 0 |
-| host | 34 | 0 | 17 | 10 | 7 |
-| language | 17 | 0 | 3 | 0 | 14 |
-| logic | 10 | 0 | 8 | 2 | 0 |
-| math | 37 | 0 | 8 | 16 | 13 |
-| operators | 65 | 0 | 22 | 41 | 2 |
-| procedures | 34 | 0 | 15 | 8 | 11 |
-| statements | 88 | 0 | 78 | 8 | 2 |
-| strings | 71 | 0 | 36 | 18 | 17 |
+| Area | Programs | oracle | spec | doc | derived | unverified |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arrays | 31 | 0 | 0 | 12 | 3 | 16 |
+| classes | 28 | 0 | 0 | 11 | 11 | 6 |
+| collections | 23 | 0 | 0 | 21 | 0 | 2 |
+| conversions | 39 | 0 | 0 | 18 | 16 | 5 |
+| datatypes | 52 | 0 | 0 | 38 | 0 | 14 |
+| datetime | 44 | 0 | 0 | 21 | 2 | 21 |
+| derived-math | 21 | 0 | 0 | 21 | 0 | 0 |
+| errors | 26 | 0 | 0 | 17 | 0 | 9 |
+| events | 7 | 0 | 0 | 5 | 2 | 0 |
+| file-io | 40 | 0 | 0 | 30 | 4 | 6 |
+| financial | 12 | 0 | 0 | 2 | 10 | 0 |
+| host | 34 | 0 | 0 | 17 | 10 | 7 |
+| language | 17 | 0 | 0 | 3 | 0 | 14 |
+| logic | 10 | 0 | 0 | 8 | 2 | 0 |
+| math | 37 | 0 | 0 | 8 | 16 | 13 |
+| operators | 65 | 0 | 0 | 22 | 41 | 2 |
+| procedures | 34 | 0 | 0 | 15 | 8 | 11 |
+| statements | 88 | 0 | 0 | 78 | 8 | 2 |
+| strings | 71 | 0 | 0 | 36 | 18 | 17 |
 
 ## Gaps
 

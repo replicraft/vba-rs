@@ -43,6 +43,7 @@ fn bless() -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Provenance {
+    Oracle,
     Spec,
     Doc,
     Derived,
@@ -52,13 +53,15 @@ enum Provenance {
 impl Provenance {
     fn name(self) -> &'static str {
         match self {
+            Provenance::Oracle => "oracle",
             Provenance::Spec => "spec",
             Provenance::Doc => "doc",
             Provenance::Derived => "derived",
             Provenance::Unverified => "unverified",
         }
     }
-    const ALL: [Provenance; 4] = [
+    const ALL: [Provenance; 5] = [
+        Provenance::Oracle,
         Provenance::Spec,
         Provenance::Doc,
         Provenance::Derived,
@@ -167,6 +170,7 @@ fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
                     have_source = true;
                     let (kind, r) = value.split_once(' ').unwrap_or((value, ""));
                     p.provenance = match kind {
+                        "oracle" => Provenance::Oracle,
                         "spec" => Provenance::Spec,
                         "doc" => Provenance::Doc,
                         "derived" => Provenance::Derived,
@@ -648,6 +652,10 @@ fn summary(entries: &[Entry], progs: &[Program]) -> String {
         s,
         "Provenance of the expected values (the weakest among an entry's passing programs):\n"
     );
+    let _ = writeln!(
+        s,
+        "* `oracle`: confirmed by running the program in real VBA (environment pinned in `tests/oracle/ENVIRONMENTS.md`)"
+    );
     let _ = writeln!(s, "* `spec`: stated by MS-VBAL (a section is cited)");
     let _ = writeln!(
         s,
@@ -715,8 +723,11 @@ fn summary(entries: &[Entry], progs: &[Program]) -> String {
     let _ = writeln!(s, "| (no program) | {none} |");
 
     let _ = writeln!(s, "\n## Programs per area and provenance\n");
-    let _ = writeln!(s, "| Area | Programs | spec | doc | derived | unverified |");
-    let _ = writeln!(s, "| --- | ---: | ---: | ---: | ---: | ---: |");
+    let _ = writeln!(
+        s,
+        "| Area | Programs | oracle | spec | doc | derived | unverified |"
+    );
+    let _ = writeln!(s, "| --- | ---: | ---: | ---: | ---: | ---: | ---: |");
     let mut areas: BTreeMap<String, Vec<&Program>> = BTreeMap::new();
     for p in progs {
         areas
@@ -728,8 +739,9 @@ fn summary(entries: &[Entry], progs: &[Program]) -> String {
         let n = |pr: Provenance| ps.iter().filter(|p| p.provenance == pr).count();
         let _ = writeln!(
             s,
-            "| {a} | {} | {} | {} | {} | {} |",
+            "| {a} | {} | {} | {} | {} | {} | {} |",
             ps.len(),
+            n(Provenance::Oracle),
             n(Provenance::Spec),
             n(Provenance::Doc),
             n(Provenance::Derived),
