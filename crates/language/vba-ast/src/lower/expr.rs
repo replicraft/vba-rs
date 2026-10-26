@@ -230,7 +230,11 @@ impl Lowerer<'_> {
                         0.0
                     }
                 };
-                ExprKind::Literal(Literal::Float { value, suffix })
+                ExprKind::Literal(Literal::Float {
+                    value,
+                    text: s,
+                    suffix,
+                })
             }
             TokenKind::StringLiteral => {
                 let inner = if text.len() >= 2 && text[text.len() - 1] == b'"' {

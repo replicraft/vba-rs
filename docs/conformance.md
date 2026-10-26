@@ -23,12 +23,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 336 |
-| implemented | 298 |
-| partial | 6 |
+| implemented | 300 |
+| partial | 4 |
 | unsupported | 32 |
 | not-started | 0 |
 | Conformance programs | 658 |
-| Programs that are known deviations (XFAIL) | 28 |
+| Programs that are known deviations (XFAIL) | 27 |
 
 ## Entries per category and status
 
@@ -53,8 +53,8 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | operator-comparison | 8 | 8 | 0 | 0 | 0 |
 | operator-logical | 6 | 6 | 0 | 0 | 0 |
 | operator-precedence | 1 | 1 | 0 | 0 | 0 |
-| data-type | 18 | 14 | 3 | 1 | 0 |
-| identifier-type-character | 7 | 6 | 1 | 0 | 0 |
+| data-type | 18 | 15 | 2 | 1 | 0 |
+| identifier-type-character | 7 | 7 | 0 | 0 | 0 |
 | object | 13 | 3 | 0 | 10 | 0 |
 | language-element | 38 | 37 | 0 | 1 | 0 |
 
@@ -120,11 +120,9 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `func.macscript` | function-interaction | MacScript | unsupported | Macintosh-only functions |
 | `func.qbcolor` | function-interaction | QBColor | unsupported | QBColor is not defined ('Sub or Function not defined') |
 | `func.rgb` | function-interaction | RGB | unsupported | RGB is not defined ('Sub or Function not defined') |
-| `type.currency` | data-type | Currency | partial | the largest Currency value written as a literal is rejected as 'Currency literal overflows' (SEM010) |
 | `type.string` | data-type | String | partial | assigning a String to a Byte() array (b = s) is rejected: 'cannot convert String to Byte()' |
 | `type.udt` | data-type | User-defined type (Type) | partial | Len() of a user-defined type variable is rejected ('cannot convert Rec to Variant') |
 | `type.dictionary` | data-type | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
-| `typechar.at` | identifier-type-character | @ Currency type character | partial | the largest Currency value written as a literal is rejected as 'Currency literal overflows' (SEM010) |
 | `obj.dictionary` | object | Dictionary | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `obj.drive` | object | Drive | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
 | `obj.drives` | object | Drives | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
@@ -146,7 +144,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `collections/dictionary_not_provided` | unsupported | Scripting.Dictionary is a COM library; the default host registers no classes (429) |
 | `collections/filesystemobject_not_provided` | unsupported | Scripting.FileSystemObject is a COM library; the default host registers no classes (429) |
 | `collections/userform_not_provided` | unsupported | UserForm objects need a host that provides forms |
-| `datatypes/currency_max_literal` | wrong | the largest Currency value written as a literal is rejected as 'Currency literal overflows' (SEM010) |
 | `datetime/date_statement` | unsupported | setting the system clock is not provided by the stdlib host |
 | `datetime/time_statement` | unsupported | setting the system clock is not provided by the stdlib host |
 | `file-io/fileattr_mode` | unsupported | FileAttr is not defined ('Sub or Function not defined') |

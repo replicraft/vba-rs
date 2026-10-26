@@ -149,7 +149,7 @@ fn literals() {
         k => panic!("{k:?}"),
     }
     match rhs("1.5D2#").kind {
-        ExprKind::Literal(Literal::Float { value, suffix }) => {
+        ExprKind::Literal(Literal::Float { value, suffix, .. }) => {
             assert_eq!(value, 150.0);
             assert_eq!(suffix, Some(vba_lexer::TypeSuffix::Double));
         }

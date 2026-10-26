@@ -59,10 +59,16 @@ pub fn literal(lit: &Literal, profile: &Profile) -> Result<(Constant, Type), Str
             };
             integer_literal(mag, *radix, *suffix, profile)?
         }
-        Literal::Float { value, suffix } => match suffix {
+        Literal::Float {
+            value,
+            text,
+            suffix,
+        } => match suffix {
             Some(TypeSuffix::Single) => (Value(Variant::Single(*value as f32)), Type::Single),
             Some(TypeSuffix::Currency) => {
-                let c = Currency::from_f64(*value).map_err(|_| "Currency literal overflows")?;
+                let c = Currency::from_decimal_str(text)
+                    .or_else(|_| Currency::from_f64(*value))
+                    .map_err(|_| "Currency literal overflows")?;
                 (Value(Variant::Currency(c)), Type::Currency)
             }
             _ => (Value(Variant::Double(*value)), Type::Double),

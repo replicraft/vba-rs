@@ -76,6 +76,49 @@ impl Currency {
         Ok(Self(s as i64))
     }
 
+    /// Reads an unsigned decimal literal (`123.4567`, `1.5E3`) exactly,
+    /// rounding half to even at four decimals; the largest value
+    /// `922337203685477.5807` is representable, which a conversion through
+    /// `f64` cannot give. Out-of-range or malformed text is error 6.
+    pub fn from_decimal_str(text: &str) -> VbaResult<Self> {
+        let (mantissa, exp) = match text.split_once(['e', 'E']) {
+            Some((m, e)) => (m, e.parse::<i32>().map_err(|_| VbaError::OVERFLOW)?),
+            None => (text, 0),
+        };
+        let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+        let digits: String = format!("{int}{frac}");
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(VbaError::OVERFLOW);
+        }
+        let digits = digits.trim_start_matches('0');
+        if digits.len() > 36 {
+            return Err(VbaError::OVERFLOW);
+        }
+        let n: i128 = if digits.is_empty() {
+            0
+        } else {
+            digits.parse().map_err(|_| VbaError::OVERFLOW)?
+        };
+        // value = n * 10^(exp - frac.len()); scaled = value * 10^4.
+        let shift = exp
+            .checked_sub(frac.len() as i32)
+            .and_then(|s| s.checked_add(4))
+            .ok_or(VbaError::OVERFLOW)?;
+        let scaled = if shift >= 0 {
+            let p = 10i128
+                .checked_pow(u32::try_from(shift).map_err(|_| VbaError::OVERFLOW)?)
+                .ok_or(VbaError::OVERFLOW)?;
+            n.checked_mul(p).ok_or(VbaError::OVERFLOW)?
+        } else if shift < -38 {
+            0
+        } else {
+            div_round_half_even(n, 10i128.pow(shift.unsigned_abs()))
+        };
+        i64::try_from(scaled)
+            .map(Self)
+            .map_err(|_| VbaError::OVERFLOW)
+    }
+
     /// Converts to a double (may lose precision above 2^53 scaled units).
     pub fn to_f64(self) -> f64 {
         self.0 as f64 / SCALE as f64
@@ -224,5 +267,27 @@ mod tests {
             Currency::from_i64(922_337_203_685_478),
             Err(VbaError::OVERFLOW)
         );
+    }
+}
+
+#[cfg(test)]
+mod literal_tests {
+    use super::Currency;
+
+    #[test]
+    fn decimal_text_is_read_exactly() {
+        assert_eq!(
+            Currency::from_decimal_str("922337203685477.5807").unwrap(),
+            Currency::MAX
+        );
+        assert!(Currency::from_decimal_str("922337203685477.5808").is_err());
+        assert_eq!(
+            Currency::from_decimal_str("1.5e3").unwrap().scaled(),
+            15_000_000
+        );
+        // Half to even at the fourth decimal.
+        assert_eq!(Currency::from_decimal_str("0.00005").unwrap().scaled(), 0);
+        assert_eq!(Currency::from_decimal_str("0.00015").unwrap().scaled(), 2);
+        assert!(Currency::from_decimal_str("1e999").is_err());
     }
 }

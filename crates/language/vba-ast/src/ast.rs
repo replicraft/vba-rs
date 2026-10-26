@@ -1165,6 +1165,10 @@ pub enum Literal {
     Float {
         /// Value (`D` exponents handled).
         value: f64,
+        /// The literal as written without its suffix, with a `D` exponent
+        /// marker spelled `E`; kept so a `Currency` literal can be read
+        /// exactly instead of through the `f64`.
+        text: String,
         /// Suffix.
         suffix: Option<TypeSuffix>,
     },
