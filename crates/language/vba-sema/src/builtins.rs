@@ -142,6 +142,14 @@ fn lib(name: &str) -> LibraryType {
     }
 }
 
+/// A `stdole` interface type (`IUnknown`, `IDispatch`).
+pub fn stdole_type(name: &str) -> LibraryType {
+    LibraryType {
+        library: "stdole".to_owned(),
+        name: name.to_owned(),
+    }
+}
+
 /// The type of the `Err` object.
 pub fn err_object_type() -> LibraryType {
     lib("ErrObject")
@@ -253,6 +261,9 @@ fn builtin_member(ty: &LibraryType, name: &str) -> Option<LibMember> {
             "item" => LibMember::function("Item", vec![p("Index", Type::Variant)], Type::Variant)
                 .default_member(),
             "remove" => LibMember::sub("Remove", vec![p("Index", Type::Variant)]),
+            "_newenum" => {
+                LibMember::function("_NewEnum", vec![], Type::Library(stdole_type("IUnknown")))
+            }
             _ => return None,
         }),
         _ => None,
@@ -265,12 +276,21 @@ pub struct BuiltinLibrary;
 
 impl TypeProvider for BuiltinLibrary {
     fn resolve_type(&self, qualifier: Option<&str>, name: &str) -> Option<LibraryType> {
+        let lower = name.to_ascii_lowercase();
+        // `stdole` interfaces are visible to every VBA project.
+        if qualifier.is_none_or(|q| q.eq_ignore_ascii_case("stdole")) {
+            match lower.as_str() {
+                "iunknown" => return Some(stdole_type("IUnknown")),
+                "idispatch" => return Some(stdole_type("IDispatch")),
+                _ => {}
+            }
+        }
         if let Some(q) = qualifier
             && !q.eq_ignore_ascii_case(VBA_LIBRARY)
         {
             return None;
         }
-        match name.to_ascii_lowercase().as_str() {
+        match lower.as_str() {
             "collection" => Some(collection_type()),
             "errobject" => Some(err_object_type()),
             _ => None,

@@ -23,6 +23,10 @@ fn corpus() -> Vec<vba_sema::SourceModule> {
         module("Disc", ModuleKind::Class, &fixture("Disc.cls")),
         module("Watcher", ModuleKind::Class, &fixture("Watcher.cls")),
         module("WinApi", ModuleKind::Standard, &fixture("WinApi.bas")),
+        module("Tour", ModuleKind::Standard, &fixture("Tour.bas")),
+        module("Text", ModuleKind::Standard, &fixture("Text.bas")),
+        module("Bag", ModuleKind::Class, &fixture("Bag.cls")),
+        module("BagUser", ModuleKind::Class, &fixture("BagUser.cls")),
     ]
 }
 

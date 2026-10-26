@@ -496,6 +496,21 @@ impl Binder<'_, '_> {
         value: &Expr,
         span: Span,
     ) -> Option<BStmt> {
+        if kind == AssignKind::Let
+            && let ExprKind::Call { callee, args } = &target.kind
+            && let ExprKind::Name(id) = &callee.kind
+            && matches!(
+                id.name.to_string_lossy().to_ascii_lowercase().as_str(),
+                "mid" | "midb"
+            )
+            && !self.scope.contains_key(&id.name)
+            && matches!(
+                self.sema.lookup_module_scope(self.module, &id.name),
+                crate::sema::Found::None
+            )
+        {
+            return self.bind_mid_statement(id, args, value, span);
+        }
         let tgt = self.bind_target(target, false);
         let v = self.bind_expr(value);
         let (place, pty) = tgt?;
@@ -565,6 +580,70 @@ impl Binder<'_, '_> {
                 mode,
             },
         )
+    }
+
+    /// `Mid[B][$](target, start[, length]) = replacement`: a statement, bound
+    /// as a call of the run-time provided `MidStatement`/`MidBStatement` with
+    /// the target passed by reference.
+    fn bind_mid_statement(
+        &mut self,
+        id: &vba_ast::Ident,
+        args: &[vba_ast::Arg],
+        value: &Expr,
+        span: Span,
+    ) -> Option<BStmt> {
+        let exprs: Vec<&Expr> = args.iter().filter_map(|a| a.value.as_ref()).collect();
+        if !(2..=3).contains(&args.len())
+            || exprs.len() != args.len()
+            || args.iter().any(|a| a.name.is_some())
+        {
+            self.err(
+                codes::BAD_ARGUMENTS,
+                span,
+                "the `Mid` statement takes a string variable, a start and an optional length",
+            );
+            return None;
+        }
+        let t = self.bind_expr(exprs[0]);
+        let place = self.expr_to_place(&t);
+        let (Some(place), true) = (place, t.ty.is_string() || t.ty.is_variant()) else {
+            if !t.ty.is_error() {
+                self.err(
+                    codes::TYPE_MISMATCH,
+                    exprs[0].span,
+                    "the first argument of the `Mid` statement must be a String variable",
+                );
+            }
+            return None;
+        };
+        let start = self.bind_expr(exprs[1]);
+        let start = self.coerce_index(start, Type::Long);
+        let length = match exprs.get(2) {
+            Some(e) => {
+                let b = self.bind_expr(e);
+                BArg::Value(self.coerce_index(b, Type::Long))
+            }
+            None => BArg::Missing,
+        };
+        let v = self.bind_expr(value);
+        let v = self.rvalue(v);
+        let v = self.coerce(v, &Type::String, Ctx::Let);
+        let name = if id.name.eq_ignore_case("midb") {
+            "MidBStatement"
+        } else {
+            "MidStatement"
+        };
+        let call = self.call_expr(
+            span,
+            Type::Variant,
+            CallTarget::Intrinsic {
+                name: name.to_owned(),
+                dollar: false,
+            },
+            None,
+            vec![BArg::Ref(place), BArg::Value(start), length, BArg::Value(v)],
+        );
+        self.stmt(span, BStmtKind::Call(call))
     }
 
     fn bind_set(&mut self, target: &Expr, value: &Expr, span: Span) -> Option<BStmt> {

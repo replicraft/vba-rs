@@ -382,6 +382,15 @@ const CASES: &[Case] = &[
         )],
         expect: &["SEM019@7", "SEM008@8"],
     },
+    Case {
+        name: "mid statement",
+        mods: &[(
+            "M",
+            Standard,
+            "Sub F()\nDim s As String, n As Long\nMid(s, 1, 2) = \"ab\"\nMid$(s, 2) = \"x\"\nMid(n, 1) = \"a\"\nMid(s) = \"x\"\nEnd Sub\n",
+        )],
+        expect: &["SEM006@5", "SEM008@6"],
+    },
     // ---- labels, exit, with ---------------------------------------------
     Case {
         name: "labels",

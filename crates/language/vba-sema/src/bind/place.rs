@@ -43,22 +43,6 @@ impl Binder<'_, '_> {
     /// Binds the target of `Let`/`Set`/`LSet`/`RSet`. `set` selects
     /// `Property Set` / `DISPATCH_PROPERTYPUTREF`.
     pub(crate) fn bind_target(&mut self, e: &Expr, set: bool) -> Option<(BPlace, Type)> {
-        // `Mid(s, ...) = x` is the Mid statement, not an assignment to a call.
-        if let ExprKind::Call { callee, .. } = &e.kind
-            && let ExprKind::Name(id) = &callee.kind
-            && matches!(
-                id.name.to_string_lossy().to_ascii_lowercase().as_str(),
-                "mid" | "midb"
-            )
-            && !self.scope.contains_key(&id.name)
-        {
-            self.err(
-                codes::UNSUPPORTED,
-                e.span,
-                "the `Mid` statement (assignment to Mid) is not supported",
-            );
-            return None;
-        }
         // The implicit result variable of a function or property getter.
         let name_of = |x: &Expr| match &x.kind {
             ExprKind::Name(id) => Some(id.clone()),

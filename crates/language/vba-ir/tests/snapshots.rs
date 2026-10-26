@@ -1058,3 +1058,21 @@ fn parenthesised_object_default_member() {
         "#]],
     );
 }
+
+#[test]
+fn mid_statement() {
+    check(
+        "Sub P()\nDim s As String\nMid(s, 2, 1) = \"x\"\nMid$(s, 3) = \"yz\"\nEnd Sub\n",
+        "P",
+        expect![[r#"
+            func M.P
+              slot s0 s : String (local)
+              b0:
+                r0 = ref s0:s
+                call intrinsic MidStatement(ref r0, 2%, 1%, "x")
+                r1 = ref s0:s
+                call intrinsic MidStatement(ref r1, 3%, missing, "yz")
+                return
+        "#]],
+    );
+}

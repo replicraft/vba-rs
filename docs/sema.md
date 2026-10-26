@@ -105,6 +105,12 @@ string lengths): folded with `vba-value` operators, lazily and
 cycle-safe (`SEM010`), converted to the declared type; folding is not applied
 to ordinary expressions.
 
+Run-time provided intrinsics (called as `Callee::Intrinsic`, implemented by
+the VM, not present in the `vba-stdlib` registry): `CreateObject`, `GetObject`,
+`MsgBox`, `InputBox`, `DoEvents`, `Beep`, `Erl`, `Command`, and the `Mid`
+statement, which is bound as a call of `MidStatement(ref target, start,
+length|missing, value)` (`MidBStatement` for `MidB`).
+
 ## Declaration-level checks
 
 | Code | Check |
@@ -135,7 +141,7 @@ to ordinary expressions.
 | SEM025 | not assignable (constant, call result) |
 | SEM026 | `ByRef` argument type mismatch |
 | SEM027 | UDT/enum declaration (recursion, value range) |
-| SEM099 | construct not supported (explicit; currently the `Mid` statement) |
+| SEM099 | construct not supported (explicit; `DefDec`, `AddressOf` in profiles without it) |
 
 `PtrSafe` on 64-bit targets and its availability by generation are diagnosed
 by the parser (`SYN010`) from the same profile, so they are not repeated.
@@ -165,7 +171,7 @@ events, or the provider's `events`) and its parameter types must match.
 - Operator result types and the `Currency`/`Single` mixing rules are the
   documented tables, not verified against a host (**unverified**).
 - `Foo (x)` in a call statement is treated as an argument list (so `x` is by
-  reference); real VBA passes it by value. `Mid(s, i) = x` is `SEM099`.
+  reference); real VBA passes it by value.
 - `Static` locals are hoisted before local constants exist, so a `Static`
   array cannot use a local `Const` as a bound.
 - No control-flow analysis: unreachable code, use before assignment, a
