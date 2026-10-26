@@ -236,6 +236,17 @@ impl Vm {
                 Some(n) => named.push((n, b)),
             }
         }
+        // MS-VBAL 5.3.1.11: an omitted positional value for a parameter that
+        // is not optional is error 448 at run time.
+        for (i, b) in out.iter().enumerate() {
+            if matches!(b, BoundArg::Missing)
+                && p.params
+                    .get(i)
+                    .is_some_and(|q| !q.optional && !q.param_array)
+            {
+                return Err(VbaError::new(448).into());
+            }
+        }
         for (n, b) in named {
             let Some(i) = p
                 .params
@@ -247,8 +258,9 @@ impl Vm {
             while out.len() <= i {
                 out.push(BoundArg::Missing);
             }
+            // Two arguments mapped to one parameter (MS-VBAL 5.3.1.11).
             if !matches!(out[i], BoundArg::Missing) {
-                return Err(VbaError::new(446).into());
+                return Err(VbaError::new(448).into());
             }
             out[i] = b;
         }
