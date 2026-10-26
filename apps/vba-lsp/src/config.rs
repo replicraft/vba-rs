@@ -3,7 +3,10 @@
 //! ```json
 //! { "vba": { "profile": "vba7.1-excel-win64",
 //!            "encoding": "utf-8",
-//!            "constants": { "DEBUGGING": 1 } } }
+//!            "constants": { "DEBUGGING": 1 },
+//!            "semantic": true,
+//!            "projectName": "VBAProject",
+//!            "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" } } }
 //! ```
 //!
 //! The object under `vba` may also be passed directly (initialization
@@ -11,7 +14,7 @@
 //! the editor restores the default.
 
 use serde_json::Value;
-use vba_lsp_core::{Config, parse_encoding};
+use vba_lsp_core::{Config, ModuleKind, parse_encoding};
 
 /// Builds a configuration from settings and returns warnings for entries
 /// that were rejected.
@@ -53,10 +56,42 @@ pub fn from_settings(settings: &Value) -> (Config, Vec<String>) {
                 }
                 None => warnings.push("`vba.constants` must be an object".to_string()),
             },
+            "semantic" => match value.as_bool() {
+                Some(b) => cfg.semantic = b,
+                None => warnings.push("`vba.semantic` must be a boolean".to_string()),
+            },
+            "projectName" => match value.as_str() {
+                Some(n) if !n.trim().is_empty() => cfg.project_name = n.to_string(),
+                _ => warnings.push("`vba.projectName` must be a non-empty string".to_string()),
+            },
+            "moduleKinds" => match value.as_object() {
+                Some(m) => {
+                    for (pattern, kind) in m {
+                        match kind.as_str().and_then(module_kind) {
+                            Some(k) => cfg.module_kinds.push((pattern.clone(), k)),
+                            None => warnings.push(format!(
+                                "`vba.moduleKinds.{pattern}` must be `standard`, `class`, \
+                                 `document` or `designer`"
+                            )),
+                        }
+                    }
+                }
+                None => warnings.push("`vba.moduleKinds` must be an object".to_string()),
+            },
             other => warnings.push(format!("unknown setting `vba.{other}`")),
         }
     }
     (cfg, warnings)
+}
+
+fn module_kind(s: &str) -> Option<ModuleKind> {
+    match s.to_ascii_lowercase().as_str() {
+        "standard" => Some(ModuleKind::Standard),
+        "class" => Some(ModuleKind::Class),
+        "document" => Some(ModuleKind::Document),
+        "designer" => Some(ModuleKind::Designer),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -75,6 +110,28 @@ mod tests {
         assert_eq!(cfg.profile.id, "vba6-excel-win32");
         assert_eq!(cfg.constants, [("DEBUGGING".to_string(), 1)]);
         assert_eq!(cfg.encoding, parse_encoding("932").unwrap());
+    }
+
+    #[test]
+    fn project_settings() {
+        let (cfg, w) = from_settings(&json!({"vba": {
+            "semantic": false,
+            "projectName": "Book",
+            "moduleKinds": {"*.txt": "Class", "a.vba": "designer", "bad": "form"}
+        }}));
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(!cfg.semantic);
+        assert_eq!(cfg.project_name, "Book");
+        assert_eq!(
+            cfg.module_kinds,
+            [
+                ("*.txt".to_string(), ModuleKind::Class),
+                ("a.vba".to_string(), ModuleKind::Designer)
+            ]
+        );
+        let (cfg, _) = from_settings(&json!({"vba": {"semantic": "yes", "projectName": ""}}));
+        assert!(cfg.semantic);
+        assert_eq!(cfg.project_name, Config::default().project_name);
     }
 
     #[test]

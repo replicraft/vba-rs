@@ -1,5 +1,6 @@
 //! The request loop.
 
+use std::collections::HashMap;
 use std::error::Error as StdError;
 
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
@@ -11,6 +12,9 @@ use serde_json::{Value, json};
 use vba_lsp_core::{self as core, Workspace};
 
 use crate::{config, convert};
+
+/// Upper bound on workspace symbols returned for one query.
+const MAX_WORKSPACE_SYMBOLS: usize = 500;
 
 type Result<T> = std::result::Result<T, Box<dyn StdError + Sync + Send>>;
 
@@ -65,6 +69,7 @@ pub fn capabilities() -> lsp::ServerCapabilities {
             work_done_progress_options: Default::default(),
         })),
         document_symbol_provider: Some(lsp::OneOf::Left(true)),
+        workspace_symbol_provider: Some(lsp::OneOf::Left(true)),
         folding_range_provider: Some(lsp::FoldingRangeProviderCapability::Simple(true)),
         selection_range_provider: Some(lsp::SelectionRangeProviderCapability::Simple(true)),
         document_formatting_provider: Some(lsp::OneOf::Left(true)),
@@ -91,6 +96,11 @@ pub struct Server {
     hierarchical_symbols: bool,
     next_id: i32,
     pending_config: Vec<RequestId>,
+    /// Open documents whose diagnostics may be stale. Publishing waits
+    /// until the client has no further message queued, so a burst of edits
+    /// costs one analysis of the project.
+    dirty: bool,
+    published: HashMap<String, (i32, Vec<lsp::Diagnostic>)>,
 }
 
 impl Server {
@@ -127,6 +137,8 @@ impl Server {
             hierarchical_symbols,
             next_id: 0,
             pending_config: Vec::new(),
+            dirty: false,
+            published: HashMap::new(),
         };
         for w in warnings {
             s.log(lsp::MessageType::WARNING, w)?;
@@ -152,6 +164,9 @@ impl Server {
                     self.on_notification(n)?;
                 }
                 Message::Response(r) => self.on_response(r)?,
+            }
+            if self.dirty && self.conn.receiver.is_empty() {
+                self.publish_all()?;
             }
         }
         // The client closed the pipe without `exit`.
@@ -224,12 +239,14 @@ impl Server {
             r::GotoDefinition::METHOD => {
                 let p: lsp::GotoDefinitionParams = params(p)?;
                 let tdp = p.text_document_position_params;
-                let uri = tdp.text_document.uri;
-                let v = self.view(&uri)?;
-                let locs: Vec<lsp::Location> = v
-                    .definition(convert::position(tdp.position))
+                let locs: Vec<lsp::Location> = self
+                    .ws
+                    .definition(
+                        tdp.text_document.uri.as_str(),
+                        convert::position(tdp.position),
+                    )?
                     .into_iter()
-                    .map(|r| lsp::Location::new(uri.clone(), convert::to_range(r)))
+                    .filter_map(convert::location)
                     .collect();
                 if locs.is_empty() {
                     Ok(Value::Null)
@@ -239,35 +256,45 @@ impl Server {
             }
             r::References::METHOD => {
                 let p: lsp::ReferenceParams = params(p)?;
-                let uri = p.text_document_position.text_document.uri;
-                let v = self.view(&uri)?;
-                let locs: Vec<lsp::Location> = v
+                let tdp = p.text_document_position;
+                let locs: Vec<lsp::Location> = self
+                    .ws
                     .references(
-                        convert::position(p.text_document_position.position),
+                        tdp.text_document.uri.as_str(),
+                        convert::position(tdp.position),
                         p.context.include_declaration,
-                    )
+                    )?
                     .into_iter()
-                    .map(|r| lsp::Location::new(uri.clone(), convert::to_range(r)))
+                    .filter_map(convert::location)
                     .collect();
                 reply(locs)
             }
             r::PrepareRenameRequest::METHOD => {
                 let p: lsp::TextDocumentPositionParams = params(p)?;
-                let v = self.view(&p.text_document.uri)?;
-                let range = v.prepare_rename(convert::position(p.position))?;
+                let range = self
+                    .ws
+                    .prepare_rename(p.text_document.uri.as_str(), convert::position(p.position))?;
                 reply(lsp::PrepareRenameResponse::Range(convert::to_range(range)))
             }
             r::Rename::METHOD => {
                 let p: lsp::RenameParams = params(p)?;
                 let tdp = p.text_document_position;
-                let uri = tdp.text_document.uri;
-                let v = self.view(&uri)?;
-                let edits = v.rename(convert::position(tdp.position), &p.new_name)?;
-                let edits: Vec<lsp::TextEdit> = edits.into_iter().map(convert::text_edit).collect();
-                reply(lsp::WorkspaceEdit {
-                    changes: Some([(uri, edits)].into_iter().collect()),
-                    ..Default::default()
-                })
+                let files = self.ws.rename(
+                    tdp.text_document.uri.as_str(),
+                    convert::position(tdp.position),
+                    &p.new_name,
+                )?;
+                reply(convert::workspace_edit(files))
+            }
+            r::WorkspaceSymbolRequest::METHOD => {
+                let p: lsp::WorkspaceSymbolParams = params(p)?;
+                let syms: Vec<lsp::SymbolInformation> = self
+                    .ws
+                    .workspace_symbols(&p.query, MAX_WORKSPACE_SYMBOLS)
+                    .into_iter()
+                    .filter_map(convert::workspace_symbol)
+                    .collect();
+                reply(lsp::WorkspaceSymbolResponse::Flat(syms))
             }
             r::DocumentSymbolRequest::METHOD => {
                 let p: lsp::DocumentSymbolParams = params(p)?;
@@ -353,7 +380,7 @@ impl Server {
                 let p: lsp::DidOpenTextDocumentParams = serde_json::from_value(n.params)?;
                 let d = p.text_document;
                 self.ws.open(d.uri.as_str(), &d.text, d.version);
-                self.publish(&d.uri)?;
+                self.dirty = true;
             }
             nt::DidChangeTextDocument::METHOD => {
                 let p: lsp::DidChangeTextDocumentParams = serde_json::from_value(n.params)?;
@@ -370,13 +397,15 @@ impl Server {
                     .ws
                     .change(uri.as_str(), p.text_document.version, &changes)
                 {
-                    Ok(()) => self.publish(&uri)?,
+                    Ok(()) => self.dirty = true,
                     Err(e) => self.log(lsp::MessageType::WARNING, e.to_string())?,
                 }
             }
             nt::DidCloseTextDocument::METHOD => {
                 let p: lsp::DidCloseTextDocumentParams = serde_json::from_value(n.params)?;
                 self.ws.close(p.text_document.uri.as_str());
+                self.published.remove(p.text_document.uri.as_str());
+                self.dirty = true;
                 // Clear the diagnostics of a closed document.
                 self.notify::<nt::PublishDiagnostics>(lsp::PublishDiagnosticsParams::new(
                     p.text_document.uri,
@@ -439,30 +468,43 @@ impl Server {
         for w in warnings {
             self.log(lsp::MessageType::WARNING, w)?;
         }
-        let uris: Vec<String> = self.ws.open_uris().into_iter().map(String::from).collect();
-        for u in uris {
-            if let Ok(uri) = u.parse::<lsp::Uri>() {
-                self.publish(&uri)?;
-            }
-        }
+        // Every document is re-analysed with the new settings.
+        self.published.clear();
+        self.dirty = true;
         Ok(())
     }
 
-    fn publish(&self, uri: &lsp::Uri) -> Result<()> {
-        let Ok(view) = self.ws.view(uri.as_str()) else {
-            return Ok(());
-        };
-        let diags = view
-            .diagnostics()
-            .into_iter()
-            .map(|d| convert::diagnostic(uri, d))
-            .collect();
-        let version = view.document().version();
-        self.notify::<lsp::notification::PublishDiagnostics>(lsp::PublishDiagnosticsParams::new(
-            uri.clone(),
-            diags,
-            Some(version),
-        ))
+    /// Publishes the diagnostics of every open document that changed since
+    /// they were last sent: a semantic error in one module can appear or
+    /// disappear in another when a module is edited.
+    fn publish_all(&mut self) -> Result<()> {
+        self.dirty = false;
+        let mut uris: Vec<String> = self.ws.open_uris().into_iter().map(String::from).collect();
+        uris.sort();
+        for u in uris {
+            let Ok(uri) = u.parse::<lsp::Uri>() else {
+                continue;
+            };
+            let Ok(view) = self.ws.view(&u) else { continue };
+            let diags: Vec<lsp::Diagnostic> = view
+                .diagnostics()
+                .into_iter()
+                .map(|d| convert::diagnostic(&uri, d))
+                .collect();
+            let version = view.document().version();
+            if self
+                .published
+                .get(&u)
+                .is_some_and(|(v, d)| *v == version && *d == diags)
+            {
+                continue;
+            }
+            self.notify::<lsp::notification::PublishDiagnostics>(
+                lsp::PublishDiagnosticsParams::new(uri, diags.clone(), Some(version)),
+            )?;
+            self.published.insert(u, (version, diags));
+        }
+        Ok(())
     }
 }
 

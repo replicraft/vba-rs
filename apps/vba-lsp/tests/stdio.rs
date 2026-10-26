@@ -151,8 +151,8 @@ fn at(line: u64, character: u64) -> Value {
 }
 
 const SOURCE: &str = "\
-Declare PtrSafe Function GetTick Lib \"kernel32\" Alias \"GetTickCount\" () As Long
 Option Explicit
+Declare PtrSafe Function GetTick Lib \"kernel32\" Alias \"GetTickCount\" () As Long
 
 Public Function Add(ByVal a As Long, ByVal b As Long) As Long
     Dim total As Long
@@ -485,4 +485,154 @@ fn utf16_incremental_changes_over_the_wire() {
         json!({"textDocument": {"uri": URI}}),
     );
     assert_eq!(syms[0]["name"], "B");
+}
+
+const LIB: &str = "file:///project/Lib.bas";
+const MAIN: &str = "file:///project/Main.bas";
+
+const LIB_SOURCE: &str = "\
+Attribute VB_Name = \"Lib\"
+Option Explicit
+Public Const LIMIT As Long = 10
+Public Function Twice(ByVal n As Long) As Long
+    Twice = n * 2
+End Function
+";
+
+const MAIN_SOURCE: &str = "\
+Option Explicit
+Public Sub Run()
+    Dim r As Long
+    r = Twice(LIMIT)
+    r = r + undeclared
+End Sub
+";
+
+fn diagnostics_of(c: &mut Client, uri: &str, pred: impl Fn(&[Value]) -> bool) -> Vec<Value> {
+    let m = c.wait(|m| {
+        m["method"] == "textDocument/publishDiagnostics"
+            && m["params"]["uri"] == uri
+            && pred(m["params"]["diagnostics"].as_array().unwrap())
+    });
+    m["params"]["diagnostics"].as_array().unwrap().clone()
+}
+
+fn open_doc(c: &mut Client, uri: &str, version: i64, text: &str) {
+    c.notify(
+        "textDocument/didOpen",
+        json!({"textDocument": {"uri": uri, "languageId": "vba", "version": version, "text": text}}),
+    );
+}
+
+#[test]
+fn two_module_project() {
+    let mut c = Client::spawn();
+    let init = initialize(&mut c, false);
+    assert_eq!(init["capabilities"]["workspaceSymbolProvider"], true);
+
+    open_doc(&mut c, LIB, 1, LIB_SOURCE);
+    open_doc(&mut c, MAIN, 1, MAIN_SOURCE);
+
+    // A semantic diagnostic lands in the module that has the problem.
+    let d = diagnostics_of(&mut c, MAIN, |d| d.iter().any(|d| d["code"] == "SEM002"));
+    let sem = d.iter().find(|d| d["code"] == "SEM002").unwrap();
+    assert_eq!(sem["source"], "vba");
+    assert_eq!(sem["range"]["start"], pos(4, 12));
+    assert_eq!(sem["range"]["end"], pos(4, 22));
+    let lib = diagnostics_of(&mut c, LIB, |_| true);
+    assert!(lib.is_empty(), "{lib:?}");
+
+    // Cross-file definition: `Twice` in Main -> Lib.
+    let at_main = |l, ch| json!({"textDocument": {"uri": MAIN}, "position": pos(l, ch)});
+    let def = c.request("textDocument/definition", at_main(3, 9));
+    assert_eq!(def[0]["uri"], LIB);
+    assert_eq!(def[0]["range"]["start"], pos(3, 16));
+    assert_eq!(def[0]["range"]["end"], pos(3, 21));
+    let def = c.request("textDocument/definition", at_main(3, 15));
+    assert_eq!(def[0]["uri"], LIB);
+    assert_eq!(def[0]["range"]["start"], pos(2, 13));
+
+    // References and rename reach both files.
+    let refs = c.request(
+        "textDocument/references",
+        json!({"textDocument": {"uri": MAIN}, "position": pos(3, 9), "context": {"includeDeclaration": true}}),
+    );
+    let uris: Vec<&str> = refs
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["uri"].as_str().unwrap())
+        .collect();
+    assert_eq!(uris, [LIB, LIB, MAIN]);
+    let prep = c.request("textDocument/prepareRename", at_main(3, 9));
+    assert_eq!(prep["start"], pos(3, 8));
+    let edit = c.request(
+        "textDocument/rename",
+        json!({"textDocument": {"uri": MAIN}, "position": pos(3, 9), "newName": "Doubled"}),
+    );
+    assert_eq!(edit["changes"][LIB].as_array().unwrap().len(), 2);
+    assert_eq!(edit["changes"][MAIN].as_array().unwrap().len(), 1);
+    // A clash is refused with RequestFailed.
+    let bad = c.request_raw(
+        "textDocument/rename",
+        json!({"textDocument": {"uri": MAIN}, "position": pos(3, 9), "newName": "limit"}),
+    );
+    assert_eq!(error_code(&bad), -32803, "{bad}");
+
+    // Type-aware hover.
+    let h = c.request("textDocument/hover", at_main(3, 9));
+    let text = h["contents"]["value"].as_str().unwrap();
+    assert!(
+        text.contains("Public Function Twice(ByVal n As Long) As Long"),
+        "{text}"
+    );
+
+    // Workspace symbols.
+    let syms = c.request("workspace/symbol", json!({"query": "twice"}));
+    let first = &syms[0];
+    assert_eq!(first["name"], "Twice");
+    assert_eq!(first["location"]["uri"], LIB);
+    assert_eq!(first["containerName"], "Lib");
+    let all = c.request("workspace/symbol", json!({"query": ""}));
+    let names: Vec<&str> = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    for want in ["Lib", "Main", "Run", "LIMIT", "Twice"] {
+        assert!(names.contains(&want), "{want} in {names:?}");
+    }
+
+    // Completion after `Lib.` knows the module's public members.
+    c.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": MAIN, "version": 2},
+               "contentChanges": [{"range": {"start": pos(4, 4), "end": pos(4, 22)}, "text": "r = Lib."}]}),
+    );
+    let comp = c.request("textDocument/completion", at_main(4, 12));
+    let labels: Vec<&str> = comp["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["LIMIT", "Twice"]);
+
+    // An edit in Lib re-publishes Main's diagnostics without Main changing.
+    open_doc(&mut c, MAIN, 3, &MAIN_SOURCE.replace("r + undeclared", "r"));
+    let d = diagnostics_of(&mut c, MAIN, |d| d.is_empty());
+    assert!(d.is_empty());
+    c.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": LIB, "version": 2},
+               "contentChanges": [{"range": {"start": pos(3, 16), "end": pos(3, 21)}, "text": "Thrice"}]}),
+    );
+    let d = diagnostics_of(&mut c, MAIN, |d| d.iter().any(|d| d["code"] == "SEM003"));
+    assert_eq!(d.len(), 1, "{d:?}");
+    assert_eq!(d[0]["range"]["start"], pos(3, 8));
+
+    assert_eq!(c.request("shutdown", Value::Null), Value::Null);
+    c.notify("exit", Value::Null);
+    assert_eq!(c.exit_code(), Some(0));
 }

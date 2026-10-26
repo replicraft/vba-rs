@@ -19,6 +19,40 @@ pub fn to_range(r: core::Range) -> lsp::Range {
     lsp::Range::new(to_position(r.start), to_position(r.end))
 }
 
+/// A location of the workspace; `None` when its URI cannot be represented.
+pub fn location(l: core::Location) -> Option<lsp::Location> {
+    Some(lsp::Location::new(l.uri.parse().ok()?, to_range(l.range)))
+}
+
+/// A multi-document rename as a `WorkspaceEdit`.
+#[allow(clippy::mutable_key_type)] // `WorkspaceEdit::changes` is keyed by `Uri`
+pub fn workspace_edit(files: Vec<core::FileEdit>) -> lsp::WorkspaceEdit {
+    let changes = files
+        .into_iter()
+        .filter_map(|f| {
+            let uri = f.uri.parse::<lsp::Uri>().ok()?;
+            Some((uri, f.edits.into_iter().map(text_edit).collect()))
+        })
+        .collect();
+    lsp::WorkspaceEdit {
+        changes: Some(changes),
+        ..Default::default()
+    }
+}
+
+/// A workspace symbol as `SymbolInformation`.
+#[allow(deprecated)] // `deprecated` is a required field of SymbolInformation
+pub fn workspace_symbol(s: core::WorkspaceSymbol) -> Option<lsp::SymbolInformation> {
+    Some(lsp::SymbolInformation {
+        name: s.name,
+        kind: symbol_kind(s.kind),
+        tags: None,
+        deprecated: None,
+        location: location(s.location)?,
+        container_name: (!s.container.is_empty()).then_some(s.container),
+    })
+}
+
 pub fn text_edit(e: core::TextEdit) -> lsp::TextEdit {
     lsp::TextEdit::new(to_range(e.range), e.new_text)
 }
@@ -60,6 +94,8 @@ fn symbol_kind(k: core::SymbolKind) -> lsp::SymbolKind {
         core::SymbolKind::EnumMember => lsp::SymbolKind::ENUM_MEMBER,
         core::SymbolKind::Struct => lsp::SymbolKind::STRUCT,
         core::SymbolKind::Event => lsp::SymbolKind::EVENT,
+        core::SymbolKind::Module => lsp::SymbolKind::MODULE,
+        core::SymbolKind::Class => lsp::SymbolKind::CLASS,
     }
 }
 
@@ -172,6 +208,8 @@ pub fn completions(c: core::Completions) -> lsp::CompletionList {
                     core::CompletionKind::Type => lsp::CompletionItemKind::CLASS,
                     core::CompletionKind::EnumMember => lsp::CompletionItemKind::ENUM_MEMBER,
                     core::CompletionKind::Module => lsp::CompletionItemKind::MODULE,
+                    core::CompletionKind::Property => lsp::CompletionItemKind::PROPERTY,
+                    core::CompletionKind::Field => lsp::CompletionItemKind::FIELD,
                 }),
                 detail: i.detail,
                 text_edit: Some(lsp::CompletionTextEdit::Edit(lsp::TextEdit::new(
