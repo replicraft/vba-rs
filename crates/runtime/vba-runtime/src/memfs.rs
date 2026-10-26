@@ -228,6 +228,26 @@ impl Vfs for MemFs {
         }
     }
 
+    /// The spelling the entries were created with, so that the case-exact
+    /// policy sees one name for what the file system treats as one file.
+    fn canonical(&mut self, path: &str) -> String {
+        let mut out = String::new();
+        let mut known = true;
+        for (i, seg) in path.split('/').enumerate() {
+            if i > 0 {
+                out.push('/');
+            }
+            out.push_str(seg);
+            if known && !seg.is_empty() && !(i == 0 && seg.ends_with(':')) {
+                match self.entries.get(&key(&out)) {
+                    Some(e) => out = e.display.clone(),
+                    None => known = false,
+                }
+            }
+        }
+        out
+    }
+
     fn initial_dir(&self) -> String {
         self.initial_dir.clone()
     }

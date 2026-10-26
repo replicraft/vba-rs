@@ -121,8 +121,9 @@ fn file_prefix_grants_match_whole_path_segments() {
     let p = Policy::deny_all().grant_prefixes(Capability::FileRead, ["/data", "C:\\Work"]);
     assert!(p.check(Capability::FileRead, "/data").is_ok());
     assert!(p.check(Capability::FileRead, "/data/").is_ok());
-    assert!(p.check(Capability::FileRead, "/DATA/a.txt").is_ok());
+    assert!(p.check(Capability::FileRead, "/DATA/a.txt").is_err());
     assert!(p.check(Capability::FileRead, "c:/work/a.txt").is_ok());
+    assert!(p.check(Capability::FileRead, "C:/WORK/a.txt").is_ok());
     assert!(p.check(Capability::FileRead, "c:\\work\\a.txt").is_ok());
     assert!(p.check(Capability::FileRead, "/data-secret/a.txt").is_err());
     assert!(p.check(Capability::FileRead, "/data2").is_err());
@@ -346,20 +347,37 @@ proptest! {
     }
 
     #[test]
-    fn prefix_grants_are_case_insensitive_and_reject_parent_segments(
+    fn drive_grants_ignore_case_and_all_grants_reject_parent_segments(
         prefix in "[a-z]{1,8}/",
         rest in "[a-z]{0,8}",
         mask in proptest::collection::vec(any::<bool>(), 1..16),
     ) {
-        let p = Policy::deny_all().grant_prefixes(Capability::FileRead, [prefix.clone()]);
-        let res: String = format!("{prefix}{rest}")
-            .chars()
-            .zip(mask.iter().cycle())
-            .map(|(c, up)| if *up { c.to_ascii_uppercase() } else { c })
-            .collect();
+        let fold = |s: String| -> String {
+            s.chars()
+                .zip(mask.iter().cycle())
+                .map(|(c, up)| if *up { c.to_ascii_uppercase() } else { c })
+                .collect()
+        };
+        // A drive names a case-insensitive file system.
+        let win = format!("c:/d{prefix}");
+        let p = Policy::deny_all().grant_prefixes(Capability::FileRead, [win.clone()]);
+        let res = format!("c:/{}", fold(format!("d{prefix}{rest}")));
         prop_assert!(p.check(Capability::FileRead, &res).is_ok());
-        let escaped = format!("{prefix}../{rest}");
-        prop_assert!(p.check(Capability::FileRead, &escaped).is_err());
+        let up = format!("{win}../{rest}");
+        prop_assert!(p.check(Capability::FileRead, &up).is_err());
+        // A POSIX path is compared exactly.
+        let posix = format!("/{prefix}");
+        let q = Policy::deny_all().grant_prefixes(Capability::FileRead, [posix.clone()]);
+        let same = format!("{posix}{rest}");
+        prop_assert!(q.check(Capability::FileRead, &same).is_ok());
+        let folded_prefix = fold(prefix.clone());
+        let folded = format!("/{folded_prefix}{rest}");
+        prop_assert_eq!(
+            q.check(Capability::FileRead, &folded).is_ok(),
+            folded_prefix == prefix
+        );
+        let up = format!("{posix}../{rest}");
+        prop_assert!(q.check(Capability::FileRead, &up).is_err());
     }
 
     #[test]

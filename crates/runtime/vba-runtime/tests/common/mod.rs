@@ -16,6 +16,9 @@ use vba_vm::{BufferSink, RunOutput};
 pub struct SharedFs(pub Rc<RefCell<MemFs>>);
 
 impl Vfs for SharedFs {
+    fn canonical(&mut self, p: &str) -> String {
+        self.0.borrow_mut().canonical(p)
+    }
     fn initial_dir(&self) -> String {
         self.0.borrow().initial_dir()
     }

@@ -8,14 +8,14 @@
 //!
 //! | Capability | Resource | A scope matches when |
 //! | --- | --- | --- |
-//! | `FileRead`, `FileWrite` | normalised path | whole path segments: `/data` covers `/data` and `/data/x`, not `/data-x` |
+//! | `FileRead`, `FileWrite` | normalised path | whole path segments: `/data` covers `/data` and `/data/x`, not `/data-x`; exact on POSIX paths, Windows rules on drive and `//server/share` paths |
 //! | `ProcessSpawn` | command line | the program (first word) is the scope, the scope plus `.exe`, or below the scope as a directory; arguments are never part of the match |
 //! | `ComCreate` | ProgID or class | equal, or the scope ends in `.*` or `.` and the ProgID continues it with whole dot segments |
 //! | `NativeDeclare` | `library!symbol` | `library!symbol` equal, or `library!*` (library names are normalised like `vba-winapi`: directory and `.dll` dropped, case folded) |
 //! | `UiAutomation` | `Action` or `Action:target` | the action name is equal (a scope `SendKeys` allows `SendKeys`), or `Action:target` is equal |
 //! | `Network` | `host` or `host:port` | equal, a host scope covers every port of that host, or `*.domain` covers hosts below `domain` |
 //!
-//! Comparison ignores case. Every other spelling fails closed.
+//! Comparison ignores case except for POSIX file paths. Every other spelling fails closed.
 
 use crate::capability::Capability;
 use crate::command::command_program;
@@ -91,8 +91,114 @@ fn segment_prefix(resource: &str, scope: &str) -> bool {
     }
 }
 
+/// Which file system a path is written for. Only the Windows forms fold
+/// case and drop trailing dots and spaces, because only those file systems do.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PathForm {
+    Posix,
+    Drive,
+    Unc,
+}
+
+/// Splits a path into its form and segments (empty and `.` segments are
+/// dropped). A drive is lower-cased and becomes the first segment.
+fn parse_path(p: &str) -> (PathForm, Vec<String>) {
+    let p = p.replace('\\', "/");
+    let b = p.as_bytes();
+    let (form, rest) = if b.len() >= 3 && b[0] == b'/' && b[1] == b'/' && b[2] != b'/' {
+        (PathForm::Unc, &p[2..])
+    } else if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+        (PathForm::Drive, p.as_str())
+    } else {
+        (PathForm::Posix, p.as_str())
+    };
+    let mut segs: Vec<String> = Vec::new();
+    for (i, s) in rest.split('/').enumerate() {
+        if form == PathForm::Drive && i == 0 {
+            // `c:` or `c:name`: the drive, then a relative remainder.
+            segs.push(s[..2].to_ascii_lowercase());
+            if s.len() > 2 {
+                segs.push(s[2..].to_owned());
+            }
+        } else if form == PathForm::Unc && i == 0 || !s.is_empty() && s != "." {
+            segs.push(s.to_owned());
+        }
+    }
+    (form, segs)
+}
+
+/// The device names Windows resolves from any directory, with or without an
+/// extension.
+fn is_reserved_device(segment: &str) -> bool {
+    let stem = segment
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ')
+        .to_ascii_lowercase();
+    if matches!(
+        stem.as_str(),
+        "con" | "prn" | "aux" | "nul" | "conin$" | "conout$"
+    ) {
+        return true;
+    }
+    match (stem.get(..3), stem.get(3..)) {
+        (Some("com" | "lpt"), Some(n)) => matches!(n.as_bytes(), [b'1'..=b'9']),
+        _ => false,
+    }
+}
+
+/// Whether a segment of a Windows path could mean something else than its
+/// text says: a parent reference spelled with dots and spaces, an alternate
+/// data stream, a device name or a short (8.3) name.
+fn risky_windows_segment(segment: &str) -> bool {
+    let trimmed = segment.trim_end_matches(['.', ' ']);
+    if trimmed.is_empty() || segment.contains(':') || is_reserved_device(trimmed) {
+        return true;
+    }
+    trimmed
+        .as_bytes()
+        .windows(2)
+        .any(|w| w[0] == b'~' && w[1].is_ascii_digit())
+}
+
+/// What the Windows file system compares: case folded, trailing dots and
+/// spaces dropped.
+fn windows_key(segment: &str) -> String {
+    segment.trim_end_matches(['.', ' ']).to_lowercase()
+}
+
+/// A scope covers the resource when its segments are a prefix of the
+/// resource's. POSIX paths compare exactly; Windows paths (a drive or a UNC
+/// name) compare the way Windows does, and a resource with a segment that
+/// Windows could read differently never matches.
 fn path_scope(scope: &str, resource: &str) -> bool {
-    segment_prefix(&norm_path(resource), &norm_path(scope))
+    if scope.is_empty() {
+        return false;
+    }
+    let ((sform, sseg), (rform, rseg)) = (parse_path(scope), parse_path(resource));
+    if sform != rform || rseg.iter().any(|s| s == "..") || sseg.len() > rseg.len() {
+        return false;
+    }
+    match rform {
+        PathForm::Posix => sseg.iter().zip(&rseg).all(|(a, b)| a == b),
+        PathForm::Drive | PathForm::Unc => {
+            // The drive letter is not a name: it is compared as written.
+            let skip = usize::from(rform == PathForm::Drive);
+            let device_namespace = rform == PathForm::Unc
+                && matches!(rseg.first().map(String::as_str), Some("?" | "."));
+            if device_namespace || rseg.iter().skip(skip).any(|s| risky_windows_segment(s)) {
+                return false;
+            }
+            sseg.iter().zip(&rseg).enumerate().all(|(i, (a, b))| {
+                if i < skip {
+                    a == b
+                } else {
+                    windows_key(a) == windows_key(b)
+                }
+            })
+        }
+    }
 }
 
 fn process_scope(scope: &str, command_line: &str) -> bool {
@@ -339,5 +445,52 @@ mod tests {
         no(FileRead, "/data", "/data-secret/x");
         no(FileRead, "/data/", "/data/../etc/passwd");
         no(FileRead, "", "/data");
+    }
+
+    #[test]
+    fn posix_paths_are_case_sensitive() {
+        yes(FileRead, "/data/", "/data/x");
+        no(FileRead, "/data/", "/DATA/x");
+        no(FileRead, "/data", "/Data");
+        no(FileRead, "/Data/", "/data/x");
+        // Only the drive form, which names a case-insensitive file system,
+        // folds case.
+        yes(FileRead, "c:/Work/", "C:/WORK/a.txt");
+    }
+
+    #[test]
+    fn windows_names_that_the_system_rewrites_never_match_by_accident() {
+        let scope = "c:/work/";
+        // Trailing dots and spaces are dropped by the system, so the name
+        // below is the same directory.
+        yes(FileRead, scope, "c:/work./a.txt");
+        yes(FileRead, scope, "c:/work /a.txt");
+        yes(FileRead, scope, "c:/work/a.txt.");
+        // A segment made only of dots and spaces can be a parent reference.
+        no(FileRead, scope, "c:/work/.. /secret");
+        no(FileRead, scope, "c:/work/.../secret");
+        no(FileRead, scope, "c:/work/. ./secret");
+        // Alternate data streams, device names and 8.3 short names.
+        no(FileRead, scope, "c:/work/a.txt:hidden");
+        no(FileRead, scope, "c:/work/a.txt::$DATA");
+        no(FileRead, scope, "c:/work/NUL");
+        no(FileRead, scope, "c:/work/com1.txt");
+        no(FileRead, scope, "c:/work/Lpt9");
+        no(FileRead, scope, "c:/work/PROGRA~1/x");
+        yes(FileRead, scope, "c:/work/console.txt");
+        yes(FileRead, scope, "c:/work/nullable");
+    }
+
+    #[test]
+    fn unc_and_device_namespaces_need_their_own_scope() {
+        yes(FileRead, "//server/share/", "//server/share/a.txt");
+        yes(FileRead, "//Server/Share/", "//server/share/A.TXT");
+        no(FileRead, "//server/share/", "//server/other/a.txt");
+        no(FileRead, "//server/share/", "/server/share/a.txt");
+        no(FileRead, "/server/share/", "//server/share/a.txt");
+        no(FileRead, "c:/", "//server/share/a.txt");
+        no(FileRead, "//?/", "//?/c:/secret");
+        no(FileRead, "//./", "//./pipe/x");
+        no(FileRead, "//?/c:/work/", "//?/c:/work/a.txt");
     }
 }

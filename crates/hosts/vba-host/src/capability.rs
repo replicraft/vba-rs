@@ -100,7 +100,12 @@ impl From<PermissionDenied> for ErrInfo {
 /// * `FileRead`, `FileWrite`: a path; it covers itself and everything below
 ///   it, matched by whole path segments (`/data` covers `/data/x`, not
 ///   `/data-secret`). `/` and `\` are the same. Paths containing a `..`
-///   segment never match.
+///   segment never match. A POSIX path is compared exactly, case included.
+///   A drive path (`c:/work`) and a network path (`//server/share`) are
+///   compared the way Windows does: case folded, trailing dots and spaces
+///   dropped, and a resource naming a stream (`a:b`), a device (`NUL`,
+///   `COM1`), a short name (`PROGRA~1`) or a segment of only dots and spaces
+///   never matches. The `//?/` and `//./` namespaces never match.
 /// * `ProcessSpawn`: a program; it covers that program (`notepad` also covers
 ///   `notepad.exe`, never `notepad-x.exe`) and, as a directory, the programs
 ///   below it. Arguments are not part of the match.
@@ -114,8 +119,8 @@ impl From<PermissionDenied> for ErrInfo {
 ///   covers one window title only.
 /// * `Network`: a host, a `host:port`, or `*.domain`.
 ///
-/// Matching ignores case, and any scope that is not one of these forms
-/// matches nothing. No path canonicalisation is done: embedders that scope
+/// Matching of everything except file paths ignores case, and any scope that
+/// is not one of these forms matches nothing. No path canonicalisation is done: embedders that scope
 /// file access must pass normalised paths.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Policy {
