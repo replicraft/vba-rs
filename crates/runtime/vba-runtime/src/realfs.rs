@@ -6,7 +6,7 @@
 //! link inside a granted directory cannot reach outside it.
 
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -45,6 +45,46 @@ fn map_err(e: &std::io::Error) -> VfsError {
         ErrorKind::NotADirectory => VfsError::NotADirectory,
         _ => VfsError::Other(e.to_string()),
     }
+}
+
+/// Refuses devices, pipes and sockets (`/dev/zero` never ends, a FIFO blocks
+/// the interpreter). A missing path and a directory pass; callers deal with
+/// them.
+fn ensure_not_special(path: &str) -> VfsResult<()> {
+    match fs::metadata(path) {
+        Ok(m) if !m.is_file() && !m.is_dir() => Err(VfsError::Denied),
+        _ => Ok(()),
+    }
+}
+
+/// Symbolic links followed per path before giving up.
+const MAX_LINK_HOPS: usize = 40;
+
+/// Resolves `p` whose parent exists (or not) through links that may dangle:
+/// canonicalizing the parent is not enough, because writing through a link
+/// whose target does not exist yet creates the target.
+fn resolve_dangling(p: &Path) -> Option<PathBuf> {
+    let mut cur = p.to_path_buf();
+    for _ in 0..MAX_LINK_HOPS {
+        let (parent, name) = (cur.parent()?, cur.file_name()?);
+        let parent = fs::canonicalize(parent).ok()?;
+        let candidate = parent.join(name);
+        match fs::symlink_metadata(&candidate) {
+            Ok(m) if m.file_type().is_symlink() => {
+                let target = fs::read_link(&candidate).ok()?;
+                cur = if target.is_absolute() {
+                    target
+                } else {
+                    parent.join(target)
+                };
+                if let Ok(c) = fs::canonicalize(&cur) {
+                    return Some(c);
+                }
+            }
+            _ => return Some(candidate),
+        }
+    }
+    None
 }
 
 fn ole_date(t: SystemTime) -> f64 {
@@ -95,11 +135,10 @@ impl Vfs for RealFs {
         if let Ok(c) = fs::canonicalize(&p) {
             return to_canonical_text(&c);
         }
-        // A path that does not exist yet: resolve its parent.
-        if let (Some(parent), Some(name)) = (p.parent(), p.file_name())
-            && let Ok(c) = fs::canonicalize(parent)
-        {
-            return to_canonical_text(&c.join(name));
+        // A path that does not exist yet, or a link whose target does not:
+        // resolve the parent and follow the link chain by hand.
+        if let Some(c) = resolve_dangling(&p) {
+            return to_canonical_text(&c);
         }
         path.to_owned()
     }
@@ -117,10 +156,28 @@ impl Vfs for RealFs {
     }
 
     fn read(&mut self, path: &str) -> VfsResult<Vec<u8>> {
+        self.read_limited(path, usize::MAX - 1)
+    }
+
+    fn read_limited(&mut self, path: &str, max: usize) -> VfsResult<Vec<u8>> {
         if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
             return Err(VfsError::IsADirectory);
         }
-        fs::read(path).map_err(|e| map_err(&e))
+        ensure_not_special(path)?;
+        let file = fs::File::open(path).map_err(|e| map_err(&e))?;
+        // Checked on the open handle too, so a swap after the test above
+        // cannot turn the read into a device read.
+        if !file.metadata().map_err(|e| map_err(&e))?.is_file() {
+            return Err(VfsError::Denied);
+        }
+        let mut out = Vec::new();
+        file.take(max as u64 + 1)
+            .read_to_end(&mut out)
+            .map_err(|e| map_err(&e))?;
+        if out.len() > max {
+            return Err(VfsError::TooLarge);
+        }
+        Ok(out)
     }
 
     fn write(&mut self, path: &str, data: &[u8]) -> VfsResult<()> {
@@ -131,6 +188,7 @@ impl Vfs for RealFs {
         if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
             return Err(VfsError::IsADirectory);
         }
+        ensure_not_special(path)?;
         fs::write(path, data).map_err(|e| map_err(&e))
     }
 
@@ -152,6 +210,8 @@ impl Vfs for RealFs {
         if fs::metadata(from).is_ok_and(|m| m.is_dir()) {
             return Err(VfsError::IsADirectory);
         }
+        ensure_not_special(from)?;
+        ensure_not_special(to)?;
         fs::copy(from, to).map(|_| ()).map_err(|e| map_err(&e))
     }
 

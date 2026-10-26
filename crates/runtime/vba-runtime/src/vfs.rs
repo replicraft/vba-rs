@@ -26,6 +26,8 @@ pub enum VfsError {
     NotEmpty,
     /// The file system refused the operation (read-only, no permission).
     Denied,
+    /// The file is larger than the caller allows to be read.
+    TooLarge,
     /// The operation is not available on this file system.
     Unsupported(String),
     /// Any other failure.
@@ -42,6 +44,7 @@ impl fmt::Display for VfsError {
             VfsError::NotADirectory => f.write_str("not a directory"),
             VfsError::NotEmpty => f.write_str("directory not empty"),
             VfsError::Denied => f.write_str("access denied"),
+            VfsError::TooLarge => f.write_str("file too large"),
             VfsError::Unsupported(s) => write!(f, "unsupported: {s}"),
             VfsError::Other(s) => f.write_str(s),
         }
@@ -106,6 +109,17 @@ pub trait Vfs {
 
     /// Reads a whole file.
     fn read(&mut self, path: &str) -> VfsResult<Vec<u8>>;
+
+    /// Reads a whole file of at most `max` bytes; a larger file is
+    /// [`VfsError::TooLarge`]. An implementation over a real file system must
+    /// not read more than `max + 1` bytes, whatever the file claims to be.
+    fn read_limited(&mut self, path: &str, max: usize) -> VfsResult<Vec<u8>> {
+        let data = self.read(path)?;
+        if data.len() > max {
+            return Err(VfsError::TooLarge);
+        }
+        Ok(data)
+    }
 
     /// Creates or replaces a file. The parent directory must exist.
     fn write(&mut self, path: &str, data: &[u8]) -> VfsResult<()>;

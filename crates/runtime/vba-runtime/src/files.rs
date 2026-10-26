@@ -79,6 +79,7 @@ fn map_vfs(e: VfsError) -> FsError {
         VfsError::AlreadyExists => FsError::Vba(58),
         VfsError::IsADirectory | VfsError::NotADirectory | VfsError::NotEmpty => FsError::Vba(75),
         VfsError::Denied => FsError::Vba(70),
+        VfsError::TooLarge => FsError::Vba(61),
         VfsError::Unsupported(s) => FsError::Unsupported(s),
         VfsError::Other(_) => FsError::Vba(57),
     }
@@ -215,12 +216,13 @@ impl FileSystem {
         if st.as_ref().is_some_and(|s| s.is_dir) {
             return vba(75);
         }
+        let max = self.max_file_bytes;
         let data = match mode {
             OpenMode::Input => {
                 if st.is_none() {
                     return vba(53);
                 }
-                self.vfs.read(&p).map_err(map_vfs)?
+                self.vfs.read_limited(&p, max).map_err(map_vfs)?
             }
             OpenMode::Output => {
                 self.vfs.write(&p, &[]).map_err(map_vfs)?;
@@ -228,7 +230,7 @@ impl FileSystem {
             }
             OpenMode::Append => {
                 if st.is_some() {
-                    self.vfs.read(&p).map_err(map_vfs)?
+                    self.vfs.read_limited(&p, max).map_err(map_vfs)?
                 } else {
                     self.vfs.write(&p, &[]).map_err(map_vfs)?;
                     Vec::new()
@@ -236,7 +238,7 @@ impl FileSystem {
             }
             OpenMode::Binary | OpenMode::Random => {
                 if st.is_some() {
-                    self.vfs.read(&p).map_err(map_vfs)?
+                    self.vfs.read_limited(&p, max).map_err(map_vfs)?
                 } else if writable {
                     self.vfs.write(&p, &[]).map_err(map_vfs)?;
                     Vec::new()
@@ -522,6 +524,13 @@ impl FileSystem {
 
     fn kill(&mut self, pattern: &str) -> R<()> {
         let (dir, name) = self.split_pattern(pattern)?;
+        // Nothing about the directory may be learned (not even whether it or
+        // the file exists) before the policy has agreed.
+        if name.contains(['*', '?']) {
+            self.allow(Capability::FileWrite, &dir_resource(&dir))?;
+        } else {
+            self.allow(Capability::FileWrite, &join(&dir, &name))?;
+        }
         let entries = match self.vfs.list(&dir) {
             Ok(e) => e,
             Err(e) => return Err(map_vfs(e)),
@@ -1088,7 +1097,10 @@ impl FileSystem {
 
     fn script_read(&mut self, abs: &str) -> R<Vec<u8>> {
         self.allow(Capability::FileRead, abs)?;
-        let data = self.vfs.read(abs).map_err(map_vfs)?;
+        let data = self
+            .vfs
+            .read_limited(abs, self.max_file_bytes)
+            .map_err(map_vfs)?;
         self.charge(data.len())?;
         Ok(data)
     }
