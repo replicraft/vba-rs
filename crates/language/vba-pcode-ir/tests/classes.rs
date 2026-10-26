@@ -816,3 +816,30 @@ fn a_member_the_cache_declares_is_never_taken_for_a_host_member() {
         1
     );
 }
+
+#[test]
+fn a_constant_without_as_clause_may_carry_the_type_of_its_value() {
+    // Observed: the type field of `Const C = &H20000` holds Long with the
+    // flag 0x40; the type follows from the value.
+    let mut t = Tables::default();
+    let (c, r) = (t.name("C"), t.name("R"));
+    let cv = t.variable("C", Some(T_LONG | 0x40));
+    let mut lines =
+        vec![
+            Line::new()
+                .opm(Opcode::DimMarker, 17)
+                .hex32(0x20000)
+                .rec(Opcode::VarDecl, 2, cv),
+        ];
+    let f = t.function("R", Some(T_VARIANT), &[]);
+    lines.extend(block(
+        f,
+        6,
+        Opcode::ProcEndFunction,
+        vec![Line::new().read(c).write(r)],
+    ));
+    let lp = lower_kind(&t, ModuleKind::Standard, &lines, &[]);
+    assert!(lp.declarations.iter().all(|d| d.unsupported.is_none()));
+    assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
+    assert_eq!(call_std(&lp, "R", vec![]), l(0x20000));
+}

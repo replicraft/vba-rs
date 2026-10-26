@@ -2227,7 +2227,7 @@ impl Lw<'_> {
         self.expect_empty(ins)?;
         let value = self.fold(value);
         let value = match crate::model::scalar_type(&v.ty) {
-            Some(t) if v.ty != vba_pcode::ResolvedType::None => self.coerce(value, &t),
+            Some(t) if crate::model::declares_type(&v.ty) => self.coerce(value, &t),
             _ => value,
         };
         let Ex::Const(c, ty) = value else {

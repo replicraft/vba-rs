@@ -135,6 +135,17 @@ pub(crate) fn type_spelling(t: &vba_sema::Type) -> &'static str {
     }
 }
 
+/// Whether the type field of a constant comes from an `As` clause. A
+/// constant without one has no type, or (observed) an intrinsic type with
+/// flag 0x40 that is the type of its value.
+pub(crate) fn declares_type(t: &ResolvedType) -> bool {
+    match t {
+        ResolvedType::None => false,
+        ResolvedType::Intrinsic(id) => id.flags != 0x40,
+        _ => true,
+    }
+}
+
 /// Prefix of the names given to identifiers whose spelling the built-in
 /// table does not confirm. Only the identity of such a name matters for a
 /// parameter or a local (it shadows whatever the index stood for), so it
@@ -399,7 +410,7 @@ impl DeclScan {
             d.problem = Some("declaration other than a plain variable or constant");
         } else if v.is_new {
             d.problem = Some("As New");
-        } else if d.is_const && v.ty == ResolvedType::None {
+        } else if d.is_const && !declares_type(&v.ty) {
             // The type follows from the value.
         } else {
             match scalar_type(&v.ty) {
@@ -574,7 +585,7 @@ fn finish_signature(p: &mut ProcModel) {
         // 0x20 is WithEvents; 0x10 only adds a layout word (seen on
         // declarations whose `As` is aligned with extra spaces).
         let m = ins.modifier;
-        if m & 0x20 == 0 && m & 0x03 == 2 && v.ty != ResolvedType::None {
+        if m & 0x20 == 0 && m & 0x03 == 2 && declares_type(&v.ty) {
             // A local constant is not a slot: the lowering folds its value.
             if scalar_type(&v.ty).is_none() {
                 p.signature_problem = Some(unsup(
