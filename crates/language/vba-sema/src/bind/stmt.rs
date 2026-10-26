@@ -999,7 +999,7 @@ impl Binder<'_, '_> {
                 );
                 continue;
             };
-            let (elem, rank) = match &t.ty {
+            let (mut elem, rank) = match &t.ty {
                 Type::Array { elem, rank } => ((**elem).clone(), *rank),
                 Type::Variant => (Type::Variant, None),
                 other => {
@@ -1021,6 +1021,18 @@ impl Binder<'_, '_> {
             }
             if let Some(a) = &it.as_clause {
                 let declared = self.sema.resolve_as_clause(self.module, a, false);
+                // `ReDim x(n) As T` on an implicitly declared name declares an array of T.
+                if t.ty.is_variant()
+                    && !declared.is_error()
+                    && let BPlace::Local(l) = &place
+                    && self.locals[l.index()].kind == LocalKind::Implicit
+                {
+                    self.locals[l.index()].ty = Type::Array {
+                        elem: Box::new(declared.clone()),
+                        rank: u8::try_from(it.bounds.len()).ok(),
+                    };
+                    elem = declared.clone();
+                }
                 if !declared.is_error() && declared != elem && !elem.is_variant() {
                     self.err(
                         codes::ARRAY_RULE,

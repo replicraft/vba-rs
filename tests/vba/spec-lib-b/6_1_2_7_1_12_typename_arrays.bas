@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.7.1.12, func.typename
 ' SOURCE: spec ms-vbal 6.1.2.7.1.12 TypeName of an array appends empty parentheses
-' XFAIL: wrong pending
 ' EXPECT: Integer()
 ' EXPECT: Variant()
 ' EXPECT: String()
