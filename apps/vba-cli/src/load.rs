@@ -49,6 +49,9 @@ pub struct Loaded {
     pub project: Option<VbaProject>,
     /// The modules to analyse.
     pub modules: Vec<SourceModule>,
+    /// Where each module came from, parallel to `modules`: the file path, or
+    /// `project[Module]` for a module inside a project file.
+    pub origins: Vec<String>,
 }
 
 /// Decodes a source file: UTF-8 if valid, otherwise Windows-1252.
@@ -82,6 +85,7 @@ pub fn read_module(path: &Path) -> Result<Module, LoadError> {
 /// Loads source files, or a single `vbaProject.bin`.
 pub fn load(paths: &[PathBuf]) -> Result<Loaded, LoadError> {
     let mut modules = Vec::new();
+    let mut origins = Vec::new();
     for path in paths {
         let shown = path.display().to_string();
         let ext = path
@@ -95,6 +99,7 @@ pub fn load(paths: &[PathBuf]) -> Result<Loaded, LoadError> {
                 kind: m.kind,
                 source: m.source.clone().into_bytes(),
             });
+            origins.push(shown);
             continue;
         }
         let bytes = std::fs::read(path).map_err(|source| LoadError::Read {
@@ -105,11 +110,16 @@ pub fn load(paths: &[PathBuf]) -> Result<Loaded, LoadError> {
             let project =
                 vba_format::read_project(&bytes, &Limits::default()).map_err(|source| {
                     LoadError::Project {
-                        path: shown,
+                        path: shown.clone(),
                         source,
                     }
                 })?;
             return Ok(Loaded {
+                origins: project
+                    .modules
+                    .iter()
+                    .map(|m| format!("{shown}[{}]", m.name))
+                    .collect(),
                 modules: project
                     .modules
                     .iter()
@@ -127,5 +137,6 @@ pub fn load(paths: &[PathBuf]) -> Result<Loaded, LoadError> {
     Ok(Loaded {
         project: None,
         modules,
+        origins,
     })
 }

@@ -3,13 +3,14 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use vba_diagnostics::{Diagnostic, Severity, render_plain};
+use vba_diagnostics::{Diagnostic, Severity};
 use vba_lexer::{LexOptions, lex};
 use vba_profile::{Profile, default_profile, find_profile, profiles};
 use vba_sema::{NoLibraries, Options, SourceModule, analyze_sources};
 use vba_source::{SourceEncoding, SourceMap};
 use vba_syntax::ParseOptions;
 
+use crate::diag::{rename, render_all};
 use crate::load::{self, LoadError};
 
 /// The outcome of a tool: text for standard output and whether the input is
@@ -54,15 +55,6 @@ fn add_file(map: &mut SourceMap, path: &Path, bytes: Vec<u8>) -> vba_source::Fil
         SourceEncoding::Unknown
     };
     map.add(path.display().to_string(), bytes, enc)
-}
-
-fn render_all(diags: &[Diagnostic], map: &SourceMap) -> String {
-    let mut out = String::new();
-    for d in diags {
-        out.push_str(&render_plain(d, map));
-        out.push('\n');
-    }
-    out
 }
 
 fn count_errors(diags: &[Diagnostic]) -> usize {
@@ -132,14 +124,14 @@ pub fn check_files(paths: &[PathBuf], profile: &Profile) -> Result<Report, ToolE
     let loaded = load::load(paths)?;
     let (modules, options): (Vec<SourceModule>, Options) = match &loaded.project {
         Some(p) => (
-            loaded.modules,
+            loaded.modules.clone(),
             Options {
                 project_name: p.name.clone(),
                 constants: vba_sema::parse_project_constants(&p.constants),
                 ..Options::default()
             },
         ),
-        None => (loaded.modules, Options::default()),
+        None => (loaded.modules.clone(), Options::default()),
     };
     let analysis = analyze_sources(&modules, profile, &NoLibraries, &options);
     let errors = count_errors(&analysis.diagnostics);
@@ -148,7 +140,8 @@ pub fn check_files(paths: &[PathBuf], profile: &Profile) -> Result<Report, ToolE
         .iter()
         .filter(|d| d.severity == Severity::Warning)
         .count();
-    let mut text = render_all(&analysis.diagnostics, &analysis.sources);
+    let sources = rename(&analysis.sources, &loaded.origins);
+    let mut text = render_all(&analysis.diagnostics, &sources);
     let _ = writeln!(
         text,
         "{} module(s), {} procedure(s): {errors} error(s), {warnings} warning(s)",

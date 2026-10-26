@@ -11,6 +11,7 @@ name = "vbars"
 path = "src/main.rs"
 
 [dependencies]
+annotate-snippets.workspace = true
 clap.workspace = true
 thiserror.workspace = true
 vba-ast.workspace = true

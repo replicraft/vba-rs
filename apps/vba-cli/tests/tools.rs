@@ -42,7 +42,7 @@ fn check_reports_diagnostics_and_exit_codes() {
     let a = vbars().arg("check").arg(&bad).assert().code(1);
     let out = stdout(&a);
     assert!(out.contains("SEM002"), "{out}");
-    assert!(out.contains("Bad:3"), "{out}");
+    assert!(out.contains("Bad.bas:3"), "{out}");
 }
 
 #[test]
@@ -355,4 +355,20 @@ fn run_loads_a_project_file() {
     assert_eq!(stdout(&a), "flag\n");
     let a = vbars().arg("check").arg(&bin).assert().success();
     assert!(stdout(&a).contains("1 module(s)"), "{}", stdout(&a));
+}
+
+#[test]
+fn diagnostics_in_windows_1252_files_point_at_the_right_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("Latin.bas");
+    std::fs::write(
+        &p,
+        b"Sub Main()\r\n    s = \"caf\xe9\" + \"abc\r\nEnd Sub\r\n",
+    )
+    .unwrap();
+    let a = vbars().arg("parse").arg(&p).assert().code(1);
+    let out = stdout(&a);
+    assert!(out.contains("Latin.bas:2:"), "{out}");
+    assert!(out.contains("caf\u{e9}"), "{out}");
+    assert!(out.contains("unterminated string literal"), "{out}");
 }

@@ -57,6 +57,7 @@ quick-xml = "0.42"
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 # Command-line interface
+annotate-snippets = "0.12"
 clap = { version = "4", features = ["derive"] }
 
 # Native interop

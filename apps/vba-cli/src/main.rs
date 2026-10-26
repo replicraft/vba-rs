@@ -1,5 +1,6 @@
 //! The `vbars` command-line executable.
 
+mod diag;
 mod inspect;
 mod load;
 mod run;
