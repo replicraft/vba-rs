@@ -194,10 +194,11 @@ impl Lowerer<'_> {
             },
             NodeKind::GoToStmt => {
                 // The bare line number after `Then` has no `GoTo` token.
-                let lab = t.iter().find(|x| !is_kw(x, Keyword::GoTo));
+                // `Go To` is two words: the label is the last token.
+                let lab = t.iter().rfind(|x| !is_kw(x, Keyword::GoTo));
                 StmtKind::GoTo(self.label_ref(lab, span))
             }
-            NodeKind::GoSubStmt => StmtKind::GoSub(self.label_ref(t.get(1), span)),
+            NodeKind::GoSubStmt => StmtKind::GoSub(self.label_ref(t.last(), span)),
             NodeKind::ReturnStmt => StmtKind::Return,
             NodeKind::OnErrorStmt => self.on_error(n),
             NodeKind::OnGoToStmt => {
