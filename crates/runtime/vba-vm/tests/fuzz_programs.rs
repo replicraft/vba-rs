@@ -200,8 +200,12 @@ fn int_expr() -> impl Strategy<Value = String> {
                 .prop_map(|(l, o, r)| format!("({l} {o} {r})")),
             inner.clone().prop_map(|e| format!("Abs({e})")),
             inner.clone().prop_map(|e| format!("arr(({e}) Mod 7)")),
-            inner.clone().prop_map(|e| format!("m(({e}) Mod 4, ({e}) Mod 5)")),
-            inner.clone().prop_map(|e| format!("garr(({e}) Mod 5, ({e}) Mod 4)")),
+            inner
+                .clone()
+                .prop_map(|e| format!("m(({e}) Mod 4, ({e}) Mod 5)")),
+            inner
+                .clone()
+                .prop_map(|e| format!("garr(({e}) Mod 5, ({e}) Mod 4)")),
             inner.clone().prop_map(|e| format!("Dbl({e})")),
             inner.clone().prop_map(|e| format!("Safe({e})")),
             inner.clone().prop_map(|e| format!("Loopy({e})")),
@@ -210,11 +214,17 @@ fn int_expr() -> impl Strategy<Value = String> {
             inner.clone().prop_map(|e| format!("Va({e}, s, v)")),
             inner.clone().prop_map(|e| format!("o.Fail({e})")),
             inner.clone().prop_map(|e| format!("Rec(({e}) Mod 40)")),
-            inner.clone().prop_map(|e| format!("CLng(Fact(({e}) Mod 12))")),
+            inner
+                .clone()
+                .prop_map(|e| format!("CLng(Fact(({e}) Mod 12))")),
             inner.clone().prop_map(|e| format!("CLng(Sqr(Abs({e})))")),
             inner.clone().prop_map(|e| format!("CLng(v) + ({e})")),
-            inner.clone().prop_map(|e| format!("Len(Space(({e}) Mod 5000))")),
-            inner.clone().prop_map(|e| format!("InStr(s & \"a\", Chr(97 + (({e}) Mod 3)))")),
+            inner
+                .clone()
+                .prop_map(|e| format!("Len(Space(({e}) Mod 5000))")),
+            inner
+                .clone()
+                .prop_map(|e| format!("InStr(s & \"a\", Chr(97 + (({e}) Mod 3)))")),
             inner.prop_map(|e| format!("Int(Val(Format({e}, \"0\")))")),
         ]
     })
@@ -293,22 +303,62 @@ fn variant_expr() -> impl Strategy<Value = String> {
 fn stmt() -> impl Strategy<Value = String> {
     let simple = prop_oneof![
         (
-            prop_oneof![Just("a"), Just("b"), Just("c"), Just("gl"), Just("p.X"), Just("j")],
+            prop_oneof![
+                Just("a"),
+                Just("b"),
+                Just("c"),
+                Just("gl"),
+                Just("p.X"),
+                Just("j")
+            ],
             int_expr()
         )
             .prop_map(|(t, e)| format!("{t} = {e}\n")),
         double_expr().prop_map(|e| format!("d = {e}\n")),
         double_expr().prop_map(|e| format!("sg = {e}\n")),
         double_expr().prop_map(|e| format!("p.D = {e}\n")),
-        (prop_oneof![Just("s"), Just("t"), Just("gs"), Just("p.S")], str_expr())
+        (
+            prop_oneof![Just("s"), Just("t"), Just("gs"), Just("p.S")],
+            str_expr()
+        )
             .prop_map(|(t, e)| format!("{t} = {e}\n")),
-        (prop_oneof![Just("v"), Just("w"), Just("gv")], variant_expr())
+        (
+            prop_oneof![Just("v"), Just("w"), Just("gv")],
+            variant_expr()
+        )
             .prop_map(|(t, e)| format!("{t} = {e}\n")),
-        (variant_expr(), prop_oneof![Just("+"), Just("-"), Just("*"), Just("/"), Just("&"), Just("\\"), Just("Mod"), Just("^")], variant_expr())
+        (
+            variant_expr(),
+            prop_oneof![
+                Just("+"),
+                Just("-"),
+                Just("*"),
+                Just("/"),
+                Just("&"),
+                Just("\\"),
+                Just("Mod"),
+                Just("^")
+            ],
+            variant_expr()
+        )
             .prop_map(|(l, o, r)| format!("w = ({l}) {o} ({r})\n")),
-        (variant_expr(), prop_oneof![Just("="), Just("<"), Just(">="), Just("<>"), Just("Like"), Just("And"), Just("Or")], variant_expr())
+        (
+            variant_expr(),
+            prop_oneof![
+                Just("="),
+                Just("<"),
+                Just(">="),
+                Just("<>"),
+                Just("Like"),
+                Just("And"),
+                Just("Or")
+            ],
+            variant_expr()
+        )
             .prop_map(|(l, o, r)| format!("Debug.Print ({l}) {o} ({r})\n")),
-        variant_expr().prop_map(|e| format!("Debug.Print TypeName({e}); VarType({e}); IsNumeric({e}); IsNull({e})\n")),
+        variant_expr().prop_map(|e| format!(
+            "Debug.Print TypeName({e}); VarType({e}); IsNumeric({e}); IsNull({e})\n"
+        )),
         variant_expr().prop_map(|e| format!("Debug.Print -({e}); Not ({e})\n")),
         Just("v = v + 1\n".to_owned()),
         Just("s = v\n".to_owned()),
@@ -359,10 +409,13 @@ fn stmt() -> impl Strategy<Value = String> {
         Just("On Error GoTo h\n".to_owned()),
         Just("On Error GoTo 0\n".to_owned()),
         Just("a = Boom(0)\n".to_owned()),
-        (int_expr(), int_expr()).prop_map(|(l, r)| format!("Debug.Print {l}; {r}; Tab(5); Spc(2); \"|\"\n")),
+        (int_expr(), int_expr())
+            .prop_map(|(l, r)| format!("Debug.Print {l}; {r}; Tab(5); Spc(2); \"|\"\n")),
         str_expr().prop_map(|e| format!("Debug.Print {e}\n")),
         int_expr().prop_map(|e| format!("Mid(s, {e}, 2) = \"zz\"\n")),
-        double_expr().prop_map(|e| format!("Debug.Print Format({e}, \"0.###\"); Int({e}); Fix({e}); Round({e}, 2)\n")),
+        double_expr().prop_map(|e| format!(
+            "Debug.Print Format({e}, \"0.###\"); Int({e}); Fix({e}); Round({e}, 2)\n"
+        )),
         Just("Debug.Print DateAdd(\"d\", a, #1/1/2000#); Weekday(#1/1/2000#)\n".to_owned()),
     ];
     simple.prop_recursive(3, 40, 4, |inner| {
@@ -530,7 +583,10 @@ fn random_programs_never_panic_stay_bounded_and_are_deterministic() {
         *kinds.borrow_mut().entry(kind).or_default() += 1;
         prop_assert!(first.steps <= MAX_STEPS + 1, "steps {}", first.steps);
         if let Err(e) = &first.result {
-            prop_assert!(!matches!(e, VmError::Internal(_)), "internal error: {e}\n{src}");
+            prop_assert!(
+                !matches!(e, VmError::Internal(_)),
+                "internal error: {e}\n{src}"
+            );
         }
         let second = execute(&src).expect("compiles again");
         prop_assert_eq!(&first.out, &second.out);
@@ -542,7 +598,12 @@ fn random_programs_never_panic_stay_bounded_and_are_deterministic() {
         panic!("{e}");
     }
     if std::env::var_os("VBA_FUZZ_STATS").is_some() {
-        eprintln!("compiled {} of {}: {:?}", compiled.get(), total.get(), kinds.borrow());
+        eprintln!(
+            "compiled {} of {}: {:?}",
+            compiled.get(),
+            total.get(),
+            kinds.borrow()
+        );
     }
     assert!(
         compiled.get() * 10 >= total.get() * 7,

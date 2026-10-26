@@ -18,7 +18,7 @@ user interface, clocks) comes in through the host contract.
 | `crates/windows/` | `vba-winapi`, `vba-wine` | Win32 `Declare` shims and the optional Wine bridge. Behind cargo features. |
 | `crates/api/` | `vba-rs` | The facade (`vba`) embedders depend on. See [public API](public-api.md). |
 | `apps/` | `vba-cli` (`vbars`), `vba-lsp`, `vba-wine-host` | Binaries; they use the libraries and nothing else uses them. |
-| `tooling/` | `vba-winapi-gen` | Developer tools that generate checked-in data. Never a library dependency. |
+| `tooling/` | `vba-winapi-gen`, `vba-bench` | Developer tools: one generates checked-in data, one times the interpreter. Never a library dependency. |
 
 ## Dependency direction
 

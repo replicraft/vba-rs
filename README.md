@@ -96,7 +96,7 @@ and the list of what is not guaranteed, is in
 | `crates/windows/` | `vba-winapi`, `vba-wine` (behind cargo features) |
 | `crates/api/` | `vba-rs` (the `vba` facade embedders depend on) |
 | `apps/` | `vba-cli` (`vbars`), `vba-lsp`, `vba-wine-host` |
-| `tooling/` | `vba-winapi-gen` |
+| `tooling/` | `vba-winapi-gen`, `vba-bench` |
 
 The [architecture overview](docs/architecture/overview.md) explains the dependency
 direction.

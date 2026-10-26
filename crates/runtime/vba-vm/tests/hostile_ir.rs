@@ -13,7 +13,7 @@ use common::module;
 use proptest::prelude::*;
 use vba_host::{HeadlessHost, ResourceLimits};
 use vba_ir::{
-    Block, BlockId, CallArg, ErrMode, InstKind, IrProgram, Operand, Reg, RefPlace, ResumeKind,
+    Block, BlockId, CallArg, ErrMode, InstKind, IrProgram, Operand, RefPlace, Reg, ResumeKind,
     StmtId, Terminator,
 };
 use vba_project::ModuleKind;
@@ -93,7 +93,11 @@ impl Rng {
         self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
     fn below(&mut self, n: usize) -> usize {
-        if n == 0 { 0 } else { (self.next() % n as u64) as usize }
+        if n == 0 {
+            0
+        } else {
+            (self.next() % n as u64) as usize
+        }
     }
     /// An index that is usually in range and often just outside it.
     fn bad(&mut self, n: usize) -> u32 {
@@ -281,11 +285,10 @@ fn mutate_ids(k: &mut InstKind, rng: &mut Rng) {
                 *index = rng.bad(4);
             }
         }
-        InstKind::Call { callee, .. } => {
-            if let vba_ir::Callee::Proc(p) = callee {
-                *p = ProcId(rng.bad(6));
-            }
-        }
+        InstKind::Call {
+            callee: vba_ir::Callee::Proc(p),
+            ..
+        } => *p = ProcId(rng.bad(6)),
         InstKind::RaiseEvent { event, .. } => *event = EventId(rng.bad(2)),
         InstKind::MakeRef { place, .. } => match place {
             RefPlace::Local(l) => *l = LocalId(rng.bad(8)),
@@ -319,8 +322,7 @@ fn mutate_types(k: &mut InstKind, rng: &mut Rng) {
         | InstKind::Binary { ty, .. }
         | InstKind::TypeOfIs { ty, .. } => *ty = t,
         InstKind::Convert { to, .. } => *to = t,
-        InstKind::ReDim { elem, .. }
-        | InstKind::DimFixed { elem, .. } => *elem = t,
+        InstKind::ReDim { elem, .. } | InstKind::DimFixed { elem, .. } => *elem = t,
         _ => {}
     }
     if let InstKind::DimFixed { bounds, .. } = k
@@ -560,7 +562,11 @@ fn install_hook() {
             .payload()
             .downcast_ref::<String>()
             .cloned()
-            .or_else(|| info.payload().downcast_ref::<&str>().map(|s| (*s).to_owned()))
+            .or_else(|| {
+                info.payload()
+                    .downcast_ref::<&str>()
+                    .map(|s| (*s).to_owned())
+            })
             .unwrap_or_default();
         LAST_PANIC.with(|p| *p.borrow_mut() = format!("{msg} at {loc}"));
     }));
@@ -655,14 +661,21 @@ fn mutants_are_both_rejected_and_run() {
     install_hook();
     let (mut rejected, mut ran) = (0, 0);
     for seed in 0..600u64 {
-        let ir = mutant(seed as usize, seed.wrapping_mul(0x9E37_79B9_7F4A_7C15), 1 + (seed % 3) as usize);
+        let ir = mutant(
+            seed as usize,
+            seed.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+            1 + (seed % 3) as usize,
+        );
         match check_mutant(ir, "coverage") {
             Ok(true) => ran += 1,
             Ok(false) => rejected += 1,
             Err(e) => panic!("{e}"),
         }
     }
-    assert!(rejected > 60, "only {rejected} of 600 mutants were rejected");
+    assert!(
+        rejected > 60,
+        "only {rejected} of 600 mutants were rejected"
+    );
     assert!(ran > 60, "only {ran} of 600 mutants passed verification");
 }
 
@@ -673,11 +686,17 @@ fn mutants_are_both_rejected_and_run() {
 fn survey() {
     install_hook();
     let mut sites: std::collections::BTreeMap<String, String> = Default::default();
-    let n: u64 = std::env::var("SURVEY_N").ok().and_then(|v| v.parse().ok()).unwrap_or(30_000);
+    let n: u64 = std::env::var("SURVEY_N")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30_000);
     for seed in 0..n {
         let s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let ir = mutant(seed as usize, s, 1 + (seed % 8) as usize);
-        if let Err(e) = check_mutant(ir, &format!("program {}, seed {s}", seed % POOL.len() as u64)) {
+        if let Err(e) = check_mutant(
+            ir,
+            &format!("program {}, seed {s}", seed % POOL.len() as u64),
+        ) {
             let site = e.split(": ").skip(1).collect::<Vec<_>>().join(": ");
             sites.entry(site).or_insert(e);
         }

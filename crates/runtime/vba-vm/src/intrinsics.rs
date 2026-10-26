@@ -235,7 +235,7 @@ impl Vm {
                 };
                 return Ok(RegVal::Print(h));
             }
-            "lbound" | "ubound" => return self.exec_bound(&lname, args).map(RegVal::V),
+            "lbound" | "ubound" => return self.exec_bound(lname, args).map(RegVal::V),
             _ => {}
         }
         let raw = RAW_OBJECT_ARGS.contains(&lname);
@@ -246,7 +246,7 @@ impl Vm {
             }
             "erl" => Variant::Long(self.erl as i32),
             "savesetting" | "getsetting" | "getallsettings" | "deletesetting" => {
-                self.exec_settings(&lname, &a)?
+                self.exec_settings(lname, &a)?
             }
             "sendkeys" => {
                 let keys = self.text_arg(a.first().unwrap_or(&None))?;
@@ -453,7 +453,7 @@ impl Vm {
                 if vba_stdlib::lookup(name).is_some() {
                     self.call_stdlib(name, dollar, &a)?
                 } else {
-                    svc(self.services.call(&lname, &a))?
+                    svc(self.services.call(lname, &a))?
                 }
             }
         };

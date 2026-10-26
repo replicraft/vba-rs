@@ -301,6 +301,72 @@ by a test of our own expectation and none was compared with Office.
 | `Bridge` | no | the `Declare` bridge cannot make the call |
 | `Internal` | no | a broken invariant (a bug) |
 
+## Performance
+
+`tooling/vba-bench` is a plain timing binary (no benchmark dependency: it
+needs only a wall clock, the minimum and median of N runs, and the step count,
+and a statistics framework would add a dependency tree for no extra signal).
+It compiles each program under `tooling/vba-bench/programs/`, runs it
+repeatedly in fresh VMs and prints the step count, the minimum and median
+wall time, the time per step and a checksum of the output. The step count and
+checksum are printed so that an optimisation that changes step accounting or
+behaviour is visible next to the timings; a run that is not deterministic
+aborts.
+
+```text
+cargo run --release -p vba-bench -- [--runs N] [name-filter]
+```
+
+Programs: `int_loop` (nested `For` with `Long` arithmetic), `string_build`
+(concatenation, `Left`/`Right`/`Mid`), `array_sort` (bubble sort of a fixed
+array, fills and sums of a dynamic `Double` array), `collection_calls`
+(`Add` with keys, `Item` by key and index, `For Each`, `Remove`),
+`class_calls` (method, property and public-field access on a class instance,
+early and late bound), `recursion` (`Fib`, `ByRef` calls), `variant_math`
+(`Variant` arithmetic over mixed subtypes) and `format_val` (`Format` and
+`Val` in a loop).
+
+Reference numbers, minimum of 15 runs, release profile (the workspace default,
+`opt-level = 3`, no LTO), one thread, on an Apple M1 Pro. Absolute times are
+only comparable on the same machine; the step counts do not depend on it.
+"Before" is the interpreter before the optimisation work described below.
+
+| program | steps | before (ms) | after (ms) | speed-up |
+| --- | ---: | ---: | ---: | ---: |
+| `int_loop` | 4,203,909 | 133.2 | 59.5 | 2.2x |
+| `string_build` | 2,344,276 | 113.9 | 91.5 | 1.2x |
+| `array_sort` | 2,580,940 | 118.0 | 54.0 | 2.2x |
+| `collection_calls` | 216,513 | 15.2 | 12.3 | 1.2x |
+| `class_calls` | 464,013 | 24.4 | 14.2 | 1.7x |
+| `recursion` | 873,137 | 48.2 | 24.1 | 2.0x |
+| `variant_math` | 1,340,013 | 44.8 | 20.8 | 2.2x |
+| `format_val` | 182,072 | 42.0 | 36.7 | 1.1x |
+
+The step counts and output checksums are identical before and after. What
+changed, all inside the interpreter loop and without `unsafe`:
+
+* Operands that are plain values are used in place (no `Variant` copy and no
+  default-member resolution) for arithmetic, comparison, logic, `If`
+  conditions and `For` tests; `Long`/`Integer`/`Double` operations have a
+  shortcut in `vba_value::ops` that returns `None` to the general path
+  whenever overflow, promotion or an error could be involved.
+* Storing and releasing plain values no longer allocates (the release list was
+  built for every store); storing to an unbound local slot skips the location
+  resolution.
+* A call reuses the slot and register vectors of the frames it pops, and the
+  run-time error is boxed inside `Fault` so every `VResult<Variant>` is about
+  half the size.
+* Array subscripts (up to three) live inline in a `Loc::Elem`; intrinsic names
+  are lower-cased on the stack and resolved with a cheap hash; class members
+  and public fields are found through per-module tables.
+
+What was deliberately left alone: string copies. A string of 32 code units or
+more charges its allocation to the memory meter, and the meter's volume is
+part of the step count (see `vba_host::Budget`), so avoiding a copy of a long
+string would change the steps a program is charged. Changing that is a
+semantic decision, not an optimisation. Collection lookup by key is a linear
+scan, and `Format` is dominated by the digit generation in `vba-stdlib`.
+
 ## Tests
 
 `tests/*.rs`: table-driven end-to-end programs (source in, `Debug.Print` text
@@ -308,6 +374,38 @@ out) for control flow, procedures and arguments, `On Error` in every form,
 arrays, UDTs, strings and Variants, classes, lifetime and `Class_Terminate`
 order, `Implements`, events, collections; host integration (permissions,
 objects, UI, `Declare`, limits, cancellation, `Stop`/`End`); depth and native
-stack safety; and `fuzz.rs`, a property test that runs random generated
-programs under tight limits and asserts: no panic, no internal error, steps
-within the budget, identical output and result on a second run.
+stack safety.
+
+Robustness tests:
+
+* `fuzz.rs`: random single-module programs under tight limits: no panic, no
+  internal error, steps within the budget, identical output and result on a
+  second run.
+* `fuzz_programs.rs`: the same properties for random multi-module programs
+  built from many more statement kinds: helper procedures (recursion, `ByRef`,
+  `ParamArray`, optional arguments, handlers), classes with `Class_Initialize`
+  and `Class_Terminate`, an interface and an implementer, multi-dimensional
+  and dynamic arrays, user-defined types, `Variant` arithmetic over mixed
+  subtypes and `Null`, collections, late binding and every `On Error` form.
+  At least 70 percent of the generated programs must compile (about 80 do),
+  and roughly a third run to completion, a tenth stop at a limit and the rest
+  end in an unhandled error, so all three outcomes are exercised.
+  `VBA_FUZZ_CASES=N` raises the number of cases.
+* `hostile_ir.rs`: valid lowered programs are mutated (registers, slots,
+  global/procedure/module/udt/event ids, types, operands, whole instructions,
+  terminators and block targets, the class table) and `vba_ir::verify` must
+  not panic on the mutant; when it accepts the mutant the VM must run it
+  without panicking (any `VmError` is acceptable). The VM relies on verified
+  IR and is not hardened against IR that skipped `verify`. The survey test
+  (`-- --ignored survey`, `SURVEY_N` mutants) lists the distinct panic sites.
+  It found one gap: the class table (fields, initialiser, terminator,
+  implemented members, event handlers) was not range checked, so a malformed
+  table passed `verify` and panicked the VM on an out-of-range index; `verify`
+  now checks it, with regression tests written first.
+* `determinism.rs`: every program of the conformance corpus (`tests/vba`) runs
+  twice in fresh VMs; output, result and step count must be identical and
+  nothing may panic or report an internal error. `VBA_STEP_DIGEST=<file>`
+  writes one line per program (steps, output checksum, result checksum);
+  diffing two digests shows whether a change altered step accounting or
+  behaviour anywhere in the corpus. Programs that do not compile in this
+  harness (diagnostic tests, programs needing a type library) are skipped.

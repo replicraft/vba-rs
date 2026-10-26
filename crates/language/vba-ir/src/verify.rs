@@ -108,7 +108,11 @@ fn verify_classes(p: &IrProgram, errs: &mut Vec<VerifyError>) {
         if ci.fields.iter().any(|g| g.index() >= nglobals) {
             bad(format!("field of module {i} is not a variable"));
         }
-        if ci.events.iter().any(|e| e.index() >= p.program.events.len()) {
+        if ci
+            .events
+            .iter()
+            .any(|e| e.index() >= p.program.events.len())
+        {
             bad(format!("event of module {i} out of range"));
         }
         for im in &ci.implements {
