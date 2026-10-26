@@ -116,6 +116,22 @@ fn scoped_grants() {
 }
 
 #[test]
+fn file_prefix_grants_match_whole_path_segments() {
+    let p = Policy::deny_all().grant_prefixes(Capability::FileRead, ["/data", "C:\\Work"]);
+    assert!(p.check(Capability::FileRead, "/data").is_ok());
+    assert!(p.check(Capability::FileRead, "/data/").is_ok());
+    assert!(p.check(Capability::FileRead, "/DATA/a.txt").is_ok());
+    assert!(p.check(Capability::FileRead, "c:/work/a.txt").is_ok());
+    assert!(p.check(Capability::FileRead, "c:\\work\\a.txt").is_ok());
+    assert!(p.check(Capability::FileRead, "/data-secret/a.txt").is_err());
+    assert!(p.check(Capability::FileRead, "/data2").is_err());
+    assert!(p.check(Capability::FileRead, "c:/workshop/a.txt").is_err());
+    // Other capabilities keep the plain text prefix (ProgIDs, commands).
+    let q = Policy::deny_all().grant_prefixes(Capability::ProcessSpawn, ["notepad"]);
+    assert!(q.check(Capability::ProcessSpawn, "notepad.exe x").is_ok());
+}
+
+#[test]
 fn headless_host_fails_explicitly() {
     let h = HeadlessHost::new().with_policy(Policy::allow_all());
     assert_eq!(num(h.create_object("X.Y", None)), 429);

@@ -94,9 +94,12 @@ impl From<PermissionDenied> for ErrInfo {
 ///
 /// A grant is either unrestricted or limited to resource prefixes
 /// (case-insensitive, for example a directory path or a ProgID namespace
-/// such as `"Scripting."`). Resources containing a `..` path segment never
-/// match a scoped grant. No path canonicalisation is done: embedders that
-/// scope file access must pass normalised paths.
+/// such as `"Scripting."`). For `FileRead` and `FileWrite` a prefix matches
+/// whole path segments only: `/data` covers `/data` and `/data/x`, not
+/// `/data-secret`. Other capabilities match the text prefix. Resources
+/// containing a `..` path segment never match a scoped grant. No path
+/// canonicalisation is done: embedders that scope file access must pass
+/// normalised paths.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Policy {
     grants: BTreeMap<Capability, Grant>,
@@ -162,7 +165,16 @@ impl Policy {
             Some(Grant::Any) => true,
             Some(Grant::Prefixes(ps)) => {
                 let r = resource.to_lowercase();
-                !has_parent_segment(&r) && ps.iter().any(|p| r.starts_with(&p.to_lowercase()))
+                let paths = matches!(cap, Capability::FileRead | Capability::FileWrite);
+                !has_parent_segment(&r)
+                    && ps.iter().any(|p| {
+                        let p = p.to_lowercase();
+                        if paths {
+                            path_prefix_matches(&r.replace('\\', "/"), &p.replace('\\', "/"))
+                        } else {
+                            r.starts_with(&p)
+                        }
+                    })
             }
         };
         if ok {
@@ -173,6 +185,16 @@ impl Policy {
                 resource: resource.to_string(),
             })
         }
+    }
+}
+
+/// Path-segment prefix match on paths whose separators are both `/`: `/data` covers `/data` and `/data/x` but not
+/// `/data-secret/x`. A prefix that ends in a separator covers everything below
+/// it, as before.
+fn path_prefix_matches(resource: &str, prefix: &str) -> bool {
+    match resource.strip_prefix(prefix) {
+        None => false,
+        Some(rest) => rest.is_empty() || prefix.ends_with('/') || rest.starts_with('/'),
     }
 }
 
