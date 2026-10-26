@@ -7,7 +7,7 @@ use vba_source::Span;
 use vba_value::ops::{
     self, ArithOp, CompareOp, CompareOptions, LogicOp, Overflow, StringNumberRule,
 };
-use vba_value::{Currency, Variant, VbaString, text};
+use vba_value::{Currency, Variant, VbaString};
 
 use crate::bound::Constant;
 use crate::types::Type;
@@ -85,9 +85,11 @@ pub fn literal(lit: &Literal, profile: &Profile) -> Result<(Constant, Type), Str
         Literal::String(b) => (Value(Variant::String(decode_bytes(b))), Type::String),
         Literal::Date(t) => {
             let s = decode_bytes(t);
-            match text::parse_date(&s) {
-                Ok(d) => (Value(Variant::Date(d)), Type::Date),
-                Err(_) => (Constant::DateText(t.clone()), Type::Date),
+            // MS-VBAL 3.3.3: a date literal that is not a valid date-or-time
+            // is a static error.
+            match vba_value::datelit::parse_date_literal(&s) {
+                Some(d) => (Value(Variant::Date(d)), Type::Date),
+                None => return Err("invalid date literal".to_owned()),
             }
         }
         Literal::True => (Value(Variant::Boolean(true)), Type::Boolean),

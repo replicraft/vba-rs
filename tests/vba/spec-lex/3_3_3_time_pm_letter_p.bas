@@ -1,6 +1,5 @@
 ' INV: vbal.3.3.3, lit.date
 ' SOURCE: spec ms-vbal 3.3.3 date tokens, ampm may be the single letters p and a
-' XFAIL: wrong pending
 ' EXPECT: 15:0:0
 ' EXPECT: 9:0:0
 ' EXPECT: 16:15:0

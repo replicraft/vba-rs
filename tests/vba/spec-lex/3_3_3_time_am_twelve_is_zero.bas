@@ -1,6 +1,5 @@
 ' INV: vbal.3.3.3, lit.date
 ' SOURCE: spec ms-vbal 3.3.3 date tokens, am or a with hour 12 means hour 0
-' XFAIL: wrong pending
 ' EXPECT: 0:30:0
 ' EXPECT: 0:0:0
 ' EXPECT: 0:0:0

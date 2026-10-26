@@ -10,6 +10,7 @@ pub mod collation;
 pub mod convert;
 pub mod currency;
 pub mod date;
+pub mod datelit;
 pub mod decimal;
 pub mod ops;
 pub mod string;

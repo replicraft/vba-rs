@@ -1,6 +1,5 @@
 ' INV: vbal.3.3.3, lit.date
 ' SOURCE: spec ms-vbal 3.3.3 date tokens, ampm has no significance when the hour is greater than 12
-' XFAIL: wrong pending
 ' EXPECT: 13:30:0
 ' EXPECT: 13:30:0
 ' EXPECT: 23:0:0
