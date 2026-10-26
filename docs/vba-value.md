@@ -112,3 +112,19 @@ covered by explicit tests but remain unverified against Office.
   User-defined-type elements start as `Empty`. No array locking.
 - `Decimal` remainder is exact but limited to divisors below 2^97 after scale
   alignment.
+
+## Tests
+
+`cargo test -p vba-value`: unit tests, property tests (`tests/properties.rs`)
+and differential oracle tests (`tests/oracle.rs`). The oracles are
+dev-dependencies only and are never used by shipped code:
+
+- `jiff`: every day from 0100-01-01 to 9999-12-31 (3,615,900 days) is checked
+  for calendar fields to serial and back, weekday and leap year/month length;
+  `DateSerial` day and month roll-over; time of day for non-negative serials.
+  Negative-serial time of day (the OLE `abs(frac)` quirk) has no oracle.
+- `rust_decimal`: `+ - *` agree on value and scale where the exact result fits
+  (including scale rules: larger scale for `+`/`-`, summed scales for `*`);
+  over the full range only results with no dropped digits are compared;
+  ordering agrees. Not asserted because VBA differs: overflow (`rust_decimal`
+  returns `None`, VBA error 6), rounding of excess digits, and division.
