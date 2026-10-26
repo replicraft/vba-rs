@@ -1,0 +1,28 @@
+[package]
+name = "vba-vm"
+description = "Deterministic synchronous interpreter for the vba-ir intermediate representation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-ast.workspace = true
+vba-automation.workspace = true
+vba-core.workspace = true
+vba-ffi.workspace = true
+vba-host.workspace = true
+vba-ir.workspace = true
+vba-profile.workspace = true
+vba-sema.workspace = true
+vba-stdlib.workspace = true
+vba-value.workspace = true
+vba-winapi.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+vba-diagnostics.workspace = true
+vba-project.workspace = true
+
+[lints]
+workspace = true

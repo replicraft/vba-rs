@@ -1,0 +1,29 @@
+[package]
+name = "vba-runtime"
+description = "Session orchestration for vba-rs: project loading, trust gate, virtual file system and procedure invocation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-ast.workspace = true
+vba-automation.workspace = true
+vba-core.workspace = true
+vba-diagnostics.workspace = true
+vba-host.workspace = true
+vba-ir.workspace = true
+vba-profile.workspace = true
+vba-project.workspace = true
+vba-sema.workspace = true
+vba-stdlib.workspace = true
+vba-value.workspace = true
+vba-vm.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

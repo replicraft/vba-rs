@@ -30,10 +30,12 @@ vba-lsp-core = { path = "crates/tooling/vba-lsp-core" }
 vba-profile = { path = "crates/foundation/vba-profile" }
 vba-project = { path = "crates/model/vba-project" }
 vba-sema = { path = "crates/language/vba-sema" }
+vba-runtime = { path = "crates/runtime/vba-runtime" }
 vba-source = { path = "crates/foundation/vba-source" }
 vba-stdlib = { path = "crates/runtime/vba-stdlib" }
 vba-syntax = { path = "crates/language/vba-syntax" }
 vba-value = { path = "crates/runtime/vba-value" }
+vba-vm = { path = "crates/runtime/vba-vm" }
 vba-winapi = { path = "crates/windows/vba-winapi" }
 vba-wine = { path = "crates/windows/vba-wine" }
 
