@@ -120,6 +120,42 @@ Rename:
   renamed along; the final check usually refuses the rename. Modules cannot be
   renamed.
 
+## Feature matrix
+
+| Capability | Core API | LSP method | Status | Tests |
+| --- | --- | --- | --- | --- |
+| Completion: keywords, in-scope symbols | `View::completions` | `textDocument/completion` | done | `tests/completion.rs` |
+| Completion: members of project types | `View::completions` | same, trigger `.` | done | `tests/project.rs` |
+| Completion: members of library and host types | `View::completions` + `Workspace::set_type_provider` | same | done for embedders; needs a type provider (see below) | `tests/library.rs` |
+| Hover: type and signature | `View::hover` | `textDocument/hover` | done; library members with a provider | `tests/navigation.rs`, `tests/project.rs`, `tests/library.rs` |
+| Signature help | `View::signature_help` | `textDocument/signatureHelp` | done for procedures, library functions and provider-described members | `tests/completion.rs`, `tests/library.rs` |
+| Go to definition | `Workspace::definition` | `textDocument/definition` | done, cross-module | `tests/project.rs`, `tests/navigation.rs` |
+| Find references | `Workspace::references` | `textDocument/references` | done, cross-module | same |
+| Document symbols | `View::document_symbols` | `textDocument/documentSymbol` | done, hierarchical | `tests/outline.rs` |
+| Rename | `Workspace::prepare_rename`, `rename` | `textDocument/prepareRename`, `rename` | done, scope-aware with a re-analysis safety check | `tests/project.rs`, `tests/project_properties.rs` |
+| Semantic tokens | `View::semantic_tokens` | `textDocument/semanticTokens/full`, `range` | done | `tests/outline.rs` |
+| Folding ranges | `View::folding_ranges` | `textDocument/foldingRange` | done | `tests/outline.rs` |
+| Formatting: indentation | `View::format`, `format_range` | `textDocument/formatting`, `rangeFormatting` | done, idempotent | `tests/formatting.rs`, `tests/properties.rs` |
+| Formatting: reserved-word casing | `FormatOptions::keyword_case` | formatting option `keywordCase` (boolean, default off) | done, idempotent, letter case only | `tests/keyword_case.rs`, `apps/vba-lsp/tests/stdio.rs` |
+| Workspace symbols, selection ranges, diagnostics | see Features | matching methods | done | `tests/project.rs`, `apps/vba-lsp/tests/stdio.rs` |
+
+### Library and host types
+
+`Workspace::set_type_provider(Some(Arc<dyn TypeProvider + Send + Sync>))`
+installs the embedding application's description of type libraries and host
+object models (the `vba_sema::TypeProvider` trait). The provider is used by
+the project analysis, so declarations such as `Dim d As Scripting.Dictionary`
+resolve (no `SEM004`), and by the editor features: after `.` on a receiver of
+a library type the members come from `interface_members` (the provider
+must list them, `StaticLibrary::as_interface` does), hover on a member shows
+its declaration-style signature and owner, and calls to a member get signature
+help with the active parameter (including named arguments and `ParamArray`).
+The type of a member's result is followed, so `d.Item(1).` completes through
+the provider again. A provider that does not enumerate members yields hover
+and signature help but no member completion. The `vba-lsp` executable has no
+provider (nothing to load one from yet), so these features are available to
+embedders of `vba-lsp-core`.
+
 ## Features
 
 | Feature | Notes |
@@ -129,7 +165,7 @@ Rename:
 | Folding | Procedures, types, enums, `If`, `Select Case`, `Case` clauses, loops, `With`, `#If` branches, runs of 2+ comment lines. |
 | Semantic tokens | Full and range. Keywords, operators, literals, comments, type names, declared names by class, library functions (`defaultLibrary`), labels, `#` directives, inactive code (`comment` + `inactive`). Multi-line tokens are split per line. Unresolved names are left unclassified. |
 | Hover | Names bound by the project: declared type of variables, parameters and fields, signature of procedures (all members of a property group), constant values, enum member values, UDT and enum declarations, `Me`, the declaring module; late-bound members say so. Keywords (one-line description), library functions (signature with types, optional markers, module, `$` form). Names the project does not bind use the syntactic declaration text. |
-| Completion | Context-dependent keywords (statement start, module level, after `End`, `Exit`, `On`, `Option`, `As`, ...), in-file names visible at the cursor, public names of other modules (standard-module members, public types and enums, module names; only types and class modules after `As`/`New`), library functions, `VBA.`/`Strings.`... qualifiers, labels after `GoTo`. After `.`: the members of the receiver when its type is known: public members of a class module (all members inside that class, `Me.`), fields of a user-defined type, public members of a standard module (`Utils.`), enum members, module names after the project name, and the object of an enclosing `With` (`.`). Nothing for `Variant`/`Object` receivers and library types. Type names respect the profile (`LongPtr`, `LongLong`). Nothing inside comments and strings. |
+| Completion | Context-dependent keywords (statement start, module level, after `End`, `Exit`, `On`, `Option`, `As`, ...), in-file names visible at the cursor, public names of other modules (standard-module members, public types and enums, module names; only types and class modules after `As`/`New`), library functions, `VBA.`/`Strings.`... qualifiers, labels after `GoTo`. After `.`: the members of the receiver when its type is known: public members of a class module (all members inside that class, `Me.`), fields of a user-defined type, public members of a standard module (`Utils.`), enum members, module names after the project name, and the object of an enclosing `With` (`.`). Members of library types when a type provider is installed (see above). Nothing for `Variant`/`Object` receivers. Type names respect the profile (`LongPtr`, `LongLong`). Nothing inside comments and strings. |
 | Signature help | Parenthesised and implicit (`Foo a, b`) calls of in-file procedures and library functions; named arguments (`name:=`); `ParamArray`; nested calls. Object members are not resolved. |
 | Definition, references, rename | Across modules, see above. Rename offers `prepareRename`. |
 | Workspace symbols | Modules, procedures, `Declare`s, variables, constants, types and fields, enums and members, events of all open documents (not locals). Matching is case-insensitive: exact, prefix, substring, then subsequence, best first. |
@@ -147,7 +183,14 @@ with the preceding body. Not touched: token text, blank lines, trailing
 whitespace, continuation lines, lines with line numbers, `VERSION`/`BEGIN`
 headers, inactive conditional text, lines that start with an error token.
 Idempotence, whitespace-only changes and an unchanged token stream are
-property-tested over random documents. Options: `tabSize`, `insertSpaces`.
+property-tested over random documents. Options: `tabSize`, `insertSpaces`, and
+`keywordCase` (boolean, default off; sent as an extra formatting property).
+With `keywordCase`, reserved words are rewritten to their canonical spelling
+(`elseif` becomes `ElseIf`); only the case of letters changes, never a word
+after `.` or `!`, an attribute name, inactive text, comment or string. Names
+that merely resemble keywords and words with a type suffix are left as
+written. Idempotence and "only letter case and indentation differ" are
+property-tested (`tests/keyword_case.rs`).
 
 ## Server (`vba-lsp`)
 
@@ -193,11 +236,14 @@ returns code 0 after `shutdown`, 1 otherwise.
 
 ## Not implemented
 
-- Host object models and COM libraries: the analysis runs without a type
-  provider, so library types are unknown (`SEM004`/`SEM005` appear for them),
-  members of library types are not completed, and a receiver of a library type
-  is neither late bound nor renamable. Document and designer modules have no
-  host members.
+- Host object models and COM libraries: without a type provider the analysis
+  knows no library types (`SEM004`/`SEM005` appear for them) and members are
+  not completed. The `vba-lsp` executable installs no provider; there is no
+  setting to load a type library or host description into it. A receiver of a
+  library type is neither late bound nor renamable, and library members have
+  no definition (nothing to jump to). Document and designer modules have no
+  host members. Members of a provider type that cannot enumerate its members
+  (`interface_members` returns `None`) are not offered for completion.
 - Hover and completion use *declared* types: the type of an arbitrary
   expression (`(a + b).`, a call result chain through library objects) is not
   computed; the default member of a class and `!` access are not followed.
