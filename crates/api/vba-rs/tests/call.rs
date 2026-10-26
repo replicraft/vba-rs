@@ -308,3 +308,45 @@ fn stop_and_end_report_their_status() {
         .unwrap();
     assert_eq!(r.status, RunStatus::Ended);
 }
+
+#[test]
+fn values_round_trip_through_calls() {
+    let mut inst = load(
+        "Public Function Echo(v As Variant) As Variant\n  Echo = v\nEnd Function\nPublic Function Kind(v As Variant) As String\n  Kind = TypeName(v)\nEnd Function\nPublic Function Total(v As Variant) As Long\n  Dim i, t As Long\n  For i = LBound(v) To UBound(v)\n    t = t + v(i)\n  Next\n  Total = t\nEnd Function\n",
+    );
+    let echo = |inst: &mut Instance, v: Variant| {
+        inst.call(CallTarget::Project, "Echo", vec![Arg::val(v)])
+            .unwrap()
+            .value
+    };
+    let arr = echo(&mut inst, Variant::from(vec![1_i32, 2, 3]));
+    assert_eq!(arr.array_bounds(), Some((0, 2)));
+    let items: Vec<i32> = arr
+        .to_vec()
+        .unwrap()
+        .iter()
+        .map(|v| i32::try_from(v).unwrap())
+        .collect();
+    assert_eq!(items, vec![1, 2, 3]);
+    let one = Variant::array_one_based(vec![Variant::from(10), Variant::from(20)]);
+    assert_eq!(echo(&mut inst, one.clone()).array_bounds(), Some((1, 2)));
+    let total = inst
+        .call(CallTarget::Project, "Total", vec![Arg::val(one)])
+        .unwrap();
+    assert_eq!(total.value, Variant::Long(30));
+    let date = Variant::date_from_ymd_hms(2024, 2, 29, 13, 30, 0).unwrap();
+    assert_eq!(echo(&mut inst, date.clone()), date);
+    assert_eq!(echo(&mut inst, Variant::from(None::<i32>)), Variant::Null);
+    let kind = |inst: &mut Instance, v: Variant| {
+        String::try_from(
+            inst.call(CallTarget::Project, "Kind", vec![Arg::val(v)])
+                .unwrap()
+                .value,
+        )
+        .unwrap()
+    };
+    assert_eq!(kind(&mut inst, Variant::from(1.5_f64)), "Double");
+    assert_eq!(kind(&mut inst, Variant::from(true)), "Boolean");
+    assert_eq!(kind(&mut inst, date), "Date");
+    assert_eq!(kind(&mut inst, Variant::nothing()), "Nothing");
+}

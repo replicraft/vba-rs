@@ -12,6 +12,7 @@ pub mod currency;
 pub mod date;
 pub mod datelit;
 pub mod decimal;
+pub mod exchange;
 pub mod ops;
 pub mod string;
 pub mod text;
