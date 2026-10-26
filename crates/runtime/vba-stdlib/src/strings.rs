@@ -577,12 +577,14 @@ pub(crate) fn f_mid_b(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     Ok(text(mid_b(&s, a.long(1)?, len)?))
 }
 
-/// `InStr` overloads: `(s1, s2)`, `(start, s1, s2)`, `(start, s1, s2, cmp)`.
+/// `InStr` overloads: `(s1, s2)`, `(start, s1, s2)`, `(start, s1, s2, cmp)`;
+/// in the four-slot form (as a compiler binds it) `start` and `cmp` may be
+/// omitted.
 fn instr_args<'a>(a: &Args<'a>) -> StdResult<(i32, usize, Option<usize>)> {
     match a.len() {
         2 => Ok((1, 0, None)),
-        3 => Ok((a.long(0)?, 1, None)),
-        4 => Ok((a.long(0)?, 1, Some(3))),
+        3 => Ok((a.long_or(0, 1)?, 1, None)),
+        4 => Ok((a.long_or(0, 1)?, 1, a.get(3).map(|_| 3))),
         _ => Err(crate::error::WRONG_ARGUMENT_COUNT.into()),
     }
 }

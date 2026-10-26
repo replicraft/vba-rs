@@ -37,6 +37,17 @@ fn n(x: i32) -> Variant {
 }
 
 #[test]
+fn instr_with_omitted_start_and_compare() {
+    // The shape a compiler binds `InStr("abcabc", "c")` to: four slots.
+    let mut e = Env::new();
+    let args = [None, Some(s("abcabc")), Some(s("c")), None];
+    let got = e.call_opt("InStr", &args);
+    assert_eq!(got, Ok(Variant::Long(3)));
+    let args = [Some(n(4)), Some(s("abcabc")), Some(s("c")), None];
+    assert_eq!(e.call_opt("InStr", &args), Ok(Variant::Long(6)));
+}
+
+#[test]
 fn left_right_mid() {
     run(vec![
         ("Left", vec![s("abc"), n(2)], st("ab")),
