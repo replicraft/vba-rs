@@ -321,7 +321,8 @@ Programs: `int_loop` (nested `For` with `Long` arithmetic), `string_build`
 (concatenation, `Left`/`Right`/`Mid`), `array_sort` (bubble sort of a fixed
 array, fills and sums of a dynamic `Double` array), `collection_calls`
 (`Add` with keys, `Item` by key and index, `For Each`, `Remove`),
-`class_calls` (method, property and public-field access on a class instance,
+`collection_large` and `collection_churn` (thousands of keyed items; keyed
+`Before`/`After` inserts and removes between lookups), `class_calls` (method, property and public-field access on a class instance,
 early and late bound), `recursion` (`Fib`, `ByRef` calls), `variant_math`
 (`Variant` arithmetic over mixed subtypes) and `format_val` (`Format` and
 `Val` in a loop).
@@ -364,8 +365,64 @@ What was deliberately left alone: string copies. A string of 32 code units or
 more charges its allocation to the memory meter, and the meter's volume is
 part of the step count (see `vba_host::Budget`), so avoiding a copy of a long
 string would change the steps a program is charged. Changing that is a
-semantic decision, not an optimisation. Collection lookup by key is a linear
-scan, and `Format` is dominated by the digit generation in `vba-stdlib`.
+semantic decision, not an optimisation.
+
+### Second round: collection keys and number formatting
+
+Same machine and method (minimum of 15 runs, release profile). "Before" is the
+tree at the end of the first round, re-measured in the same session as
+"after", so the two columns are comparable with each other but not with the
+table above. `collection_large` (5,000 keyed items, lookups in both
+directions, `For Each`) and `collection_churn` (keyed inserts with `Before`
+and `After`, removes by key, lookups between edits) are new.
+
+| program | steps | before (ms) | after (ms) | speed-up |
+| --- | ---: | ---: | ---: | ---: |
+| `collection_calls` | 216,513 | 14.6 | 13.3 | 1.1x |
+| `collection_large` | 197,719 | 64.7 | 11.3 | 5.7x |
+| `collection_churn` | 94,025 | 34.3 | 24.1 | 1.4x |
+| `format_val` | 182,072 | 38.0 | 29.0 | 1.3x |
+
+The other programs are unchanged within noise (`int_loop` 61.0 vs 61.2,
+`string_build` 101.2 vs 99.3, `array_sort` 55.7 vs 54.5, `class_calls` 14.7 vs
+14.9, `recursion` 24.9 vs 24.8, `variant_math` 21.7 vs 21.1). Step counts and
+output checksums are identical for every program, and the step digest of the
+whole conformance corpus (`VBA_STEP_DIGEST`) is byte-identical before and
+after.
+
+* A `Collection` keeps a hash index from the lower-cased key to a position
+  hint next to its item vector. Every hint is verified against the item before
+  it is used, so a stale hint costs a scan and never a wrong answer. Appending
+  keeps all hints exact; an insert or remove in the middle marks the items
+  from that position on as unverified. The first few lookups after such an
+  edit scan those items as before; if lookups continue, the scan repairs the
+  hints it passes, so a run of lookups after one edit is amortised O(1) each.
+  An absent key, and the duplicate-key check of `Add`, are answered by the
+  index alone. Order, `Before`/`After`, case-insensitivity, error numbers and
+  the memory charge of `Add` are untouched. A randomised test compares the
+  index with a linear scan over mixed appends, middle inserts, removes and
+  lookups.
+* The 15-significant-digit conversion behind `Format`, `Round` and `Str` takes
+  an integer path for magnitudes from 1e-5 to 1e15: the double is `m * 2^-s`,
+  and `m * 10^k / 2^s` is rounded to nearest-even in `u128`, which is what the
+  text conversion does. Digits back to a double use one exact multiplication
+  or division when at most 15 digits and a power of ten up to 1e22 are
+  involved. Everything else, and every case the integer path declines, uses the
+  previous text-based code, which stays in the tree as the reference. The unit
+  test compares the two (digits, `to_f64` and `round` in both rules) over
+  boundary values and their neighbours, random bit patterns, short decimals,
+  exact ties and integers.
+* Number-format parsing no longer copies: format sections are slices of the
+  format, and the date-format check walks the string. Both are compared with
+  the previous implementations over random strings.
+
+Left alone: the string-copy cost that dominates `string_build` (see above),
+and the interpreter loop in `int_loop`, `array_sort`, `recursion` and
+`variant_math`, where the profile shows no single remaining hot spot that a
+safe local change would remove. In `Format`, most of the remaining time is
+allocator traffic in the tokeniser and the output string; reducing it needs a
+cached or restructured format parser, which is a larger change than this
+round.
 
 ## Tests
 
