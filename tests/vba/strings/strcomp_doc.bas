@@ -1,5 +1,5 @@
 ' INV: func.strcomp
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/strcomp-function
+' SOURCE: spec ms-vbal 6.1.2.11.1.36 StrComp return values and 5.6.9.5 comparison modes
 ' EXPECT: 0
 ' EXPECT: -1
 ' EXPECT: 1

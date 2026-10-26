@@ -1,5 +1,5 @@
 ' INV: lit.date
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 3.3.3 date tokens (month-name date literal)
 ' EXPECT:  1969  2  12 
 Public Sub Main()
     Dim d As Date

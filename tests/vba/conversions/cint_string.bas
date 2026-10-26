@@ -1,5 +1,5 @@
 ' INV: func.cint
-' SOURCE: derived numeric string converts
+' SOURCE: spec ms-vbal 5.5.1.2.4 String to numeric Let-coercion
 ' EXPECT: 12
 ' EXPECT: 7
 Public Sub Main()

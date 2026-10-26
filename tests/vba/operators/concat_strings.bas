@@ -1,5 +1,5 @@
 ' INV: op.concat
-' SOURCE: derived string concatenation
+' SOURCE: spec ms-vbal 5.6.9.4 concatenation operator
 ' EXPECT: ab
 ' EXPECT: 
 ' EXPECT: x1

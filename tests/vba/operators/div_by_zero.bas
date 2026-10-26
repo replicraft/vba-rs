@@ -1,5 +1,5 @@
 ' INV: op.div
-' SOURCE: derived division by zero is run-time error 11
+' SOURCE: spec ms-vbal 5.6.9.3.5 division operator
 ' ERROR: 11
 Public Sub Main()
     Debug.Print 1 / 0

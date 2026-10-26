@@ -1,5 +1,5 @@
 ' INV: op.eq, lit.null
-' SOURCE: derived a comparison with Null yields Null
+' SOURCE: spec ms-vbal 5.6.9.5 relational operators (Null)
 ' EXPECT: True
 ' EXPECT: True
 Public Sub Main()

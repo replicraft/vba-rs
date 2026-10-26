@@ -1,5 +1,5 @@
 ' INV: op.like
-' SOURCE: derived brackets match special characters literally (like-operator page)
+' SOURCE: spec ms-vbal 5.6.9.6 Like operator
 ' EXPECT: True
 ' EXPECT: True
 ' EXPECT: False

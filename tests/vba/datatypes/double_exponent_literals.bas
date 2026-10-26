@@ -1,5 +1,5 @@
 ' INV: type.double, lit.float
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 3.3.2 Number Tokens (FLOAT)
 ' EXPECT:  1500 
 ' EXPECT:  0.0025 
 ' EXPECT:  100 

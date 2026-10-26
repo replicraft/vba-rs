@@ -1,5 +1,5 @@
 ' INV: func.rnd
-' SOURCE: derived Rnd returns a value in [0,1)
+' SOURCE: spec ms-vbal 6.1.2.10.1.6 Rnd
 ' EXPECT: True
 Public Sub Main()
     Dim i As Long, ok As Boolean

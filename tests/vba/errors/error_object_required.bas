@@ -1,5 +1,5 @@
 ' INV: stmt.on-error
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.6.3 member resolution on Nothing is error 91
 ' EXPECT:  91 
 Public Sub Main()
     Dim o As Object

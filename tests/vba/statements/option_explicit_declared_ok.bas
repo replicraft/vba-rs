@@ -1,5 +1,5 @@
 ' INV: stmt.option-explicit
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/option-explicit-statement
+' SOURCE: spec ms-vbal 5.2.1.3 Option Explicit directive
 ' EXPECT:  1 
 Option Explicit
 Public Sub Main()

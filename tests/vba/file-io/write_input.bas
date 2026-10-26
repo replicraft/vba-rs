@@ -1,5 +1,5 @@
 ' INV: stmt.write, stmt.input, stmt.open, stmt.close
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/inputstatement
+' SOURCE: spec ms-vbal 5.4.5.10 Input Statement (with 5.4.5.9 Write, 5.4.5.8 Print numeric output)
 ' EXPECT: text 42  2.5 
 ' GRANT: file-read
 ' GRANT: file-write

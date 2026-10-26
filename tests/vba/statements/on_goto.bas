@@ -1,5 +1,5 @@
 ' INV: stmt.on-gosub-on-goto
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/ongosub-ongoto-statements
+' SOURCE: spec ms-vbal 5.4.2.13 On GoTo statement
 ' EXPECT: l1
 ' EXPECT: l2
 ' EXPECT: none

@@ -1,5 +1,5 @@
 ' INV: func.log
-' SOURCE: derived natural logarithm
+' SOURCE: spec ms-vbal 6.1.2.10.1.5 Log
 ' EXPECT: 0
 ' EXPECT: 2
 Public Sub Main()

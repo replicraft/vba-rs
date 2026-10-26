@@ -1,5 +1,5 @@
 ' INV: stmt.on-error
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 6.1.3.2.1.2 Err.Raise, 5.4.4 error handling policies
 ' EXPECT:  1001 Badexploded
 '#MODULE Bad class
 Public Sub Boom()

@@ -1,5 +1,5 @@
 ' INV: func.len, type.string-fixed
-' SOURCE: derived Len of a fixed-length string is its declared length
+' SOURCE: spec ms-vbal 5.5.1.2.5 Let-coercion to String * length (padding) and 6.1.2.11.1.22 Len
 ' EXPECT:  8 
 Public Sub Main()
     Dim s As String * 8

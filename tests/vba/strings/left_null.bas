@@ -1,5 +1,5 @@
 ' INV: func.left, func.right, func.mid, lit.null
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/left-function
+' SOURCE: spec ms-vbal 6.1.2.11.1.19 Left, 6.1.2.11.1.30 Right, 6.1.2.11.1.25 Mid return Null for Null
 ' EXPECT: True
 ' EXPECT: True
 ' EXPECT: True

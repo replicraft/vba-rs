@@ -1,5 +1,5 @@
 ' INV: decl.optional
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/function-statement
+' SOURCE: spec ms-vbal 5.3.1.11 omitted and unmapped optional arguments, 5.3.1.5 default values
 ' EXPECT: 1,10,z
 ' EXPECT: 1,2,z
 ' EXPECT: 1,10,q

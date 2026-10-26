@@ -1,5 +1,5 @@
 ' INV: func.replace
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/replace-function
+' SOURCE: spec ms-vbal 6.1.2.11.1.29 Replace Compare argument and 5.6.9.5 string comparison modes
 ' EXPECT: xxx
 ' EXPECT: xAx
 Public Sub Main()

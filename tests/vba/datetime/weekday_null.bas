@@ -1,5 +1,5 @@
 ' INV: func.weekday, lit.null
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/weekday-function
+' SOURCE: spec ms-vbal 6.1.2.4.1.13 Weekday of Null is Null
 ' EXPECT: True
 Public Sub Main()
     Debug.Print IsNull(Weekday(Null))

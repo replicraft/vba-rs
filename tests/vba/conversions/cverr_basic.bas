@@ -1,5 +1,5 @@
 ' INV: func.cverr, func.iserror
-' SOURCE: derived CVErr builds an Error variant; IsError tests it
+' SOURCE: spec ms-vbal 6.1.2.3.1.14 CVErr
 ' EXPECT: True
 ' EXPECT: False
 ' EXPECT: Error 2042

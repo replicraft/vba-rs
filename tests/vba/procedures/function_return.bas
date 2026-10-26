@@ -1,5 +1,5 @@
 ' INV: stmt.function
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/function-statement
+' SOURCE: spec ms-vbal 5.3.1 function result variable
 ' EXPECT:  5 
 Function Add(a As Long, b As Long) As Long
     Add = a + b

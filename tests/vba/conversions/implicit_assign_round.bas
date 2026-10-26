@@ -1,5 +1,5 @@
 ' INV: expr.implicit-conv
-' SOURCE: derived assigning a Double to an Integer rounds like CInt
+' SOURCE: spec ms-vbal 5.5.1.2.1.1 Banker's rounding
 ' EXPECT:  2 
 ' EXPECT:  4 
 Public Sub Main()

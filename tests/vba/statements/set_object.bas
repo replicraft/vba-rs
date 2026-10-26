@@ -1,5 +1,5 @@
 ' INV: stmt.set, expr.new, lit.nothing
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/set-statement
+' SOURCE: spec ms-vbal 5.4.3.9 Set statement, 6.1.3.1.1.1 Collection Count
 ' EXPECT:  1 
 ' EXPECT: True
 Public Sub Main()

@@ -1,5 +1,5 @@
 ' INV: func.abs
-' SOURCE: derived absolute value
+' SOURCE: spec ms-vbal 6.1.2.10.1.1 Abs
 ' EXPECT: 5
 ' EXPECT: 5.5
 ' EXPECT: 0

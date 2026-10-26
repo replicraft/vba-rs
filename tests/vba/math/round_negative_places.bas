@@ -1,5 +1,5 @@
 ' INV: func.round
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 6.1.2.10.1.7 Round
 ' EXPECT: 1234.57
 ' EXPECT: -1234.57
 Public Sub Main()

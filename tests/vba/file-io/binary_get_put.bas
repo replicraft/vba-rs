@@ -1,5 +1,5 @@
 ' INV: stmt.get, stmt.put, stmt.open, stmt.close
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/put-statement
+' SOURCE: spec ms-vbal 5.4.5.11 Put Statement and 5.4.5.12 Get Statement binary mode
 ' EXPECT:  258 xyz
 ' GRANT: file-read
 ' GRANT: file-write

@@ -1,5 +1,5 @@
 ' INV: op.eqv
-' SOURCE: derived Eqv = Not (a Xor b)
+' SOURCE: spec ms-vbal 5.6.9.8.5 Eqv operator
 ' EXPECT: True
 ' EXPECT: False
 ' EXPECT: -7

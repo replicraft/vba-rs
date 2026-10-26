@@ -1,5 +1,5 @@
 ' INV: stmt.select-case
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.4.2.10 Select Case statement expression range-clause equality
 ' EXPECT: lt10
 Public Sub Main()
     Dim x As Long

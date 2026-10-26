@@ -1,5 +1,5 @@
 ' INV: stmt.for-each-next
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/for-eachnext-statement
+' SOURCE: spec ms-vbal 5.4.2.4.1 array enumeration order
 ' EXPECT:  1 
 ' EXPECT:  4 
 ' EXPECT:  9 

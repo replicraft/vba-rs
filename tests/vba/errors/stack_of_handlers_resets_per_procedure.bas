@@ -1,5 +1,5 @@
 ' INV: stmt.on-error
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.4.4 Default policy returns the error to the caller, Resume Next policy
 ' EXPECT: main continues 5
 Sub NoHandler()
     Error 5

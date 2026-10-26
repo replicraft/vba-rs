@@ -1,5 +1,5 @@
 ' INV: func.vartype
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 6.1.1.16 VbVarType
 ' EXPECT: 0
 ' EXPECT: 1
 ' EXPECT: 2

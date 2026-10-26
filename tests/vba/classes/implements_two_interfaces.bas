@@ -1,5 +1,5 @@
 ' INV: stmt.implements
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/implements-statement
+' SOURCE: spec ms-vbal 5.3.1.9 implemented name declarations dispatch, 5.2.4.2 Implements directive
 ' EXPECT: ab
 '#MODULE IA class
 Public Function A() As String

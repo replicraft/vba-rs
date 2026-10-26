@@ -1,5 +1,5 @@
 ' INV: decl.scope
-' SOURCE: derived module variables outlive calls
+' SOURCE: spec ms-vbal 2.3 module extent of module variables
 ' EXPECT:  2 
 Dim counter As Long
 Sub Bump()

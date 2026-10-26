@@ -1,5 +1,5 @@
 ' INV: stmt.static
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/static-statement
+' SOURCE: spec ms-vbal 5.4.3.1 Static variables have module extent
 ' EXPECT:  1 
 ' EXPECT:  2 
 ' EXPECT:  3 

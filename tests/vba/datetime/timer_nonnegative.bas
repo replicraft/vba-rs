@@ -1,5 +1,5 @@
 ' INV: func.timer
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/timer-function
+' SOURCE: spec ms-vbal 6.1.2.4.2.5 Timer seconds since midnight
 ' EXPECT: True
 Public Sub Main()
     Debug.Print Timer >= 0 And Timer < 86400

@@ -1,5 +1,5 @@
 ' INV: func.sqr
-' SOURCE: derived square root
+' SOURCE: spec ms-vbal 6.1.2.10.1.10 Sqr
 ' EXPECT: 4
 ' EXPECT: True
 ' EXPECT: 0

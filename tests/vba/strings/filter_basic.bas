@@ -1,5 +1,5 @@
 ' INV: func.filter
-' SOURCE: derived Filter selects matching elements
+' SOURCE: spec ms-vbal 6.1.2.11.1.7 Filter include and exclude
 ' EXPECT: banana
 ' EXPECT: mango
 ' EXPECT: apple

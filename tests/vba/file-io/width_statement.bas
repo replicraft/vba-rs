@@ -1,5 +1,5 @@
 ' INV: stmt.width, stmt.print, stmt.open, stmt.line-input
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/widthstatement
+' SOURCE: spec ms-vbal 5.4.5.7 Width Statement (with 5.4.5.8 Print, 5.4.5.6 Line Input)
 ' EXPECT: short
 ' GRANT: file-read
 ' GRANT: file-write

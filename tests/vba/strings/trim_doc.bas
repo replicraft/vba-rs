@@ -1,5 +1,5 @@
 ' INV: func.ltrim, func.rtrim, func.trim
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/ltrim-rtrim-and-trim-functions
+' SOURCE: spec ms-vbal 6.1.2.11.1.23 LTrim RTrim Trim
 ' EXPECT: [<-Trim->  ]
 ' EXPECT: [  <-Trim->]
 ' EXPECT: [<-Trim->]

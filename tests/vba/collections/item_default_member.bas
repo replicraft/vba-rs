@@ -1,5 +1,5 @@
 ' INV: type.collection, expr.default-member
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/collection-object
+' SOURCE: spec ms-vbal 6.1.3.1.1.2 Collection Item is the default member
 ' EXPECT: True
 Public Sub Main()
     Dim c As New Collection

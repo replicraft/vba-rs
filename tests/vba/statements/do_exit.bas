@@ -1,5 +1,5 @@
 ' INV: stmt.do-loop, stmt.exit
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/exit-statement
+' SOURCE: spec ms-vbal 5.4.2.7 Exit Do statement
 ' EXPECT:  5 
 Public Sub Main()
     Dim i As Long

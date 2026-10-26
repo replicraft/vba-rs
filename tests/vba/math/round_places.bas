@@ -1,5 +1,5 @@
 ' INV: func.round
-' SOURCE: derived numdecimalplaces
+' SOURCE: spec ms-vbal 6.1.2.10.1.7 Round
 ' EXPECT: 3.14
 ' EXPECT: 1234.6
 ' EXPECT: 7

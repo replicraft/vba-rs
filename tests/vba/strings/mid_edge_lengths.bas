@@ -1,5 +1,5 @@
 ' INV: func.mid
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/mid-function
+' SOURCE: spec ms-vbal 6.1.2.11.1.25 Mid length fewer than requested, start beyond end
 ' EXPECT: 
 ' EXPECT: bc
 ' EXPECT: c

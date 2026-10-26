@@ -1,5 +1,5 @@
 ' INV: stmt.type, type.udt
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/type-statement
+' SOURCE: spec ms-vbal 5.2.3.3 User Defined Type declarations, 2.3 default values
 ' EXPECT: n 5  0 
 Type Rec
     Name As String

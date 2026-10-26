@@ -1,5 +1,5 @@
 ' INV: op.add
-' SOURCE: derived addition of two integers
+' SOURCE: spec ms-vbal 5.6.9.3.2 plus operator
 ' EXPECT: 5
 ' EXPECT: 2.75
 ' EXPECT: 0

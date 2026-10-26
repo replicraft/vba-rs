@@ -1,5 +1,5 @@
 ' INV: func.cbyte
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 5.5.1.2.1 numeric Let-coercion with Banker's rounding
 ' EXPECT: 126
 Public Sub Main()
     Debug.Print CStr(CByte(125.5678))

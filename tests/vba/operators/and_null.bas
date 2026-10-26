@@ -1,5 +1,5 @@
 ' INV: op.and, lit.null
-' SOURCE: derived Null And False is False; Null And True is Null (three-valued logic)
+' SOURCE: spec ms-vbal 5.6.9.8.2 And operator (Null)
 ' EXPECT: False
 ' EXPECT: True
 Public Sub Main()

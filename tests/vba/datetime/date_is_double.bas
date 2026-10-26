@@ -1,5 +1,5 @@
 ' INV: type.date
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 2.1 Date value type (epoch and day counting) and 6.1.2.4.1.4 DateSerial
 ' EXPECT:  0 
 ' EXPECT:  36526 
 ' EXPECT:  12 

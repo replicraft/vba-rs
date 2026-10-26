@@ -1,5 +1,5 @@
 ' INV: func.weekday
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/weekday-function
+' SOURCE: spec ms-vbal 6.1.1.7 VbDayOfWeek constant values
 ' EXPECT: 1
 ' EXPECT: 2
 ' EXPECT: 3

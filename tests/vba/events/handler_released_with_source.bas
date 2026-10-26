@@ -1,5 +1,5 @@
 ' INV: stmt.event, decl.withevents
-' SOURCE: derived setting the WithEvents variable to Nothing disconnects the handler
+' SOURCE: spec ms-vbal 5.4.3.9 Set statement detaches WithEvents handlers, 5.4.2.20 RaiseEvent statement
 ' EXPECT: got 1
 '#MODULE Source class
 Public Event Fired(ByVal n As Long)

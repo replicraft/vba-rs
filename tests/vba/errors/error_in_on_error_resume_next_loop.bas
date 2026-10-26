@@ -1,5 +1,5 @@
 ' INV: stmt.on-error
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.4.4 Resume Next policy, 5.6.9.3.6 integer division by zero is error 11
 ' EXPECT:  1 
 Public Sub Main()
     Dim i As Long, bad As Long

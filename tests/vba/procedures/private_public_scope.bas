@@ -1,5 +1,5 @@
 ' INV: stmt.private, stmt.public, decl.scope
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/private-statement
+' SOURCE: spec ms-vbal 5.2.3.1.1 module variable declarations, 5.6.10 simple name expressions
 ' EXPECT:  3 
 Private p As Long
 Public q As Long

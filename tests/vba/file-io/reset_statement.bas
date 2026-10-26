@@ -1,5 +1,5 @@
 ' INV: stmt.reset
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/reset-statement
+' SOURCE: spec ms-vbal 5.4.5.2 Close and Reset Statements (with 6.1.2.5.1.7 FreeFile)
 ' EXPECT:  1 
 ' GRANT: file-read
 ' GRANT: file-write

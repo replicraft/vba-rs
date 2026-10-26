@@ -1,5 +1,5 @@
 ' INV: stmt.for-next
-' SOURCE: derived nested loops
+' SOURCE: spec ms-vbal 5.4.2.3 For statement nested
 ' EXPECT:  11 
 ' EXPECT:  12 
 ' EXPECT:  21 

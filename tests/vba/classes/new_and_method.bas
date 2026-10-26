@@ -1,5 +1,5 @@
 ' INV: expr.new, stmt.sub, stmt.function
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/function-statement
+' SOURCE: spec ms-vbal 2.5.1 automatic object instantiation, 5.3.1 procedure invocation
 ' EXPECT:  2 
 '#MODULE Counter class
 Private n As Long

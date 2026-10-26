@@ -1,5 +1,5 @@
 ' INV: func.instr
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/instr-function
+' SOURCE: spec ms-vbal 6.1.2.11.1.14 InStr position of first occurrence, Compare argument
 ' EXPECT: 6
 ' EXPECT: 9
 ' EXPECT: 9

@@ -1,5 +1,5 @@
 ' INV: func.cbool
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 5.5.1.2.2 Let-coercion to and from Boolean
 ' EXPECT: True
 ' EXPECT: False
 Public Sub Main()

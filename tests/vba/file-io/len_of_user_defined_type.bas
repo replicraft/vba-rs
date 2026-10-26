@@ -1,5 +1,5 @@
 ' INV: func.len, type.udt
-' SOURCE: derived Len of a user-defined type is its size in bytes: Long (4) + String * 4 (4)
+' SOURCE: spec ms-vbal 6.1.2.11.1.22 Len of a user-defined type (with 5.4.5.11 binary file data formats)
 ' EXPECT:  8 
 Type Rec
     ID As Long

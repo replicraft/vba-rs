@@ -1,5 +1,5 @@
 ' INV: op.concat, op.add, op.precedence
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/operator-precedence
+' SOURCE: spec ms-vbal 5.6.9.1 operator precedence
 ' EXPECT: 33
 ' EXPECT: a3
 Public Sub Main()

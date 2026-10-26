@@ -1,5 +1,5 @@
 ' INV: func.cstr, lit.null
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 5.5.1.2.10 Let-coercion from Null
 ' ERROR: 94
 Public Sub Main()
     Debug.Print CStr(Null)

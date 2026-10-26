@@ -1,5 +1,5 @@
 ' INV: decl.byref-byval
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/function-statement
+' SOURCE: spec ms-vbal 5.3.1.11 ByVal parameter is a local copy
 ' EXPECT:  1 
 Sub Inc(ByVal n As Long)
     n = n + 1

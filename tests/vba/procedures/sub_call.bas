@@ -1,5 +1,5 @@
 ' INV: stmt.sub, stmt.call
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/call-statement
+' SOURCE: spec ms-vbal 5.4.2.1 Call statement
 ' EXPECT: hi a
 ' EXPECT: hi b
 ' EXPECT: hi c

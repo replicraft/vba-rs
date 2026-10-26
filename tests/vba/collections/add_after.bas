@@ -1,5 +1,5 @@
 ' INV: type.collection, obj.collection
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/collection-object
+' SOURCE: spec ms-vbal 6.1.3.1.2.1 Collection Add After argument
 ' EXPECT: abc
 Public Sub Main()
     Dim c As New Collection

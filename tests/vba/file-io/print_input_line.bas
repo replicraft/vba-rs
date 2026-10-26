@@ -1,5 +1,5 @@
 ' INV: stmt.open, stmt.close, stmt.print, stmt.line-input, func.eof, func.freefile
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/line-inputstatement
+' SOURCE: spec ms-vbal 5.4.5.6 Line Input Statement (with 5.4.5.8 Print, 6.1.2.5.1.3 EOF)
 ' EXPECT: line one
 ' EXPECT: line two
 ' GRANT: file-read

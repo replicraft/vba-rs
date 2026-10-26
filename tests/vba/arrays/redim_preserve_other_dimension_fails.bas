@@ -1,5 +1,5 @@
 ' INV: stmt.redim
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/redim-statement
+' SOURCE: spec ms-vbal 5.4.3.3 ReDim Preserve changing a non-last dimension raises error 9
 ' ERROR: 9
 Public Sub Main()
     Dim m() As Long

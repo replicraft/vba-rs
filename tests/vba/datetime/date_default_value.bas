@@ -1,5 +1,5 @@
 ' INV: type.date
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 2.3 variable default value for Date and 5.5.1.2.3 Date to Double
 ' EXPECT:  0 
 ' EXPECT:  1899 
 Public Sub Main()

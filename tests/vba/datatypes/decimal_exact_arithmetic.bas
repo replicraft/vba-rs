@@ -1,5 +1,5 @@
 ' INV: type.decimal
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 5.6.9.3.2 plus operator (Decimal)
 ' EXPECT: True
 ' EXPECT:  0.3 
 Public Sub Main()

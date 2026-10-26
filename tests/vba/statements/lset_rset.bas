@@ -1,5 +1,5 @@
 ' INV: stmt.lset, stmt.rset
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/lset-statement
+' SOURCE: spec ms-vbal 5.4.3.6 LSet statement, 5.4.3.7 RSet statement
 ' EXPECT: [ab    ]
 ' EXPECT: [    ab]
 ' EXPECT: [abcdef]

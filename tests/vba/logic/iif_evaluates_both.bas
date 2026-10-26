@@ -1,5 +1,5 @@
 ' INV: func.iif
-' SOURCE: derived IIf evaluates both branches (documented for Choose/Switch; IIf is a function call)
+' SOURCE: spec ms-vbal 6.1.2.8.1.11 IIf
 ' EXPECT:  1  2 
 Dim g As Long
 Function Bump() As Long

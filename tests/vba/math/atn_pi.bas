@@ -1,5 +1,5 @@
 ' INV: func.atn
-' SOURCE: derived Atn(1) is pi/4
+' SOURCE: spec ms-vbal 6.1.2.10.1.2 Atn
 ' EXPECT: 3.14159265358979
 Public Sub Main()
     Debug.Print CStr(Atn(1) * 4)

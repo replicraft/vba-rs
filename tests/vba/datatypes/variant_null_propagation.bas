@@ -1,5 +1,5 @@
 ' INV: type.variant, lit.null
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.6.9.3 arithmetic and 5.6.9.4 concatenation with Null
 ' EXPECT: TrueFalse
 Public Sub Main()
     Dim v As Variant

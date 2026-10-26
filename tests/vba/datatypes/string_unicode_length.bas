@@ -1,5 +1,5 @@
 ' INV: type.string
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 6.1.2.11.1.22 Len and 6.1.2.11.1.3 AscW
 ' EXPECT:  2  8364 
 Public Sub Main()
     Dim s As String

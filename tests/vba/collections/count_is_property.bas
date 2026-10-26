@@ -1,5 +1,5 @@
 ' INV: type.collection
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/collection-object
+' SOURCE: spec ms-vbal 6.1.3.1.1.1 Collection Count
 ' EXPECT:  0 
 Public Sub Main()
     Dim c As Collection

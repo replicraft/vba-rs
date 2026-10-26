@@ -1,5 +1,5 @@
 ' INV: stmt.line-input, stmt.open, stmt.close, func.eof
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/line-inputstatement
+' SOURCE: spec ms-vbal 5.4.5.6 Line Input Statement error 62 on an empty file
 ' ERROR: 62
 ' GRANT: file-read
 ' GRANT: file-write

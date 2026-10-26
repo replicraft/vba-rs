@@ -1,5 +1,5 @@
 ' INV: op.le
-' SOURCE: derived less than or equal
+' SOURCE: spec ms-vbal 5.6.9.5.5 less-or-equal operator
 ' EXPECT: True
 ' EXPECT: False
 Public Sub Main()

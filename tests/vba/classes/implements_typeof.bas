@@ -1,5 +1,5 @@
 ' INV: stmt.implements, expr.typeof
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/implements-statement
+' SOURCE: spec ms-vbal 5.6.7 TypeOf...Is expression on an implementing class
 ' EXPECT: True
 '#MODULE IShape class
 Public Sub Draw()

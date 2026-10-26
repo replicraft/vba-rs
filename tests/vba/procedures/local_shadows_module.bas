@@ -1,5 +1,5 @@
 ' INV: decl.scope
-' SOURCE: derived a local hides a module variable of the same name
+' SOURCE: spec ms-vbal 5.6.10 simple name resolution of module and procedure variables
 ' EXPECT:  5  1 
 Dim x As Long
 Public Sub Main()

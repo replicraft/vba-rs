@@ -1,5 +1,5 @@
 ' INV: decl.byref-byval, decl.array-bounds
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.3.1.11 ByRef binding of a variable argument, 2.3.1 dependent variables
 ' EXPECT:  0  2 
 Sub Inc(ByRef n As Long)
     n = n + 1

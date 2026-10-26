@@ -1,5 +1,5 @@
 ' INV: stmt.const
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/const-statement
+' SOURCE: spec ms-vbal 5.4.3.2 local Const declarations
 ' EXPECT:  3  6 hi
 Public Sub Main()
     Const A = 3

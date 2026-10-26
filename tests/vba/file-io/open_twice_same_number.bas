@@ -1,5 +1,5 @@
 ' INV: stmt.open
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/open-statement
+' SOURCE: spec ms-vbal 5.4.5.1 Open Statement error 55 file already open
 ' ERROR: 55
 ' GRANT: file-read
 ' GRANT: file-write

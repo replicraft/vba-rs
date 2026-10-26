@@ -1,5 +1,5 @@
 ' INV: func.fileattr
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/fileattr-function
+' SOURCE: spec ms-vbal 6.1.2.5.1.4 FileAttr mode values
 ' EXPECT:  2 
 ' EXPECT:  1 
 ' EXPECT:  8 

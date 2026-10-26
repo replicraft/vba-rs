@@ -1,5 +1,5 @@
 ' INV: stmt.function
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.3.1 procedure invocation, 6.1.2.3.1.12 CStr of Boolean
 ' EXPECT: TrueTrueFalse
 Function IsEven(n As Long) As Boolean
     If n = 0 Then IsEven = True Else IsEven = IsOdd(n - 1)

@@ -1,5 +1,5 @@
 ' INV: stmt.exit, stmt.sub
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/exit-statement
+' SOURCE: spec ms-vbal 5.4.2.17 Exit Sub statement
 ' EXPECT: a
 Sub Quit()
     Debug.Print "a"

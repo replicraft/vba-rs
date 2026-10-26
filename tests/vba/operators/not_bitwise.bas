@@ -1,5 +1,5 @@
 ' INV: op.not
-' SOURCE: derived Not is bitwise on integers: Not x = -x - 1
+' SOURCE: spec ms-vbal 5.6.9.8.1 Not operator
 ' EXPECT: -6
 ' EXPECT: -1
 ' EXPECT: 0

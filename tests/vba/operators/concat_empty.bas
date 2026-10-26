@@ -1,5 +1,5 @@
 ' INV: op.concat, lit.empty
-' SOURCE: derived Empty is a zero-length string for &
+' SOURCE: spec ms-vbal 5.6.9.4 concatenation operator
 ' EXPECT: x
 Public Sub Main()
     Debug.Print CStr(Empty & "x")

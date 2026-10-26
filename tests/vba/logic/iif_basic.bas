@@ -1,5 +1,5 @@
 ' INV: func.iif
-' SOURCE: derived IIf returns one of two parts
+' SOURCE: spec ms-vbal 6.1.2.8.1.11 IIf
 ' EXPECT: 10
 ' EXPECT: b
 Public Sub Main()

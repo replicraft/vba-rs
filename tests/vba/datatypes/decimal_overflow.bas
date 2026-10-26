@@ -1,5 +1,5 @@
 ' INV: type.decimal
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 5.6.9.3 arithmetic overflow (Variant, Decimal)
 ' ERROR: 6
 Public Sub Main()
     Dim d As Variant

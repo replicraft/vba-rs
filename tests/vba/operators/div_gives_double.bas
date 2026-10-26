@@ -1,5 +1,5 @@
 ' INV: op.div
-' SOURCE: derived / always yields a floating-point quotient
+' SOURCE: spec ms-vbal 5.6.9.3.5 division operator
 ' EXPECT: 3.5
 ' EXPECT: 2
 ' EXPECT: 0.25

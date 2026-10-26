@@ -1,5 +1,5 @@
 ' INV: stmt.event, stmt.raiseevent, decl.withevents
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/event-statement
+' SOURCE: spec ms-vbal 5.4.2.20 RaiseEvent statement, 5.3.1.8 event handler declarations
 ' EXPECT: A
 ' EXPECT: Bx
 '#MODULE Source class

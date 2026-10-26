@@ -1,5 +1,5 @@
 ' INV: op.ge
-' SOURCE: derived greater than or equal
+' SOURCE: spec ms-vbal 5.6.9.5.6 greater-or-equal operator
 ' EXPECT: True
 ' EXPECT: False
 Public Sub Main()

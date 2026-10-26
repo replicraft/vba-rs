@@ -1,5 +1,5 @@
 ' INV: stmt.dim, stmt.option-explicit
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/option-explicit-statement
+' SOURCE: spec ms-vbal 5.6.10 implicit declaration in implicit-mode, 5.2.3.1.5 implicit Variant type
 ' EXPECT: Integer 3 
 Public Sub Main()
     y = 3

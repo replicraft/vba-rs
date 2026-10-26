@@ -1,5 +1,5 @@
 ' INV: op.eq, op.lt, expr.implicit-conv
-' SOURCE: unverified numeric string compared with number is numeric
+' SOURCE: spec ms-vbal 5.6.9.5 relational operators (effective Integer)
 ' EXPECT: True
 ' EXPECT: True
 Public Sub Main()

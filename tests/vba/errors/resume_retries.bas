@@ -1,5 +1,5 @@
 ' INV: stmt.resume, stmt.on-error
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/resume-statement
+' SOURCE: spec ms-vbal 5.4.4.2 Resume statement re-executes the faulting statement, 5.6.9.3.6 \ operator
 ' EXPECT:  2 
 ' EXPECT: done
 Public Sub Main()

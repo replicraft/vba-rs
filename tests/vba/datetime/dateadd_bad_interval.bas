@@ -1,5 +1,5 @@
 ' INV: func.dateadd
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 6.1.2.4.1.1 DateAdd unknown interval raises error 5
 ' ERROR: 5
 Public Sub Main()
     Debug.Print DateAdd("zz", 1, Date)

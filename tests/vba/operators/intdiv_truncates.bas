@@ -1,5 +1,5 @@
 ' INV: op.intdiv
-' SOURCE: derived fractional portion truncated; operands rounded first (backslash-operator page)
+' SOURCE: spec ms-vbal 5.6.9.3.6 integer division operator
 ' EXPECT: -3
 ' EXPECT: 4
 Public Sub Main()

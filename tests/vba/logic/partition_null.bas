@@ -1,5 +1,5 @@
 ' INV: func.partition
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/partition-function
+' SOURCE: spec ms-vbal 6.1.2.8.1.14 Partition
 ' EXPECT: True
 Public Sub Main()
     Debug.Print IsNull(Partition(Null, 0, 10, 5))

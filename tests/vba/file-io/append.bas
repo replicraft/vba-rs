@@ -1,5 +1,5 @@
 ' INV: stmt.open, stmt.print, stmt.close, stmt.line-input
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/open-statement
+' SOURCE: spec ms-vbal 5.4.5.1 Open Statement append mode (with 5.4.5.6 Line Input)
 ' EXPECT: one
 ' EXPECT: two
 ' GRANT: file-read

@@ -1,5 +1,5 @@
 ' INV: expr.new
-' SOURCE: derived each New creates a separate instance
+' SOURCE: spec ms-vbal 5.6.8 New expressions, 5.6.9.7 Is operator
 ' EXPECT:  1  2 
 ' EXPECT: False
 '#MODULE Box class

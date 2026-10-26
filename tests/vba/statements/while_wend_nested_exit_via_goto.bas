@@ -1,5 +1,5 @@
 ' INV: stmt.while-wend, stmt.goto
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/whilewend-statement
+' SOURCE: spec ms-vbal 5.4.2.2 While statement, 5.4.2.12 GoTo statement
 ' EXPECT:  4 
 Public Sub Main()
     Dim i As Long

@@ -1,5 +1,5 @@
 ' INV: func.timeserial
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 6.1.2.4.1.11 TimeSerial
 ' EXPECT:  13  5  9 
 ' EXPECT:  1  30 
 Public Sub Main()

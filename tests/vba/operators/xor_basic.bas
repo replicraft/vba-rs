@@ -1,5 +1,5 @@
 ' INV: op.xor
-' SOURCE: derived exclusive or
+' SOURCE: spec ms-vbal 5.6.9.8.4 Xor operator
 ' EXPECT: False
 ' EXPECT: True
 ' EXPECT: 6

@@ -1,5 +1,5 @@
 ' INV: stmt.exit, stmt.property-get
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/exit-statement
+' SOURCE: spec ms-vbal 5.4.2.19 Exit Property statement
 ' EXPECT:  1 
 Property Get P() As Long
     P = 1

@@ -1,5 +1,5 @@
 ' INV: func.cbyte
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 6.1.2.3.1.2 CByte
 ' EXPECT: 0
 ' EXPECT: 255
 Public Sub Main()

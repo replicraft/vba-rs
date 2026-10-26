@@ -1,5 +1,5 @@
 ' INV: stmt.lock-unlock, stmt.open
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/lock-unlock-statements
+' SOURCE: spec ms-vbal 5.4.5.4 Lock Statement and 5.4.5.5 Unlock Statement
 ' EXPECT: ok
 ' GRANT: file-read
 ' GRANT: file-write

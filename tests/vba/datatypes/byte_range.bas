@@ -1,5 +1,5 @@
 ' INV: type.byte
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 2.1 Byte value type
 ' EXPECT:  255 
 ' EXPECT:  0 
 Public Sub Main()

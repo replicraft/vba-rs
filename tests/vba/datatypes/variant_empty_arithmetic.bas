@@ -1,5 +1,5 @@
 ' INV: type.variant, lit.empty
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.6.9.3 arithmetic operators (Empty operand)
 ' EXPECT:  1 
 ' EXPECT: []
 ' EXPECT: TrueTrue

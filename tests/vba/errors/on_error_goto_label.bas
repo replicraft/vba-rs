@@ -1,5 +1,5 @@
 ' INV: stmt.on-error
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/on-error-statement
+' SOURCE: spec ms-vbal 5.4.4.1 On Error statement, 5.6.9.3.5 division by zero is error 11
 ' EXPECT: handled 11
 Public Sub Main()
     On Error GoTo Handler

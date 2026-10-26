@@ -1,5 +1,5 @@
 ' INV: func.cstr, lit.empty
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 6.1.2.3.1.12 CStr
 ' EXPECT: True
 ' EXPECT: False
 ' EXPECT: 

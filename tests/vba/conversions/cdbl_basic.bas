@@ -1,5 +1,5 @@
 ' INV: func.cdbl
-' SOURCE: derived string and currency to Double
+' SOURCE: spec ms-vbal 6.1.2.3.1.5 CDbl
 ' EXPECT: 1.5
 ' EXPECT: 1.25
 ' EXPECT: Double

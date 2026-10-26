@@ -1,5 +1,5 @@
 ' INV: obj.err, stmt.exit
-' SOURCE: unverified author's recollection of the Err object page ('reset after Exit Sub within an error-handling routine'); page not re-read
+' SOURCE: spec ms-vbal 6.1.3.2.1.1 Err.Clear is called by Exit Sub
 ' EXPECT:  0 
 Sub Inner()
     On Error GoTo H

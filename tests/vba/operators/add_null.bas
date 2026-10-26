@@ -1,5 +1,5 @@
 ' INV: op.add, lit.null
-' SOURCE: derived Null propagates through arithmetic
+' SOURCE: spec ms-vbal 5.6.9.3.2 plus operator (Null)
 ' EXPECT: True
 ' EXPECT: True
 Public Sub Main()

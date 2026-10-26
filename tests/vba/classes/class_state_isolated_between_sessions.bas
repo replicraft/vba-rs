@@ -1,5 +1,5 @@
 ' INV: decl.scope
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 2.5.1 automatic object instantiation, 2.3 variable default values
 ' EXPECT:  1 
 '#MODULE Counter class
 Public N As Long

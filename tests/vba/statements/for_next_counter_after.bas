@@ -1,5 +1,5 @@
 ' INV: stmt.for-next
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/fornext-statement
+' SOURCE: spec ms-vbal 5.4.2.3 For statement counter after completion
 ' EXPECT:  4 
 Public Sub Main()
     Dim i As Long

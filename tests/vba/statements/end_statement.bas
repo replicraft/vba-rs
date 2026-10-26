@@ -1,5 +1,5 @@
 ' INV: stmt.end
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/end-statement
+' SOURCE: spec ms-vbal 5.4.2.22 End statement
 ' EXPECT: a
 Public Sub Main()
     Debug.Print "a"

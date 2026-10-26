@@ -1,5 +1,5 @@
 ' INV: stmt.randomize, func.rnd
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/randomize-statement
+' SOURCE: spec ms-vbal 6.1.2.10.1.6 Rnd result range
 ' EXPECT: True
 Public Sub Main()
     Randomize

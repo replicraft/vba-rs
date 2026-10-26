@@ -1,5 +1,5 @@
 ' INV: func.clnglng
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 6.1.2.3.1.9 CLngLng
 ' EXPECT: 1099511627776
 ' EXPECT: 8
 ' EXPECT: LongLong

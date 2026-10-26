@@ -1,5 +1,5 @@
 ' INV: func.lcase, func.ucase
-' SOURCE: derived case conversion
+' SOURCE: spec ms-vbal 6.1.2.11.1.17 LCase and 6.1.2.11.1.41 UCase
 ' EXPECT: abc
 ' EXPECT: ABC
 ' EXPECT: 

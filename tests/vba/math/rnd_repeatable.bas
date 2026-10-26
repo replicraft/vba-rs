@@ -1,5 +1,5 @@
 ' INV: func.rnd, stmt.randomize
-' SOURCE: derived Rnd(-1) followed by Randomize n makes the sequence repeat (Rnd/Randomize pages)
+' SOURCE: spec ms-vbal 6.1.2.10.1.6 Rnd
 ' EXPECT: True
 Public Sub Main()
     Dim a As Double, b As Double

@@ -1,5 +1,5 @@
 ' INV: func.trim
-' SOURCE: derived Trim removes spaces only, not tabs
+' SOURCE: spec ms-vbal 6.1.2.11.1.23 Trim removes spaces (vbTab is Chr$(9))
 ' EXPECT: 3
 ' EXPECT: 
 Public Sub Main()

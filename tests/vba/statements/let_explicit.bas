@@ -1,5 +1,5 @@
 ' INV: stmt.let
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/let-statement
+' SOURCE: spec ms-vbal 5.4.3.8 Let statement
 ' EXPECT:  4 
 Public Sub Main()
     Dim x As Long

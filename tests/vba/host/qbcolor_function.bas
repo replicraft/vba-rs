@@ -1,5 +1,5 @@
 ' INV: func.qbcolor
-' SOURCE: unverified the page names the colors but not their RGB values (the standard QuickBasic palette is assumed)
+' SOURCE: spec ms-vbal 6.1.2.7.1.10 QBColor table
 ' EXPECT:  128 
 Public Sub Main()
     Debug.Print QBColor(4)

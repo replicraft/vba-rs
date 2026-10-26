@@ -1,5 +1,5 @@
 ' INV: decl.optional
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.3.1.5 optional parameter default value, 5.3.1.11 unmapped optional parameters
 ' EXPECT:  6  11 
 Function F(Optional ByVal n As Long = 5) As Long
     n = n + 1

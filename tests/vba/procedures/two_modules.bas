@@ -1,5 +1,5 @@
 ' INV: stmt.function, decl.scope
-' SOURCE: derived public procedures are visible across modules
+' SOURCE: spec ms-vbal 5.6.10 other procedural module namespace tier, 5.6.12 module member access
 ' EXPECT:  42 
 ' EXPECT:  8 
 '#MODULE Helper standard

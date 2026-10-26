@@ -1,5 +1,5 @@
 ' INV: stmt.option-private
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/option-private-statement
+' SOURCE: spec ms-vbal 5.2.1.4 Option Private directive
 ' EXPECT: ok
 Option Private Module
 Public Sub Main()

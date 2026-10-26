@@ -1,5 +1,5 @@
 ' INV: op.mul
-' SOURCE: derived multiplication
+' SOURCE: spec ms-vbal 5.6.9.3.4 multiplication operator
 ' EXPECT: 42
 ' EXPECT: -12
 ' EXPECT: 2

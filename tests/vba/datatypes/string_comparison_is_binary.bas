@@ -1,5 +1,5 @@
 ' INV: type.string, op.lt
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.6.9.5 relational operators, binary comparison
 ' EXPECT: FalseTrueTrue
 Public Sub Main()
     Debug.Print "a" < "B"; "A" < "b"; "Z" < "a"

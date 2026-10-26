@@ -1,5 +1,5 @@
 ' INV: stmt.print, stmt.open, stmt.close, stmt.line-input
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/printstatement
+' SOURCE: spec ms-vbal 5.4.5.8 Print Statement print zones and numeric output
 ' EXPECT: [a             b]
 ' EXPECT: [ 5  6 ]
 ' EXPECT: [xy]

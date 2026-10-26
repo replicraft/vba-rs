@@ -1,5 +1,5 @@
 ' INV: func.space
-' SOURCE: derived Space(n) is n blanks
+' SOURCE: spec ms-vbal 6.1.2.11.1.33 Space
 ' EXPECT: 5
 ' EXPECT: []
 Public Sub Main()

@@ -1,5 +1,5 @@
 ' INV: decl.array-bounds
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.6.2.1 array element read outside its dimension raises error 9
 ' ERROR: 9
 Public Sub Main()
     Dim a(1 To 3) As Long

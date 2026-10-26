@@ -1,5 +1,5 @@
 ' INV: obj.err, stmt.on-error
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.4.4 Resume Next policy, 6.1.3.2.1.1 statements that clear the Err object
 ' EXPECT:  5 
 Public Sub Main()
     On Error Resume Next

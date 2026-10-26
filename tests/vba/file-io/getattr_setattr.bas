@@ -1,5 +1,5 @@
 ' INV: func.getattr, stmt.setattr, stmt.open
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/setattr-statement
+' SOURCE: spec ms-vbal 6.1.2.5.2.7 SetAttr and 6.1.2.8.1.8 GetAttr
 ' EXPECT:  1 
 ' EXPECT:  0 
 ' GRANT: file-read

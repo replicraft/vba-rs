@@ -1,5 +1,5 @@
 ' INV: decl.dim-as-new
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/dim-statement
+' SOURCE: spec ms-vbal 2.5.1 automatic object instantiation, 5.3.1.10 Class_Initialize lifecycle handler
 ' EXPECT: declared
 ' EXPECT: init
 ' EXPECT: used

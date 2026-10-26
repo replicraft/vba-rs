@@ -1,5 +1,5 @@
 ' INV: func.string
-' SOURCE: derived String(n, c) repeats the first character
+' SOURCE: spec ms-vbal 6.1.2.11.1.38 String function
 ' EXPECT: xxx
 ' EXPECT: aaa
 ' EXPECT: AA

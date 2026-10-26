@@ -1,5 +1,5 @@
 ' INV: func.right
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/right-function
+' SOURCE: spec ms-vbal 6.1.2.11.1.30 Right length cases
 ' EXPECT: d
 ' EXPECT:  World
 ' EXPECT: Hello World

@@ -1,5 +1,5 @@
 ' INV: op.precedence, op.not, op.and, op.or
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/operator-precedence
+' SOURCE: spec ms-vbal 5.6.9.1 operator precedence
 ' EXPECT: True
 ' EXPECT: True
 ' EXPECT: True

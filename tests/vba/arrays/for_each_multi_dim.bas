@@ -1,5 +1,5 @@
 ' INV: stmt.for-each-next, decl.array-bounds
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/for-eachnext-statement
+' SOURCE: spec ms-vbal 5.4.2.4.1 array enumeration order (leftmost index varies fastest)
 ' EXPECT:  11 
 ' EXPECT:  21 
 ' EXPECT:  12 

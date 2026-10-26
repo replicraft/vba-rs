@@ -1,5 +1,5 @@
 ' INV: expr.named-arg
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/function-statement
+' SOURCE: spec ms-vbal 5.3.1.11 named argument mapping
 ' EXPECT:  21 
 ' EXPECT:  34 
 Function F(a As Long, b As Long) As Long

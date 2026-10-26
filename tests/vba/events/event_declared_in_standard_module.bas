@@ -1,5 +1,5 @@
 ' INV: stmt.event
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/event-statement
+' SOURCE: spec ms-vbal 5.2 module declaration elements, 5.2.4.3 event declaration is class-module only
 ' ERROR: load
 Public Event E()
 Public Sub Main()

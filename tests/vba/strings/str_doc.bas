@@ -1,5 +1,5 @@
 ' INV: func.str
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/str-function
+' SOURCE: spec ms-vbal 6.1.2.3.1.20 Str leading sign space and 5.5.1.2.4 number to String
 ' EXPECT: [ 459]
 ' EXPECT: [-459.65]
 ' EXPECT: [ 459.001]

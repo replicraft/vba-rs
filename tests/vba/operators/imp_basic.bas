@@ -1,5 +1,5 @@
 ' INV: op.imp
-' SOURCE: derived a Imp b = (Not a) Or b
+' SOURCE: spec ms-vbal 5.6.9.8.6 Imp operator
 ' EXPECT: False
 ' EXPECT: True
 ' EXPECT: True

@@ -1,5 +1,5 @@
 ' INV: op.add, op.concat
-' SOURCE: derived + concatenates when both operands are strings (plus-operator page)
+' SOURCE: spec ms-vbal 5.6.9.3.2 plus operator (String)
 ' EXPECT: 34
 ' EXPECT: abcd
 Public Sub Main()

@@ -1,5 +1,5 @@
 ' INV: func.instr, stmt.option-compare
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/instr-function
+' SOURCE: spec ms-vbal 5.2.1.1 Option Compare Text and 6.1.2.11.1.14 InStr
 ' EXPECT:  2 
 Option Compare Text
 Public Sub Main()

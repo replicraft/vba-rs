@@ -1,5 +1,5 @@
 ' INV: stmt.beep
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/beep-statement
+' SOURCE: spec ms-vbal 6.1.2.8.2.2 Beep
 ' EXPECT: ok
 Public Sub Main()
     Beep

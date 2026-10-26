@@ -1,5 +1,5 @@
 ' INV: func.cint
-' SOURCE: derived round half to even also for negatives
+' SOURCE: spec ms-vbal 5.5.1.2.1.1 Banker's rounding
 ' EXPECT: -2
 ' EXPECT: -2
 ' EXPECT: 0

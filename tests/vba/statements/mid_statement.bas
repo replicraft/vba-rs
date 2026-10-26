@@ -1,5 +1,5 @@
 ' INV: stmt.mid
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/mid-statement
+' SOURCE: spec ms-vbal 5.4.3.5 Mid statement
 ' EXPECT: HOWDY World
 ' EXPECT: HOWDY Earth
 Public Sub Main()

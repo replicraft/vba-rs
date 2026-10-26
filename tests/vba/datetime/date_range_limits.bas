@@ -1,5 +1,5 @@
 ' INV: type.date
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 2.1 Date value type (epoch and range) and 6.1.2.4.1.4 DateSerial year range
 ' EXPECT:  100 
 ' EXPECT:  9999  12  31 
 ' EXPECT:  2958465 

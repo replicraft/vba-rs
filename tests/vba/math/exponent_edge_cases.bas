@@ -1,5 +1,5 @@
 ' INV: op.pow
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.6.9.3.7 exponentiation operator
 ' EXPECT: 1
 ' EXPECT: 0
 ' EXPECT: 64

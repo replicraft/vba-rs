@@ -1,5 +1,5 @@
 ' INV: func.join
-' SOURCE: derived Join concatenates array elements
+' SOURCE: spec ms-vbal 6.1.2.11.1.16 Join delimiter default and empty
 ' EXPECT: a-b-c
 ' EXPECT: a b c
 ' EXPECT: abc

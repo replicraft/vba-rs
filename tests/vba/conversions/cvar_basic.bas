@@ -1,5 +1,5 @@
 ' INV: func.cvar
-' SOURCE: derived CVar yields a Variant holding the argument's subtype
+' SOURCE: spec ms-vbal 6.1.2.3.1.13 CVar
 ' EXPECT: Integer
 ' EXPECT: String
 ' EXPECT: Double

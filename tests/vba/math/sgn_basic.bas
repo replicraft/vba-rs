@@ -1,5 +1,5 @@
 ' INV: func.sgn
-' SOURCE: derived sign
+' SOURCE: spec ms-vbal 6.1.2.10.1.8 Sgn
 ' EXPECT: -1
 ' EXPECT: 0
 ' EXPECT: 1

@@ -1,5 +1,5 @@
 ' INV: op.gt
-' SOURCE: derived greater than
+' SOURCE: spec ms-vbal 5.6.9.5.4 greater-than operator
 ' EXPECT: True
 ' EXPECT: False
 ' EXPECT: True

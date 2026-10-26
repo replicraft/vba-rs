@@ -1,5 +1,5 @@
 ' INV: stmt.dim, type.variant
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/dim-statement
+' SOURCE: spec ms-vbal 5.2.3.1.5 implicit Variant type, 2.3 Empty default
 ' EXPECT: Empty Long
 Public Sub Main()
     Dim a, b As Long

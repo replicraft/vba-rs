@@ -1,5 +1,5 @@
 ' INV: stmt.static, stmt.sub
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/static-statement
+' SOURCE: spec ms-vbal 5.3.1.2 Static procedures
 ' EXPECT:  1 
 ' EXPECT:  2 
 Static Sub Count()

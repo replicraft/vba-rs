@@ -1,5 +1,5 @@
 ' INV: stmt.on-error
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/on-error-statement
+' SOURCE: spec ms-vbal 5.4.4 Default and Goto error-handling policies
 ' EXPECT: caught 13
 Sub Inner()
     Error 13

@@ -1,5 +1,5 @@
 ' INV: stmt.on-gosub-on-goto, stmt.gosub-return
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/ongosub-ongoto-statements
+' SOURCE: spec ms-vbal 5.4.2.16 On GoSub statement
 ' EXPECT: b
 Public Sub Main()
     On 2 GoSub A, B

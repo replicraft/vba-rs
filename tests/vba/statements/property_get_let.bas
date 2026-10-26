@@ -1,5 +1,5 @@
 ' INV: stmt.property-get, stmt.property-let
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/property-let-statement
+' SOURCE: spec ms-vbal 5.4.3.8 Let-assignment through Property Let, 5.6.2.1 Property Get evaluation
 ' EXPECT:  8 
 '#MODULE Box class
 Private v As Long

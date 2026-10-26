@@ -1,5 +1,5 @@
 ' INV: func.left, func.right, func.mid, func.lcase, func.ucase, func.trim, func.space
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 6.1.2.11.1.20 string-returning $ variants (Left$ Right$ Mid$ LCase$ UCase$ Trim$ Space$)
 ' EXPECT: ab
 ' EXPECT: bc
 ' EXPECT: b

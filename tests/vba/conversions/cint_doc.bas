@@ -1,5 +1,5 @@
 ' INV: func.cint
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 6.1.2.3.1.7 CInt
 ' EXPECT: 2346
 Public Sub Main()
     Debug.Print CStr(CInt(2345.5678))

@@ -1,5 +1,5 @@
 ' INV: derived.sec, func.cos
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/derived-math-functions
+' SOURCE: spec ms-vbal 6.1.2.10.1.3 Cos
 ' EXPECT: 1
 ' EXPECT: 2
 Public Sub Main()

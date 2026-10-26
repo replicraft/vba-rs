@@ -1,5 +1,5 @@
 ' INV: stmt.for-next
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/fornext-statement
+' SOURCE: spec ms-vbal 5.4.2.3 For statement
 ' EXPECT:  15 
 Public Sub Main()
     Dim i As Long, s As Long

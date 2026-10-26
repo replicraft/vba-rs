@@ -1,5 +1,5 @@
 ' INV: func.cbool
-' SOURCE: derived nonzero is True (type-conversion-functions page)
+' SOURCE: spec ms-vbal 5.5.1.2.2 Let-coercion to and from Boolean
 ' EXPECT: True
 ' EXPECT: True
 ' EXPECT: True

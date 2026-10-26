@@ -1,5 +1,5 @@
 ' INV: stmt.deftype
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/deftype-statements
+' SOURCE: spec ms-vbal 5.2.2 Implicit Definition Directives
 ' EXPECT: IntegerStringEmpty
 DefInt A-C
 DefStr S

@@ -1,5 +1,5 @@
 ' INV: stmt.implements
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/implements-statement
+' SOURCE: spec ms-vbal 5.2.4.2 Implements directive requires an implemented name declaration per public method
 ' ERROR: load
 '#MODULE IShape class
 Public Function Area() As Double

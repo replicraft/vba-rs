@@ -1,5 +1,5 @@
 ' INV: func.hex
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/hex-function
+' SOURCE: spec ms-vbal 6.1.2.3.1.17 Hex of positive values
 ' EXPECT: 5
 ' EXPECT: A
 ' EXPECT: 1CB

@@ -1,5 +1,5 @@
 ' INV: stmt.on-error
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.6.9.3.5 division by zero 11, 5.6.2.1 subscript 9, 5.5.1.2.4 type mismatch 13, 5.6.3 Nothing 91, 5.5.1.2.1 overflow 6
 ' EXPECT:  11 
 ' EXPECT:  9 
 ' EXPECT:  13 

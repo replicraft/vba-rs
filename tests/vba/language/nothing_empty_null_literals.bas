@@ -1,5 +1,5 @@
 ' INV: lit.nothing, lit.empty, lit.null
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 6.1.2.7.1.4 IsEmpty and 6.1.2.7.1.7 IsNull, Is Nothing
 ' EXPECT: True
 ' EXPECT: True
 ' EXPECT: True

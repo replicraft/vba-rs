@@ -1,5 +1,5 @@
 ' INV: stmt.exit, stmt.do-loop, stmt.for-next
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/exit-statement
+' SOURCE: spec ms-vbal 5.4.2.7 Exit Do closest enclosing Do statement
 ' EXPECT:  6 
 Public Sub Main()
     Dim i As Long, j As Long, n As Long

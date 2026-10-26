@@ -1,5 +1,5 @@
 ' INV: stmt.enum
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/enum-statement
+' SOURCE: spec ms-vbal 5.2.3.4 Enum member values
 ' EXPECT:  0  5  6 
 ' EXPECT:  6 
 Enum Color

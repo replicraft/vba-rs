@@ -1,5 +1,5 @@
 ' INV: func.switch
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/switch-function
+' SOURCE: spec ms-vbal 6.1.2.8.1.16 Switch
 ' EXPECT: b
 ' EXPECT: y
 Public Sub Main()

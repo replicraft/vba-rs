@@ -1,5 +1,5 @@
 ' INV: func.instr
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/instr-function
+' SOURCE: spec ms-vbal 6.1.2.11.1.14 InStr Compare argument (text and binary)
 ' EXPECT: 2
 ' EXPECT: 0
 Public Sub Main()

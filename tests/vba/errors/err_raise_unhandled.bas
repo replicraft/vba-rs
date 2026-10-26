@@ -1,5 +1,5 @@
 ' INV: obj.err
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/err-object
+' SOURCE: spec ms-vbal 6.1.3.2.1.2 Err.Raise, 5.4.4 Terminate policy of a host-invoked procedure
 ' ERROR: 5
 Public Sub Main()
     Err.Raise 5

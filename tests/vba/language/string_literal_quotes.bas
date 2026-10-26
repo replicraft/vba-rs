@@ -1,5 +1,5 @@
 ' INV: lit.string
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 3.3.4 string tokens doubled quote
 ' EXPECT: say "hi"
 ' EXPECT:  1 
 ' EXPECT: ""

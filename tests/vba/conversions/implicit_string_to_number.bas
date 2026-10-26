@@ -1,5 +1,5 @@
 ' INV: expr.implicit-conv
-' SOURCE: derived a numeric string converts when assigned to a numeric variable
+' SOURCE: spec ms-vbal 5.5.1.2.4 String to numeric Let-coercion
 ' EXPECT:  43 
 Public Sub Main()
     Dim n As Long

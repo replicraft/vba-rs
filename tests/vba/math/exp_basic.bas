@@ -1,5 +1,5 @@
 ' INV: func.exp
-' SOURCE: derived e to the power
+' SOURCE: spec ms-vbal 6.1.2.10.1.4 Exp
 ' EXPECT: 1
 ' EXPECT: 2.71828182845905
 Public Sub Main()

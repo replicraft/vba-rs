@@ -1,5 +1,5 @@
 ' INV: lex.continuation
-' SOURCE: derived a trailing underscore continues the logical line
+' SOURCE: spec ms-vbal 3.2.2 line continuation
 ' EXPECT: abc
 Public Sub Main()
     Dim s As String

@@ -1,5 +1,5 @@
 ' INV: typechar.bang
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 3.3.5.3 type-suffix declared types
 ' EXPECT: Single
 Public Sub Main()
     Dim a!

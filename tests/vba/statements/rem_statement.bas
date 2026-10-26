@@ -1,5 +1,5 @@
 ' INV: stmt.rem, lex.comment
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/rem-statement
+' SOURCE: spec ms-vbal 5.4.1.2 Rem statement, 3.3.1 comment text
 ' EXPECT: a
 ' EXPECT: b
 Public Sub Main()

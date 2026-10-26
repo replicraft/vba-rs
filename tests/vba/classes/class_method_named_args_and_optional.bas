@@ -1,5 +1,5 @@
 ' INV: expr.named-arg, decl.optional
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.3.1.11 named and unmapped optional arguments, 5.3.1.5 default values
 ' EXPECT:  123  129  425 
 '#MODULE Calc class
 Public Function Mix(ByVal a As Long, Optional ByVal b As Long = 2, Optional ByVal c As Long = 3) As Long

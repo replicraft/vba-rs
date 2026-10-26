@@ -1,5 +1,5 @@
 ' INV: stmt.write, stmt.open, stmt.close, stmt.line-input
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/writestatement
+' SOURCE: spec ms-vbal 5.4.5.9 Write Statement output strings (with 3.3.3 date tokens)
 ' EXPECT: "a",1,#TRUE#,#2000-01-02#
 ' GRANT: file-read
 ' GRANT: file-write

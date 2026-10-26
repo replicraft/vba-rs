@@ -1,5 +1,5 @@
 ' INV: stmt.event, stmt.raiseevent
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/raiseevent-statement
+' SOURCE: spec ms-vbal 5.4.2.20 RaiseEvent statement invokes only declared handlers
 ' EXPECT: ok
 '#MODULE Source class
 Public Event Fired(ByVal n As Long)

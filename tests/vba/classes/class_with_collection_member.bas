@@ -1,5 +1,5 @@
 ' INV: type.collection, expr.new
-' SOURCE: derived a class owning a Collection
+' SOURCE: spec ms-vbal 2.5.1 automatic object instantiation, 6.1.3.1.1.1 Collection Count
 ' EXPECT:  2 
 '#MODULE Bag class
 Private items As New Collection

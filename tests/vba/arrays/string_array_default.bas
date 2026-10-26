@@ -1,5 +1,5 @@
 ' INV: decl.array-bounds
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 2.3 default value of String array elements
 ' EXPECT: []
 Public Sub Main()
     Dim s(1) As String

@@ -1,5 +1,5 @@
 ' INV: type.string-fixed
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/data-type-summary
+' SOURCE: spec ms-vbal 5.5.1.2.5 Let-coercion to String * length
 ' EXPECT: [ab   ]5
 ' EXPECT: [abcde]
 Public Sub Main()

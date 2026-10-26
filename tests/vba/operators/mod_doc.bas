@@ -1,5 +1,5 @@
 ' INV: op.mod
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/mod-operator
+' SOURCE: spec ms-vbal 5.6.9.3.6 Mod operator
 ' EXPECT: 0
 ' EXPECT: 1
 ' EXPECT: 0

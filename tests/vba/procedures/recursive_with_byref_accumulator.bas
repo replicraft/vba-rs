@@ -1,5 +1,5 @@
 ' INV: stmt.sub, decl.byref-byval
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.3.1.11 ByRef binding of a variable argument
 ' EXPECT:  5050 
 Sub Walk(ByVal n As Long, ByRef acc As Long)
     If n = 0 Then Exit Sub

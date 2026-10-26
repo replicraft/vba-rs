@@ -1,5 +1,5 @@
 ' INV: decl.byref-byval
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/function-statement
+' SOURCE: spec ms-vbal 5.3.1.5 parameters are ByRef by default, 5.3.1.11 ByRef binding
 ' EXPECT:  2 
 Sub Inc(n As Long)
     n = n + 1

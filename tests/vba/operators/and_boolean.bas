@@ -1,5 +1,5 @@
 ' INV: op.and
-' SOURCE: derived truth table
+' SOURCE: spec ms-vbal 5.6.9.8.2 And operator
 ' EXPECT: True
 ' EXPECT: False
 ' EXPECT: False

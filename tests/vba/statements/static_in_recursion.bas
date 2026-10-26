@@ -1,5 +1,5 @@
 ' INV: stmt.static, stmt.function
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/static-statement
+' SOURCE: spec ms-vbal 5.4.3.1 Static variables have module extent
 ' EXPECT:  3 
 Function Depth() As Long
     Static n As Long

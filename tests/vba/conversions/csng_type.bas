@@ -1,5 +1,5 @@
 ' INV: func.csng
-' SOURCE: derived returns a Single
+' SOURCE: spec ms-vbal 6.1.2.3.1.11 CSng
 ' EXPECT: Single
 ' EXPECT: 0.5
 Public Sub Main()

@@ -1,5 +1,5 @@
 ' INV: func.cint, func.clng
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 5.5.1.2.1.1 Banker's rounding
 ' EXPECT: 0
 ' EXPECT: 2
 ' EXPECT: 2

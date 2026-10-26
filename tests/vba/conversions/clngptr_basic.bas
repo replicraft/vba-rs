@@ -1,5 +1,5 @@
 ' INV: func.clngptr
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/concepts/getting-started/type-conversion-functions
+' SOURCE: spec ms-vbal 6.1.2.3.1.10 CLngPtr
 ' EXPECT: 5
 Public Sub Main()
     Debug.Print CStr(CLngPtr(5))

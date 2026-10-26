@@ -1,5 +1,5 @@
 ' INV: stmt.dim
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/dim-statement
+' SOURCE: spec ms-vbal 2.3 variable default values
 ' EXPECT:  0 []False 0 TrueTrue
 Public Sub Main()
     Dim a As Long, b As String, c As Boolean, d As Double, v As Variant, o As Object

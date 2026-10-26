@@ -1,5 +1,5 @@
 ' INV: stmt.if-then-else
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/ifthenelse-statement
+' SOURCE: spec ms-vbal 5.4.2.8 If statement
 ' EXPECT: one
 ' EXPECT: two
 ' EXPECT: three

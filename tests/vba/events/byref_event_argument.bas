@@ -1,5 +1,5 @@
 ' INV: stmt.event, stmt.raiseevent, decl.withevents, decl.byref-byval
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/event-statement
+' SOURCE: spec ms-vbal 5.4.2.20 RaiseEvent statement, 5.3.1.8 event handler declarations
 ' EXPECT: True
 '#MODULE Source class
 Public Event Ask(ByRef cancel As Boolean)

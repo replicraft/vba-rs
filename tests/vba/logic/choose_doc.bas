@@ -1,5 +1,5 @@
 ' INV: func.choose
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/choose-function
+' SOURCE: spec ms-vbal 6.1.2.8.1.2 Choose
 ' EXPECT: three
 ' EXPECT: Speedy
 ' EXPECT: 20

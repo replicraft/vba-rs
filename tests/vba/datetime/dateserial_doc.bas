@@ -1,5 +1,5 @@
 ' INV: func.dateserial
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/dateserial-function
+' SOURCE: spec ms-vbal 6.1.2.4.1.4 DateSerial relative arguments
 ' EXPECT:  1969  2  12 
 ' EXPECT:  1980  5  31 
 Public Sub Main()

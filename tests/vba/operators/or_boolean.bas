@@ -1,5 +1,5 @@
 ' INV: op.or
-' SOURCE: derived truth table
+' SOURCE: spec ms-vbal 5.6.9.8.3 Or operator
 ' EXPECT: True
 ' EXPECT: False
 Public Sub Main()

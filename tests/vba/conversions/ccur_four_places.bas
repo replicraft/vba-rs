@@ -1,5 +1,5 @@
 ' INV: func.ccur
-' SOURCE: derived Currency keeps four decimal places
+' SOURCE: spec ms-vbal 6.1.2.3.1.3 CCur
 ' EXPECT: 1.2346
 ' EXPECT: 2
 Public Sub Main()

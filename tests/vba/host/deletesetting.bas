@@ -1,5 +1,5 @@
 ' INV: stmt.deletesetting, stmt.savesetting, func.getsetting
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/deletesetting-statement
+' SOURCE: spec ms-vbal 6.1.2.8.2.3 DeleteSetting (with 6.1.2.8.1.10 GetSetting, 6.1.2.8.2.4 SaveSetting)
 ' EXPECT: 75
 ' EXPECT: 25
 ' EXPECT: 25

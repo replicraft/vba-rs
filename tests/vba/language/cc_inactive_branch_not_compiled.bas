@@ -1,5 +1,5 @@
 ' INV: cc.if
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 3.4.2 excluded blocks are not part of the preprocessed module body
 ' EXPECT: ok
 #If False Then
 this is not valid VBA at all (((

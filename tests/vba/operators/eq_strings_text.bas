@@ -1,5 +1,5 @@
 ' INV: op.eq
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/like-operator
+' SOURCE: spec ms-vbal 5.2.1.1 Option Compare Text
 ' EXPECT: True
 ' EXPECT: False
 Option Compare Text

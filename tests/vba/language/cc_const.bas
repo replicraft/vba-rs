@@ -1,5 +1,5 @@
 ' INV: cc.const, cc.if
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 3.4.2 conditional compilation const and if directives
 ' EXPECT: two
 #Const MODE = 2
 #If MODE = 1 Then

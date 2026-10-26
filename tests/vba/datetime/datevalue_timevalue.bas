@@ -1,5 +1,5 @@
 ' INV: func.datevalue, func.timevalue
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 6.1.2.4.1.5 DateValue and 6.1.2.4.1.12 TimeValue
 ' EXPECT:  2000  3  5 
 ' EXPECT:  13  5  9 
 ' EXPECT: True

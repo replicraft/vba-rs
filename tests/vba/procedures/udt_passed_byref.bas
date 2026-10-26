@@ -1,5 +1,5 @@
 ' INV: stmt.sub, stmt.type, decl.byref-byval
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 5.3.1.11 ByRef binding of a variable argument
 ' EXPECT:  2 
 Type P
     X As Long

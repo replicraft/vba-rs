@@ -1,5 +1,5 @@
 ' INV: op.pow
-' SOURCE: derived exponentiation
+' SOURCE: spec ms-vbal 5.6.9.3.7 exponentiation operator
 ' EXPECT: 1024
 ' EXPECT: 1
 ' EXPECT: 0.5

@@ -1,5 +1,5 @@
 ' INV: op.and
-' SOURCE: derived bitwise And on integers
+' SOURCE: spec ms-vbal 5.6.9.8.2 And operator
 ' EXPECT: 8
 ' EXPECT: 15
 ' EXPECT: 0

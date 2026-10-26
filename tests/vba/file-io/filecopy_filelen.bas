@@ -1,5 +1,5 @@
 ' INV: stmt.filecopy, func.filelen, stmt.print
-' SOURCE: doc https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/filecopy-statement
+' SOURCE: spec ms-vbal 6.1.2.5.2.3 FileCopy and 6.1.2.5.1.6 FileLen (with 5.4.5.8 Print trailing semicolon)
 ' EXPECT:  5 
 ' GRANT: file-read
 ' GRANT: file-write

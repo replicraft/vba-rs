@@ -1,5 +1,5 @@
 ' INV: func.rnd
-' SOURCE: derived Rnd(0) returns the most recently generated number
+' SOURCE: spec ms-vbal 6.1.2.10.1.6 Rnd
 ' EXPECT: True
 Public Sub Main()
     Dim a As Double

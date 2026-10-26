@@ -1,5 +1,5 @@
 ' INV: lit.date, type.date
-' SOURCE: unverified author's knowledge of VBA semantics; no document consulted
+' SOURCE: spec ms-vbal 3.3.3 date tokens (date, time and time-only literals)
 ' EXPECT:  1  2 
 ' EXPECT:  15  4  5 
 ' EXPECT:  17  30  1899 
