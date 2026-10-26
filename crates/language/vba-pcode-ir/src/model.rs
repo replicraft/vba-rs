@@ -5,6 +5,8 @@ use vba_pcode::{
     ProjectCache, ResolvedType,
 };
 
+use vba_project::ModuleKind;
+
 use crate::error::Unsupported;
 
 /// The `Option Compare` mode of a module as stored.
@@ -44,13 +46,48 @@ pub(crate) struct ProcModel {
     pub defaults: Vec<Option<String>>,
 }
 
+/// Scope word of a module-level declaration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeclScope {
+    Public,
+    Private,
+}
+
+/// A module-level variable or constant (a `VAR_DECL` outside every
+/// procedure and user-defined type).
+#[derive(Debug, Clone)]
+pub(crate) struct ModuleDecl {
+    pub line: usize,
+    pub name: String,
+    pub scope: DeclScope,
+    pub is_const: bool,
+    /// Declared scalar type; `None` for a constant without an `As` clause
+    /// (the type then follows from the value).
+    pub ty: Option<vba_sema::Type>,
+    /// VBA text of the value of a constant.
+    pub value: Option<String>,
+    /// Why the declaration cannot be generated (it is then left out of the
+    /// shell, and names that refer to it do not resolve).
+    pub problem: Option<&'static str>,
+}
+
 /// One decoded module.
 #[derive(Debug, Clone)]
 pub(crate) struct ModuleModel {
     pub name: String,
-    pub class_like: bool,
+    pub kind: ModuleKind,
     pub compare: CompareStored,
+    /// `Option Explicit`: undeclared names are errors, so (in document-like
+    /// modules) members of the host.
+    pub explicit: bool,
+    pub decls: Vec<ModuleDecl>,
     pub procs: Vec<ProcModel>,
+}
+
+impl ModuleModel {
+    pub fn class_like(&self) -> bool {
+        self.kind != ModuleKind::Standard
+    }
 }
 
 /// Maps a stored scalar type to the semantic type, `None` when it is not a
@@ -98,6 +135,34 @@ pub(crate) fn type_spelling(t: &vba_sema::Type) -> &'static str {
     }
 }
 
+/// Prefix of the names given to identifiers whose spelling the built-in
+/// table does not confirm. Only the identity of such a name matters for a
+/// parameter or a local (it shadows whatever the index stood for), so it
+/// gets a placeholder spelling that cannot collide with a source name; it
+/// never resolves to anything but that parameter or local.
+pub(crate) const PLACEHOLDER: &str = "zzb_";
+
+/// The spelling of a name for a parameter or local: the confirmed one, or a
+/// placeholder for an unconfirmed built-in index.
+pub(crate) fn local_spelling(n: &Name) -> Option<String> {
+    match n {
+        Name::UnknownBuiltin(i) => Some(format!("{PLACEHOLDER}{i}")),
+        Name::OutOfRange(i) => Some(format!("{PLACEHOLDER}o{i}")),
+        other => other.spelling().map(str::to_owned),
+    }
+}
+
+/// Whether the procedure yields a value (`Function`, `Property Get`). The
+/// header's function bit is also set for `Property Let`, so the record kind
+/// decides for properties.
+pub(crate) fn returns_value(info: &ProcedureInfo) -> bool {
+    match info.kind {
+        ProcKind::SubOrFunction => info.is_function,
+        ProcKind::PropertyGet => true,
+        _ => false,
+    }
+}
+
 fn unsup(opcode: Opcode, procedure: &str, line: usize, reason: impl Into<String>) -> Unsupported {
     Unsupported {
         opcode,
@@ -117,18 +182,21 @@ fn is_end(op: Opcode) -> bool {
 /// Decodes the procedures of one module.
 pub(crate) fn extract_module(
     name: &str,
-    class_like: bool,
+    kind: ModuleKind,
     cache: &ModuleCache<'_>,
     pc: &ProjectCache,
 ) -> ModuleModel {
     let dis = Disassembler::new(cache, &pc.idents);
     let mut model = ModuleModel {
         name: name.to_owned(),
-        class_like,
+        kind,
         compare: CompareStored::Binary,
+        explicit: false,
+        decls: Vec::new(),
         procs: Vec::new(),
     };
     let mut cur: Option<ProcModel> = None;
+    let mut decls = DeclScan::default();
     for line in 0..cache.lines.lines.len() {
         let listing = dis.line(line);
         let decode_failed = listing.error.is_some();
@@ -162,6 +230,7 @@ pub(crate) fn extract_module(
             }
             match ins.opcode {
                 Opcode::OptionStmt => {
+                    model.explicit |= ins.modifier == 4;
                     model.compare = match ins.modifier {
                         2 => CompareStored::Text,
                         3 => CompareStored::Binary,
@@ -170,10 +239,23 @@ pub(crate) fn extract_module(
                     };
                 }
                 Opcode::ProcHeader | Opcode::ProcHeaderAlt => {
-                    let info = match ins.operands.first() {
+                    let mut info = match ins.operands.first() {
                         Some(Operand::Procedure(p)) => (**p).clone(),
                         _ => continue,
                     };
+                    // Observed: in class-like modules the argument chain of
+                    // a `Function` and of a `Property Get` ends with one
+                    // more record, the result (its name is a reference
+                    // outside the identifier table, its type the return
+                    // type, and the record counts in the argument-count
+                    // byte). It is not a parameter.
+                    if kind != ModuleKind::Standard
+                        && !info.is_declare
+                        && returns_value(&info)
+                        && matches!(info.args.last().map(|a| &a.name), Some(Name::OutOfRange(_)))
+                    {
+                        info.args.pop();
+                    }
                     let pname = info
                         .name
                         .spelling()
@@ -210,7 +292,7 @@ pub(crate) fn extract_module(
                         cur = Some(p);
                     }
                 }
-                _ => {}
+                _ => decls.feed(line, &ins, &mut model.decls),
             }
         }
         if decode_failed && let Some(p) = &mut cur {
@@ -232,7 +314,146 @@ pub(crate) fn extract_module(
         });
         model.procs.push(p);
     }
+    // Declarations that share a line stand or fall together: the line is
+    // all the source side of a comparison can offer.
+    let bad_lines: Vec<usize> = model
+        .decls
+        .iter()
+        .filter(|d| d.problem.is_some())
+        .map(|d| d.line)
+        .collect();
+    for d in &mut model.decls {
+        if d.problem.is_none() && bad_lines.contains(&d.line) {
+            d.problem = Some("shares a line with a declaration that is not supported");
+        }
+    }
     model
+}
+
+/// Collects the module-level declarations while the instructions outside
+/// procedures stream by.
+#[derive(Default)]
+struct DeclScan {
+    in_type: bool,
+    scope_mod: u8,
+    line: usize,
+    expr: Vec<Listed>,
+}
+
+impl DeclScan {
+    fn feed(&mut self, line: usize, ins: &Listed, out: &mut Vec<ModuleDecl>) {
+        if line != self.line {
+            self.line = line;
+            self.scope_mod = 0;
+            self.expr.clear();
+        }
+        match ins.opcode {
+            Opcode::TypeDecl => self.in_type = true,
+            Opcode::TypeDeclEnd => self.in_type = false,
+            Opcode::DimMarker | Opcode::DimMarkerImplicit => {
+                self.scope_mod = ins.modifier;
+                self.expr.clear();
+            }
+            Opcode::VarDecl => {
+                if !self.in_type {
+                    out.push(self.declaration(line, ins));
+                }
+                self.expr.clear();
+            }
+            Opcode::CommentQuote
+            | Opcode::CommentRemKeyword
+            | Opcode::LineContinuation
+            | Opcode::StmtBegin
+            | Opcode::StmtBeginImplicit
+            | Opcode::OptionStmt => {}
+            _ => self.expr.push(ins.clone()),
+        }
+    }
+
+    fn declaration(&self, line: usize, ins: &Listed) -> ModuleDecl {
+        let mut d = ModuleDecl {
+            line,
+            name: String::new(),
+            scope: if self.scope_mod & 0x0C != 0 {
+                DeclScope::Public
+            } else {
+                DeclScope::Private
+            },
+            is_const: ins.modifier & 3 == 2,
+            ty: None,
+            value: None,
+            problem: None,
+        };
+        let Some(Operand::Variable(v)) = ins.operands.first() else {
+            d.problem = Some("unresolved variable");
+            return d;
+        };
+        let Some(n) = v.name.spelling() else {
+            d.problem = Some("name does not resolve");
+            return d;
+        };
+        d.name = n.to_owned();
+        if ins.modifier & 0x20 != 0 {
+            d.problem = Some("WithEvents");
+        } else if !matches!(ins.modifier & 3, 1 | 2) || self.scope_mod & 0x20 != 0 {
+            d.problem = Some("declaration other than a plain variable or constant");
+        } else if v.is_new {
+            d.problem = Some("As New");
+        } else if d.is_const && v.ty == ResolvedType::None {
+            // The type follows from the value.
+        } else {
+            match scalar_type(&v.ty) {
+                Some(t) => d.ty = Some(t),
+                None => d.problem = Some("type is not a plain scalar"),
+            }
+        }
+        if d.is_const && d.problem.is_none() {
+            match const_text(&self.expr) {
+                Some(t) => d.value = Some(t),
+                None => d.problem = Some("constant value is not a literal"),
+            }
+        }
+        d
+    }
+}
+
+/// The VBA text of a constant's value: one literal, optionally negated.
+/// Integer literals keep their type (`&` marks the 32-bit forms).
+fn const_text(expr: &[Listed]) -> Option<String> {
+    let (lit, neg) = match expr {
+        [l] => (l, false),
+        [l, n] if n.opcode == Opcode::NumNegate => (l, true),
+        _ => return None,
+    };
+    let t = match (lit.opcode, lit.operands.first()) {
+        (Opcode::ConstInt16Decimal, Some(Operand::Int { value, .. })) => value.to_string(),
+        (Opcode::ConstInt32Decimal, Some(Operand::Int { value, .. })) => format!("{value}&"),
+        (Opcode::ConstInt16Hex, Some(Operand::Int { value, .. })) if *value >= 0 => {
+            format!("&H{value:X}")
+        }
+        (Opcode::ConstInt32Hex, Some(Operand::Int { value, .. })) if *value >= 0 => {
+            format!("&H{value:X}&")
+        }
+        (Opcode::ConstFloat64, Some(Operand::Float64(v))) if v.is_finite() => format!("{v:?}"),
+        (Opcode::ConstText, Some(Operand::Text(t))) if t.is_ascii() => {
+            let body = String::from_utf8_lossy(t).replace('"', "\"\"");
+            format!("\"{body}\"")
+        }
+        (Opcode::ConstKeywordValue, _) => match lit.modifier {
+            0 => "False".to_owned(),
+            1 => "True".to_owned(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if neg {
+        if t.starts_with('"') || t == "True" || t == "False" {
+            return None;
+        }
+        Some(format!("-{t}"))
+    } else {
+        Some(t)
+    }
 }
 
 /// Renders the default-value expressions of a header line as VBA text, one
@@ -299,8 +520,11 @@ fn finish_signature(p: &mut ProcModel) {
         p.signature_problem = Some(fail("Declare"));
         return;
     }
-    if info.kind != ProcKind::SubOrFunction {
-        p.signature_problem = Some(fail("Property procedure"));
+    if !matches!(
+        info.kind,
+        ProcKind::SubOrFunction | ProcKind::PropertyGet | ProcKind::PropertyLet
+    ) {
+        p.signature_problem = Some(fail("Property Set or procedure of unknown kind"));
         return;
     }
     if info.is_static {
@@ -320,12 +544,16 @@ fn finish_signature(p: &mut ProcModel) {
             p.signature_problem = Some(fail("default value on a required parameter"));
             return;
         }
-        if a.name.spelling().is_none() || scalar_type(&a.ty).is_none() {
+        if local_spelling(&a.name).is_none() {
+            p.signature_problem = Some(fail("parameter whose name does not resolve"));
+            return;
+        }
+        if scalar_type(&a.ty).is_none() {
             p.signature_problem = Some(fail("parameter of a type that is not a plain scalar"));
             return;
         }
     }
-    if info.is_function && scalar_type(&info.return_type).is_none() {
+    if returns_value(info) && scalar_type(&info.return_type).is_none() {
         p.signature_problem = Some(fail("return type is not a plain scalar"));
         return;
     }
@@ -355,7 +583,7 @@ fn finish_signature(p: &mut ProcModel) {
             ));
             return;
         }
-        let (Some(n), Some(ty)) = (v.name.spelling(), scalar_type(&v.ty)) else {
+        let (Some(n), Some(ty)) = (local_spelling(&v.name), scalar_type(&v.ty)) else {
             p.signature_problem = Some(unsup(ins.opcode, &name, *l, "local of unsupported type"));
             return;
         };
@@ -363,10 +591,7 @@ fn finish_signature(p: &mut ProcModel) {
             p.signature_problem = Some(unsup(ins.opcode, &name, *l, "As New"));
             return;
         }
-        locals.push(LocalDecl {
-            name: n.to_owned(),
-            ty,
-        });
+        locals.push(LocalDecl { name: n, ty });
     }
     // A `Dim` marker with a scope flag other than the plain local one means
     // `Static`/`Public`/`Private` inside a procedure.

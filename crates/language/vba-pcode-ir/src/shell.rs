@@ -12,11 +12,15 @@
 use std::fmt::Write as _;
 
 use vba_ir::IrProgram;
-use vba_project::ModuleKind;
 use vba_sema::{Options, ProcId, SourceModule};
 
 use crate::error::LowerError;
-use crate::model::{CompareStored, ModuleModel, scalar_type, type_spelling};
+use vba_pcode::ProcKind;
+
+use crate::model::{
+    CompareStored, DeclScope, ModuleModel, ProcModel, local_spelling, returns_value, scalar_type,
+    type_spelling,
+};
 
 /// The analysed shell.
 pub(crate) struct Shell {
@@ -34,10 +38,35 @@ struct Stub {
 
 fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
     let mut text = String::new();
+    if m.explicit {
+        text.push_str("Option Explicit\n");
+    }
     match m.compare {
         CompareStored::Binary => {}
         CompareStored::Text => text.push_str("Option Compare Text\n"),
         CompareStored::Database => text.push_str("Option Compare Database\n"),
+    }
+    for d in &m.decls {
+        if d.problem.is_some() {
+            continue;
+        }
+        let scope = match d.scope {
+            DeclScope::Public => "Public",
+            DeclScope::Private => "Private",
+        };
+        let as_clause =
+            d.ty.as_ref()
+                .map_or_else(String::new, |t| format!(" As {}", type_spelling(t)));
+        if d.is_const {
+            let _ = writeln!(
+                text,
+                "{scope} Const {}{as_clause} = {}",
+                d.name,
+                d.value.as_deref().unwrap_or("0")
+            );
+        } else {
+            let _ = writeln!(text, "{scope} {}{as_clause}", d.name);
+        }
     }
     let mut ranges = Vec::new();
     for (i, p) in m.procs.iter().enumerate() {
@@ -45,10 +74,11 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
             continue;
         }
         let start = text.len();
-        let kw = if p.info.is_function {
-            "Function"
-        } else {
-            "Sub"
+        let (kw, end_kw) = match p.info.kind {
+            ProcKind::PropertyGet => ("Property Get", "Property"),
+            ProcKind::PropertyLet => ("Property Let", "Property"),
+            _ if p.info.is_function => ("Function", "Function"),
+            _ => ("Sub", "Sub"),
         };
         let _ = write!(text, "Public {kw} {}(", p.name);
         for (k, a) in p.info.args.iter().enumerate() {
@@ -61,7 +91,7 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
                 "{}{} {} As {}",
                 if a.optional { "Optional " } else { "" },
                 if a.by_val { "ByVal" } else { "ByRef" },
-                a.name.spelling().unwrap_or("_"),
+                local_spelling(&a.name).unwrap_or_else(|| "_".into()),
                 type_spelling(&ty)
             );
             if let Some(Some(d)) = p.defaults.get(k) {
@@ -69,7 +99,7 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
             }
         }
         text.push(')');
-        if p.info.is_function {
+        if returns_value(&p.info) {
             let ty = scalar_type(&p.info.return_type).unwrap_or(vba_sema::Type::Variant);
             let _ = write!(text, " As {}", type_spelling(&ty));
         }
@@ -77,10 +107,28 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
         for l in &p.locals {
             let _ = writeln!(text, "Dim {} As {}", l.name, type_spelling(&l.ty));
         }
-        let _ = writeln!(text, "End {kw}");
+        let _ = writeln!(text, "End {end_kw}");
         ranges.push((start, text.len(), i));
     }
     Stub { text, ranges }
+}
+
+/// The procedure of the analysed program that was generated for `p`
+/// (property procedures share a name; the kind tells them apart).
+fn find_proc(program: &vba_sema::Program, module: &str, p: &ProcModel) -> Option<ProcId> {
+    let want = match p.info.kind {
+        ProcKind::PropertyGet => vba_ast::ProcKind::PropertyGet,
+        ProcKind::PropertyLet => vba_ast::ProcKind::PropertyLet,
+        _ if p.info.is_function => vba_ast::ProcKind::Function,
+        _ => vba_ast::ProcKind::Sub,
+    };
+    let m = program.module_by_name(module)?;
+    let n = vba_ast::Name::new(&p.name);
+    m.procs
+        .iter()
+        .map(|id| program.proc(*id))
+        .find(|q| q.name == n && q.kind == want)
+        .map(|q| q.id)
 }
 
 /// Builds the shell for the procedures marked in `include` (`[module][proc]`),
@@ -90,10 +138,7 @@ pub(crate) fn build_shell(
     models: &[ModuleModel],
     include: &mut [Vec<bool>],
 ) -> Result<Shell, LowerError> {
-    // Only standard modules take part; class-like modules need instances.
-    let module_list: Vec<usize> = (0..models.len())
-        .filter(|&i| !models[i].class_like)
-        .collect();
+    let module_list: Vec<usize> = (0..models.len()).collect();
     for _round in 0..16 {
         let stubs: Vec<Stub> = module_list
             .iter()
@@ -104,7 +149,7 @@ pub(crate) fn build_shell(
             .zip(&stubs)
             .map(|(&i, s)| SourceModule {
                 name: models[i].name.clone(),
-                kind: ModuleKind::Standard,
+                kind: models[i].kind,
                 source: s.text.clone().into_bytes(),
             })
             .collect();
@@ -129,9 +174,9 @@ pub(crate) fn build_shell(
                 }
                 for (pi, p) in models[mi].procs.iter().enumerate() {
                     if include[mi][pi]
-                        && let Some(pinfo) = ir.program.find_proc(&models[mi].name, &p.name)
+                        && let Some(id) = find_proc(&ir.program, &models[mi].name, p)
                     {
-                        proc_ids[mi][pi] = Some(pinfo.id);
+                        proc_ids[mi][pi] = Some(id);
                     }
                 }
             }

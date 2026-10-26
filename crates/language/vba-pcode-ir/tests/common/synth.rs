@@ -24,6 +24,11 @@ pub fn stored(c: u16) -> u16 {
     }
 }
 
+/// Kind flags of a procedure record.
+pub const KIND_SUB_OR_FUNCTION: u16 = 0x1000;
+pub const KIND_PROPERTY_GET: u16 = 0x2000;
+pub const KIND_PROPERTY_LET: u16 = 0x4000;
+
 /// Builder for the identifier table and the indirect table.
 pub struct Tables {
     pub idents: Vec<String>,
@@ -70,12 +75,37 @@ impl Tables {
     /// Adds a function record with its argument chain; returns its offset.
     /// `args` are `(name, type id, by_val)`.
     pub fn function(&mut self, name: &str, ret: Option<u8>, args: &[(&str, u8, bool)]) -> u32 {
+        self.procedure(name, KIND_SUB_OR_FUNCTION, ret, args, None)
+    }
+
+    /// Adds a procedure record of the given kind flag (`KIND_*`). With
+    /// `result_record`, the argument chain ends with the extra record that
+    /// class-like modules carry for the result of a function or property
+    /// getter (type given, name outside the identifier table).
+    pub fn procedure(
+        &mut self,
+        name: &str,
+        kind: u16,
+        ret: Option<u8>,
+        args: &[(&str, u8, bool)],
+        result_record: Option<u8>,
+    ) -> u32 {
         // Arguments first (they are chained by absolute offset).
         let mut arg_offs = Vec::new();
-        for (n, t, by_val) in args {
+        let mut all: Vec<(Option<&str>, u8, bool)> =
+            args.iter().map(|(n, t, b)| (Some(*n), *t, *b)).collect();
+        if let Some(t) = result_record {
+            all.push((None, t, false));
+        }
+        for (n, t, by_val) in &all {
             self.pad8();
             let off = self.ind.len() as u32;
-            let nw = self.name(n);
+            let nw = match n {
+                // `#HEX`: a raw name word (outside the identifier table).
+                Some(n) if n.starts_with('#') => u16::from_str_radix(&n[1..], 16).unwrap_or(0),
+                Some(n) => self.name(n),
+                None => 0xFDFE,
+            };
             let mut r = vec![0u8; 32];
             r[0..2].copy_from_slice(&0x8369u16.to_le_bytes());
             r[2..4].copy_from_slice(&nw.to_le_bytes());
@@ -95,7 +125,7 @@ impl Tables {
         let off = self.ind.len() as u32;
         let nw = self.name(name);
         let mut r = vec![0u8; 72];
-        let flags: u16 = 0x1000 | if ret.is_some() { 0x20 } else { 0 };
+        let flags: u16 = kind | if ret.is_some() { 0x20 } else { 0 };
         r[0..2].copy_from_slice(&flags.to_le_bytes());
         r[2..4].copy_from_slice(&nw.to_le_bytes());
         let first = arg_offs.first().copied().unwrap_or(u32::MAX);
@@ -103,7 +133,7 @@ impl Tables {
         r[44..48].copy_from_slice(&Self::type_field(ret).to_le_bytes());
         r[48..50].copy_from_slice(&0xFFFFu16.to_le_bytes());
         r[58] = 0x8C;
-        r[59] = args.len() as u8;
+        r[59] = arg_offs.len() as u8;
         r[61] = 0x02;
         self.ind.extend_from_slice(&r);
         off

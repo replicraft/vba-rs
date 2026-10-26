@@ -1403,6 +1403,7 @@ dependencies = [
  "proptest",
  "thiserror",
  "vba-ast",
+ "vba-automation",
  "vba-core",
  "vba-diagnostics",
  "vba-format",

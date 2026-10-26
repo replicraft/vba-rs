@@ -32,6 +32,7 @@ use std::collections::HashMap;
 
 use vba_ir::{Block, Function, IrProgram, StmtId, StmtInfo, Terminator};
 use vba_pcode::{ModuleCache, ProjectCache, Verification};
+use vba_project::ModuleKind;
 use vba_sema::ProcId;
 use vba_source::Span;
 
@@ -42,9 +43,11 @@ pub use error::{LowerError, Outcome, Unsupported};
 pub struct ModuleInput<'a> {
     /// Module name.
     pub name: &'a str,
-    /// Class, document and designer modules need instances and are not
-    /// lowered; their procedures are reported as unsupported.
-    pub class_like: bool,
+    /// The role of the module. Class, document and designer modules are
+    /// lowered as members of instances; the members of a document or
+    /// designer module that the module does not declare (controls, base
+    /// class members) are late bound on the host base.
+    pub kind: ModuleKind,
     /// The performance cache (module stream bytes before the text offset).
     pub cache: &'a [u8],
 }
@@ -64,8 +67,25 @@ pub struct ProcedureReport {
     pub first_line: usize,
     /// See [`ProcedureReport::first_line`].
     pub last_line: usize,
+    /// The kind recorded for the procedure.
+    pub kind: vba_pcode::ProcKind,
     /// Lowered or not.
     pub outcome: Outcome,
+}
+
+/// A module-level variable or constant found in a cache.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclarationReport {
+    /// Module name.
+    pub module: String,
+    /// Name of the variable or constant.
+    pub name: String,
+    /// Line index in the module cache.
+    pub line: usize,
+    /// A constant (otherwise a variable).
+    pub is_const: bool,
+    /// Why it is not part of the program, `None` when it is.
+    pub unsupported: Option<String>,
 }
 
 /// The result of lowering a project.
@@ -76,6 +96,8 @@ pub struct LoweredProject {
     pub ir: IrProgram,
     /// One entry per procedure found in the caches.
     pub procedures: Vec<ProcedureReport>,
+    /// One entry per module-level variable or constant found in the caches.
+    pub declarations: Vec<DeclarationReport>,
 }
 
 impl LoweredProject {
@@ -130,6 +152,37 @@ pub fn lower_project(
     sys_kind: u32,
     modules: &[ModuleInput<'_>],
 ) -> Result<LoweredProject, LowerError> {
+    lower_project_with_options(project_stream, sys_kind, modules, &LowerOptions::default())
+}
+
+/// Settings of the embedding application that the compiled code does not
+/// carry.
+#[derive(Debug, Clone, Default)]
+pub struct LowerOptions {
+    /// Names the application provides as members of document and designer
+    /// modules (controls, base-class properties); the same list the source
+    /// analysis takes ([`vba_sema::Options::host_members`]). A bare read of
+    /// one of these names, and every call, statement or member access on an
+    /// unresolved name, is bound late on the instance's host base object.
+    pub host_members: Vec<String>,
+}
+
+/// Like [`lower_project`], with the settings of the embedding application.
+///
+/// # Errors
+///
+/// As for [`lower_project`].
+pub fn lower_project_with_options(
+    project_stream: &[u8],
+    sys_kind: u32,
+    modules: &[ModuleInput<'_>],
+    options: &LowerOptions,
+) -> Result<LoweredProject, LowerError> {
+    let host_members: std::collections::HashSet<String> = options
+        .host_members
+        .iter()
+        .map(|n| n.to_ascii_lowercase())
+        .collect();
     let pc = ProjectCache::parse(project_stream, sys_kind)?;
     if pc.layout.verification() != Verification::Verified {
         return Err(LowerError::Shell(
@@ -140,11 +193,13 @@ pub fn lower_project(
     let mut reports: Vec<Vec<Option<Outcome>>> = Vec::new();
     for m in modules {
         match ModuleCache::parse(m.cache, &pc.layout) {
-            Ok(cache) => models.push(model::extract_module(m.name, m.class_like, &cache, &pc)),
+            Ok(cache) => models.push(model::extract_module(m.name, m.kind, &cache, &pc)),
             Err(_) => models.push(model::ModuleModel {
                 name: m.name.to_owned(),
-                class_like: m.class_like,
+                kind: m.kind,
                 compare: model::CompareStored::Binary,
+                explicit: false,
+                decls: Vec::new(),
                 procs: Vec::new(),
             }),
         }
@@ -157,15 +212,7 @@ pub fn lower_project(
     for (mi, m) in models.iter().enumerate() {
         let mut row = Vec::new();
         for (pi, p) in m.procs.iter().enumerate() {
-            if m.class_like {
-                reports[mi][pi] = Some(Outcome::Unsupported(Unsupported {
-                    opcode: vba_pcode::Opcode::ProcHeader,
-                    procedure: p.name.clone(),
-                    line: p.header_line,
-                    reason: "procedure of a class-like module".into(),
-                }));
-                row.push(false);
-            } else if let Some(u) = &p.signature_problem {
+            if let Some(u) = &p.signature_problem {
                 reports[mi][pi] = Some(Outcome::Unsupported(u.clone()));
                 row.push(false);
             } else {
@@ -192,6 +239,14 @@ pub fn lower_project(
     // Name index of callable procedures.
     let mut index = lower::ProcIndex::default();
     let mut by_id: HashMap<ProcId, (usize, usize)> = HashMap::new();
+    for m in &models {
+        index
+            .known
+            .extend(m.procs.iter().map(|p| p.name.to_ascii_lowercase()));
+        index
+            .known
+            .extend(m.decls.iter().map(|d| d.name.to_ascii_lowercase()));
+    }
     for (mi, m) in models.iter().enumerate() {
         for (pi, p) in m.procs.iter().enumerate() {
             if let Some(id) = shell.proc_ids[mi][pi] {
@@ -204,6 +259,7 @@ pub fn lower_project(
             }
         }
     }
+    let class_like: Vec<bool> = models.iter().map(model::ModuleModel::class_like).collect();
     // Lower every included procedure.
     let mut lowered: HashMap<(usize, usize), lower::Lowered> = HashMap::new();
     for (mi, m) in models.iter().enumerate() {
@@ -224,6 +280,9 @@ pub fn lower_project(
                 proc_id: id,
                 index: &index,
                 module: mi,
+                class_like: &class_like,
+                host_backed: matches!(m.kind, ModuleKind::Designer | ModuleKind::Document),
+                host_members: &host_members,
                 compare: m.compare,
                 name: &p.name,
             };
@@ -247,7 +306,30 @@ pub fn lower_project(
                 }
             }
         }
-        if dropped.is_empty() {
+        // The run time runs `Class_Initialize` and `Class_Terminate` when it
+        // creates and destroys an instance: a module whose one is not
+        // lowered cannot be instantiated faithfully, so none of its
+        // procedures is offered.
+        let mut blocked: Vec<(usize, usize, String)> = Vec::new();
+        for (mi, m) in models.iter().enumerate() {
+            if !m.class_like() {
+                continue;
+            }
+            let missing = m.procs.iter().enumerate().find(|(pi, p)| {
+                p.info.kind == vba_pcode::ProcKind::SubOrFunction
+                    && (p.name.eq_ignore_ascii_case("Class_Initialize")
+                        || p.name.eq_ignore_ascii_case("Class_Terminate"))
+                    && !lowered.contains_key(&(mi, *pi))
+            });
+            if let Some((_, bad)) = missing {
+                for pi in 0..m.procs.len() {
+                    if lowered.contains_key(&(mi, pi)) {
+                        blocked.push((mi, pi, bad.name.clone()));
+                    }
+                }
+            }
+        }
+        if dropped.is_empty() && blocked.is_empty() {
             break;
         }
         for (mi, pi, callee) in dropped {
@@ -262,6 +344,16 @@ pub fn lower_project(
                 procedure: p.name.clone(),
                 line: p.header_line,
                 reason: format!("calls `{callee_name}`, which is not lowered"),
+            }));
+        }
+        for (mi, pi, init) in blocked {
+            lowered.remove(&(mi, pi));
+            let p = &models[mi].procs[pi];
+            reports[mi][pi] = Some(Outcome::Unsupported(Unsupported {
+                opcode: vba_pcode::Opcode::ProcHeader,
+                procedure: p.name.clone(),
+                line: p.header_line,
+                reason: format!("instances run `{init}`, which is not lowered"),
             }));
         }
     }
@@ -324,6 +416,7 @@ pub fn lower_project(
                 id: shell.proc_ids[mi][pi],
                 first_line: p.header_line,
                 last_line: p.end_line,
+                kind: p.info.kind,
                 outcome: reports[mi][pi].clone().unwrap_or_else(|| {
                     Outcome::Unsupported(Unsupported {
                         opcode: vba_pcode::Opcode::ProcHeader,
@@ -335,5 +428,21 @@ pub fn lower_project(
             });
         }
     }
-    Ok(LoweredProject { ir, procedures })
+    let declarations = models
+        .iter()
+        .flat_map(|m| {
+            m.decls.iter().map(|d| DeclarationReport {
+                module: m.name.clone(),
+                name: d.name.clone(),
+                line: d.line,
+                is_const: d.is_const,
+                unsupported: d.problem.map(str::to_owned),
+            })
+        })
+        .collect();
+    Ok(LoweredProject {
+        ir,
+        procedures,
+        declarations,
+    })
 }

@@ -10,15 +10,15 @@ use std::collections::HashMap;
 
 use vba_ast::{BinaryOp as AstBin, CompareMode as AstCompare};
 use vba_ir::{
-    BinOp, Block, BlockId, CallArg, Callee, ErrMode, Function, Inst, InstKind, InvokeKind, Member,
-    Operand as IrOperand, OutItem, Point, RefPlace, Reg, ResumeKind, Slot, SlotRole, StmtId,
-    StmtInfo, StoreMode, Terminator, UnOp,
+    BinOp, Block, BlockId, CallArg, Callee, ErrMode, Function, Inst, InstKind, InvokeKind, LateArg,
+    Member, Operand as IrOperand, OutItem, Point, RefPlace, Reg, ResumeKind, Slot, SlotRole,
+    StmtId, StmtInfo, StoreMode, Terminator, UnOp,
 };
 use vba_pcode::{Evidence, Listed, Opcode, Operand};
 use vba_sema::bound::Constant;
 use vba_sema::builtins::BuiltinLibrary;
+use vba_sema::{GlobalId, LocalId, LocalKind, ModuleId, ProcId, ProcInfo, Program, Symbol, Type};
 use vba_sema::{LibGlobal, LibMember, LibMemberKind, LibraryType, TypeProvider};
-use vba_sema::{LocalId, LocalKind, ProcId, ProcInfo, Program, Type};
 use vba_source::Span;
 use vba_value::ops::{ArithOp, CompareOp, CompareOptions, LogicOp, Overflow, StringNumberRule};
 use vba_value::{VarType, Variant, VbaString};
@@ -31,6 +31,9 @@ use crate::model::CompareStored;
 pub(crate) struct ProcIndex {
     /// Lower-case name to `(module index, proc index, id)`.
     pub by_name: HashMap<String, Vec<(usize, usize, ProcId)>>,
+    /// Lower-case names of every procedure and module-level declaration in
+    /// the project, lowered or not: such a name is never a host member.
+    pub known: std::collections::HashSet<String>,
 }
 
 /// An expression tree built from the stack; IR is emitted when a statement
@@ -63,6 +66,26 @@ enum Ex {
         callee: Callee,
         ty: Type,
         args: Vec<ArgEx>,
+        /// The callee is a member of the current class instance (`Me`).
+        on_me: bool,
+    },
+    /// A module-level variable (a static variable of a standard module, a
+    /// field of the instance in a class-like one).
+    Global {
+        id: GlobalId,
+        ty: Type,
+        /// Read of a plain variable (eligible for `ByRef` passing).
+        bare: bool,
+    },
+    /// `Me`.
+    Me(ModuleId),
+    /// A member of the host base of a document or designer module (a
+    /// control, a base-class member), or a member of such a value: bound
+    /// late, as the source binding does.
+    Late {
+        recv: Box<Ex>,
+        name: String,
+        args: Vec<LateEx>,
     },
     Paren(Box<Ex>),
     /// A global object of the built-in library (`Err`).
@@ -80,18 +103,47 @@ enum Ex {
     },
 }
 
+/// A variable that can be passed by reference.
+#[derive(Debug, Clone, Copy)]
+enum RefTarget {
+    Local(LocalId),
+    Global(GlobalId),
+}
+
 #[derive(Debug, Clone)]
 enum ArgEx {
     Val(Ex),
-    Ref(LocalId),
+    Ref(RefTarget),
     Missing,
+}
+
+/// An argument of a late-bound call: variables travel by reference,
+/// everything else by value, nothing is converted.
+#[derive(Debug, Clone)]
+enum LateEx {
+    Val(Ex),
+    Ref(RefTarget),
+}
+
+/// What a name is looked up for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    /// Read, or call as a statement: `Sub`, `Function`, `Property Get`.
+    Read,
+    /// Assignment: `Property Let`.
+    Let,
 }
 
 impl Ex {
     fn ty(&self) -> Type {
         match self {
             Ex::Const(_, t) | Ex::Local { ty: t, .. } => t.clone(),
-            Ex::Unary { ty, .. } | Ex::Binary { ty, .. } | Ex::Call { ty, .. } => ty.clone(),
+            Ex::Unary { ty, .. }
+            | Ex::Binary { ty, .. }
+            | Ex::Call { ty, .. }
+            | Ex::Global { ty, .. } => ty.clone(),
+            Ex::Me(m) => Type::Class(*m),
+            Ex::Late { .. } => Type::Variant,
             Ex::Convert { to, .. } => to.clone(),
             Ex::Paren(e) => e.ty(),
             Ex::LibObj { lt, .. } => Type::Library(lt.clone()),
@@ -152,6 +204,14 @@ pub(crate) struct ProcCtx<'a> {
     pub proc_id: ProcId,
     pub index: &'a ProcIndex,
     pub module: usize,
+    /// `[module index]`: whether the module is class-like.
+    pub class_like: &'a [bool],
+    /// The module's members that the host provides (document and designer
+    /// modules): unresolved names are late bound on `Me`.
+    pub host_backed: bool,
+    /// Names the embedding application provides as members of the host
+    /// base (lower case): a bare read of one of them is a late-bound read.
+    pub host_members: &'a std::collections::HashSet<String>,
     pub compare: CompareStored,
     pub name: &'a str,
 }
@@ -515,16 +575,35 @@ impl Lw<'_> {
         self.sema.has_result && self.sema.name.to_string().eq_ignore_ascii_case(name)
     }
 
-    fn proc_target(&mut self, name: &str) -> Option<ProcId> {
+    /// A procedure of the project by name: the current module's own first,
+    /// then the unique one of the standard modules. Members of other
+    /// class-like modules are not reachable by a bare name.
+    fn proc_target(&mut self, name: &str, role: Role) -> Option<ProcId> {
+        use vba_ast::ProcKind as K;
         let list = self.cx.index.by_name.get(&name.to_ascii_lowercase())?;
+        let fits = |id: ProcId| {
+            let k = self.cx.program.proc(id).kind;
+            match role {
+                Role::Read => matches!(k, K::Sub | K::Function | K::PropertyGet),
+                Role::Let => k == K::PropertyLet,
+            }
+        };
         let same: Vec<_> = list
             .iter()
-            .filter(|(m, _, _)| *m == self.cx.module)
+            .filter(|(m, _, id)| *m == self.cx.module && fits(*id))
             .collect();
         let pick = if same.len() == 1 {
             same[0].2
-        } else if same.is_empty() && list.len() == 1 {
-            list[0].2
+        } else if same.is_empty() {
+            let others: Vec<_> = list
+                .iter()
+                .filter(|(m, _, id)| *m != self.cx.module && !self.cx.class_like[*m] && fits(*id))
+                .collect();
+            if others.len() == 1 {
+                others[0].2
+            } else {
+                return None;
+            }
         } else {
             return None;
         };
@@ -534,14 +613,67 @@ impl Lw<'_> {
         Some(pick)
     }
 
+    /// A module-scope variable or constant visible to the procedure: the
+    /// module's own, or a public one of a standard module.
+    fn module_symbol(&self, name: &str) -> Option<Symbol> {
+        let key = vba_ast::Name::new(name);
+        let own = self.cx.program.module(self.sema.module);
+        if let Some((sym, _)) = own.symbols.get(&key) {
+            return Some(*sym);
+        }
+        let mut found = None;
+        for m in &self.cx.program.modules {
+            if m.id == own.id || m.is_class_like() {
+                continue;
+            }
+            if let Some((sym, _)) = m.symbols.get(&key)
+                && matches!(sym, Symbol::Var(_) | Symbol::Const(_))
+            {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(*sym);
+            }
+        }
+        found
+    }
+
+    /// Whether an unresolved name is a member of the host base. A call, a
+    /// statement and the receiver of a member access always are; a bare
+    /// value read only when the embedding application lists the name
+    /// (otherwise the source binding reads an implicit variable or reports
+    /// an undeclared one).
+    fn is_host_name(&self, name: &str, bare_read: bool) -> bool {
+        self.cx.host_backed
+            && !name.starts_with(crate::model::PLACEHOLDER)
+            && (!bare_read || self.cx.host_members.contains(&name.to_ascii_lowercase()))
+            && self.module_symbol(name).is_none()
+            && !self.cx.index.known.contains(&name.to_ascii_lowercase())
+            && vba_stdlib::lookup(name).is_none()
+            && BuiltinLibrary.global(name).is_none()
+    }
+
+    fn me(&self) -> Ex {
+        Ex::Me(self.sema.module)
+    }
+
+    fn global_ex(&self, g: GlobalId) -> Ex {
+        let info = self.cx.program.global(g);
+        Ex::Global {
+            id: g,
+            ty: info.ty.clone(),
+            bare: true,
+        }
+    }
+
     fn name_of(&self, ins: &Listed) -> R<(String, Option<char>)> {
         match ins.operands.first() {
             Some(Operand::Name {
                 name,
                 suffix,
                 bracketed: _,
-            }) => match name.spelling() {
-                Some(s) if !matches!(name, vba_pcode::Name::Me) => Ok((s.to_owned(), *suffix)),
+            }) => match crate::model::local_spelling(name) {
+                Some(s) if !matches!(name, vba_pcode::Name::Me) => Ok((s, *suffix)),
                 _ => Err(self.no(ins.opcode, "name does not resolve")),
             },
             _ => Err(self.no(ins.opcode, "missing name operand")),
@@ -583,14 +715,22 @@ impl Lw<'_> {
                 out.push(ArgEx::Val(self.coerce(a, &p.ty)));
                 continue;
             }
-            if let Ex::Local {
-                id: lid,
-                ty,
-                bare: true,
-            } = &a
-            {
+            let target = match &a {
+                Ex::Local {
+                    id: lid,
+                    ty,
+                    bare: true,
+                } => Some((RefTarget::Local(*lid), ty)),
+                Ex::Global {
+                    id: gid,
+                    ty,
+                    bare: true,
+                } => Some((RefTarget::Global(*gid), ty)),
+                _ => None,
+            };
+            if let Some((t, ty)) = target {
                 if *ty == p.ty {
-                    out.push(ArgEx::Ref(*lid));
+                    out.push(ArgEx::Ref(t));
                     continue;
                 }
                 if p.ty != Type::Variant {
@@ -600,6 +740,7 @@ impl Lw<'_> {
             out.push(ArgEx::Val(self.coerce(a, &p.ty)));
         }
         out.resize(callee.params.len(), ArgEx::Missing);
+        let on_me = self.cx.program.module(callee.module).is_class_like();
         Ok(Ex::Call {
             callee: Callee::Proc(id),
             ty: if callee.has_result {
@@ -608,6 +749,7 @@ impl Lw<'_> {
                 Type::Variant
             },
             args: out,
+            on_me,
         })
     }
 
@@ -685,6 +827,7 @@ impl Lw<'_> {
             },
             ty,
             args: out,
+            on_me: false,
         })
     }
 
@@ -719,6 +862,7 @@ impl Lw<'_> {
                 m.ty.clone()
             },
             args: out,
+            on_me: false,
         })
     }
 
@@ -824,30 +968,28 @@ impl Lw<'_> {
                 });
                 IrOperand::Reg(dst)
             }
-            Ex::Call { callee, ty, args } => {
-                let mut out = Vec::new();
-                for a in args {
-                    out.push(match a {
-                        ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
-                        ArgEx::Missing => CallArg::Missing,
-                        ArgEx::Ref(l) => {
-                            let r = self.reg(self.local_ty(*l));
-                            self.emit(InstKind::MakeRef {
-                                dst: r,
-                                place: RefPlace::Local(*l),
-                            });
-                            CallArg::Ref(r)
-                        }
-                    });
-                }
+            Ex::Call {
+                callee,
+                ty,
+                args,
+                on_me,
+            } => {
+                let dst = self.emit_call(callee, args, *on_me, Some(ty));
+                IrOperand::Reg(dst.unwrap_or(Reg(0)))
+            }
+            Ex::Global { id, ty, .. } => {
                 let dst = self.reg(ty.clone());
-                self.emit(InstKind::Call {
-                    dst: Some(dst),
-                    callee: callee.clone(),
-                    receiver: None,
-                    args: out,
-                });
+                self.emit_global_load(*id, dst);
                 IrOperand::Reg(dst)
+            }
+            Ex::Me(m) => {
+                let dst = self.reg(Type::Class(*m));
+                self.emit(InstKind::LoadMe { dst });
+                IrOperand::Reg(dst)
+            }
+            Ex::Late { recv, name, args } => {
+                let dst = self.emit_late(recv, name, args, InvokeKind::Get, None, true);
+                IrOperand::Reg(dst.unwrap_or(Reg(0)))
             }
         }
     }
@@ -856,30 +998,164 @@ impl Lw<'_> {
         self.sema.locals[l.index()].ty.clone()
     }
 
-    /// Emits a call whose result is discarded (statement-level call).
-    fn emit_call_stmt(&mut self, e: &Ex) {
-        if let Ex::Call { callee, args, .. } = e {
-            let mut out = Vec::new();
-            for a in args {
-                out.push(match a {
-                    ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
-                    ArgEx::Missing => CallArg::Missing,
-                    ArgEx::Ref(l) => {
-                        let r = self.reg(self.local_ty(*l));
-                        self.emit(InstKind::MakeRef {
-                            dst: r,
-                            place: RefPlace::Local(*l),
-                        });
-                        CallArg::Ref(r)
-                    }
-                });
-            }
-            self.emit(InstKind::Call {
-                dst: None,
-                callee: callee.clone(),
-                receiver: None,
-                args: out,
+    fn emit_global_load(&mut self, g: GlobalId, dst: Reg) {
+        if self.global_in_instance(g) {
+            let obj = self.emit_me();
+            self.emit(InstKind::LoadField {
+                dst,
+                obj,
+                global: g,
             });
+        } else {
+            self.emit(InstKind::LoadGlobal { dst, global: g });
+        }
+    }
+
+    fn emit_global_store(&mut self, g: GlobalId, src: IrOperand) {
+        if self.global_in_instance(g) {
+            let obj = self.emit_me();
+            self.emit(InstKind::StoreField {
+                obj,
+                global: g,
+                src,
+                mode: StoreMode::Let,
+            });
+        } else {
+            self.emit(InstKind::StoreGlobal {
+                global: g,
+                src,
+                mode: StoreMode::Let,
+            });
+        }
+    }
+
+    /// Whether the variable lives in the class instance.
+    fn global_in_instance(&self, g: GlobalId) -> bool {
+        self.cx
+            .program
+            .module(self.cx.program.global(g).module)
+            .is_class_like()
+    }
+
+    fn emit_me(&mut self) -> IrOperand {
+        let dst = self.reg(Type::Class(self.sema.module));
+        self.emit(InstKind::LoadMe { dst });
+        IrOperand::Reg(dst)
+    }
+
+    fn emit_ref(&mut self, t: RefTarget) -> Reg {
+        match t {
+            RefTarget::Local(l) => {
+                let r = self.reg(self.local_ty(l));
+                self.emit(InstKind::MakeRef {
+                    dst: r,
+                    place: RefPlace::Local(l),
+                });
+                r
+            }
+            RefTarget::Global(g) => {
+                let ty = self.cx.program.global(g).ty.clone();
+                let place = if self.global_in_instance(g) {
+                    RefPlace::Field {
+                        obj: self.emit_me(),
+                        global: g,
+                    }
+                } else {
+                    RefPlace::Global(g)
+                };
+                let r = self.reg(ty);
+                self.emit(InstKind::MakeRef { dst: r, place });
+                r
+            }
+        }
+    }
+
+    /// Emits a call of a project procedure (receiver first, as the source
+    /// lowering does), a library function or a run-time function. The
+    /// result register, when wanted, is allocated after the arguments.
+    fn emit_call(
+        &mut self,
+        callee: &Callee,
+        args: &[ArgEx],
+        on_me: bool,
+        result: Option<&Type>,
+    ) -> Option<Reg> {
+        let receiver = on_me.then(|| self.emit_me());
+        let mut out = Vec::new();
+        for a in args {
+            out.push(match a {
+                ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
+                ArgEx::Missing => CallArg::Missing,
+                ArgEx::Ref(t) => CallArg::Ref(self.emit_ref(*t)),
+            });
+        }
+        let dst = result.map(|t| self.reg(t.clone()));
+        self.emit(InstKind::Call {
+            dst,
+            callee: callee.clone(),
+            receiver,
+            args: out,
+        });
+        dst
+    }
+
+    /// Emits a late-bound member access. For `Put`, `value` is the
+    /// assigned value (passed last). The result register, when wanted, is
+    /// allocated after the receiver and the arguments.
+    fn emit_late(
+        &mut self,
+        recv: &Ex,
+        name: &str,
+        args: &[LateEx],
+        kind: InvokeKind,
+        value: Option<IrOperand>,
+        want: bool,
+    ) -> Option<Reg> {
+        let receiver = self.emit_ex(recv);
+        let mut out = Vec::new();
+        for a in args {
+            out.push(LateArg {
+                name: None,
+                arg: match a {
+                    LateEx::Val(v) => CallArg::Val(self.emit_ex(v)),
+                    LateEx::Ref(t) => CallArg::Ref(self.emit_ref(*t)),
+                },
+            });
+        }
+        if let Some(v) = value {
+            out.push(LateArg {
+                name: None,
+                arg: CallArg::Val(v),
+            });
+        }
+        let dst = want.then(|| self.reg(Type::Variant));
+        self.emit(InstKind::Invoke {
+            dst,
+            receiver,
+            member: Member::Named(name.to_owned()),
+            kind,
+            args: out,
+            static_receiver: None,
+            dispid: None,
+        });
+        dst
+    }
+
+    /// Emits a statement-level call: the result, if any, is discarded.
+    fn emit_call_stmt(&mut self, e: &Ex) {
+        match e {
+            Ex::Call {
+                callee,
+                args,
+                on_me,
+                ..
+            } => {
+                self.emit_call(callee, args, *on_me, None);
+            }
+            Ex::Late { recv, name, args } => {
+                self.emit_late(recv, name, args, InvokeKind::Get, None, false);
+            }
+            _ => {}
         }
     }
 
@@ -1064,8 +1340,33 @@ impl Lw<'_> {
             }
             // ---- names ----
             Opcode::ReadSimple => {
+                if matches!(
+                    ins.operands.first(),
+                    Some(Operand::Name {
+                        name: vba_pcode::Name::Me,
+                        ..
+                    })
+                ) {
+                    if !self.cx.class_like[self.cx.module] {
+                        return Err(self.no(op, "Me in a standard module"));
+                    }
+                    let me = self.me();
+                    self.stack.push(me);
+                    return Ok(1);
+                }
                 let (name, _) = self.name_of(ins)?;
-                let e = self.read_name(ins, &name, Vec::new())?;
+                // A member access consumes the receiver right after it is
+                // pushed.
+                let receiver = body.get(i + 1).is_some_and(|(_, n)| {
+                    matches!(
+                        n.opcode,
+                        Opcode::ReadDot
+                            | Opcode::ReadDotParams
+                            | Opcode::InvokeDot
+                            | Opcode::WriteDot
+                    )
+                });
+                let e = self.read_name(ins, &name, Vec::new(), receiver)?;
                 self.stack.push(e);
             }
             Opcode::ReadSimpleParams => {
@@ -1113,26 +1414,36 @@ impl Lw<'_> {
             Opcode::ReadDot => {
                 let (name, _) = self.name_of(ins)?;
                 let recv = self.pop(ins)?;
-                let Ex::LibObj { lt, .. } = &recv else {
-                    return Err(self.no(op, "member access outside the Err object"));
+                let e = self.dot_member(ins, recv, &name, Vec::new())?;
+                self.stack.push(e);
+            }
+            Opcode::ReadDotParams => {
+                let (name, _) = self.name_of(ins)?;
+                let argc = match ins.operands.get(1) {
+                    Some(Operand::Count(c)) => usize::from(*c),
+                    _ => return Err(self.no(op, "missing argument count")),
                 };
-                let lt = lt.clone();
-                let Some(m) = BuiltinLibrary.member(&lt, &name) else {
-                    return Err(self.no(op, format!("`{name}` is not a known member")));
+                let recv = self.pop(ins)?;
+                let args = self.pop_n(ins, argc)?;
+                let e = self.dot_member(ins, recv, &name, args)?;
+                self.stack.push(e);
+            }
+            Opcode::InvokeDot => {
+                let (name, _) = self.name_of(ins)?;
+                let argc = match ins.operands.get(1) {
+                    Some(Operand::Count(c)) => usize::from(*c),
+                    _ => return Err(self.no(op, "missing argument count")),
                 };
-                if !matches!(m.kind, LibMemberKind::Property | LibMemberKind::PropertyGet)
-                    || !m.params.is_empty()
-                    || m.ty.is_object()
-                {
-                    return Err(self.no(op, "member is not a plain property"));
-                }
-                self.stack.push(Ex::Member {
-                    recv: Box::new(recv),
-                    name: m.name.clone(),
-                    ty: m.ty.clone(),
-                    lt,
-                    dispid: m.dispid,
-                });
+                let recv = self.pop(ins)?;
+                let args = self.pop_n(ins, argc)?;
+                let call = self.dot_member(ins, recv, &name, args)?;
+                self.expect_empty(ins)?;
+                self.emit_call_stmt(&call);
+                self.close_stmt();
+            }
+            Opcode::WriteDot => {
+                self.dot_assign(ins)?;
+                self.close_stmt();
             }
 
             // ---- statements ----
@@ -1491,8 +1802,16 @@ impl Lw<'_> {
             // Hexadecimal `Integer` literals and the `CLng`/`CStr` family.
             Opcode::ConstInt16Hex | Opcode::ConstDate => true,
             Opcode::ConvertToType => matches!(ins.modifier, 3 | 8),
-            // Property reads on the `Err` object.
-            Opcode::ReadDot => matches!(self.stack.last(), Some(Ex::LibObj { .. })),
+            // Property reads on the `Err` object, and the member forms with
+            // `Me` or a late-bound value as the receiver (on top of the
+            // stack).
+            Opcode::ReadDot => matches!(
+                self.stack.last(),
+                Some(Ex::LibObj { .. } | Ex::Me(_) | Ex::Late { .. })
+            ),
+            Opcode::ReadDotParams | Opcode::InvokeDot | Opcode::WriteDot => {
+                matches!(self.stack.last(), Some(Ex::Me(_) | Ex::Late { .. }))
+            }
             _ => false,
         }
     }
@@ -1539,15 +1858,52 @@ impl Lw<'_> {
         Ok(())
     }
 
+    /// The arguments of a late-bound call: variables travel by reference.
+    fn late_args(args: Vec<Ex>) -> Vec<LateEx> {
+        args.into_iter()
+            .map(|a| match &a {
+                Ex::Local { id, bare: true, .. } => LateEx::Ref(RefTarget::Local(*id)),
+                Ex::Global { id, bare: true, .. } => LateEx::Ref(RefTarget::Global(*id)),
+                _ => LateEx::Val(a),
+            })
+            .collect()
+    }
+
+    /// A member of the host base, called on `Me`.
+    fn host_member(&self, name: &str, args: Vec<Ex>) -> Ex {
+        Ex::Late {
+            recv: Box::new(self.me()),
+            name: name.to_owned(),
+            args: Self::late_args(args),
+        }
+    }
+
+    /// A module-level constant as a value.
+    fn const_ex(&self, ins: &Listed, c: vba_sema::ConstId) -> R<Ex> {
+        let info = &self.cx.program.consts[c.index()];
+        match &info.value {
+            Constant::Value(v) => Ok(Ex::Const(v.clone(), info.ty.clone())),
+            _ => Err(self.no(ins.opcode, "constant that is not a plain value")),
+        }
+    }
+
     /// `READ_SIMPLE` / zero-argument names.
-    fn read_name(&mut self, ins: &Listed, name: &str, args: Vec<Ex>) -> R<Ex> {
+    fn read_name(&mut self, ins: &Listed, name: &str, args: Vec<Ex>, receiver: bool) -> R<Ex> {
         if self.is_result_name(name) {
             return Err(self.no(ins.opcode, "reads the function's own name"));
         }
         if let Some((id, ty)) = self.local_by_name(name) {
             return Ok(Ex::Local { id, ty, bare: true });
         }
-        if let Some(pid) = self.proc_target(name) {
+        match self.module_symbol(name) {
+            Some(Symbol::Var(g)) if args.is_empty() => return Ok(self.global_ex(g)),
+            Some(Symbol::Const(c)) if args.is_empty() => return self.const_ex(ins, c),
+            Some(Symbol::Var(_) | Symbol::Const(_)) => {
+                return Err(self.no(ins.opcode, "indexing of a variable"));
+            }
+            _ => {}
+        }
+        if let Some(pid) = self.proc_target(name, Role::Read) {
             let callee = self.cx.program.proc(pid);
             if callee.has_result && callee.params.is_empty() {
                 return self.project_call(ins, pid, args);
@@ -1570,6 +1926,9 @@ impl Lw<'_> {
             && !r.info.params.iter().any(|p| p.param_array)
         {
             return self.intrinsic_call(ins, name, false, args);
+        }
+        if self.is_host_name(name, !receiver && args.is_empty()) {
+            return Ok(self.host_member(name, args));
         }
         Err(self.no(
             ins.opcode,
@@ -1595,8 +1954,14 @@ impl Lw<'_> {
             }
             return self.project_call(ins, pid, args);
         }
+        if matches!(
+            self.module_symbol(name),
+            Some(Symbol::Var(_) | Symbol::Const(_))
+        ) {
+            return Err(self.no(ins.opcode, "indexing of a variable"));
+        }
         if suffix.is_none()
-            && let Some(pid) = self.proc_target(name)
+            && let Some(pid) = self.proc_target(name, Role::Read)
         {
             let callee = self.cx.program.proc(pid);
             if !callee.has_result {
@@ -1609,6 +1974,9 @@ impl Lw<'_> {
             Some('$') => true,
             Some(_) => return Err(self.no(ins.opcode, "type-suffixed name")),
         };
+        if suffix.is_none() && self.is_host_name(name, false) {
+            return Ok(self.host_member(name, args));
+        }
         self.intrinsic_call(ins, name, dollar, args)
     }
 
@@ -1622,38 +1990,203 @@ impl Lw<'_> {
         if self.local_by_name(name).is_some() || self.is_result_name(name) {
             return Err(self.no(ins.opcode, "call of a variable"));
         }
+        if matches!(
+            self.module_symbol(name),
+            Some(Symbol::Var(_) | Symbol::Const(_))
+        ) {
+            return Err(self.no(ins.opcode, "call of a variable"));
+        }
         if suffix.is_none()
-            && let Some(pid) = self.proc_target(name)
+            && let Some(pid) = self.proc_target(name, Role::Read)
         {
             return self.project_call(ins, pid, args);
         }
+        if suffix.is_none() && self.is_host_name(name, false) {
+            return Ok(self.host_member(name, args));
+        }
         let dollar = suffix == Some('$');
         self.intrinsic_call(ins, name, dollar, args)
+    }
+
+    /// `receiver.name(args)` for the receivers the lowering knows: the
+    /// `Err` object (properties only), `Me` (members of the module, then
+    /// members of the host base) and late-bound values.
+    fn dot_member(&mut self, ins: &Listed, recv: Ex, name: &str, args: Vec<Ex>) -> R<Ex> {
+        match recv {
+            Ex::Me(_) => self.me_member(ins, name, args),
+            Ex::Late { .. } => Ok(Ex::Late {
+                recv: Box::new(recv),
+                name: name.to_owned(),
+                args: Self::late_args(args),
+            }),
+            Ex::LibObj { ref lt, .. } if args.is_empty() => {
+                let lt = lt.clone();
+                let Some(m) = BuiltinLibrary.member(&lt, name) else {
+                    return Err(self.no(ins.opcode, format!("`{name}` is not a known member")));
+                };
+                if !matches!(m.kind, LibMemberKind::Property | LibMemberKind::PropertyGet)
+                    || !m.params.is_empty()
+                    || m.ty.is_object()
+                {
+                    return Err(self.no(ins.opcode, "member is not a plain property"));
+                }
+                Ok(Ex::Member {
+                    recv: Box::new(recv),
+                    name: m.name.clone(),
+                    ty: m.ty.clone(),
+                    lt,
+                    dispid: m.dispid,
+                })
+            }
+            _ => Err(self.no(
+                ins.opcode,
+                "member access outside the Err object, Me and host members",
+            )),
+        }
+    }
+
+    /// A member of the current module reached through `Me`.
+    fn me_member(&mut self, ins: &Listed, name: &str, args: Vec<Ex>) -> R<Ex> {
+        let key = vba_ast::Name::new(name);
+        let own = self.cx.program.module(self.sema.module);
+        match own.symbols.get(&key).map(|(s, _)| *s) {
+            Some(Symbol::Var(g)) if args.is_empty() => Ok(self.global_ex(g)),
+            Some(Symbol::Proc(id)) => self.me_call(ins, id, args),
+            Some(Symbol::Property(group)) => match group.get {
+                Some(id) => self.me_call(ins, id, args),
+                None => Err(self.no(ins.opcode, "property without a Get")),
+            },
+            Some(_) => Err(self.no(ins.opcode, "member of the module that is not callable")),
+            None if self.cx.host_backed => Ok(self.host_member(name, args)),
+            None => Err(self.no(ins.opcode, "module has no such member")),
+        }
+    }
+
+    fn me_call(&mut self, ins: &Listed, id: ProcId, args: Vec<Ex>) -> R<Ex> {
+        if !self.callees.contains(&id) {
+            self.callees.push(id);
+        }
+        self.project_call(ins, id, args)
     }
 
     fn assign(&mut self, ins: &Listed) -> R<()> {
         let (name, _) = self.name_of(ins)?;
         let v = self.pop(ins)?;
         self.expect_empty(ins)?;
-        let (slot, ty) = if self.is_result_name(&name) {
+        self.store_name(ins, &name, v)
+    }
+
+    /// Stores `v` into the variable or `Property Let` called `name`.
+    fn store_name(&mut self, ins: &Listed, name: &str, v: Ex) -> R<()> {
+        enum Target {
+            Local(LocalId, Type),
+            Global(GlobalId, Type),
+            Property(ProcId),
+        }
+        let target = if self.is_result_name(name) {
             match self.sema.result_local {
-                Some(l) => (l, self.sema.ret.clone()),
+                Some(l) => Target::Local(l, self.sema.ret.clone()),
                 None => return Err(self.no(ins.opcode, "assignment to a Sub's name")),
             }
-        } else if let Some(t) = self.local_by_name(&name) {
-            t
+        } else if let Some((l, t)) = self.local_by_name(name) {
+            Target::Local(l, t)
         } else {
-            return Err(self.no(ins.opcode, "assignment to a name that is not a local"));
+            match self.module_symbol(name) {
+                Some(Symbol::Var(g)) => Target::Global(g, self.cx.program.global(g).ty.clone()),
+                Some(Symbol::Property(_)) => match self.proc_target(name, Role::Let) {
+                    Some(p) => Target::Property(p),
+                    None => return Err(self.no(ins.opcode, "property without a Let")),
+                },
+                _ => {
+                    return Err(self.no(ins.opcode, "assignment to a name that is not a variable"));
+                }
+            }
+        };
+        let (ty, store) = match target {
+            Target::Property(pid) => return self.let_property(ins, pid, v),
+            Target::Local(l, t) => (t, Ok(l)),
+            Target::Global(g, t) => (t, Err(g)),
         };
         if v.ty().is_object() || ty.is_object() {
             return Err(self.no(ins.opcode, "object assignment"));
         }
         let v = self.coerce(v, &ty);
         let o = self.emit_ex(&v);
-        self.emit(InstKind::StoreLocal {
-            slot,
-            src: o,
-            mode: StoreMode::Let,
+        match store {
+            Ok(slot) => self.emit(InstKind::StoreLocal {
+                slot,
+                src: o,
+                mode: StoreMode::Let,
+            }),
+            Err(g) => self.emit_global_store(g, o),
+        }
+        Ok(())
+    }
+
+    /// `Property Let` call with the value as its last argument (by value).
+    fn let_property(&mut self, ins: &Listed, pid: ProcId, v: Ex) -> R<()> {
+        if v.ty().is_object() {
+            return Err(self.no(ins.opcode, "object assignment"));
+        }
+        let call = self.project_call(ins, pid, vec![Ex::Paren(Box::new(v))])?;
+        self.emit_call_stmt(&call);
+        Ok(())
+    }
+
+    /// `receiver.name = v`.
+    fn dot_assign(&mut self, ins: &Listed) -> R<()> {
+        let name = self.name_of(ins)?.0;
+        let recv = self.pop(ins)?;
+        let v = self.pop(ins)?;
+        self.expect_empty(ins)?;
+        match recv {
+            Ex::Me(_) => {
+                let key = vba_ast::Name::new(&name);
+                let own = self.cx.program.module(self.sema.module);
+                match own.symbols.get(&key).map(|(s, _)| *s) {
+                    Some(Symbol::Var(_)) => self.store_name(ins, &name, v),
+                    Some(Symbol::Property(g)) => match g.let_ {
+                        Some(p) => {
+                            if !self.callees.contains(&p) {
+                                self.callees.push(p);
+                            }
+                            self.let_property(ins, p, v)
+                        }
+                        None => Err(self.no(ins.opcode, "property without a Let")),
+                    },
+                    Some(_) => Err(self.no(ins.opcode, "assignment to a module member")),
+                    None if self.cx.host_backed => {
+                        self.late_put(ins, Ex::Me(self.sema.module), &name, v)
+                    }
+                    None => Err(self.no(ins.opcode, "module has no such member")),
+                }
+            }
+            Ex::Late { .. } => self.late_put(ins, recv, &name, v),
+            _ => Err(self.no(ins.opcode, "assignment to a member of this receiver")),
+        }
+    }
+
+    fn late_put(&mut self, ins: &Listed, recv: Ex, name: &str, v: Ex) -> R<()> {
+        if v.ty().is_object() {
+            return Err(self.no(ins.opcode, "object assignment"));
+        }
+        let v = self.coerce(v, &Type::Variant);
+        // The value is evaluated before the receiver: the compiled code
+        // pushes it first, and the source lowering evaluates the right-hand
+        // side of an assignment before the target.
+        let vo = self.emit_ex(&v);
+        let receiver = self.emit_ex(&recv);
+        self.emit(InstKind::Invoke {
+            dst: None,
+            receiver,
+            member: Member::Named(name.to_owned()),
+            kind: InvokeKind::Put,
+            args: vec![LateArg {
+                name: None,
+                arg: CallArg::Val(vo),
+            }],
+            static_receiver: None,
+            dispid: None,
         });
         Ok(())
     }
@@ -1796,6 +2329,19 @@ impl Lw<'_> {
     // ---- Select Case --------------------------------------------------------
 
     fn case_item(&mut self, body: &[(usize, Listed)], i: usize) -> R<usize> {
+        // The comparisons belong to the statement of the `Select Case`, as in
+        // the source lowering: the run time releases the objects held by
+        // temporaries when the statement changes, and the subject may be one.
+        let saved = self.cur_stmt;
+        if let Some(Frame::Select { stmt, .. }) = self.frames.last() {
+            self.cur_stmt = *stmt;
+        }
+        let r = self.case_item_in_stmt(body, i);
+        self.cur_stmt = saved;
+        r
+    }
+
+    fn case_item_in_stmt(&mut self, body: &[(usize, Listed)], i: usize) -> R<usize> {
         let ins = &body[i].1;
         let op = ins.opcode;
         let is_range = op == Opcode::CaseRange;

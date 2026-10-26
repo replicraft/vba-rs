@@ -24,7 +24,7 @@ fn lower(t: &Tables, lines: &[Line]) -> LoweredProject {
         1,
         &[ModuleInput {
             name: "Calc",
-            class_like: false,
+            kind: vba_project::ModuleKind::Standard,
             cache: &cache,
         }],
     )
@@ -1324,7 +1324,7 @@ fn hostile_caches_never_panic() {
                     1,
                     &[ModuleInput {
                         name: "Calc",
-                        class_like: false,
+                        kind: vba_project::ModuleKind::Standard,
                         cache: &c,
                     }],
                 );

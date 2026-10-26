@@ -23,6 +23,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+vba-automation.workspace = true
 vba-format.workspace = true
 vba-diagnostics.workspace = true
 vba-host.workspace = true
