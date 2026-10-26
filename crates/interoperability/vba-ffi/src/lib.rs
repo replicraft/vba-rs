@@ -11,11 +11,13 @@
 //! * [`memory`]: a bounds-checked, VBA-visible address space (no host pointers);
 //! * [`marshal`]: the argument marshaling plan (prepare before, write back after);
 //! * [`handle`]: opaque, provider-affine handles;
+//! * [`callback`]: session-bound function-pointer tokens for `AddressOf`;
 //! * [`last_error`]: emulated per-logical-thread `GetLastError`;
 //! * [`native`]: the permission-gated, feature-gated dynamic call stage (the
 //!   only `unsafe` code lives in the private `dispatch` module, compiled only
 //!   with the `native-call` feature).
 
+pub mod callback;
 pub mod codec;
 #[cfg(feature = "native-call")]
 mod dispatch;
@@ -28,6 +30,7 @@ pub mod memory;
 pub mod native;
 pub mod signature;
 
+pub use callback::{CallbackTable, MAX_CALLBACK_SLOTS, TokenError};
 pub use codec::{CodecError, Codepage, Encoded, Unmappable};
 pub use error::FfiError;
 pub use handle::{Handle, HandleError, HandleTable, ProviderId};
