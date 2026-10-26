@@ -42,10 +42,20 @@ fn fixed_time() -> std::time::SystemTime {
 }
 
 /// Streams and storages to emit.
-struct Layout {
-    streams: BTreeMap<String, Vec<u8>>,
-    storages: BTreeMap<String, ([u8; 16], u32)>,
-    version: u16,
+pub(crate) struct Layout {
+    pub(crate) streams: BTreeMap<String, Vec<u8>>,
+    pub(crate) storages: BTreeMap<String, ([u8; 16], u32)>,
+    pub(crate) version: u16,
+}
+
+impl Layout {
+    pub(crate) fn new() -> Self {
+        Self {
+            streams: BTreeMap::new(),
+            storages: BTreeMap::new(),
+            version: 3,
+        }
+    }
 }
 
 /// Writes a project to `vbaProject.bin` bytes.
@@ -517,7 +527,7 @@ fn fresh_dir_module(m: &Module) -> DirModule {
 }
 
 /// Builds the compound file.
-fn assemble(layout: Layout) -> Result<Vec<u8>, Error> {
+pub(crate) fn assemble(layout: Layout) -> Result<Vec<u8>, Error> {
     let err = |e: std::io::Error| Error::ContainerWrite(e.to_string());
     let version = cfb::Version::from_number(layout.version).unwrap_or(cfb::Version::V3);
     let mut cf =

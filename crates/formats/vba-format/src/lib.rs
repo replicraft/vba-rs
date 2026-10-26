@@ -22,6 +22,7 @@ mod aux_streams;
 pub mod codepage;
 mod codepage_tables;
 pub mod compression;
+pub mod container;
 pub mod crypt;
 mod dir;
 mod error;
@@ -35,6 +36,10 @@ pub use aux_streams::{
     LicenseInfo, LicenseKeys, NameMapEntry, ProjectWm, license_keys, module_name_map,
 };
 pub use compression::{DecompressError, compress, decompress};
+pub use container::{
+    ExtractedProject, ProjectLocation, extract_project, locate_ooxml_project, read_document,
+    replace_ooxml_project,
+};
 pub use error::Error;
 pub use options::{Limits, ReadMode, StaleCache, WriteOptions};
 pub use read::{read_project, read_project_with};

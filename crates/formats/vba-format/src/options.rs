@@ -19,6 +19,13 @@ pub struct Limits {
     pub max_compression_ratio: usize,
     /// Largest accepted number of storages and streams.
     pub max_entries: usize,
+    /// Largest accepted number of entries in a ZIP archive.
+    pub max_archive_entries: usize,
+    /// Largest accepted ratio of uncompressed to compressed size for a ZIP
+    /// entry or a compressed PowerPoint storage. Deflate cannot exceed about
+    /// 1032:1, so the default of 1024 rejects nothing that is not a bomb in
+    /// practice; the sizes of the entries actually read are capped as well.
+    pub max_archive_ratio: usize,
 }
 
 impl Default for Limits {
@@ -29,6 +36,8 @@ impl Default for Limits {
             max_decompressed_bytes: 64 << 20,
             max_compression_ratio: 1024,
             max_entries: 65_536,
+            max_archive_entries: 65_536,
+            max_archive_ratio: 1024,
         }
     }
 }

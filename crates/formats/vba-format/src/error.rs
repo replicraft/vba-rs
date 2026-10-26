@@ -114,6 +114,20 @@ pub enum Error {
         /// The project's code page.
         code_page: u16,
     },
+    /// The input is a valid container but holds no VBA project.
+    #[error("no VBA project: {0}")]
+    NoVbaProject(&'static str),
+    /// The container type or layout is not supported (for example an
+    /// encrypted document).
+    #[error("unsupported container: {0}")]
+    UnsupportedContainer(String),
+    /// A ZIP package or a binary document structure is malformed.
+    #[error("malformed package: {0}")]
+    Package(String),
+    /// A ZIP archive exceeds a configured limit (entry count, size or
+    /// compression ratio).
+    #[error("archive limit exceeded: {0}")]
+    ArchiveLimit(String),
     /// An auxiliary stream (`PROJECTwm`, `PROJECTlk`, a signature) does not
     /// follow its specified structure.
     #[error("stream {stream}: {detail}")]

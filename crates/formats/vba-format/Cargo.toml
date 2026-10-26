@@ -11,7 +11,10 @@ vba-project.workspace = true
 cfb.workspace = true
 uuid.workspace = true
 encoding_rs.workspace = true
+flate2.workspace = true
+quick-xml.workspace = true
 thiserror.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
