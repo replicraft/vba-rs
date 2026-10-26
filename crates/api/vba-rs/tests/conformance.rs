@@ -279,9 +279,8 @@ fn run_program(p: &Program) -> Result<(), String> {
             None => engine.grant(capability(g)),
         };
     }
-    if let Some(n) = p.max_steps {
-        engine = engine.max_steps(n);
-    }
+    // A program that does not terminate must fail, not hang the suite.
+    engine = engine.max_steps(p.max_steps.unwrap_or(20_000_000));
     let report = engine.analyze(&project);
     if p.error.as_deref() == Some("load") {
         return if report.has_errors() {
