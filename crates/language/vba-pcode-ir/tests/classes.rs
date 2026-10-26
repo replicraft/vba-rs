@@ -843,3 +843,40 @@ fn a_constant_without_as_clause_may_carry_the_type_of_its_value() {
     assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
     assert_eq!(call_std(&lp, "R", vec![]), l(0x20000));
 }
+
+#[test]
+fn on_error_goto_zero_propagates_again() {
+    let mut t = Tables::default();
+    let (d, z) = (t.name("d"), t.name("Z"));
+    let rec = t.function("Z", Some(T_LONG), &[("d", T_LONG, true)]);
+    let off = |modifier: u16| {
+        let mut l = Line::new().opm(Opcode::ErrHandlerSet, modifier);
+        l.0.extend_from_slice(&0u16.to_le_bytes());
+        l
+    };
+    // Function Z(d As Long) As Long
+    //   On Error Resume Next
+    //   On Error GoTo 0
+    //   Z = 10 \ d
+    let lines = block(
+        rec,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            off(1),
+            off(2),
+            Line::new()
+                .i16(10)
+                .read(d)
+                .op(Opcode::NumIntDivide)
+                .write(z),
+        ],
+    );
+    let lp = lower_kind(&t, ModuleKind::Standard, &lines, &[]);
+    assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
+    assert_eq!(call_std(&lp, "Z", vec![Arg::Value(l(5))]), l(2));
+    let (mut vm, _) = new_vm(&lp);
+    let p = vm.find_procedure("Cls.Z").expect("entry");
+    // Division by zero is an error the caller sees (Resume Next is off).
+    assert!(vm.run_procedure(p, vec![Arg::Value(l(0))]).is_err());
+}

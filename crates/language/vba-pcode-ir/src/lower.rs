@@ -1422,6 +1422,9 @@ impl Lw<'_> {
             Opcode::ErrHandlerSet => {
                 let mode = if ins.modifier == 1 {
                     ErrMode::ResumeNext
+                } else if ins.modifier == 2 {
+                    // `On Error GoTo 0`: errors propagate to the caller.
+                    ErrMode::Propagate
                 } else {
                     let (name, _) = self.name_of(ins)?;
                     ErrMode::Handler(self.label_block(&name))
@@ -1842,7 +1845,7 @@ impl Lw<'_> {
         match ins.opcode {
             // `On Error Resume Next` (modifier 1) and `On Error GoTo label`
             // (modifier 0 with a name).
-            Opcode::ErrHandlerSet => ins.modifier == 1 || ins.modifier == 0,
+            Opcode::ErrHandlerSet => matches!(ins.modifier, 0..=2),
             // `Resume label`.
             Opcode::ErrResume => ins.modifier == 0,
             Opcode::LabelNamed => true,
