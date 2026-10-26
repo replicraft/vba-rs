@@ -76,6 +76,78 @@ fn hostile_path_spellings_never_reach_outside_the_grant() {
     assert_eq!(out.lines().count(), attempts.len() + 2);
 }
 
+fn secret_start() -> SharedFs {
+    let mem = MemFs::new()
+        .with_file("/srv/hidden/work/in.txt", b"x")
+        .with_initial_dir("/srv/hidden/work");
+    SharedFs(std::rc::Rc::new(std::cell::RefCell::new(mem)))
+}
+
+#[test]
+fn curdir_does_not_reveal_the_start_directory_without_a_grant() {
+    let body = "Debug.Print CurDir\nDebug.Print CurDir$\nDebug.Print CurDir(\"c\")\nOpen \"in.txt\" For Input As #1\nDebug.Print Err.Number & \" \" & Err.Source & \" \" & Err.Description\nErr.Clear\nChDir \"..\"\nDebug.Print Err.Number & \" \" & Err.Source\nDebug.Print CurDir\n";
+    let out = trap(body, secret_start(), Policy::deny_all());
+    assert!(
+        !out.contains("hidden"),
+        "the start directory leaked:\n{out}"
+    );
+    assert!(!out.contains("/srv"), "the start directory leaked:\n{out}");
+    assert!(out.starts_with("/\n/\n"), "{out}");
+}
+
+#[test]
+fn curdir_is_reported_where_the_directory_may_be_read() {
+    let policy = Policy::deny_all().grant_prefixes(Capability::FileRead, ["/srv/hidden/"]);
+    let out = trap("Debug.Print CurDir\n", secret_start(), policy);
+    assert_eq!(out, "/srv/hidden/work\n");
+    let out = trap("Debug.Print CurDir\n", secret_start(), Policy::allow_all());
+    assert_eq!(out, "/srv/hidden/work\n");
+    // A directory that was entered with a grant stays visible.
+    let policy = Policy::deny_all().grant_prefixes(Capability::FileRead, ["/srv/hidden/work"]);
+    let out = trap(
+        "ChDir \"/srv/hidden/work\"\nDebug.Print CurDir\n",
+        secret_start(),
+        policy,
+    );
+    assert_eq!(out, "/srv/hidden/work\n");
+}
+
+#[test]
+fn windows_spellings_never_reach_outside_a_drive_grant() {
+    let fs = SharedFs::with(&[("c:/work/in.txt", "ok"), ("c:/secret/key.txt", "no")]);
+    let policy = Policy::deny_all().grant_prefixes(Capability::FileRead, ["C:\\Work\\"]);
+    let attempts = [
+        ("C:\\WORK\\in.txt", 0),
+        ("c:/work/./in.txt", 0),
+        ("c:/work/.. /secret/key.txt", 70),
+        ("c:/work/.../secret/key.txt", 70),
+        ("c:/work/../secret/key.txt", 70),
+        ("c:\\work\\..\\secret\\key.txt", 70),
+        ("c:/work/in.txt:stream", 70),
+        ("c:/work/NUL", 70),
+        ("c:/work/COM1.txt", 70),
+        ("c:/work/PROGRA~1/x", 70),
+        ("\\\\?\\c:\\secret\\key.txt", 70),
+        ("\\\\?\\c:\\work\\in.txt", 70),
+        ("\\\\.\\c:\\work\\in.txt", 70),
+        ("\\\\server\\share\\work\\in.txt", 70),
+        ("//server/share/work/in.txt", 70),
+    ];
+    let mut body = String::new();
+    for (path, _) in &attempts {
+        let lit = path.replace('"', "\"\"");
+        body.push_str(&format!(
+            "Open \"{lit}\" For Input As #1\nT \"{lit}\"\nClose\n"
+        ));
+    }
+    let out = trap(&body, fs, policy);
+    for ((path, want), line) in attempts.iter().zip(out.lines()) {
+        let n: i32 = line.rsplit(' ').next().unwrap().parse().unwrap();
+        assert_eq!(n, *want, "{path}\n{out}");
+    }
+    assert_eq!(out.lines().count(), attempts.len());
+}
+
 #[test]
 fn kill_and_dir_do_not_reveal_files_outside_the_grant() {
     let fs = SharedFs::with(&[("/secret/key.txt", "no")]);

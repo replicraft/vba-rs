@@ -146,7 +146,35 @@ impl FileSystem {
     }
 
     fn allow(&self, cap: Capability, path: &str) -> R<()> {
-        self.host.check(cap, path).map_err(FsError::Info)
+        self.host.check(cap, path).map_err(|info| {
+            if self.cwd_is_visible() {
+                FsError::Info(info)
+            } else {
+                // The message names the resolved path, which would give away
+                // a working directory the program has no grant for.
+                FsError::Info(
+                    ErrInfo::standard(70).with_source(format!("vba-host: {} denied", cap.name())),
+                )
+            }
+        })
+    }
+
+    fn cwd_is_root(&self) -> bool {
+        self.cwd == "/" || self.cwd.len() == 3 && self.cwd.ends_with(":/")
+    }
+
+    /// Whether the program may know the working directory: it may read or
+    /// write there. A start directory that the policy does not cover is the
+    /// embedding application's, and `CurDir` and denial messages keep it
+    /// to themselves.
+    fn cwd_is_visible(&self) -> bool {
+        self.cwd_is_root() || self.cwd_is_granted()
+    }
+
+    fn cwd_is_granted(&self) -> bool {
+        let dir = dir_resource(&self.cwd);
+        self.host.check(Capability::FileRead, &dir).is_ok()
+            || self.host.check(Capability::FileWrite, &dir).is_ok()
     }
 
     fn resolve(&mut self, path: &str) -> R<String> {
@@ -757,7 +785,11 @@ impl FileSystem {
                     _ => vba(68),
                 }
             }
-            "curdir" => Ok(Variant::from_text(&self.cwd)),
+            "curdir" => Ok(Variant::from_text(if self.cwd_is_visible() {
+                &self.cwd
+            } else {
+                "/"
+            })),
             "dir" => {
                 let pat = match a.first() {
                     Some(Some(Variant::Empty)) | Some(None) | None => None,
