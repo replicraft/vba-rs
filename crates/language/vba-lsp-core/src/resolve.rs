@@ -11,7 +11,7 @@
 
 use vba_ast::Name;
 use vba_lexer::{Keyword, TokenKind};
-use vba_sema::{LocalKind, ModuleId, Symbol, Type};
+use vba_sema::{LibMember, LibraryType, LocalKind, ModuleId, Symbol, Type};
 use vba_syntax::{NodeKind, SyntaxNode, SyntaxToken};
 
 use crate::project::{Decl, Project, mid};
@@ -226,6 +226,33 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// The library type and member a member access denotes, when the
+    /// receiver is a library type and the provider describes the member.
+    pub fn lib_member(&self, recv: &Ty, name: &str) -> Option<(LibraryType, LibMember)> {
+        let Ty::Known(Type::Library(lt)) = recv else {
+            return None;
+        };
+        let p = self.proj.provider.as_deref()?;
+        let direct = p.member(lt, name).map(|m| (lt.clone(), m));
+        direct.or_else(|| {
+            let inner = p.class_info(lt)?.default_interface?;
+            p.member(&inner, name).map(|m| (inner, m))
+        })
+    }
+
+    /// Every member of a library type the provider can enumerate.
+    pub fn lib_members(&self, lt: &LibraryType) -> Vec<LibMember> {
+        let Some(p) = self.proj.provider.as_deref() else {
+            return Vec::new();
+        };
+        p.interface_members(lt)
+            .or_else(|| {
+                let inner = p.class_info(lt)?.default_interface?;
+                p.interface_members(&inner)
+            })
+            .unwrap_or_default()
+    }
+
     fn binding_ty(&self, b: &Binding) -> Ty {
         match b {
             Binding::Decl(d) => self.decl_ty(d),
@@ -285,6 +312,13 @@ impl<'a> Ctx<'a> {
                 .map_or(Ty::Unknown, |n| self.expr_ty(n)),
             NodeKind::MemberExpr => {
                 let b = self.member_binding(node);
+                if b == Binding::Unknown
+                    && let Some(name) = Self::name_token(node)
+                    && let Some((_, m)) = self
+                        .lib_member(&self.receiver_ty(node), &String::from_utf8_lossy(name.text()))
+                {
+                    return Ty::Known(m.ty);
+                }
                 self.binding_ty(&b)
             }
             NodeKind::CallExpr => {

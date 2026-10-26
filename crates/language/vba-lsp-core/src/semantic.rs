@@ -477,7 +477,7 @@ impl Workspace {
             ));
         }
         let refs: Vec<(&str, &Document)> = docs.iter().map(|(u, d)| (u.as_str(), d)).collect();
-        let after = Project::build(self.config(), &refs);
+        let after = Project::build(self.config(), &refs, proj.provider.clone());
         let count = |p: &Project| {
             let mut m: HashMap<(&'static str, usize), usize> = HashMap::new();
             for d in &p.sema.diagnostics {
@@ -631,6 +631,57 @@ impl View<'_> {
         Some(Sem { proj, m })
     }
 
+    /// Signature of a call to a member of a library type: the callee token
+    /// is the member name of a member access whose receiver the project
+    /// types as a library type.
+    pub(crate) fn lib_signature(
+        &self,
+        tokens: &[SyntaxToken<'_>],
+        callee: usize,
+        arg: u32,
+        named: Option<&str>,
+    ) -> Option<crate::types::SignatureHelp> {
+        let sem = self.sem()?;
+        let ctx = Ctx::new(&sem.proj, sem.m);
+        let t = tokens[callee];
+        let node = t.parent();
+        if node.kind() != NodeKind::MemberExpr {
+            return None;
+        }
+        let name = String::from_utf8_lossy(t.text()).into_owned();
+        let (owner, m) = ctx.lib_member(&ctx.receiver_ty(node), &name)?;
+        let (label, spans) = sem.proj.lib_member_sig(&owner, &m);
+        let n = m.params.len();
+        let idx = match named {
+            Some(nm) => m
+                .params
+                .iter()
+                .position(|p| p.name.eq_ignore_ascii_case(nm))
+                .map(|i| i as u32),
+            None => Some(arg),
+        };
+        let active = idx.and_then(|i| {
+            if (i as usize) < n {
+                Some(i)
+            } else if m.params.last().is_some_and(|p| p.param_array) {
+                Some(n as u32 - 1)
+            } else {
+                None
+            }
+        });
+        Some(crate::types::SignatureHelp {
+            signatures: vec![crate::types::SignatureInfo {
+                label,
+                documentation: Some(format!("Member of `{owner}`.")),
+                parameters: spans
+                    .into_iter()
+                    .map(|(start, end)| crate::types::ParameterInfo { start, end })
+                    .collect(),
+            }],
+            active_parameter: active,
+        })
+    }
+
     /// Type-aware hover for names bound by the project: the declaration
     /// with its declared type, signature or constant value.
     pub(crate) fn semantic_hover(
@@ -672,8 +723,31 @@ impl View<'_> {
                         .to_string(),
                 ],
             ),
-            Binding::Unknown => None,
+            Binding::Unknown => self.lib_hover(&ctx, &sem.proj, &t, fence),
         }
+    }
+
+    /// Hover for a member of a library type described by the embedding
+    /// application's type provider.
+    fn lib_hover(
+        &self,
+        ctx: &Ctx<'_>,
+        proj: &Project,
+        t: &SyntaxToken<'_>,
+        fence: impl Fn(String, Vec<String>) -> Option<Hover>,
+    ) -> Option<Hover> {
+        let node = t.parent();
+        if node.kind() != NodeKind::MemberExpr {
+            return None;
+        }
+        let name = String::from_utf8_lossy(t.text()).into_owned();
+        let (owner, m) = ctx.lib_member(&ctx.receiver_ty(node), &name)?;
+        let (label, _) = proj.lib_member_sig(&owner, &m);
+        let mut extra = vec![format!("Member of `{owner}`.")];
+        if m.is_default {
+            extra.push("Default member.".to_string());
+        }
+        fence(label, extra)
     }
 
     /// Members of the receiver before the dot at token `dot`, when the
@@ -774,6 +848,20 @@ impl View<'_> {
                 Some(items)
             }
             Ty::Known(Type::Variant | Type::Object | Type::Any) => Some(items),
+            Ty::Known(Type::Library(lt)) => {
+                for m in ctx.lib_members(&lt) {
+                    let kind = match m.kind {
+                        vba_sema::LibMemberKind::Method => CompletionKind::Procedure,
+                        _ => CompletionKind::Property,
+                    };
+                    items.push(CompletionItem {
+                        label: m.name.clone(),
+                        kind,
+                        detail: Some(proj.lib_member_sig(&lt, &m).0),
+                    });
+                }
+                Some(items)
+            }
             _ => None,
         }
     }

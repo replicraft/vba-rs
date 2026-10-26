@@ -4,13 +4,14 @@
 //! semantic features of a quiet workspace share one run.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use vba_ast::Visibility;
 use vba_lexer::TokenKind;
 use vba_project::ModuleKind;
 use vba_sema::{
     Analysis, DeclareId, EnumId, EventId, GlobalId, ModuleId, NoLibraries, ProcId, Symbol, Type,
-    UdtId,
+    TypeProvider, UdtId,
 };
 use vba_source::{FileId, Span};
 use vba_syntax::NodeKind;
@@ -18,6 +19,9 @@ use vba_syntax::NodeKind;
 use crate::document::{Config, Document};
 use crate::text::decode;
 use crate::util::{normalize, suffix_len};
+
+/// A type provider shared between the workspace and its project analyses.
+pub type SharedProvider = Arc<dyn TypeProvider + Send + Sync>;
 
 /// What a name denotes in the analysed project.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -80,6 +84,8 @@ pub(crate) struct Project {
     /// Display order of declarations for workspace symbols.
     pub order: Vec<Decl>,
     pub project_name: String,
+    /// The embedding application's view of type libraries and host types.
+    pub provider: Option<SharedProvider>,
 }
 
 pub(crate) fn mid(i: usize) -> ModuleId {
@@ -173,7 +179,11 @@ fn name_span(start: u32, end: u32, suffix: u32) -> Span {
 
 impl Project {
     /// Analyses `docs` (sorted by URI) as one project.
-    pub fn build(config: &Config, docs: &[(&str, &Document)]) -> Project {
+    pub fn build(
+        config: &Config,
+        docs: &[(&str, &Document)],
+        provider: Option<SharedProvider>,
+    ) -> Project {
         let mut mods = Vec::new();
         let mut sources = Vec::new();
         let mut by_uri = HashMap::new();
@@ -212,7 +222,11 @@ impl Project {
             constants: config.constants.clone(),
             ..vba_sema::Options::default()
         };
-        let sema = vba_sema::analyze_sources(&sources, &config.profile, &NoLibraries, &opts);
+        let lib: &dyn TypeProvider = match provider.as_deref() {
+            Some(p) => p,
+            None => &NoLibraries,
+        };
+        let sema = vba_sema::analyze_sources(&sources, &config.profile, lib, &opts);
         let mut p = Project {
             mods,
             by_uri,
@@ -221,6 +235,7 @@ impl Project {
             decl_at: HashMap::new(),
             order: Vec::new(),
             project_name: config.project_name.clone(),
+            provider,
         };
         p.index_decls();
         p

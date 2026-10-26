@@ -10,7 +10,7 @@ use vba_source::{FileId, SourceEncoding, Span};
 use vba_syntax::{SyntaxToken, SyntaxTree};
 
 use crate::document::{Analysis, Config, Document, TextChange};
-use crate::project::Project;
+use crate::project::{Project, SharedProvider};
 use crate::text::{Position, Range, decode};
 use crate::types::Error;
 
@@ -40,6 +40,7 @@ pub struct Workspace {
     config: Config,
     docs: IndexMap<String, Document>,
     providers: Vec<Box<dyn SemanticDiagnostics>>,
+    types: Option<SharedProvider>,
     /// Bumped by every open, edit, close and configuration change; the
     /// project analysis is cached against it.
     generation: u64,
@@ -66,6 +67,15 @@ impl Workspace {
         for d in self.docs.values_mut() {
             d.invalidate();
         }
+    }
+
+    /// Installs the embedding application's description of type libraries and
+    /// host object models (`None` removes it). With a provider, library types
+    /// resolve in the analysis, their members are completed and described,
+    /// and calls to their members get signature help.
+    pub fn set_type_provider(&mut self, provider: Option<SharedProvider>) {
+        self.types = provider;
+        self.generation += 1;
     }
 
     /// Registers an additional diagnostics provider.
@@ -130,7 +140,7 @@ impl Workspace {
         let mut docs: Vec<(&str, &Document)> =
             self.docs.iter().map(|(u, d)| (u.as_str(), d)).collect();
         docs.sort_by(|a, b| a.0.cmp(b.0));
-        let p = Arc::new(Project::build(&self.config, &docs));
+        let p = Arc::new(Project::build(&self.config, &docs, self.types.clone()));
         self.runs.fetch_add(1, Ordering::Relaxed);
         *slot = Some((self.generation, p.clone()));
         Some(p)

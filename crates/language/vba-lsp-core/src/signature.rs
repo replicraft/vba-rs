@@ -148,6 +148,12 @@ impl View<'_> {
         if leading_dot {
             return None;
         }
+        if name.contains('.')
+            && let Some(h) =
+                self.lib_signature(&tokens, site.callee, site.arg, site.named.as_deref())
+        {
+            return Some(h);
+        }
 
         let scopes = self.scopes();
         if !name.contains('.')
