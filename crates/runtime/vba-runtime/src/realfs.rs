@@ -6,7 +6,7 @@
 //! link inside a granted directory cannot reach outside it.
 
 use std::fs;
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,7 +26,12 @@ impl Default for RealFs {
 
 fn to_canonical_text(p: &Path) -> String {
     let s = p.to_string_lossy().replace('\\', "/");
-    let s = s.strip_prefix("//?/").unwrap_or(&s).to_owned();
+    // The verbatim forms Windows returns: `\\?\UNC\server\share` is the
+    // network path `//server/share`, `\\?\C:\x` is `c:/x`.
+    let s = match s.strip_prefix("//?/UNC/") {
+        Some(rest) => format!("//{rest}"),
+        None => s.strip_prefix("//?/").unwrap_or(&s).to_owned(),
+    };
     match s.as_bytes() {
         [d, b':', ..] if d.is_ascii_alphabetic() => {
             format!("{}{}", (*d as char).to_ascii_lowercase(), &s[1..])
@@ -129,6 +134,42 @@ impl RealFs {
     }
 }
 
+impl RealFs {
+    /// Fails unless `path` is already in the form [`Vfs::canonical`] returns.
+    /// The policy was checked against that form; a path that resolves
+    /// differently now (a link swapped in between the check and the use)
+    /// would be used for something the policy never saw.
+    fn exact(&mut self, path: &str) -> VfsResult<()> {
+        if self.canonical(path) == path {
+            Ok(())
+        } else {
+            Err(VfsError::Denied)
+        }
+    }
+
+    /// [`RealFs::exact`] for the directory that holds `path`, for the
+    /// operations that act on a final link itself and do not follow it.
+    fn exact_parent(&mut self, path: &str) -> VfsResult<()> {
+        let (parent, _) = split_parent(path);
+        self.exact(&parent)
+    }
+}
+
+/// Whether the open `file` is the file now found at `path`.
+#[cfg(unix)]
+fn is_same_file(file: &fs::File, path: &str) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (file.metadata(), fs::metadata(path)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn is_same_file(_file: &fs::File, _path: &str) -> bool {
+    true
+}
+
 impl Vfs for RealFs {
     fn canonical(&mut self, path: &str) -> String {
         let p = PathBuf::from(path);
@@ -148,6 +189,7 @@ impl Vfs for RealFs {
     }
 
     fn stat(&mut self, path: &str) -> VfsResult<Option<Stat>> {
+        self.exact(path)?;
         match fs::metadata(path) {
             Ok(m) => Ok(Some(stat_of(&m))),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -160,14 +202,20 @@ impl Vfs for RealFs {
     }
 
     fn read_limited(&mut self, path: &str, max: usize) -> VfsResult<Vec<u8>> {
+        self.exact(path)?;
         if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
             return Err(VfsError::IsADirectory);
         }
         ensure_not_special(path)?;
         let file = fs::File::open(path).map_err(|e| map_err(&e))?;
         // Checked on the open handle too, so a swap after the test above
-        // cannot turn the read into a device read.
+        // cannot turn the read into a device read, and the handle must be
+        // the file that the approved path names now.
         if !file.metadata().map_err(|e| map_err(&e))?.is_file() {
+            return Err(VfsError::Denied);
+        }
+        self.exact(path)?;
+        if !is_same_file(&file, path) {
             return Err(VfsError::Denied);
         }
         let mut out = Vec::new();
@@ -181,6 +229,7 @@ impl Vfs for RealFs {
     }
 
     fn write(&mut self, path: &str, data: &[u8]) -> VfsResult<()> {
+        self.exact(path)?;
         let (parent, _) = split_parent(path);
         if !fs::metadata(&parent).is_ok_and(|m| m.is_dir()) {
             return Err(VfsError::PathNotFound);
@@ -189,10 +238,24 @@ impl Vfs for RealFs {
             return Err(VfsError::IsADirectory);
         }
         ensure_not_special(path)?;
-        fs::write(path, data).map_err(|e| map_err(&e))
+        // Opened without truncating: nothing is destroyed until the handle
+        // is known to be the approved file.
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|e| map_err(&e))?;
+        self.exact(path)?;
+        if !file.metadata().map_err(|e| map_err(&e))?.is_file() || !is_same_file(&file, path) {
+            return Err(VfsError::Denied);
+        }
+        file.set_len(0).map_err(|e| map_err(&e))?;
+        file.write_all(data).map_err(|e| map_err(&e))
     }
 
     fn remove_file(&mut self, path: &str) -> VfsResult<()> {
+        self.exact_parent(path)?;
         if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
             return Err(VfsError::IsADirectory);
         }
@@ -200,6 +263,8 @@ impl Vfs for RealFs {
     }
 
     fn rename(&mut self, from: &str, to: &str) -> VfsResult<()> {
+        self.exact_parent(from)?;
+        self.exact_parent(to)?;
         if fs::symlink_metadata(to).is_ok() {
             return Err(VfsError::AlreadyExists);
         }
@@ -207,6 +272,8 @@ impl Vfs for RealFs {
     }
 
     fn copy(&mut self, from: &str, to: &str) -> VfsResult<()> {
+        self.exact(from)?;
+        self.exact(to)?;
         if fs::metadata(from).is_ok_and(|m| m.is_dir()) {
             return Err(VfsError::IsADirectory);
         }
@@ -216,6 +283,7 @@ impl Vfs for RealFs {
     }
 
     fn create_dir(&mut self, path: &str) -> VfsResult<()> {
+        self.exact_parent(path)?;
         let (parent, _) = split_parent(path);
         if fs::symlink_metadata(path).is_ok() {
             return Err(VfsError::AlreadyExists);
@@ -227,6 +295,7 @@ impl Vfs for RealFs {
     }
 
     fn remove_dir(&mut self, path: &str) -> VfsResult<()> {
+        self.exact_parent(path)?;
         match fs::metadata(path) {
             Ok(m) if m.is_dir() => fs::remove_dir(path).map_err(|e| map_err(&e)),
             Ok(_) => Err(VfsError::NotADirectory),
@@ -235,6 +304,7 @@ impl Vfs for RealFs {
     }
 
     fn list(&mut self, dir: &str) -> VfsResult<Vec<DirEntry>> {
+        self.exact(dir)?;
         let rd = fs::read_dir(dir).map_err(|e| match e.kind() {
             ErrorKind::NotFound => VfsError::PathNotFound,
             _ => map_err(&e),
@@ -258,6 +328,7 @@ impl Vfs for RealFs {
                 "the hidden and system attributes".into(),
             ));
         }
+        self.exact(path)?;
         let m = fs::metadata(path).map_err(|e| map_err(&e))?;
         let mut perm = m.permissions();
         perm.set_readonly(attributes & ATTR_READONLY != 0);
@@ -295,6 +366,71 @@ mod tests {
         assert_eq!(fs.remove_file(&file), Ok(()));
         assert_eq!(fs.remove_dir(&sub), Ok(()));
         assert_eq!(fs.stat(&file), Ok(None));
+    }
+
+    /// The state after another process swapped a link into a path that the
+    /// policy had already approved: the file system is handed a path that is
+    /// no longer canonical, and must not follow it.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_swapped_in_after_the_check_is_not_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = to_canonical_text(&fs::canonicalize(dir.path()).unwrap());
+        fs::create_dir(format!("{base}/allowed")).unwrap();
+        fs::create_dir(format!("{base}/outside")).unwrap();
+        fs::write(format!("{base}/outside/secret.txt"), "outside").unwrap();
+        std::os::unix::fs::symlink(
+            format!("{base}/outside/secret.txt"),
+            format!("{base}/allowed/file"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(format!("{base}/outside"), format!("{base}/allowed/dir"))
+            .unwrap();
+        let mut f = RealFs::new();
+        let via_file = format!("{base}/allowed/file");
+        let via_dir = format!("{base}/allowed/dir/secret.txt");
+        assert_eq!(f.read(&via_file), Err(VfsError::Denied));
+        assert_eq!(f.read_limited(&via_dir, 100), Err(VfsError::Denied));
+        assert_eq!(f.write(&via_file, b"x"), Err(VfsError::Denied));
+        assert_eq!(f.write(&via_dir, b"x"), Err(VfsError::Denied));
+        assert_eq!(
+            f.copy(&via_dir, &format!("{base}/allowed/c")),
+            Err(VfsError::Denied)
+        );
+        assert_eq!(
+            f.copy(&format!("{base}/allowed/x"), &via_dir),
+            Err(VfsError::Denied)
+        );
+        assert_eq!(f.remove_file(&via_dir), Err(VfsError::Denied));
+        assert_eq!(
+            f.rename(&via_dir, &format!("{base}/allowed/r")),
+            Err(VfsError::Denied)
+        );
+        assert_eq!(f.stat(&via_dir), Err(VfsError::Denied));
+        assert_eq!(
+            f.list(&format!("{base}/allowed/dir")),
+            Err(VfsError::Denied)
+        );
+        assert_eq!(
+            f.create_dir(&format!("{base}/allowed/dir/sub")),
+            Err(VfsError::Denied)
+        );
+        assert_eq!(
+            fs::read_to_string(format!("{base}/outside/secret.txt")).unwrap(),
+            "outside"
+        );
+        assert!(!Path::new(&format!("{base}/allowed/c")).exists());
+        assert!(!Path::new(&format!("{base}/allowed/r")).exists());
+        assert!(!Path::new(&format!("{base}/outside/sub")).exists());
+    }
+
+    #[test]
+    fn windows_verbatim_paths_become_the_canonical_spelling() {
+        let t = |s: &str| to_canonical_text(Path::new(s));
+        assert_eq!(t(r"\\?\C:\Users\Me"), "c:/Users/Me");
+        assert_eq!(t(r"\\?\UNC\srv\share\x"), "//srv/share/x");
+        assert_eq!(t(r"D:\a"), "d:/a");
+        assert_eq!(t("/usr/lib"), "/usr/lib");
     }
 
     #[cfg(unix)]

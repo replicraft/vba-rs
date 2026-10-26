@@ -154,10 +154,25 @@ pub trait Vfs {
 /// Normalizes `path` against `cwd` into the canonical form: backslashes
 /// become slashes, `.` and `..` are resolved lexically (`..` stops at the
 /// root), a drive letter is lower-cased. The result is absolute.
+///
+/// A network path (two separators and then a name: `\\server\share\x`)
+/// stays `//server/share/x`, and `..` cannot climb above the share. A device
+/// namespace (`\\.\` or `\\?\`) keeps its `.` or `?` as the server, so
+/// that nothing mistakes it for a plain name. Three or more separators are
+/// one.
 pub fn normalize(cwd: &str, path: &str) -> String {
     let path = path.replace('\\', "/");
+    let unc_input = path.starts_with("//") && path.as_bytes().get(2).is_some_and(|c| *c != b'/');
     let cwd = cwd.replace('\\', "/");
+    let cwd_unc = cwd.starts_with("//") && cwd.as_bytes().get(2).is_some_and(|c| *c != b'/');
+    if unc_input {
+        return normalize_unc(&[&path[2..]]);
+    }
     let (drive, rest, absolute) = split_drive(&path);
+    if cwd_unc && !absolute && drive.is_none() {
+        return normalize_unc(&[&cwd[2..], rest]);
+    }
+    let cwd = if cwd_unc { "/".to_owned() } else { cwd };
     let (cwd_drive, cwd_rest, _) = split_drive(&cwd);
     // `x:rel` (a drive without a root) is relative to the one working
     // directory; a path without a drive keeps the working directory's drive.
@@ -187,6 +202,27 @@ pub fn normalize(cwd: &str, path: &str) -> String {
     out.push('/');
     out.push_str(&segs.join("/"));
     out
+}
+
+/// `//server/share/...` from path pieces joined in order; the server and
+/// the share are never removed by `..`.
+fn normalize_unc(parts: &[&str]) -> String {
+    let mut segs: Vec<&str> = Vec::new();
+    for part in parts {
+        for s in part.split('/') {
+            match s {
+                "" => {}
+                "." if !segs.is_empty() => {}
+                ".." => {
+                    if segs.len() > 2 {
+                        segs.pop();
+                    }
+                }
+                s => segs.push(s),
+            }
+        }
+    }
+    format!("//{}", segs.join("/"))
 }
 
 fn split_drive(p: &str) -> (Option<char>, &str, bool) {
@@ -279,6 +315,24 @@ mod tests {
         // A drive-relative path (`a:x`) is resolved against the one working
         // directory; dots in the working directory are ignored.
         assert_eq!(normalize(".", "A::"), "a:/:");
+    }
+
+    #[test]
+    fn unc_paths_keep_their_server_and_share() {
+        assert_eq!(normalize("/", "\\\\srv\\share\\a\\b"), "//srv/share/a/b");
+        assert_eq!(
+            normalize("/w", "\\\\srv\\share\\a\\..\\..\\..\\b"),
+            "//srv/share/b"
+        );
+        assert_eq!(normalize("c:/w", "\\/srv/share/x"), "//srv/share/x");
+        assert_eq!(normalize("/", "\\\\srv"), "//srv");
+        assert_eq!(normalize("/", "//srv/share/a"), "//srv/share/a");
+        assert_eq!(normalize("/", "///srv/share/a"), "/srv/share/a");
+        assert_eq!(normalize("/", "\\\\.\\pipe\\x"), "//./pipe/x");
+        assert_eq!(normalize("/", "\\\\?\\c:\\x"), "//?/c:/x");
+        // A UNC working directory is kept for relative paths.
+        assert_eq!(normalize("//srv/share/d", "x"), "//srv/share/d/x");
+        assert_eq!(normalize("//srv/share/d", "../../x"), "//srv/share/x");
     }
 
     #[test]

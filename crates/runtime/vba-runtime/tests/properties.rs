@@ -157,8 +157,16 @@ proptest! {
         let once = normalize(&cwd, &path);
         prop_assert!(!once.contains('\\'));
         prop_assert!(once.starts_with('/') || once.as_bytes().get(1) == Some(&b':'));
-        prop_assert!(!once.split('/').any(|s| s == ".." || s == "."), "{once}");
-        prop_assert!(!once.contains("//"), "{once}");
+        // A network path keeps its two leading slashes and may name the
+        // device namespace (`//./`) as its server.
+        let unc = once.starts_with("//");
+        let body = if unc { &once[2..] } else { &once[..] };
+        let named = |i: usize, s: &str| s == "." && unc && i == 0;
+        prop_assert!(
+            !body.split('/').enumerate().any(|(i, s)| s == ".." || s == "." && !named(i, s)),
+            "{once}"
+        );
+        prop_assert!(!body.contains("//"), "{once}");
         prop_assert_eq!(normalize("/elsewhere", &once), once);
     }
 }
