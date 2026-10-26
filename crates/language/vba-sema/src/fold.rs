@@ -64,7 +64,16 @@ pub fn literal(lit: &Literal, profile: &Profile) -> Result<(Constant, Type), Str
             text,
             suffix,
         } => match suffix {
-            Some(TypeSuffix::Single) => (Value(Variant::Single(*value as f32)), Type::Single),
+            _ if !value.is_finite() => {
+                return Err("floating-point literal overflows its type".to_owned());
+            }
+            Some(TypeSuffix::Single) => {
+                let v = *value as f32;
+                if v.is_infinite() {
+                    return Err("floating-point literal overflows Single".to_owned());
+                }
+                (Value(Variant::Single(v)), Type::Single)
+            }
             Some(TypeSuffix::Currency) => {
                 let c = Currency::from_decimal_str(text)
                     .or_else(|_| Currency::from_f64(*value))
@@ -138,9 +147,9 @@ fn integer_literal(
                 Ok((Value(Variant::Integer(mag as u16 as i16)), Type::Integer))
             } else if mag <= 0xFFFF_FFFF {
                 Ok((Value(Variant::Long(mag as u32 as i32)), Type::Long))
-            } else if profile.supports(Feature::LongLong) {
-                Ok((Value(Variant::LongLong(mag as i64)), Type::LongLong))
             } else {
+                // MS-VBAL 3.3.2: without the `^` suffix a radix literal beyond
+                // 32 bits is not a valid INTEGER.
                 Err("hexadecimal or octal literal exceeds 32 bits".to_owned())
             }
         }
