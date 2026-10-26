@@ -79,6 +79,14 @@ impl Binder<'_, '_> {
                 } else {
                     Some(&args[..])
                 };
+                // MS-VBAL 5.4.2.9: a bare label name in a single-line `If`
+                // acts as a `GoTo` to that label.
+                if a.is_none()
+                    && let ExprKind::Name(i) = &callee.kind
+                    && let Some(&id) = self.label_map.get(&LabelKey::Name(i.name.clone()))
+                {
+                    return self.stmt(span, BStmtKind::GoTo(id));
+                }
                 let e = self.bind_ref(callee, a, true);
                 if e.ty.is_error() {
                     return None;
