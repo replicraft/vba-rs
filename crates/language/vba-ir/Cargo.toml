@@ -1,0 +1,25 @@
+[package]
+name = "vba-ir"
+description = "VM-friendly intermediate representation for VBA: basic-block CFGs lowered from the vba-sema bound model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-ast.workspace = true
+vba-diagnostics.workspace = true
+vba-sema.workspace = true
+vba-source.workspace = true
+vba-value.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+expect-test.workspace = true
+proptest.workspace = true
+vba-profile.workspace = true
+vba-project.workspace = true
+vba-syntax.workspace = true
+
+[lints]
+workspace = true
