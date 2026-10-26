@@ -120,7 +120,8 @@ assert_eq!(inst.run("Twice", vec![21.into()]).unwrap().value, vba::Variant::Long
 
 The engine decides what the program can reach: `grant(Capability::..)`,
 `grant_prefixes`, `limits`/`max_steps`/`unlimited()` (finite by default),
-`vm_config`, `real_files()`, `system_environment()`. Nothing is ambient. `analyze` uses the same engine
+`vm_config`, `real_files()`, `system_environment()`, `fixed_clock(date)` (also the year of date
+literals such as `#3/4#`), `strict_spec(true)`. Nothing is ambient. `analyze` uses the same engine
 configuration (registered globals, host members) as `load`.
 
 ## 3. Host objects: `Application`-like globals and `DoCmd`-like objects

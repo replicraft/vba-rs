@@ -230,7 +230,8 @@ bridge failure or internal error, 6 the project is compiled-only or a call
 needs a module without source (`Error::CompiledOnly`). `check` and `parse` of a
 project with any module lacking source also exit 6 (not 1: the input is
 well-formed but there is nothing to analyse); `run --allow-partial` accepts a
-mixed project (never a fully compiled-only one). `inspect` always succeeds on a
+mixed project (never a fully compiled-only one). `check` and `run` accept `--strict-spec`, which
+turns the spec-strict warnings (see `docs/language/spec-coverage.md`) into errors. `inspect` always succeeds on a
 readable project and prints `Source availability:` plus, per module, whether
 source is present, empty, compiled-only (with the cache size) or absent
 without a cache, and a note for ambiguous cases.
