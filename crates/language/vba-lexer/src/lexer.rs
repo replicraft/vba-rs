@@ -126,6 +126,10 @@ pub struct Lexer<'a> {
     prev_operand: bool,
     /// Whether the previous significant token was `.`.
     prev_dot: bool,
+    /// Whether the previous significant token names a statement that takes a
+    /// file number (`Print`, `Write`, `Get`, `Width`...): a following `#`
+    /// followed by a file number is not a date literal.
+    prev_file_stmt: bool,
     diags: Vec<Diagnostic>,
 }
 
@@ -144,6 +148,7 @@ impl<'a> Lexer<'a> {
             opts,
             prev_operand: false,
             prev_dot: false,
+            prev_file_stmt: false,
             diags: Vec::new(),
         }
     }
@@ -493,6 +498,28 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
+        // `Print #1, 5#`: after a file statement, `#` followed by a file number
+        // (digits or a name) and then a separator is the file-number marker,
+        // even where the text up to a later `#` would read as a date
+        // (`#1, 5#`). `Debug.Print #3/4#` is still a date literal.
+        if self.prev_file_stmt {
+            let mut k = start + 1;
+            while self.byte(k).is_some_and(|b| is(b, ID_CONT)) {
+                k += 1;
+            }
+            if k > start + 1 {
+                while matches!(self.byte(k), Some(b' ' | b'\t')) {
+                    k += 1;
+                }
+                if matches!(
+                    self.byte(k),
+                    None | Some(b',' | b';' | b'\r' | b'\n' | b':' | b'\'' | b')')
+                ) {
+                    self.pos = start + 1;
+                    return TokenKind::Hash;
+                }
+            }
+        }
         // Date literal.
         let mut i = start + 1;
         while i < s.len() && is_date_byte(s[i]) {
@@ -647,6 +674,31 @@ impl<'a> Iterator for Lexer<'a> {
             self.pos = start + 1;
         }
         self.update_state(kind);
+        self.prev_file_stmt = if kind.is_trivia() {
+            self.prev_file_stmt
+        } else {
+            match kind {
+                TokenKind::Keyword(k) => matches!(
+                    k,
+                    Keyword::Print
+                        | Keyword::Write
+                        | Keyword::Input
+                        | Keyword::Get
+                        | Keyword::Put
+                        | Keyword::Seek
+                        | Keyword::Open
+                        | Keyword::Close
+                        | Keyword::Lock
+                        | Keyword::Unlock
+                        | Keyword::As
+                ),
+                TokenKind::Ident => {
+                    let t = &self.src[start..self.pos];
+                    t.eq_ignore_ascii_case(b"width") || t.eq_ignore_ascii_case(b"reset")
+                }
+                _ => false,
+            }
+        };
         Some(Token {
             kind,
             span: Span::new(start as u32, self.pos as u32),
