@@ -343,9 +343,10 @@ fn finish_signature(p: &mut ProcModel) {
             }
         };
         // Bits 0x01/0x02 of the modifier distinguish `Dim` from `Const`;
-        // 0x20 is WithEvents; 0x10 adds an unexplained word.
+        // 0x20 is WithEvents; 0x10 only adds a layout word (seen on
+        // declarations whose `As` is aligned with extra spaces).
         let m = ins.modifier;
-        if m & 0x30 != 0 || m & 0x03 != 1 {
+        if m & 0x20 != 0 || m & 0x03 != 1 {
             p.signature_problem = Some(unsup(
                 ins.opcode,
                 &name,
@@ -370,7 +371,7 @@ fn finish_signature(p: &mut ProcModel) {
     // A `Dim` marker with a scope flag other than the plain local one means
     // `Static`/`Public`/`Private` inside a procedure.
     for (l, ins) in &p.body {
-        if ins.opcode == Opcode::DimMarker && ins.modifier & 0x3D != 0 {
+        if ins.opcode == Opcode::DimMarker && ins.modifier & 0x2D != 0 {
             p.signature_problem =
                 Some(unsup(ins.opcode, &name, *l, "Static or scoped declaration"));
             return;

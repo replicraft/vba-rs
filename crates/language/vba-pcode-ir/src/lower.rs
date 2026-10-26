@@ -10,8 +10,9 @@ use std::collections::HashMap;
 
 use vba_ast::{BinaryOp as AstBin, CompareMode as AstCompare};
 use vba_ir::{
-    BinOp, Block, BlockId, CallArg, Callee, Function, Inst, InstKind, Operand as IrOperand,
-    OutItem, RefPlace, Reg, Slot, SlotRole, StmtId, StmtInfo, StoreMode, Terminator, UnOp,
+    BinOp, Block, BlockId, CallArg, Callee, ErrMode, Function, Inst, InstKind,
+    Operand as IrOperand, OutItem, Point, RefPlace, Reg, Slot, SlotRole, StmtId, StmtInfo,
+    StoreMode, Terminator, UnOp,
 };
 use vba_pcode::{Evidence, Listed, Opcode, Operand};
 use vba_sema::bound::Constant;
@@ -91,6 +92,7 @@ enum Frame {
     },
     For {
         head: BlockId,
+        body: BlockId,
         next_b: BlockId,
         exit: BlockId,
         counter: LocalId,
@@ -99,6 +101,7 @@ enum Frame {
     },
     Loop {
         head: BlockId,
+        body: BlockId,
         exit: BlockId,
     },
     Select {
@@ -120,6 +123,7 @@ enum Frame {
 struct BlockBuf {
     insts: Vec<Inst>,
     term: Option<Terminator>,
+    term_stmt: StmtId,
 }
 
 /// Context needed to lower one procedure.
@@ -157,6 +161,8 @@ struct Lw<'a> {
     print: Option<(Vec<Ex>, Vec<OutItem>)>,
     line: usize,
     stmt_line: usize,
+    /// The procedure contains `On Error`: statements need resume points.
+    has_on_error: bool,
 }
 
 type R<T> = Result<T, Unsupported>;
@@ -225,6 +231,7 @@ pub(crate) fn lower_body(
         blocks: vec![BlockBuf {
             insts: Vec::new(),
             term: None,
+            term_stmt: StmtId(0),
         }],
         stmts: Vec::new(),
         cur: BlockId(0),
@@ -237,6 +244,7 @@ pub(crate) fn lower_body(
         print: None,
         line: header_line,
         stmt_line: usize::MAX,
+        has_on_error: body.iter().any(|(_, i)| i.opcode == Opcode::ErrHandlerSet),
     };
     lw.begin_stmt();
     let mut last_op = Opcode::ProcHeader;
@@ -283,6 +291,7 @@ impl Lw<'_> {
         self.blocks.push(BlockBuf {
             insts: Vec::new(),
             term: None,
+            term_stmt: StmtId(0),
         });
         BlockId(self.blocks.len() as u32 - 1)
     }
@@ -315,8 +324,32 @@ impl Lw<'_> {
 
     fn terminate(&mut self, t: Terminator) {
         if !self.is_terminated() {
-            self.blocks[self.cur.0 as usize].term = Some(t);
+            let stmt = self.cur_stmt;
+            let b = &mut self.blocks[self.cur.0 as usize];
+            b.term = Some(t);
+            b.term_stmt = stmt;
         }
+    }
+
+    fn here(&self) -> Point {
+        Point {
+            block: self.cur,
+            index: self.blocks[self.cur.0 as usize].insts.len() as u32,
+        }
+    }
+
+    /// Ends a simple statement: `Resume Next` continues right here.
+    fn close_stmt(&mut self) {
+        let p = self.here();
+        let s = &mut self.stmts[self.cur_stmt.0 as usize];
+        if s.resume_next.is_none() {
+            s.resume_next = Some(p);
+        }
+    }
+
+    /// `Resume Next` of the current statement continues at the start of `b`.
+    fn resume_at(&mut self, b: BlockId) {
+        self.stmts[self.cur_stmt.0 as usize].resume_next = Some(Point { block: b, index: 0 });
     }
 
     fn jump_to(&mut self, b: BlockId) {
@@ -332,13 +365,12 @@ impl Lw<'_> {
 
     fn finish(mut self, template: &Function) -> Lowered {
         let blocks = std::mem::take(&mut self.blocks);
-        let stmt = self.cur_stmt;
         let blocks: Vec<Block> = blocks
             .into_iter()
             .map(|b| Block {
                 insts: b.insts,
                 term: b.term.unwrap_or(Terminator::Unreachable),
-                term_stmt: stmt,
+                term_stmt: b.term_stmt,
                 term_span: SPAN,
             })
             .collect();
@@ -777,9 +809,14 @@ impl Lw<'_> {
         let ins = &body[i].1;
         let op = ins.opcode;
         if is_layout_only(op) {
+            // A statement marker starts a new statement of its own (needed
+            // for `Resume Next` after the statement).
+            if self.has_on_error && matches!(op, Opcode::StmtBegin | Opcode::StmtBeginImplicit) {
+                self.begin_stmt();
+            }
             return Ok(1);
         }
-        if op.evidence() != Evidence::Verified {
+        if op.evidence() != Evidence::Verified && !self.accepted_without_verification(ins) {
             return Err(self.no(op, format!("opcode is not verified ({:?})", op.evidence())));
         }
         match op {
@@ -896,7 +933,17 @@ impl Lw<'_> {
                 let e = self.read_name_call(ins, &name, suffix, args)?;
                 self.stack.push(e);
             }
-            Opcode::WriteSimple => self.assign(ins)?,
+            Opcode::WriteSimple => {
+                self.assign(ins)?;
+                self.close_stmt();
+            }
+            Opcode::ErrHandlerSet => {
+                self.emit(InstKind::SetErrorMode {
+                    mode: ErrMode::ResumeNext,
+                });
+                self.close_stmt();
+            }
+
             // ---- statements ----
             Opcode::DimMarker | Opcode::VarDecl | Opcode::OptionStmt => {}
             Opcode::InvokeSimple => {
@@ -909,6 +956,7 @@ impl Lw<'_> {
                 let call = self.statement_call(ins, &name, suffix, args)?;
                 self.expect_empty(ins)?;
                 self.emit_call_stmt(&call);
+                self.close_stmt();
             }
             Opcode::IfBlockOpen => {
                 let c = self.pop(ins)?;
@@ -918,6 +966,7 @@ impl Lw<'_> {
                 let then_b = self.new_block();
                 let else_b = self.new_block();
                 let end = self.new_block();
+                self.resume_at(then_b);
                 self.terminate(Terminator::Branch {
                     cond: co,
                     then_block: then_b,
@@ -938,6 +987,7 @@ impl Lw<'_> {
                 let then_b = self.new_block();
                 let else_b = self.new_block();
                 let end = self.new_block();
+                self.resume_at(then_b);
                 self.terminate(Terminator::Branch {
                     cond: co,
                     then_block: then_b,
@@ -968,6 +1018,7 @@ impl Lw<'_> {
                 let co = self.emit_ex(&c);
                 let then_b = self.new_block();
                 let else_b = self.new_block();
+                self.resume_at(then_b);
                 self.terminate(Terminator::Branch {
                     cond: co,
                     then_block: then_b,
@@ -1010,6 +1061,7 @@ impl Lw<'_> {
             },
             Opcode::LeaveFunction | Opcode::LeaveSub => {
                 self.terminate_and_continue(Terminator::Return);
+                self.close_stmt();
             }
             Opcode::LeaveFor => {
                 let exit = self.frames.iter().rev().find_map(|f| match f {
@@ -1020,6 +1072,7 @@ impl Lw<'_> {
                     return Err(self.no(op, "Exit For outside a For loop"));
                 };
                 self.terminate_and_continue(Terminator::Jump(exit));
+                self.close_stmt();
             }
             Opcode::ForVarExprOpen => {
                 self.for_depth = Some(self.stack.len());
@@ -1040,10 +1093,15 @@ impl Lw<'_> {
                 let head = self.new_block();
                 let body_b = self.new_block();
                 let exit = self.new_block();
+                self.resume_at(body_b);
                 self.jump_to(head);
                 self.terminate(Terminator::Jump(body_b));
                 self.switch_to(body_b);
-                self.frames.push(Frame::Loop { head, exit });
+                self.frames.push(Frame::Loop {
+                    head,
+                    body: body_b,
+                    exit,
+                });
             }
             Opcode::DoOpenWhile | Opcode::DoOpenUntil | Opcode::WhileOpen => {
                 let c = self.pop(ins)?;
@@ -1052,6 +1110,7 @@ impl Lw<'_> {
                 let head = self.new_block();
                 let body_b = self.new_block();
                 let exit = self.new_block();
+                self.resume_at(body_b);
                 self.jump_to(head);
                 let c = self.coerce_condition(c);
                 let co = self.emit_ex(&c);
@@ -1066,10 +1125,14 @@ impl Lw<'_> {
                     else_block: e,
                 });
                 self.switch_to(body_b);
-                self.frames.push(Frame::Loop { head, exit });
+                self.frames.push(Frame::Loop {
+                    head,
+                    body: body_b,
+                    exit,
+                });
             }
             Opcode::DoClose | Opcode::WhileClose => match self.frames.pop() {
-                Some(Frame::Loop { head, exit }) => {
+                Some(Frame::Loop { head, exit, .. }) => {
                     self.terminate(Terminator::Jump(head));
                     self.switch_to(exit);
                 }
@@ -1079,8 +1142,9 @@ impl Lw<'_> {
                 let c = self.pop(ins)?;
                 self.expect_empty(ins)?;
                 match self.frames.pop() {
-                    Some(Frame::Loop { head, exit }) => {
+                    Some(Frame::Loop { head, body, exit }) => {
                         self.begin_stmt();
+                        self.resume_at(body);
                         let c = self.coerce_condition(c);
                         let co = self.emit_ex(&c);
                         let (t, e) = if op == Opcode::DoCloseUntil {
@@ -1099,6 +1163,9 @@ impl Lw<'_> {
                 }
             }
             Opcode::SwitchBegin => {
+                if self.has_on_error {
+                    return Err(self.no(op, "Select Case in a procedure with On Error"));
+                }
                 let s = self.pop(ins)?;
                 self.expect_empty(ins)?;
                 let ty = s.ty();
@@ -1207,6 +1274,7 @@ impl Lw<'_> {
                             }
                         }
                         self.emit(InstKind::DebugPrint { items });
+                        self.close_stmt();
                     }
                 }
             }
@@ -1215,6 +1283,13 @@ impl Lw<'_> {
             }
         }
         Ok(1)
+    }
+
+    /// Opcodes that are lowered although the opcode table marks them
+    /// inferred: the form is pinned by the differential run against the
+    /// source-derived program (`On Error Resume Next`, modifier 1).
+    fn accepted_without_verification(&self, ins: &Listed) -> bool {
+        ins.opcode == Opcode::ErrHandlerSet && ins.modifier == 1
     }
 
     fn expect_empty(&self, ins: &Listed) -> R<()> {
@@ -1411,6 +1486,7 @@ impl Lw<'_> {
         let body_b = self.new_block();
         let next_b = self.new_block();
         let exit = self.new_block();
+        self.resume_at(body_b);
         self.jump_to(head);
         let cur = self.reg(counter_ty.clone());
         self.emit(InstKind::LoadLocal {
@@ -1432,6 +1508,7 @@ impl Lw<'_> {
         self.switch_to(body_b);
         self.frames.push(Frame::For {
             head,
+            body: body_b,
             next_b,
             exit,
             counter: counter_id,
@@ -1457,6 +1534,7 @@ impl Lw<'_> {
         match self.frames.pop() {
             Some(Frame::For {
                 head,
+                body,
                 next_b,
                 exit,
                 counter,
@@ -1465,6 +1543,7 @@ impl Lw<'_> {
             }) => {
                 self.jump_to(next_b);
                 self.begin_stmt();
+                self.resume_at(body);
                 let cur = self.reg(counter_ty.clone());
                 self.emit(InstKind::LoadLocal {
                     dst: cur,

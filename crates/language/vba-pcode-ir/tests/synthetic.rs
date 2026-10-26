@@ -848,20 +848,10 @@ fn typed_integer_arithmetic_overflows_like_the_language() {
 fn unsupported_constructs_are_reported_with_opcode_procedure_and_line() {
     let mut t = Tables::default();
     let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
-    // Sub E: On Error Resume Next   (ERR_HANDLER_SET is not a verified opcode)
+    // Sub E: On Error GoTo <label>   (only the Resume Next form is lowered)
     let e = t.function("E", None, &[]);
     lines.push(Line::new().rec(Opcode::ProcHeader, 5, e));
-    lines.push(
-        Line::new()
-            .opm(Opcode::ErrHandlerSet, 1)
-            .0
-            .into_iter()
-            .fold(Line::new(), |mut l, b| {
-                l.0.push(b);
-                l
-            }),
-    );
-    lines[2].0.extend_from_slice(&0u16.to_le_bytes());
+    lines.push(on_error(0));
     lines.push(Line::new().op(Opcode::ProcEndSub));
     // Sub Caller calls E and therefore cannot be lowered either.
     let caller = t.function("Caller", None, &[]);
@@ -981,6 +971,70 @@ fn optional_parameters_with_and_without_defaults() {
         Variant::Boolean(false)
     );
     assert_eq!(run_args("Calc.Use", vec![]), l(8));
+}
+
+/// `On Error ...` with the given modifier (1 = Resume Next) and no target.
+fn on_error(modifier: u16) -> Line {
+    let mut l = Line::new().opm(Opcode::ErrHandlerSet, modifier);
+    l.0.extend_from_slice(&0u16.to_le_bytes());
+    l
+}
+
+#[test]
+fn on_error_resume_next_continues_after_the_failing_statement() {
+    let mut t = Tables::default();
+    let a = t.name("a");
+    let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
+    // Function R(a): On Error Resume Next: R = 5: R = a \ 0: R = a + 1
+    let r = t.name("R");
+    let f = t.function("R", Some(T_LONG), &[("a", T_LONG, true)]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(on_error(1));
+    lines.push(Line::new().i16(5).write(r));
+    lines.push(Line::new().read(a).i16(0).op(Opcode::NumIntDivide).write(r));
+    lines.push(Line::new().read(a).i16(1).op(Opcode::NumAdd).write(r));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    // Function Q(a): On Error Resume Next
+    //   If 1 \ a > 0 Then Q = 1 Else Q = 2     (the failing condition
+    //   continues in the Then branch, as the source lowering does)
+    let q = t.name("Q");
+    let f = t.function("Q", Some(T_LONG), &[("a", T_LONG, true)]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(on_error(1));
+    lines.push(
+        Line::new()
+            .i16(1)
+            .read(a)
+            .op(Opcode::NumIntDivide)
+            .i16(0)
+            .op(Opcode::CompareGreater)
+            .op(Opcode::IfBlockOpen),
+    );
+    lines.push(Line::new().i16(1).write(q));
+    lines.push(Line::new().op(Opcode::BlockElseBranch));
+    lines.push(Line::new().i16(2).write(q));
+    lines.push(Line::new().op(Opcode::BlockIfClose));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    // Function P(a) without a handler: the error propagates.
+    let pn = t.name("P");
+    let f = t.function("P", Some(T_LONG), &[("a", T_LONG, true)]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(
+        Line::new()
+            .read(a)
+            .i16(0)
+            .op(Opcode::NumIntDivide)
+            .write(pn),
+    );
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    let lp = lower(&t, &lines);
+    assert_eq!(lp.lowered_count(), 3, "{:?}", lp.procedures);
+    assert_eq!(value(&lp, "Calc.R", &[l(9)]), l(10));
+    assert_eq!(value(&lp, "Calc.Q", &[l(0)]), l(1));
+    assert_eq!(value(&lp, "Calc.Q", &[l(1)]), l(1));
+    assert_eq!(value(&lp, "Calc.Q", &[l(-1)]), l(2));
+    let (res, _) = run(&lp, "Calc.P", &[l(3)]);
+    assert!(res.is_err(), "no handler: division by zero propagates");
 }
 
 #[test]
