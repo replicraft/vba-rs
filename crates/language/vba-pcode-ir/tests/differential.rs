@@ -1,16 +1,19 @@
 //! Differential execution on a local project (ignored; set
 //! `VBA_PCODE_PROJECT`): the lowered cache program and the program compiled
 //! from the original source run the same procedures with the same arguments
-//! on `vba-vm`; results, `Debug.Print` output and errors must agree.
+//! on `vba-vm`; results, `Debug.Print` output, errors and everything done to
+//! the host base object of document-like modules must agree.
 #![allow(missing_docs)]
 
 mod common;
 
+use common::host::HostMock;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use vba_host::{HeadlessHost, ResourceLimits};
 use vba_ir::IrProgram;
-use vba_pcode_ir::{LoweredProject, ModuleInput, Outcome, lower_project};
+use vba_pcode_ir::{LowerOptions, LoweredProject, ModuleInput, lower_project_with_options};
 use vba_project::ModuleKind;
 use vba_sema::{SourceModule, Type};
 use vba_value::Variant;
@@ -64,7 +67,32 @@ fn arg_sets(params: &[(Type, bool)]) -> Vec<Vec<Option<Variant>>> {
     sets
 }
 
-fn run_one(ir: &Rc<IrProgram>, name: &str, args: &[Option<Variant>]) -> String {
+/// Which procedure of a module: name and kind (property procedures share a
+/// name).
+#[derive(Clone, Copy)]
+struct ProcSel<'a> {
+    name: &'a str,
+    kind: vba_ast::ProcKind,
+}
+
+fn find_proc(ir: &IrProgram, module: &str, sel: &ProcSel<'_>) -> Option<vba_sema::ProcId> {
+    let m = ir.program.module_by_name(module)?;
+    m.procs
+        .iter()
+        .map(|id| ir.program.proc(*id))
+        .find(|p| p.name.to_string().eq_ignore_ascii_case(sel.name) && p.kind == sel.kind)
+        .map(|p| p.id)
+}
+
+/// Runs a procedure: a standard-module one directly, a member of a
+/// class-like module on a fresh instance whose host base is the mock.
+fn run_one(
+    ir: &Rc<IrProgram>,
+    module: &str,
+    class_like: bool,
+    sel: &ProcSel<'_>,
+    args: &[Option<Variant>],
+) -> String {
     let sink = BufferSink::new();
     let host = HeadlessHost::new().with_limits(ResourceLimits {
         max_steps: Some(300_000),
@@ -81,37 +109,70 @@ fn run_one(ir: &Rc<IrProgram>, name: &str, args: &[Option<Variant>]) -> String {
         Ok(v) => v,
         Err(e) => return format!("vm: {e}"),
     };
-    let Some(p) = vm.find_procedure(name) else {
+    let Some(p) = find_proc(ir, module, sel) else {
         return "no such procedure".into();
     };
-    let r = vm.run_procedure(
-        p,
-        args.iter()
-            .cloned()
-            .map(|a| a.map_or(Arg::Missing, Arg::Value))
-            .collect(),
-    );
-    format!("{r:?} | out={:?}", sink.contents())
+    let args: Vec<Arg> = args
+        .iter()
+        .cloned()
+        .map(|a| a.map_or(Arg::Missing, Arg::Value))
+        .collect();
+    let journal = Rc::new(RefCell::new(Vec::new()));
+    let r = if class_like {
+        let Some(mid) = vm.find_module(module) else {
+            return "no such module".into();
+        };
+        let mock = HostMock::new(journal.clone());
+        let obj = match vm.create_instance(mid, Some(Rc::new(mock))) {
+            Ok(o) => o,
+            Err(e) => return format!("create: {e:?} | out={:?}", sink.contents()),
+        };
+        let r = vm.run_method(obj, p, args);
+        let d = vm.destroy_instance(&obj);
+        match (r, d) {
+            (Ok(o), Ok(())) => Ok(o),
+            (Ok(_), Err(e)) | (Err(e), _) => Err(e),
+        }
+    } else {
+        vm.run_procedure(p, args)
+    };
+    format!(
+        "{r:?} | out={:?} | host={:?}",
+        sink.contents(),
+        journal.borrow()
+    )
 }
 
-/// Source program with only the lowered procedures of the project.
-fn source_program(p: &common::Project, lp: &LoweredProject) -> Rc<IrProgram> {
+/// Source program with only the lowered procedures of the project, and the
+/// module-level declarations that the cache side generated.
+fn source_program(
+    p: &common::Project,
+    lp: &LoweredProject,
+    host_members: &[String],
+) -> Rc<IrProgram> {
     let mut mods = Vec::new();
     for m in &p.modules {
-        if m.kind != ModuleKind::Standard {
-            continue;
-        }
         let lines = common::logical_lines(&m.source);
         let mut text = String::new();
         for l in &lines {
             let t = String::from_utf8_lossy(l);
-            if t.trim_start()
-                .to_ascii_lowercase()
-                .starts_with("option compare")
-            {
+            let low = t.trim_start().to_ascii_lowercase();
+            if low.starts_with("option compare") || low.starts_with("option explicit") {
                 text.push_str(&t);
                 text.push('\n');
             }
+        }
+        let mut decl_lines: Vec<usize> = lp
+            .declarations
+            .iter()
+            .filter(|d| d.module == m.name && d.unsupported.is_none())
+            .map(|d| d.line)
+            .collect();
+        decl_lines.sort_unstable();
+        decl_lines.dedup();
+        for l in decl_lines {
+            text.push_str(&String::from_utf8_lossy(&lines[l]));
+            text.push('\n');
         }
         for r in lp
             .procedures
@@ -125,7 +186,7 @@ fn source_program(p: &common::Project, lp: &LoweredProject) -> Rc<IrProgram> {
         }
         mods.push(SourceModule {
             name: m.name.clone(),
-            kind: ModuleKind::Standard,
+            kind: common::role(m),
             source: text.into_bytes(),
         });
     }
@@ -133,7 +194,10 @@ fn source_program(p: &common::Project, lp: &LoweredProject) -> Rc<IrProgram> {
         &mods,
         vba_profile::default_profile(),
         &vba_sema::NoLibraries,
-        &vba_sema::Options::default(),
+        &vba_sema::Options {
+            host_members: host_members.to_vec(),
+            ..vba_sema::Options::default()
+        },
     );
     let errs: Vec<String> = a
         .diagnostics
@@ -160,31 +224,47 @@ fn lowered_procedures_agree_with_source() {
         .iter()
         .map(|m| ModuleInput {
             name: &m.name,
-            class_like: m.kind != ModuleKind::Standard,
+            kind: common::role(m),
             cache: &m.cache,
         })
         .collect();
-    let lp = lower_project(&p.project_stream, p.sys_kind, &inputs).expect("lowers");
+    let options = LowerOptions {
+        host_members: common::host_member_names(&p),
+    };
+    let lp = lower_project_with_options(&p.project_stream, p.sys_kind, &inputs, &options)
+        .expect("lowers");
     let total = lp.procedures.len();
     let lowered = lp.lowered_count();
-    let src = source_program(&p, &lp);
+    let src = source_program(&p, &lp, &options.host_members);
     let cache_ir = Rc::new(lp.ir.clone());
-    let (mut ran, mut runs, mut mismatches, mut errors_both) = (0usize, 0usize, 0usize, 0usize);
+    let class_like_of = |name: &str| {
+        p.modules
+            .iter()
+            .any(|m| m.name == name && m.kind != ModuleKind::Standard)
+    };
+    // `[std, class-like]`
+    let (mut ran, mut runs, mut mismatches, mut errors_both) = ([0usize; 2], [0usize; 2], 0, 0);
+    let mut lowered_by = [0usize; 2];
     for r in lp.procedures.iter().filter(|r| r.outcome.is_lowered()) {
         let Some(id) = r.id else { continue };
-        let params: Vec<(Type, bool)> = cache_ir
-            .program
-            .proc(id)
+        let cl = usize::from(class_like_of(&r.module));
+        lowered_by[cl] += 1;
+        let info = cache_ir.program.proc(id);
+        let params: Vec<(Type, bool)> = info
             .params
             .iter()
             .map(|q| (q.ty.clone(), q.optional))
             .collect();
+        let sel = ProcSel {
+            name: &r.procedure,
+            kind: info.kind,
+        };
         let full = format!("{}.{}", r.module, r.procedure);
         let mut any = false;
         for args in arg_sets(&params) {
-            let a = run_one(&src, &full, &args);
-            let b = run_one(&cache_ir, &full, &args);
-            runs += 1;
+            let a = run_one(&src, &r.module, cl == 1, &sel, &args);
+            let b = run_one(&cache_ir, &r.module, cl == 1, &sel, &args);
+            runs[cl] += 1;
             any = true;
             if a.starts_with("Err") {
                 errors_both += 1;
@@ -192,13 +272,24 @@ fn lowered_procedures_agree_with_source() {
             if a != b {
                 mismatches += 1;
                 println!("MISMATCH {full} {args:?}\n  source: {a}\n  cache : {b}");
+                if std::env::var_os("DUMP_IR").is_some() {
+                    for (label, ir) in [("source", &src), ("cache", &cache_ir)] {
+                        if let Some(pid) = find_proc(ir, &r.module, &sel) {
+                            let f = ir.function_of(pid);
+                            println!(
+                                "--- {label} IR\n{}",
+                                vba_ir::dump_function(ir, f, vba_ir::DumpOptions::default())
+                            );
+                        }
+                    }
+                }
             }
         }
-        ran += any as usize;
+        ran[cl] += usize::from(any);
     }
     println!(
-        "procedures {total}, lowered {lowered}, executed {ran}, runs {runs} (source-side errors {errors_both}), mismatches {mismatches}"
+        "procedures {total}, lowered {lowered} (standard {}, class-like {}), executed {} + {}, runs {} + {} (source-side errors {errors_both}), mismatches {mismatches}",
+        lowered_by[0], lowered_by[1], ran[0], ran[1], runs[0], runs[1]
     );
     assert_eq!(mismatches, 0);
-    let _ = Outcome::Lowered;
 }

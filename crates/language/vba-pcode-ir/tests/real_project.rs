@@ -5,7 +5,7 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use vba_pcode_ir::{ModuleInput, Outcome, lower_project};
+use vba_pcode_ir::{LowerOptions, ModuleInput, Outcome, lower_project_with_options};
 
 #[test]
 #[ignore = "needs a local project (VBA_PCODE_PROJECT)"]
@@ -16,71 +16,69 @@ fn lowering_summary() {
         .iter()
         .map(|m| ModuleInput {
             name: &m.name,
-            class_like: m.kind != vba_project::ModuleKind::Standard,
+            kind: common::role(m),
             cache: &m.cache,
         })
         .collect();
-    let lp = lower_project(&p.project_stream, p.sys_kind, &inputs).expect("lowers");
+    let options = LowerOptions {
+        host_members: common::host_member_names(&p),
+    };
+    let lp = lower_project_with_options(&p.project_stream, p.sys_kind, &inputs, &options)
+        .expect("lowers");
     let total = lp.procedures.len();
     let lowered = lp.lowered_count();
     println!("procedures {total}, lowered {lowered}");
-    let std_names: Vec<&str> = p
-        .modules
-        .iter()
-        .filter(|m| m.kind == vba_project::ModuleKind::Standard)
-        .map(|m| m.name.as_str())
-        .collect();
-    let in_std = lp
-        .procedures
-        .iter()
-        .filter(|r| std_names.contains(&r.module.as_str()))
-        .count();
-    let declares = lp
-        .procedures
-        .iter()
-        .filter(|r| {
-            std_names.contains(&r.module.as_str())
-                && matches!(&r.outcome, Outcome::Unsupported(u) if u.reason == "Declare")
-        })
-        .count();
-    println!(
-        "standard-module procedures {in_std} (of which Declare {declares}), lowered {lowered}"
-    );
-    let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
-    for r in &lp.procedures {
-        if let Outcome::Unsupported(u) = &r.outcome {
-            *reasons
-                .entry(format!("{} | {}", u.opcode.label(), u.reason))
-                .or_default() += 1;
+    let is_std = |name: &str| {
+        p.modules
+            .iter()
+            .any(|m| m.name == name && m.kind == vba_project::ModuleKind::Standard)
+    };
+    let is_decl = |r: &vba_pcode_ir::ProcedureReport| matches!(&r.outcome, Outcome::Unsupported(u) if u.reason == "Declare");
+    for (label, want_std) in [("standard", true), ("class-like", false)] {
+        let all: Vec<_> = lp
+            .procedures
+            .iter()
+            .filter(|r| is_std(&r.module) == want_std)
+            .collect();
+        let declares = all.iter().filter(|r| is_decl(r)).count();
+        let ok = all.iter().filter(|r| r.outcome.is_lowered()).count();
+        println!(
+            "{label}-module procedures {} (of which Declare {declares}), lowered {ok}",
+            all.len()
+        );
+        let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
+        for r in &all {
+            if let Outcome::Unsupported(u) = &r.outcome {
+                *reasons
+                    .entry(format!("{} | {}", u.opcode.label(), u.reason))
+                    .or_default() += 1;
+            }
+        }
+        let mut v: Vec<_> = reasons.into_iter().collect();
+        v.sort_by_key(|x| std::cmp::Reverse(x.1));
+        for (k, n) in v.iter().take(40) {
+            println!("{n:5} {k}");
         }
     }
-    let mut v: Vec<_> = reasons.into_iter().collect();
-    v.sort_by_key(|x| std::cmp::Reverse(x.1));
-    for (k, n) in v.iter().take(40) {
-        println!("{n:5} {k}");
-    }
-    if std::env::var_os("SHOW_STANDARD").is_some() {
-        let std_mods: Vec<&str> = p
-            .modules
-            .iter()
-            .filter(|m| m.kind == vba_project::ModuleKind::Standard)
-            .map(|m| m.name.as_str())
-            .collect();
+    if std::env::var_os("SHOW_UNSUPPORTED").is_some() {
         for r in &lp.procedures {
             if let Outcome::Unsupported(u) = &r.outcome
-                && std_mods.contains(&r.module.as_str())
-                && u.reason != "Declare"
+                && !is_decl(r)
             {
                 println!("UNSUP {}.{}: {}", r.module, r.procedure, u);
             }
         }
     }
-    for r in lp
-        .procedures
+    let unsupported_decls = lp
+        .declarations
         .iter()
-        .filter(|r| r.outcome.is_lowered())
-        .take(60)
-    {
+        .filter(|d| d.unsupported.is_some())
+        .count();
+    println!(
+        "module-level declarations {}, left out {unsupported_decls}",
+        lp.declarations.len()
+    );
+    for r in lp.procedures.iter().filter(|r| r.outcome.is_lowered()) {
         println!("LOWERED {}.{}", r.module, r.procedure);
     }
 }
