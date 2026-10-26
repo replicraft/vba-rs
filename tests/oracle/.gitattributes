@@ -1,0 +1,2 @@
+# Keep CRLF in files imported into the VBA editor.
+*.bas -text
