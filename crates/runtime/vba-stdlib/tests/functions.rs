@@ -222,25 +222,13 @@ fn asc_chr() {
 /// Examples of the Microsoft Learn pages for `Round` and `Split`.
 #[test]
 fn learn_round_and_split_examples() {
-    let d = |x: f64, p: i32| {
-        (
-            "Round",
-            vec![Variant::Double(x), n(p)],
-            dbl(match x {
-                v if v == 0.12335 => 0.1234,
-                v if v == 0.12345 => 0.1234,
-                v if v == 0.12355 => 0.1236,
-                v if v == 0.12365 => 0.1236,
-                _ => 0.0,
-            }),
-        )
-    };
+    let d = |x: f64, want: f64| ("Round", vec![Variant::Double(x), n(4)], dbl(want));
     run(vec![
-        d(0.12335, 4),
-        d(0.12345, 4),
-        d(0.12355, 4),
-        d(0.12365, 4),
-        d(0.00005, 4),
+        d(0.12335, 0.1234),
+        d(0.12345, 0.1234),
+        d(0.12355, 0.1236),
+        d(0.12365, 0.1236),
+        d(0.00005, 0.0),
     ]);
     let mut e = Env::new();
     let full = "Dow - Fonseca - Graham - Kopke - Noval - Offley - Sandeman - Taylor - Warre";
