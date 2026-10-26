@@ -4,9 +4,11 @@
 //!
 //! Numbers are formatted from their 15-significant-digit decimal value with
 //! ties rounded away from zero. Locale data comes from the host
-//! ([`Locale`]); the default is en-US. Not implemented (explicit error):
-//! fraction formats and the `*` fill / `[color]` / `[condition]` features are
-//! parsed and ignored where they do not change the text.
+//! ([`Locale`]); the default is en-US. The Microsoft Learn Format reference
+//! (2024 revision) defines no fraction formats, no `*` fill, no `?`
+//! placeholder and no `[color]`/`[condition]` sections for VBA's `Format`; none
+//! is interpreted. For leniency `*x`, `_x`, `?` and `[...]` are skipped or
+//! approximated (undocumented, unverified).
 
 use crate::datetime::{rel_weekday, week_of_year};
 use crate::digits::{Dec, Rounding};
@@ -42,15 +44,68 @@ impl<'a> FormatEnv<'a> {
 
 /// `Format(expression, format)`. `Null` yields `Null`.
 pub fn format(value: &Variant, fmt: Option<&VbaString>, env: &FormatEnv<'_>) -> VbaResult<Variant> {
+    // "Format truncates format to 257 characters."
+    let fmt_text: String = fmt
+        .map(VbaString::to_string_lossy)
+        .unwrap_or_default()
+        .chars()
+        .take(MAX_FORMAT_CHARS)
+        .collect();
     if matches!(value, Variant::Null) {
-        return Ok(Variant::Null);
+        return Ok(match null_section(&fmt_text) {
+            Some(t) => Variant::String(VbaString::from(t)),
+            None => Variant::Null,
+        });
     }
-    let fmt_text = fmt.map(VbaString::to_string_lossy).unwrap_or_default();
     if fmt_text.is_empty() {
         return Ok(Variant::String(convert::to_vba_string(value)?));
     }
     let out = format_text(value, &fmt_text, env)?;
     Ok(Variant::String(VbaString::from(out)))
+}
+
+/// Maximum length of a format expression (documented truncation).
+const MAX_FORMAT_CHARS: usize = 257;
+
+/// The documented section for `Null`: the fourth section of a four-section
+/// numeric format, or the second section of a two-section string format.
+/// Only the literal text of that section is produced (placeholders have no
+/// digits to show). `None` means the result is `Null`.
+fn null_section(fmt: &str) -> Option<String> {
+    let chars: Vec<char> = fmt.chars().collect();
+    let secs = split_sections(&chars);
+    let stringy = fmt
+        .chars()
+        .any(|c| matches!(c, '@' | '&' | '<' | '>' | '!'));
+    let sec = match secs.len() {
+        4 => &secs[3],
+        2 if stringy => &secs[1],
+        _ => return None,
+    };
+    let mut out = String::new();
+    let mut i = 0;
+    while i < sec.len() {
+        match sec[i] {
+            '"' => {
+                let end = sec[i + 1..]
+                    .iter()
+                    .position(|&x| x == '"')
+                    .map_or(sec.len(), |p| i + 1 + p);
+                out.extend(&sec[i + 1..end]);
+                i = end;
+            }
+            '\\' => {
+                if let Some(&n) = sec.get(i + 1) {
+                    out.push(n);
+                }
+                i += 1;
+            }
+            '0' | '#' | '.' | ',' | '%' | '@' | '&' | '<' | '>' | '!' => {}
+            c => out.push(c),
+        }
+        i += 1;
+    }
+    Some(out)
 }
 
 enum Kind {
@@ -462,14 +517,18 @@ fn tokenize_number(c: &[char]) -> Vec<NTok> {
 fn number_with(x: f64, fmt: &str, env: &FormatEnv<'_>) -> String {
     let chars: Vec<char> = fmt.chars().collect();
     let secs = split_sections(&chars);
+    // An empty section between semicolons uses the positive format; for a
+    // negative value the minus sign is then added as with one section.
     let (sec, auto_minus) = if x > 0.0 || (x == 0.0 && secs.len() < 3) {
         (&secs[0], false)
     } else if x < 0.0 {
-        if secs.len() >= 2 {
+        if secs.len() >= 2 && !secs[1].is_empty() {
             (&secs[1], false)
         } else {
             (&secs[0], true)
         }
+    } else if secs[2].is_empty() {
+        (&secs[0], false)
     } else {
         (&secs[2], false)
     };
@@ -1183,5 +1242,125 @@ mod tests {
         assert_eq!(df("ddddd"), "3/5/2024");
         assert_eq!(f(Variant::Double(36526.0), "yyyy"), "2000");
         assert_eq!(df("0"), "45357");
+    }
+
+    // ---- Microsoft Learn "Format function (VBA)" examples, en-US assumed.
+
+    fn doc_time() -> Variant {
+        Variant::Date(Date::from_ymd_hms(1899, 12, 30, 17, 4, 23).unwrap())
+    }
+    fn doc_date() -> Variant {
+        Variant::Date(Date::from_ymd_hms(1993, 1, 27, 0, 0, 0).unwrap())
+    }
+
+    #[test]
+    fn learn_page_examples() {
+        assert_eq!(f(doc_time(), "h:m:s"), "17:4:23");
+        assert_eq!(f(doc_time(), "hh:mm:ss am/pm"), "05:04:23 pm");
+        assert_eq!(f(doc_time(), "hh:mm:ss AM/PM"), "05:04:23 PM");
+        assert_eq!(f(doc_date(), "dddd, mmm d yyyy"), "Wednesday, Jan 27 1993");
+        let loc = Locale::en_us();
+        let env = FormatEnv::new(&loc);
+        // No format: like Str but without the leading space.
+        assert_eq!(
+            format(&Variant::Long(23), None, &env).unwrap(),
+            Variant::from("23")
+        );
+        assert_eq!(n(5459.4, "##,##0.00"), "5,459.40");
+        assert_eq!(n(334.9, "###0.00"), "334.90");
+        assert_eq!(n(5.0, "0.00%"), "500.00%");
+        assert_eq!(f(Variant::from_text("HELLO"), "<"), "hello");
+        assert_eq!(f(Variant::from_text("This is it"), ">"), "THIS IS IT");
+    }
+
+    #[test]
+    fn learn_page_sections() {
+        // "$#,##0;($#,##0)"
+        assert_eq!(n(1234.0, "$#,##0;($#,##0)"), "$1,234");
+        assert_eq!(n(-1234.0, "$#,##0;($#,##0)"), "($1,234)");
+        assert_eq!(n(0.0, "$#,##0;($#,##0)"), "$0");
+        // "$#,##0;;\Z\e\r\o": the missing section uses the positive format.
+        let z = "$#,##0;;\\Z\\e\\r\\o";
+        assert_eq!(n(1234.0, z), "$1,234");
+        assert_eq!(n(0.0, z), "Zero");
+        // Negative: positive format; the minus sign is added as with one
+        // section (unverified against Office).
+        assert_eq!(n(-1234.0, z), "-$1,234");
+        // Three sections: positive; negative; zero.
+        assert_eq!(n(0.0, "0;-0;\"nil\""), "nil");
+        // Four sections: the fourth is for Null.
+        let loc = Locale::en_us();
+        let env = FormatEnv::new(&loc);
+        let four = VbaString::from("0;-0;0;\"none\"");
+        assert_eq!(
+            format(&Variant::Null, Some(&four), &env).unwrap(),
+            Variant::from("none")
+        );
+        let one = VbaString::from("0");
+        assert_eq!(format(&Variant::Null, Some(&one), &env).unwrap(), Variant::Null);
+        // Strings: second section for Null and "".
+        let two = VbaString::from("@@;\"empty\"");
+        assert_eq!(
+            format(&Variant::Null, Some(&two), &env).unwrap(),
+            Variant::from("empty")
+        );
+        assert_eq!(f(Variant::from_text(""), "@@;\"empty\""), "empty");
+        assert_eq!(f(Variant::from_text("x"), "@@;\"empty\""), " x");
+    }
+
+    #[test]
+    fn learn_page_thousands_scaling() {
+        assert_eq!(n(100_000_000.0, "##0,,"), "100");
+        assert_eq!(n(100_000.0, "##0,,"), "0");
+        // Two adjacent separators elsewhere only select grouping.
+        assert_eq!(n(1234567.0, "#,,##0"), "1,234,567");
+    }
+
+    #[test]
+    fn learn_page_literals_and_escapes() {
+        assert_eq!(n(5.0, "$0 (+)-"), "$5 (+)-");
+        assert_eq!(n(5.0, "0\\%"), "5%");
+        assert_eq!(n(5.0, "0\"%\""), "5%");
+        assert_eq!(n(5.0, "0\\\\"), "5\\");
+        assert_eq!(n(5.0, "\\a0"), "a5");
+        // Format is truncated to 257 characters.
+        let long = format!("0{}", "x".repeat(300));
+        assert_eq!(n(1.0, &long), format!("1{}", "x".repeat(256)));
+    }
+
+    #[test]
+    fn learn_page_date_tokens() {
+        let d = Date::from_ymd_hms(1993, 1, 27, 17, 4, 23).unwrap();
+        let df = |p: &str| f(Variant::Date(d), p);
+        assert_eq!(df("d dd"), "27 27");
+        assert_eq!(df("ddd dddd"), "Wed Wednesday");
+        assert_eq!(df("w"), "4");
+        assert_eq!(df("m mm mmm mmmm"), "1 01 Jan January");
+        assert_eq!(df("q"), "1");
+        assert_eq!(df("y"), "27");
+        assert_eq!(df("yy yyyy"), "93 1993");
+        assert_eq!(df("h hh n nn s ss"), "17 17 4 04 23 23");
+        assert_eq!(df("h:mm AMPM"), "5:04 PM");
+        assert_eq!(df("h A/P"), "5 P");
+        assert_eq!(df("h a/p"), "5 p");
+        assert_eq!(df("ddddd"), "1/27/1993");
+        assert_eq!(df("dddddd"), "Wednesday, January 27, 1993");
+        assert_eq!(df("ttttt"), "5:04:23 PM");
+        assert_eq!(df("c"), "1/27/1993 5:04:23 PM");
+        // c shows only the date, or only the time, when the other is absent.
+        assert_eq!(f(doc_date(), "c"), "1/27/1993");
+        assert_eq!(f(doc_time(), "c"), "5:04:23 PM");
+        assert_eq!(f(doc_date(), "General Date"), "1/27/1993");
+        assert_eq!(f(doc_time(), "General Date"), "5:04:23 PM");
+        // `m` directly after `h` is minutes.
+        assert_eq!(df("hh:m"), "17:4");
+        assert_eq!(df("hh:mm"), "17:04");
+    }
+
+    #[test]
+    fn undocumented_tokens_are_tolerated_not_interpreted() {
+        // `*` fill, `_` spacing, `?` and `[color]` do not appear in the VBA
+        // Format reference; they are skipped/approximated (unverified).
+        assert_eq!(n(5.0, "[Red]0"), "5");
     }
 }
