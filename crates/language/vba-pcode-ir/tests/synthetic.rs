@@ -1260,6 +1260,15 @@ fn hexadecimal_literals_and_conversions() {
                 .write(c2),
         ],
     ));
+    // D = #1/1/2000 12:00#   (a Date literal is its serial number)
+    let d = t.name("D");
+    lines.extend(function(
+        &mut t,
+        "D",
+        T_DATE,
+        &[],
+        vec![Line::new().date(36526.5).write(d)],
+    ));
     // A conversion target that was never observed stays unsupported.
     let c3 = t.name("C3");
     lines.extend(function(
@@ -1270,12 +1279,16 @@ fn hexadecimal_literals_and_conversions() {
         vec![Line::new().i16(1).opm(Opcode::ConvertToType, 5).write(c3)],
     ));
     let lp = lower(&t, &lines);
-    assert_eq!(lp.lowered_count(), 5, "{:?}", lp.procedures);
+    assert_eq!(lp.lowered_count(), 6, "{:?}", lp.procedures);
     assert_eq!(value(&lp, "H1", &[]), l(32768));
     assert_eq!(value(&lp, "H2", &[]), l(-32768));
     assert_eq!(value(&lp, "H3", &[]), l(-65536));
     assert_eq!(value(&lp, "C1", &[]), l(3));
     assert_eq!(value(&lp, "C2", &[]), s("7!"));
+    match value(&lp, "D", &[]) {
+        Variant::Date(d) => assert_eq!(d.serial(), 36526.5),
+        other => panic!("expected a Date, got {other:?}"),
+    }
 }
 
 #[test]

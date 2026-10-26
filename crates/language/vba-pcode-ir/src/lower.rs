@@ -982,6 +982,14 @@ impl Lw<'_> {
                 }
                 _ => return Err(self.no(op, "bad literal")),
             },
+            Opcode::ConstDate => match ins.operands.first() {
+                Some(Operand::Date(v)) => {
+                    let d = vba_value::Date::from_serial(*v)
+                        .map_err(|_| self.no(op, "date literal out of range"))?;
+                    self.stack.push(Ex::Const(Variant::Date(d), Type::Date));
+                }
+                _ => return Err(self.no(op, "bad literal")),
+            },
             Opcode::ConstText => match ins.operands.first() {
                 Some(Operand::Text(t)) if t.is_ascii() => {
                     let s = String::from_utf8_lossy(t).into_owned();
@@ -1481,7 +1489,7 @@ impl Lw<'_> {
             Opcode::ErrResume => ins.modifier == 0,
             Opcode::LabelNamed => true,
             // Hexadecimal `Integer` literals and the `CLng`/`CStr` family.
-            Opcode::ConstInt16Hex => true,
+            Opcode::ConstInt16Hex | Opcode::ConstDate => true,
             Opcode::ConvertToType => matches!(ins.modifier, 3 | 8),
             // Property reads on the `Err` object.
             Opcode::ReadDot => matches!(self.stack.last(), Some(Ex::LibObj { .. })),

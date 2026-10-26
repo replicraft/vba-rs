@@ -9,6 +9,7 @@ use vba_pcode::Opcode;
 pub const T_INTEGER: u8 = 2;
 pub const T_LONG: u8 = 3;
 pub const T_DOUBLE: u8 = 5;
+pub const T_DATE: u8 = 7;
 pub const T_STRING: u8 = 8;
 pub const T_BOOLEAN: u8 = 11;
 pub const T_VARIANT: u8 = 12;
@@ -188,6 +189,12 @@ impl Line {
     pub fn i32(mut self, v: i32) -> Self {
         self.word(Opcode::ConstInt32Decimal, 0);
         self.0.extend_from_slice(&v.to_le_bytes());
+        self
+    }
+
+    pub fn date(mut self, serial: f64) -> Self {
+        self.word(Opcode::ConstDate, 0);
+        self.0.extend_from_slice(&serial.to_bits().to_le_bytes());
         self
     }
 
