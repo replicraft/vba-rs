@@ -37,7 +37,7 @@ fn engine_project() -> Project {
     p.add_module(
         "Module1",
         ModuleKind::Standard,
-        "Public Total As Long\nPublic Sub Bump()\n  Total = Total + 1\nEnd Sub\nPublic Sub Burn()\n  Dim i As Long\n  For i = 1 To 100000\n  Next\nEnd Sub\n",
+        "Public Total As Long\nPublic Sub Bump()\n  Total = Total + 1\nEnd Sub\nPublic Sub Handled()\n  On Error Resume Next\n  Dim x As Long\n  x = 1 \\ 0\nEnd Sub\nPublic Sub Burn()\n  Dim i As Long\n  For i = 1 To 100000\n  Next\nEnd Sub\n",
     )
     .unwrap();
     p
@@ -153,6 +153,8 @@ fn reset_discards_state_objects_and_the_budget() {
         .create_object("Form_Work", Some(FormHost::new(&st)))
         .unwrap();
     inst.call_on(form, "Work", vec![]).unwrap();
+    inst.call(CallTarget::Project, "Handled", vec![]).unwrap();
+    assert!(inst.last_error().is_some());
     let live = inst.session().host().objects().live_count();
     assert!(live >= 1);
     // Run into the limit.
@@ -161,6 +163,7 @@ fn reset_discards_state_objects_and_the_budget() {
 
     inst.reset().unwrap();
     assert!(inst.is_usable());
+    assert!(inst.last_error().is_none(), "Err starts over");
     // Module variables are back to their initial values...
     assert_eq!(inst.get_global("Total").unwrap(), Variant::Long(0));
     // ...instances are gone, without Class_Terminate...

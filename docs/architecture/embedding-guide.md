@@ -119,8 +119,8 @@ assert_eq!(inst.run("Twice", vec![21.into()]).unwrap().value, vba::Variant::Long
 ```
 
 The engine decides what the program can reach: `grant(Capability::..)`,
-`grant_prefixes`, `limits`/`max_steps`, `vm_config`, `real_files()`,
-`system_environment()`. Nothing is ambient. `analyze` uses the same engine
+`grant_prefixes`, `limits`/`max_steps`/`unlimited()` (finite by default),
+`vm_config`, `real_files()`, `system_environment()`. Nothing is ambient. `analyze` uses the same engine
 configuration (registered globals, host members) as `load`.
 
 ## 3. Host objects: `Application`-like globals and `DoCmd`-like objects
@@ -511,8 +511,11 @@ embedding errors `NoSuchMember`, `AmbiguousMember`, `NotAccessible` and
 
 * **Budgets are per instance.** `Engine::limits` / `max_steps` / `vm_config`
   configure each instance the engine loads; every instance has its own meter.
-  `max_steps` counts steps over the whole life of the instance, nested calls
-  included. `Instance::reset_step_counter()` starts a fresh allowance (give each
+  `Engine::new()` starts from the finite `ResourceLimits::untrusted()` set (100
+  million steps, 256 MiB); `Engine::unlimited()` opts out. The step count spans
+  the whole life of the instance, nested calls included, so a long-lived
+  instance that serves many events eventually spends it: give each event its own
+  allowance with `reset_step_counter()` (below). `Instance::reset_step_counter()` starts a fresh allowance (give each
   event handler its own), module state is kept.
 * **Cancellation.** `Engine::cancel_token()` is `Send + Sync + Clone`. The
   session polls it before every call into it (including nested runs), at every

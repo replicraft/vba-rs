@@ -23,6 +23,7 @@ use crate::vfs::Vfs;
 
 /// A procedure that can be run by name.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ProcedureInfo {
     /// The module name.
     pub module: String,

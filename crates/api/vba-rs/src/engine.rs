@@ -374,6 +374,7 @@ impl Engine {
 
 /// What one run produced.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Outcome {
     /// The function result (`Empty` for a `Sub`).
     pub value: Variant,

@@ -182,6 +182,7 @@ impl fmt::Display for ErrorReport {
 
 /// A project that could not be turned into a runnable program.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LoadError {
     /// The rendered error diagnostics (syntax and semantic).
     pub diagnostics: Vec<String>,
