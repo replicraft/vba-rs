@@ -143,6 +143,10 @@ fn parse_decimal_text(t: &str) -> VbaResult<Numeric> {
     if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
         neg = b[i] == b'-';
         i += 1;
+        // MS-VBAL 5.5.1.2.4: blanks may separate the sign from the digits.
+        while t[i..].chars().next().is_some_and(is_blank) {
+            i += t[i..].chars().next().map_or(1, char::len_utf8);
+        }
     }
     if i < b.len() && b[i] == b'$' {
         i += 1;
