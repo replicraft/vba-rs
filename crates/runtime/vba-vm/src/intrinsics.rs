@@ -308,6 +308,10 @@ impl Vm {
             "getobject" => {
                 let path = self.opt_text(a.first().unwrap_or(&None))?;
                 let class = self.opt_text(a.get(1).unwrap_or(&None))?;
+                let path = match path {
+                    Some(p) if !p.is_empty() => Some(svc(self.services.resolve_object_path(&p))?),
+                    other => other,
+                };
                 let v = self
                     .host
                     .get_object(path.as_deref(), class.as_deref())

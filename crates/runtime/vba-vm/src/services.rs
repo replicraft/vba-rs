@@ -211,6 +211,15 @@ pub trait Services {
     /// case-insensitive; omitted arguments are `None`.
     fn call(&mut self, name: &str, args: &[Option<Variant>]) -> Result<Variant, ServiceError>;
 
+    /// The path `GetObject(path)` is checked and bound against: the path
+    /// made absolute against the working directory and with links resolved,
+    /// so the policy judges what would be opened, not what was written. A
+    /// denial must not reveal more than the capability. The default has no
+    /// file system and keeps the path as written.
+    fn resolve_object_path(&mut self, path: &str) -> Result<String, ServiceError> {
+        Ok(path.to_owned())
+    }
+
     /// Closes everything (`End`, `Reset`).
     fn reset(&mut self) {}
 }

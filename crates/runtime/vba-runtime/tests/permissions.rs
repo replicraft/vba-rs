@@ -192,3 +192,40 @@ fn a_symbolic_link_cannot_escape_a_scoped_grant() {
     s.run_procedure("Main", vec![]).unwrap();
     assert_eq!(sink.contents(), "file link 70\ndir link 70\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn get_object_is_checked_against_the_resolved_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let base_s = base.to_string_lossy().replace('\\', "/");
+    std::fs::create_dir(base.join("allowed")).unwrap();
+    std::fs::write(base.join("secret.doc"), "outside").unwrap();
+    std::os::unix::fs::symlink(base.join("secret.doc"), base.join("allowed/link.doc")).unwrap();
+    std::os::unix::fs::symlink(&base, base.join("allowed/up")).unwrap();
+    let policy =
+        Policy::deny_all().grant_prefixes(Capability::FileRead, [format!("{base_s}/allowed/")]);
+    let src = format!(
+        "Public Sub Main()\nOn Error Resume Next\nSet o = GetObject(\"{base_s}/allowed/link.doc\")\nDebug.Print \"file link \" & Err.Number\nErr.Clear\nSet o = GetObject(\"{base_s}/allowed/up/secret.doc\")\nDebug.Print \"dir link \" & Err.Number\nErr.Clear\nSet o = GetObject(\"{base_s}/allowed/missing.doc\")\nDebug.Print \"inside \" & Err.Number\nEnd Sub\n"
+    );
+    let sink = BufferSink::new();
+    let mut s = Session::builder()
+        .host(host(policy))
+        .vfs(RealFs::in_dir(&base))
+        .debug_sink(sink.clone())
+        .build_sources(&[std_module(&src)])
+        .unwrap();
+    s.trust();
+    s.run_procedure("Main", vec![]).unwrap();
+    // The last line is not denied: the headless host has no such object (432).
+    assert_eq!(sink.contents(), "file link 70\ndir link 70\ninside 432\n");
+}
+
+#[test]
+fn get_object_resolves_a_relative_path_against_the_working_directory() {
+    let fs = SharedFs::with(&[("/data/in.txt", "x"), ("/secret/key.txt", "no")]);
+    let policy = Policy::deny_all().grant_prefixes(Capability::FileRead, ["/data/"]);
+    let body = "ChDir \"/data\"\nSet o = GetObject(\"in.txt\")\nT \"inside\"\nSet o = GetObject(\"../secret/key.txt\")\nT \"outside\"\nSet o = GetObject(\"in.txt\" & Chr(0))\nT \"nul\"\n";
+    let out = trap(body, fs, policy);
+    assert_eq!(out, "inside 432\noutside 70\nnul 53\n");
+}

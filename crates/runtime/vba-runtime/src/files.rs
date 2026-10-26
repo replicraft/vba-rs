@@ -185,6 +185,15 @@ impl FileSystem {
         Ok(self.vfs.canonical(&n))
     }
 
+    /// A path resolved for a read that the program asks the host to make
+    /// (`GetObject`): the policy is asked here with the resolved path, and
+    /// the host asks again with the same path.
+    fn resolve_for_read(&mut self, path: &str) -> R<String> {
+        let resolved = self.resolve(path)?;
+        self.allow(Capability::FileRead, &resolved)?;
+        Ok(resolved)
+    }
+
     fn file(&mut self, n: i32) -> R<&mut OpenFile> {
         self.files.get_mut(&n).ok_or(FsError::Vba(52))
     }
@@ -1262,6 +1271,13 @@ impl Services for FsServices {
         self.0
             .borrow_mut()
             .call_fn(&lname, args)
+            .map_err(Into::into)
+    }
+
+    fn resolve_object_path(&mut self, path: &str) -> Result<String, ServiceError> {
+        self.0
+            .borrow_mut()
+            .resolve_for_read(path)
             .map_err(Into::into)
     }
 
