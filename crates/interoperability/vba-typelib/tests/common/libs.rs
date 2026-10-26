@@ -8,7 +8,10 @@ use super::builder::{
     Cv, Dt, FuncKind, FuncSpec, ImportSpec, InvokeKind, LibSpec, ParamSpec, R, TypeKind, TypeSpec,
     VarKind, VarSpec,
 };
-use super::{HASDEF, IDISPATCH, IN, OPT, VT_BOOL, VT_BSTR, VT_I4, VT_R8, VT_VARIANT, VT_VOID};
+use super::{
+    HASDEF, IDISPATCH, IN, OPT, OUT, RETVAL, VT_BOOL, VT_BSTR, VT_HRESULT, VT_I4, VT_R8,
+    VT_VARIANT, VT_VOID,
+};
 
 fn idispatch_import(lib: &mut LibSpec) {
     lib.imports.push(ImportSpec {
@@ -286,12 +289,46 @@ pub fn calc() -> LibSpec {
             Dt::Ptr(Box::new(Dt::Safe(Box::new(Dt::Prim(VT_I4))))),
             IN,
         ));
+    // DivMod(a, b As Long, [out] remainder As Long) As Long: the result is
+    // a [retval] parameter, which VBA does not show.
+    let mut divmod = f("DivMod", 11, InvokeKind::Func, Dt::Prim(VT_HRESULT))
+        .param("a", Dt::Prim(VT_I4), IN)
+        .param("b", Dt::Prim(VT_I4), IN)
+        .param("remainder", Dt::Ptr(Box::new(Dt::Prim(VT_I4))), OUT);
+    divmod.params.push(ParamSpec {
+        name: Some("quotient".to_owned()),
+        ty: Dt::Ptr(Box::new(Dt::Prim(VT_I4))),
+        flags: OUT | RETVAL,
+        default: None,
+    });
+    ic.funcs.push(divmod);
     lib.types.push(ic);
 
     let mut class = TypeSpec::new("Calculator", TypeKind::CoClass);
     class.guid = Some([0x64; 16]);
     class.flags = 2;
     class.implements.push((R::Local(2), 1));
+    // The `[default, source]` event interface (type 4).
+    class.implements.push((R::Local(4), 3));
     lib.types.push(class);
+
+    // Type 4: events.
+    let mut ev = TypeSpec::new("ICalcEvents", TypeKind::Dispatch);
+    ev.guid = Some([0x65; 16]);
+    ev.flags = 0x1000;
+    ev.implements.push((R::Import(0), 0));
+    ev.funcs.push(
+        FuncSpec::new("Changed", 1, InvokeKind::Func, Dt::Prim(VT_VOID)).param(
+            "m",
+            Dt::User(R::Local(0)),
+            IN,
+        ),
+    );
+    ev.funcs.push(
+        FuncSpec::new("Failed", 2, InvokeKind::Func, Dt::Prim(VT_VOID))
+            .param("code", Dt::Prim(VT_I4), IN)
+            .param("cancel", Dt::Ptr(Box::new(Dt::Prim(VT_BOOL))), IN | OUT),
+    );
+    lib.types.push(ev);
     lib
 }

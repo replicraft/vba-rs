@@ -1367,8 +1367,23 @@ impl Binder<'_, '_> {
                     return self.error_expr(span);
                 }
                 self.sema.note_type(&m.ty);
+                // More arguments than the member declares: when it returns
+                // an object (or a Variant that may hold one), the surplus
+                // goes to the default member of the result, as in
+                // `rs.Fields("Name")`.
+                let all_args = args.unwrap_or(&[]);
+                let chain = !m.is_sub
+                    && all_args.len() > m.params.len()
+                    && !m.params.iter().any(|p| p.param_array)
+                    && all_args.iter().all(|a| a.name.is_none())
+                    && matches!(m.ty, Type::Library(_) | Type::Object | Type::Variant);
+                let (own_args, tail) = if chain {
+                    all_args.split_at(m.params.len())
+                } else {
+                    (all_args, &[][..])
+                };
                 let sig = Sig::of_lib(&m);
-                let bargs = self.match_args(&sig, args.unwrap_or(&[]), span);
+                let bargs = self.match_args(&sig, own_args, span);
                 let la = bargs
                     .into_iter()
                     .map(|arg| BLateArg { name: None, arg })
@@ -1385,7 +1400,12 @@ impl Binder<'_, '_> {
                     ty,
                     Some(lt),
                 );
-                with_dispid(l, m.dispid)
+                let l = with_dispid(l, m.dispid);
+                if tail.is_empty() {
+                    l
+                } else {
+                    self.apply_args(l, tail, span)
+                }
             }
             None if provider.describes_members(&lt) => {
                 self.err(

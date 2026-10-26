@@ -203,6 +203,14 @@ impl Dispatch for Calculator {
                     .collect();
                 Variant::from(parts.join(&sep.to_string_lossy()).as_str())
             }
+            11 => {
+                let (x, y) = (long(&b.slots[0].value), long(&b.slots[1].value));
+                if y == 0 {
+                    return Err(DispError::raise(11, "Division by zero", "Calculator"));
+                }
+                b.slots[2].value = Variant::Long(x % y);
+                Variant::Long(x / y)
+            }
             10 => {
                 let Variant::Array(a) = &b.slots[0].value else {
                     panic!("array expected")
@@ -379,6 +387,14 @@ Dim a(1 To 3) As Long
 a(1) = 5: a(2) = 6: a(3) = 7
 Debug.Print d.Sum(a)
 Dim n As Long
+Dim q As Long, r As Long
+q = d.DivMod(17, 5, r)
+Debug.Print q; r
+r = 99
+Debug.Print d.DivMod(r, 10, q); q
+On Error Resume Next
+q = d.DivMod(1, 0, r)
+Debug.Print Err.Number; r
 n = d.Add(1, 2) * 2
 Debug.Print n, TypeName(d.Add(1, 2)), TypeName(d.Greet), TypeName(d.Version)
 "#;
@@ -557,6 +573,47 @@ fn the_ir_carries_the_member_id_only_for_typed_receivers() {
     assert!(typed.contains(".Add#1"), "{typed}");
     let late = dump("Object");
     assert!(!late.contains('#'), "{late}");
+}
+
+#[test]
+fn events_of_library_classes_come_from_the_source_interface() {
+    let class_module = |src: &str| {
+        vba_sema::analyze_sources(
+            &[SourceModule {
+                name: "C".into(),
+                kind: ModuleKind::Class,
+                source: src.as_bytes().to_vec(),
+            }],
+            vba_profile::default_profile(),
+            &provider(),
+            &vba_sema::Options::default(),
+        )
+    };
+    let ok = class_module(
+        "Option Explicit\n\
+         Private WithEvents c As Calc.Calculator\n\
+         Private Sub c_Changed(ByVal m As Calc.Mode)\n\
+         End Sub\n\
+         Private Sub c_Failed(ByVal code As Long, ByRef cancel As Boolean)\n\
+         cancel = True\n\
+         End Sub\n",
+    );
+    assert_eq!(errors(&ok), Vec::<String>::new(), "{:?}", ok.diagnostics);
+    assert_eq!(ok.program.modules[0].handlers.len(), 2);
+    let bad = class_module(
+        "Option Explicit\n\
+         Private WithEvents c As Calc.Calculator\n\
+         Private Sub c_Changed(ByVal m As String)\n\
+         End Sub\n\
+         Private Sub c_Nothing()\n\
+         End Sub\n",
+    );
+    assert_eq!(
+        errors(&bad),
+        vec!["SEM017@3", "SEM017@5"],
+        "{:?}",
+        bad.diagnostics
+    );
 }
 
 // ---- library types at run time -----------------------------------------------

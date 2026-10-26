@@ -70,6 +70,9 @@ fn library() -> StaticLibrary {
                 .default_member()
                 .with_dispid(0),
                 LibMember::function("Paint", vec![], color).with_dispid(5),
+                LibMember::property("Child", Type::Library(lt("Widget")))
+                    .read_only()
+                    .with_dispid(6),
             ],
         )
         .with_creatable("Widget", true)
@@ -352,4 +355,26 @@ fn default_member_of_library_classes() {
          v = w(2)\n\
          End Sub\n");
     assert_clean(&a);
+}
+
+#[test]
+fn surplus_arguments_go_to_the_default_member_of_the_result() {
+    let a = run("Option Explicit\n\
+         Sub Main()\n\
+         Dim w As Lib.Widget\n\
+         Dim v As Variant\n\
+         Dim n As Long\n\
+         v = w.Child(3)\n\
+         v = w.Child.Tag(3)\n\
+         n = w.Id(2)\n\
+         v = w.Name(1)\n\
+         End Sub\n");
+    // `Child(3)` is `Child.Tag(3)`; a `Long` or a `String` has no default
+    // member to take the argument.
+    assert_eq!(
+        codes(&a),
+        vec!["SEM008@8", "SEM008@9"],
+        "{:?}",
+        a.diagnostics
+    );
 }
