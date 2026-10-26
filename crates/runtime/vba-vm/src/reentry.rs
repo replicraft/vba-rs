@@ -153,6 +153,8 @@ impl Vm {
                 ..VmConfig::default()
             },
             frames: Vec::new(),
+            slot_pool: Vec::new(),
+            reg_pool: Vec::new(),
             globals: Vec::new(),
             objects: BTreeMap::new(),
             next_obj: 0,

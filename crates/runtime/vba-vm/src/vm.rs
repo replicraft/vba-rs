@@ -79,6 +79,10 @@ pub struct Vm {
     pub(crate) std_state: vba_stdlib::State,
     pub(crate) cfg: VmConfig,
     pub(crate) frames: Vec<Frame>,
+    /// Emptied slot and register vectors of popped frames, reused by the
+    /// next call so a call does not allocate.
+    pub(crate) slot_pool: Vec<Vec<Slot>>,
+    pub(crate) reg_pool: Vec<Vec<RegVal>>,
     pub(crate) globals: Vec<Variant>,
     pub(crate) objects: BTreeMap<u64, Obj>,
     pub(crate) next_obj: u64,
@@ -164,6 +168,8 @@ impl Vm {
             std_state: vba_stdlib::State::default(),
             cfg,
             frames: Vec::new(),
+            slot_pool: Vec::new(),
+            reg_pool: Vec::new(),
             globals: Vec::new(),
             objects: BTreeMap::new(),
             next_obj: 3,
@@ -287,7 +293,7 @@ impl Vm {
                 }
                 let site = self.last_site.take().unwrap_or_default();
                 VmError::Runtime(Box::new(RuntimeError {
-                    error: e,
+                    error: *e,
                     procedure: site.procedure,
                     line: site.line,
                     stack: site.stack,

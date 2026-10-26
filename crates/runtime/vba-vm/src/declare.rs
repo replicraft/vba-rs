@@ -503,7 +503,7 @@ impl Vm {
             (Err(e), None) => {
                 prepared.release(&mut ctx.memory);
                 return Err(match e {
-                    WinApiError::Memory(m) => Fault::Err(
+                    WinApiError::Memory(m) => Fault::from(
                         RtErr::new(53, format!("emulated memory fault: {m}"))
                             .with_origin(ErrOrigin::Bridge),
                     ),
@@ -582,14 +582,14 @@ impl Vm {
             Err(e) if e.number == 48 => Err(Fault::Bridge(format!(
                 "Declare {symbol} is not implemented: {reason}"
             ))),
-            Err(e) => Err(Fault::Err(RtErr::from(e).with_origin(ErrOrigin::Bridge))),
+            Err(e) => Err(Fault::from(RtErr::from(e).with_origin(ErrOrigin::Bridge))),
         }
     }
 }
 
 fn ffi_fault(e: &FfiError) -> Fault {
     match e {
-        FfiError::ArgumentMismatch { .. } => Fault::Err(
+        FfiError::ArgumentMismatch { .. } => Fault::from(
             RtErr::new(13, format!("Declare argument: {e}")).with_origin(ErrOrigin::Bridge),
         ),
         other => bridge(other.to_string()),

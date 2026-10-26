@@ -72,7 +72,7 @@ impl Vm {
                 Ok(Flow::Next) => self.frames[fi].idx += 1,
                 Ok(Flow::Jumped) | Ok(Flow::Pushed) => {}
                 Ok(Flow::Return(v)) => return Ok(v),
-                Err(Fault::Err(e)) => self.dispatch_error(ir, e, base)?,
+                Err(Fault::Err(e)) => self.dispatch_error(ir, *e, base)?,
                 Err(f) => return Err(f),
             }
         }
@@ -156,7 +156,7 @@ impl Vm {
         self.record_err(&e);
         loop {
             if self.frames.len() <= base {
-                return Err(Fault::Err(e));
+                return Err(Fault::from(e));
             }
             if self.last_site.is_none() {
                 self.last_site = Some(self.capture_site(ir));

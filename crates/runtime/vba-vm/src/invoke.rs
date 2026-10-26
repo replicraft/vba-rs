@@ -549,7 +549,7 @@ impl Vm {
             Some(v) if !matches!(v, Variant::Empty) => convert::to_long(v)?,
             _ => 0,
         };
-        Err(Fault::Err(RtErr {
+        Err(Fault::from(RtErr {
             number,
             description: description.unwrap_or_else(|| crate::error::describe(number)),
             source: source.unwrap_or_default(),
@@ -825,7 +825,7 @@ impl Vm {
             if r.origin == ErrOrigin::Vba {
                 r.origin = ErrOrigin::Host;
             }
-            Fault::Err(r)
+            Fault::from(r)
         })?;
         applied?;
         self.drain_events()?;
@@ -845,7 +845,7 @@ impl Vm {
                 InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
                 &mut dp,
             )
-            .map_err(|e| Fault::Err(RtErr::from(e.into_err_info(&obj.class_name()))))?;
+            .map_err(|e| Fault::from(RtErr::from(e.into_err_info(&obj.class_name()))))?;
         match r {
             Variant::Object(ObjectRef::Handle(eh)) => {
                 let eo = table.get(eh)?;
@@ -870,7 +870,7 @@ impl Vm {
         let en = eo.enumerator().ok_or(VbaError::new(438))?;
         let r = en
             .next(table)
-            .map_err(|e| Fault::Err(RtErr::from(e.into_err_info(&eo.class_name()))));
+            .map_err(|e| Fault::from(RtErr::from(e.into_err_info(&eo.class_name()))));
         self.apply_foreign_refs()?;
         r
     }

@@ -30,11 +30,14 @@ pub(crate) fn is_missing_marker(v: &Variant) -> bool {
     matches!(v, Variant::Error(e) if e.number() == vba_automation::hresult::DISP_E_PARAMNOTFOUND)
 }
 
+/// How many emptied frame vectors are kept for reuse.
+const FRAME_POOL_MAX: usize = 64;
+
 impl Vm {
     // ---- frames -----------------------------------------------------------
 
     fn new_frame(
-        &self,
+        &mut self,
         func: usize,
         proc_: Option<ProcId>,
         module: ModuleId,
@@ -43,6 +46,8 @@ impl Vm {
         ret_dst: Option<Reg>,
     ) -> Frame {
         let nregs = self.ir.functions[func].regs.len();
+        let mut regs = self.reg_pool.pop().unwrap_or_default();
+        regs.resize_with(nregs, || RegVal::Empty);
         Frame {
             func,
             proc: proc_,
@@ -50,7 +55,7 @@ impl Vm {
             block: 0,
             idx: 0,
             slots,
-            regs: (0..nregs).map(|_| RegVal::Empty).collect(),
+            regs,
             me,
             mode: ErrMode::Propagate,
             in_handler: false,
@@ -114,7 +119,8 @@ impl Vm {
         let func = &ir.functions[pid.index()];
         let has_pa = p.params.last().is_some_and(|x| x.param_array);
         let fixed = p.params.len() - usize::from(has_pa);
-        let mut slots: Vec<Slot> = Vec::with_capacity(func.slots.len());
+        let mut slots: Vec<Slot> = self.slot_pool.pop().unwrap_or_default();
+        slots.reserve(func.slots.len());
         for i in 0..fixed {
             let param = &p.params[i];
             let slot = match args.get(i).cloned().unwrap_or(BoundArg::Missing) {
@@ -207,7 +213,8 @@ impl Vm {
         };
         let owned = std::mem::take(&mut fr.owned);
         let held = std::mem::take(&mut fr.held);
-        for (i, s) in std::mem::take(&mut fr.slots).into_iter().enumerate() {
+        let mut slots = std::mem::take(&mut fr.slots);
+        for (i, s) in slots.drain(..).enumerate() {
             if let Slot::Val(v) = s {
                 if Some(i) == result_slot {
                     result = v;
@@ -216,6 +223,14 @@ impl Vm {
                     note(r, &mut pending);
                 }
             }
+        }
+        if self.slot_pool.len() < FRAME_POOL_MAX {
+            self.slot_pool.push(slots);
+        }
+        let mut regs = std::mem::take(&mut fr.regs);
+        regs.clear();
+        if self.reg_pool.len() < FRAME_POOL_MAX {
+            self.reg_pool.push(regs);
         }
         // User-defined-type results are collected like any other value.
         for v in owned.into_iter().chain(held) {

@@ -38,7 +38,7 @@ use crate::vm::Vm;
 const BAD_DLL_CALLING_CONVENTION: i32 = 49;
 
 fn rejected(number: i32, msg: String) -> Fault {
-    Fault::Err(
+    Fault::from(
         RtErr::new(number, format!("Declare callback: {msg}")).with_origin(ErrOrigin::Bridge),
     )
 }

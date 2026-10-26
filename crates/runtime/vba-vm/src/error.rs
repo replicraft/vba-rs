@@ -177,7 +177,7 @@ impl From<LimitExceeded> for LimitKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Fault {
     /// A trappable VBA run-time error.
-    Err(RtErr),
+    Err(Box<RtErr>),
     /// `End`.
     End,
     /// `Stop` or a failed `Debug.Assert`.
@@ -197,19 +197,19 @@ pub enum Fault {
 
 impl From<VbaError> for Fault {
     fn from(e: VbaError) -> Fault {
-        Fault::Err(e.into())
+        Fault::Err(Box::new(e.into()))
     }
 }
 
 impl From<RtErr> for Fault {
     fn from(e: RtErr) -> Fault {
-        Fault::Err(e)
+        Fault::Err(Box::new(e))
     }
 }
 
 impl From<ErrInfo> for Fault {
     fn from(e: ErrInfo) -> Fault {
-        Fault::Err(e.into())
+        Fault::Err(Box::new(e.into()))
     }
 }
 

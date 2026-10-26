@@ -43,7 +43,7 @@ use crate::vm::Vm;
 
 fn svc<T>(r: Result<T, ServiceError>) -> VResult<T> {
     r.map_err(|e| match e {
-        ServiceError::Vba(i) => Fault::Err(RtErr::from(i)),
+        ServiceError::Vba(i) => Fault::from(RtErr::from(i)),
         ServiceError::Unsupported(s) => Fault::Unsupported(s),
         ServiceError::Limit(l) => Fault::Limit(l),
     })
