@@ -197,7 +197,7 @@ import libraries and C runtime, which are unavailable here:
   plus `ucrtbase.lib` linked explicitly.
 
 **One command.** `crates/windows/vba-wine/tests/support/run-tests.sh` (all
-outputs go to the gitignored `.cache/wine/`, or `WORK`):
+outputs go to the gitignored `target/wine-tests/`, or `WORK`):
 
 1. generates the import libraries and the start-up object (once);
 2. creates a dedicated Wine prefix (`WORK/prefix`) and replaces the symlinks

@@ -107,6 +107,13 @@ Positions follow from a sequence of variable-size items starting at offset 11:
 ### 4.3 Table bounds
 Bound each table to the stream and to its stated length. A table whose declared length extends past the end of the stream is invalid.
 
+### 4.4 Reference list and member table (VBA 7.0 x86)
+Observed:
+
+* The type-library reference list runs from the pointer at 0x09 to the member table (or to the line-table pointer when there is no member table). Layout: dword 0x5AFEB7A9, word (value 9), then entries `01 | U16 byte length | UTF-16 text`, then the byte 0xDF. **[H]**
+* The member table (class modules; pointer at 0x15, 0xFFFFFFFF in standard modules) is a U16 count followed by `count` records of three dwords. It fills the span up to the line-table pointer exactly. The meaning of the dwords is unknown. **[H]** for the extent, **[L]** for the content.
+* The 60 bytes between the line-table pointer and the line table header are a block of unknown content. **[M]**
+
 ## 5. Identifier references
 
 ### 5.1 Reference word
@@ -114,6 +121,8 @@ Name operands in the code and name fields in records are 16-bit words. The low b
 
 ### 5.2 Resolving `k`
 * If `k >= 0x100`: user identifier. Let `j = k - 0x100`. For VBA7 (version word >= 0x97): subtract 4; on x64 subtract 3 more; and if the result then exceeds 0xBE subtract 1 again. The result indexes the identifier list of section 3. These VBA7 adjustments are **unexplained empirical adjustments** (they reconcile indices with sample files; no principled derivation is known). **[M]** for VBA6; **[L]** for the VBA7 adjustments. An out-of-range index means "unknown name".
+
+Observed (VBA 7.0 x86, version word 0x97): only the subtraction of 4 fits every user-identifier operand, including those whose result is above 0xBE; the extra subtraction of 1 is not observed there. The extra step therefore applies only to the other VBA7 layouts, where it stays unverified. **[H]** for word 0x97 on x86; **[L]** for every other VBA7 layout.
 * If `k < 0x100`: built-in name from the fixed table in 5.3. For VBA7: if `k >= 0xC3` subtract 1 first (also an unexplained empirical adjustment). **[M]**
 
 ### 5.3 Built-in names
@@ -141,26 +150,28 @@ the implementation together with the project and position it was observed at.
 ### 6.1 Object table
 * Entries are 10 bytes. A reference to an entry is a byte offset (a multiple of 10) used verbatim as the operand of "obj" operands in code. For type descriptors (6.7) the stored value is `(offset / 10) << 2`.
 * Within an entry: U16 at +0 flags (bit 0x02 = the entry names a list of identifiers rather than a single name; this case is **poorly understood**); U16 at +6 = identifier reference of the type/class name.
+* Observed: the word at +6 is an identifier reference only for entries whose word at +2 has bit 0 clear. With bit 0 of the word at +2 set, the entry names a library-qualified type (`Lib.Type`) and the word at +6 is not an identifier reference. **[M]**
 * Sanity bound: `offset + 8 <= table length`. **[M]**
 
 ### 6.2 Indirect table
 A heap of variable-size records referenced from code by 32-bit byte offsets (the "rec" operands) and from other records. Record kinds (function, variable, argument, user-defined-type, type descriptor) are distinguished only by the context in which they are referenced; there is no kind tag. Record layouts follow.
 
 ### 6.3 Function (procedure / property / declare) record
-Minimum size needed: offset + 61. Let `base` = 0 for VBA5, 4 for VBA6/VBA7 x86, 4 + 16 for VBA6/VBA7 x64. **[M]**
+Minimum size needed: offset + 61. Observed record size (spacing of reachable records, VBA 7.0 x86): 64 bytes. **[M]** Let `base` = 0 for VBA5, 4 for VBA6/VBA7 x86, 4 + 16 for VBA6/VBA7 x64. **[M]**
 
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 2 | flags: 0x0008 (VBA5 only) public when set; 0x0020 has declared return type; 0x0080 Static; 0x1000 Sub or Function; 0x2000 Property Get; 0x4000 Property Let; 0x8000 Property Set |
 | 2 | 2 | identifier reference: procedure name |
 | 36 + base | 4 | offset (in indirect table) of the first argument record, 0 or 0xFFFFFFFF if none |
-| 40 + base | 4 | return type descriptor (see 6.7, 6.8) |
+| 40 + base | 4 | return type field: a type field as defined in 6.4a; only meaningful when flag 0x0020 is set |
 | 44 + base | 2 | offset into the declaration table of the external-library record; 0xFFFF if none |
 | 54 + base | 1 | option byte: if (value & 0x90) == 0 and the declaration offset is not 0xFFFF, the procedure is an external `Declare` |
 | 55 + base | 1 | argument count |
 | 57 + base | 1 | VBA6+ flags: bit 0x02 set = Public (clear = Private; unreliable on x64); 0x04 Friend; 0x20 PtrSafe |
 
 Additionally, the declaring instruction's MOD bit 0x04 means Public, and MOD value 2 or 6 means "Function" for flag 0x1000 (opcodes document 3.2). For `Declare` procedures the library name is the identifier reference at (declaration table offset + 2). The Private and Declare determinations on x64 are incomplete: **[L]** for x64.
+Observed: flag 0x0020 means a declared return type; a Function without `As` has the return word 0xFFFF000C (Variant; seen once). The `Declare` test above held for every `Declare` procedure observed and reported no other procedure as external. **[M]**
 Unknown: everything else in the 61+ bytes.
 
 ### 6.4 Variable record
@@ -173,32 +184,43 @@ Minimum size: offset + 16.
 | 2 | 2 | identifier reference: variable name |
 | 12 (x86) / 16 (x64) | 4 | type descriptor position (6.7), valid when flags 1 bit 0x20 is set |
 
-If the U16 at (type position + 2) equals 0xFFFF then the type is intrinsic: the byte at the type position is the type id (see 6.8). Otherwise the U32 at the type position is an offset in the indirect table to a type descriptor (6.7). Object types on x64 have **unknown** layout. **[M]** x86, **[L]** x64.
+The type position holds a type field (6.4a). Object types on x64 have **unknown** layout. **[M]** x86, **[L]** x64. Observed record size (VBA 7.0 x86): 24 bytes. **[M]**
+
+### 6.4a Type fields
+Observed (VBA 7.0 x86): every type field in the variable (+12), argument (+12) and function return-type (+40 + base) positions is a dword:
+
+* 0xFFFFFFFF: no type.
+* upper 16 bits 0xFFFF: intrinsic type; the low byte is the type id (6.8), whose bits 0xE0 are flags.
+* otherwise: the dword is an offset in the indirect table of an 8-byte type descriptor (6.7).
+
+The same rule serves all three positions. **[H]** for x86 VBA 7.0; **[L]** elsewhere.
 
 ### 6.5 User-defined-type record
-Minimum size offset + 20. U16 at +2: identifier reference of the type name; U16 at +18: option word, bit 0 clear = Private. **[M]**
+Minimum size offset + 20. U16 at +2: identifier reference of the type name; U16 at +18: option word, bit 0 clear = Private. **[M]** Observed record size (VBA 7.0 x86): 24 bytes. **[M]**
 
 ### 6.6 Argument record
 Reached through the argument chain of a function record. Let `a` = 4 on x64, else 0.
 
 | Offset | Size | Field |
 |---|---|---|
-| 0 | 2 | flags: 0x0020 = has `As` type; 0x0040 relates to ParamArray (not further characterised) |
+| 0 | 2 | flags: 0x0020 = has `As` type; 0x0040 is set on most arguments and its meaning is undetermined (observed: it is not the ParamArray marker) |
 | 2 | 2 | identifier reference: argument name |
-| 12 + a | 4 | type: if the upper 16 bits are non-zero the low byte is an intrinsic type id (6.8); otherwise it names a custom type (layout of that case unresolved) |
+| 12 + a | 4 | type field (6.4a) |
 | 20 | 4 | offset of next argument record (0 or 0xFFFFFFFF ends the chain). Whether the x64 adjustment `a` also applies to this field is **unknown** **[L]** |
-| 24 + a | 2 | option bits: 0x0004 ByVal, 0x0002 ByRef, 0x0200 Optional |
+| 24 + a | 2 | option bits: 0x0004 ByVal, 0x0002 ByRef, 0x0200 Optional, 0x0001 ParamArray (observed, VBA 7.0 x86) |
 
-Sanity bound: offset + 26 within the table. **[M]**
+Sanity bound: offset + 26 within the table. **[M]** Observed record size (VBA 7.0 x86): 32 bytes. **[M]**
 
 ### 6.7 Type descriptor
-U16 flags at +0. If flag 0x02 is set: simple type, id in the byte at +6 (6.8). Otherwise U16 at +2: 0 = no type name; else `(value >> 2)` is an entry index into the object table (6.1; byte offset index*10) whose identifier reference at +6 names the class. **[M]**
+U16 flags at +0. If flag 0x02 is set: simple type, id in the byte at +6 (6.8). Otherwise U16 at +2: 0 = no type name; else `(value >> 2)` is an entry index into the object table (6.1; byte offset index*10) whose identifier reference at +6 names the class. **[M]** Observed size (VBA 7.0 x86): 8 bytes. **[M]**
 
 ### 6.8 Intrinsic type ids
-1 Null, 2 Integer, 3 Long, 4 Single, 5 Double, 6 Currency, 7 Date, 8 String, 9 Object, 10 Error, 11 Boolean, 12 Variant, 14 Decimal, 17 Byte; the top three bits (mask 0xE0) are flags, of which bit 0x80 means pointer (`LongPtr`-style pointer-sized variant of the type). Other ids unknown. These coincide with the OLE automation variant-type numbering. **[H]**
+1 Null, 2 Integer, 3 Long, 4 Single, 5 Double, 6 Currency, 7 Date, 8 String, 9 Object, 10 Error, 11 Boolean, 12 Variant, 14 Decimal, 17 Byte, 29 user-defined type (observed for arrays and records of user-defined types; the type name is not in the field); the top three bits (mask 0xE0) are flags, of which bit 0x80 means pointer (`LongPtr`-style pointer-sized variant of the type). Other ids unknown. These coincide with the OLE automation variant-type numbering. **[H]**
 
 ### 6.9 Declaration table
-Holds records for external-library `Declare` statements and similar. The only field with known meaning: U16 identifier reference at (record offset + 2) = library name, where the record offset is the value from the function record. Other contents **unknown**.
+Holds records for external-library `Declare` statements and similar. U16 identifier reference at (record offset + 2) = library name, where the record offset is the value from the function record.
+
+Observed (VBA 7.0 x86): a declaration record has a 20-byte header: the library reference at +2 and a word at +4 that is the offset, in the declaration table, of a NUL-terminated text (the entry-point name, the `Alias` text, or the procedure name itself). The text follows the header and is padded to 4 bytes, so records are variable in size. **[M]** Other contents **unknown**.
 
 ## 7. Line table and code regions
 
@@ -216,6 +238,8 @@ At position `T` = (line-table pointer from section 4) + 0x3C:
 Line record (12 bytes): +0 4 bytes unknown; +4 U16 `length` (bytes of code for the line); +6 2 bytes unknown; +8 U32 `offset` relative to `codeBase`. The line's instructions occupy `[codeBase + offset, codeBase + offset + length)`. Lines are numbered 0..nLines-1 and correspond to source lines of the module in order; a zero length means no code (blank, or a line with nothing to emit). Whether attribute lines and lines before the first declaration are counted is **unknown**. **[M]**
 
 No secondary or duplicate code area is known. **[L]** (negative evidence only).
+
+Observed (VBA 7.0 x86): consecutive lines with code occupy consecutive 8-byte-aligned slots; the line length is not rounded, but the offset advances by the rounded length. The padding bytes hold stale data, not zeros. After the last slot come 8 bytes (16 in one module), then a 6-byte trailer at the offset stored in the dword at 0x1D (that dword equals the cache length minus 6); the trailer is FF FF FF FF 00 00 in every module observed. **[H]**
 
 Offsets for lines need not be monotonic or contiguous; bound-check against the stream. Declarations, attribute lines, conditional compilation, events and procedure headers are not stored specially: they are ordinary lines whose instructions are the declaration/marker opcodes in the opcodes document (a procedure header line uses PROC_HEADER pointing to a function record; a variable declaration line uses VAR_DECL). **[M]**
 

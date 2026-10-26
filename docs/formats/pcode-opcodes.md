@@ -69,20 +69,20 @@ For any "name" operand, MOD selects a trailing declared-type character shown aft
 |---|---|---|---|---|---|---|---|---|---|---|
 | Suffix | none | unknown | `%` | `&` | `!` | `#` | `@` | `$` | name shown in square brackets (an identifier that needed bracket quoting) | none |
 
-MOD values 1, 7 and 9-13 have no known suffix meaning (unknown). Exceptions: for ERR_HANDLER_SET, MOD 1 = "Resume Next" form and MOD 2 = "GoTo 0" form (the name operand then carries no target); for ERR_RESUME, MOD 1 = "Resume Next" form, MOD 0 = resume at the given line or label name, any other non-zero MOD = no target.
+MOD values 1, 7 and 9-13 have no known suffix meaning (unknown). Observed (VBA 7.0 x86): the suffix table held in every case seen (`$` 44 of 44, `&` 1 of 1, brackets 40 of 40); no name had a suffix that its MOD did not announce. Exceptions: for ERR_HANDLER_SET, MOD 1 = "Resume Next" form and MOD 2 = "GoTo 0" form (the name operand then carries no target); for ERR_RESUME, MOD 1 = "Resume Next" form, MOD 0 = resume at the given line or label name, any other non-zero MOD = no target.
 
 ### 3.2 Per-opcode MOD meanings
 
 | Opcode(s) | MOD meaning |
 |---|---|
 | CONVERT_TO_TYPE, CONVERT_TO_TYPE_VARIANT, DEFTYPE_RANGE | target intrinsic type: 0 Variant, 2 Integer, 3 Long, 4 Single, 5 Double, 6 Currency, 7 Date, 8 String, 9 Object, 10 Error, 11 Boolean, 12 Variant, 17 Byte (1 unknown). Other values: unknown |
-| DIM_MARKER, DIM_MARKER_IMPLICIT, TYPE_DECL | scope flags 0x04 Global, 0x08 Public, 0x10 Private, 0x20 Static (if several are set, the first in this list applies); flag 0x01 = Const (ignored for TYPE_DECL) |
+| DIM_MARKER, DIM_MARKER_IMPLICIT, TYPE_DECL | scope flags 0x04 Global, 0x08 Public, 0x10 Private, 0x20 Static (if several are set, the first in this list applies); flag 0x01 = Const (ignored for TYPE_DECL). Observed for TYPE_DECL: only 0 (no scope word) and 1 (`Private`) occur. Observed for the declaration instructions: bit 0x01 / 0x02 distinguish a variable from a constant (`Dim` vs. `Const`) |
 | CONST_KEYWORD_VALUE | 0 False, 1 True, 2 Null, 3 Empty |
 | INVOKE_SIMPLE, INVOKE_DOT, INVOKE_WITH_DOT | MOD < 16: statement written with the explicit `Call` keyword. MOD >= 16: no keyword; the real MOD is MOD-16 (that residual value then acts as the name-suffix selector, 3.1) |
-| OPTION_STMT | 0 `Option Base 0`, 1 `Option Base 1`, 2 `Option Compare Text`, 3 `Option Compare Binary`, 4 `Option Explicit`, 5 `Option Private Module` |
+| OPTION_STMT | 0 `Option Base 0`, 1 `Option Base 1`, 2 `Option Compare Text`, 3 `Option Compare Binary`, 4 `Option Explicit`, 5 `Option Private Module`; observed: 4 is `Option Explicit` and 7 is `Option Compare Database` |
 | REDIM_SIMPLE, REDIM_SIMPLE_TYPED | bit 0x10 = `Preserve` |
-| VAR_DECL | bit 0x20 = `WithEvents`; bit 0x10 = one extra trailing W follows the rec operand (its meaning is not determined; plausibly array dimension info) |
-| PROC_HEADER and PROC_HEADER_ALT | bit 0x04 = `Public`; value 2 or 6 (after masking) = this is a Function rather than a Sub (see indirect-table function record) |
+| VAR_DECL | bit 0x20 = `WithEvents`; bit 0x10 = one extra trailing W follows the rec operand (its meaning is not determined; plausibly array dimension info; observed values 12 to 34); bits 0x01 and 0x02 distinguish a variable from a constant (`Dim` vs. `Const`), observed |
+| PROC_HEADER and PROC_HEADER_ALT | bit 0x04 = `Public`; value 2 or 6 (after masking) = this is a Function rather than a Sub (see indirect-table function record). Observed values: 1 Private Sub, 2 Private Function (and every `Declare`), 5 Public Sub, 6 Public Function (also Property Get/Let) |
 
 ## 4. Opcode tables (canonical numbering)
 
@@ -137,7 +137,7 @@ Columns: `#` decimal canonical number; Name; Operands in order; Semantics/stack 
 | # | Name | Ops | Meaning |
 |---|---|---|---|
 | 31 | READ_TARGET_NAME | name | load identifier used as assignment/loop target (left-hand-side form of a load) |
-| 32 | READ_SIMPLE | name | push value of variable/function/constant |
+| 32 | READ_SIMPLE | name | push value of variable/function/constant; observed: the name word 0xFFFF is the implicit `Me` |
 | 33 | READ_DOT | name | pop object; push `obj.name` |
 | 34 | READ_BANG | name | pop object; push `obj!name` |
 | 35 | READ_DEFAULT_INDEXED | W | pop object and W args; push default-member indexed result `obj(args)`; W = argument count (inferred) |
@@ -251,14 +251,14 @@ Multi-word literals are stored low word first (plain little-endian bytes of the 
 ### 4.10 Statement and line markers
 | # | Name | Ops | Meaning |
 |---|---|---|---|
-| 70 | STMT_BEGIN | W | beginning of a statement; W presumed to be a source column or indent (unverified) |
+| 70 | STMT_BEGIN | W | beginning of a statement; W presumed to be a source column or indent; observed: consistent with the column of the statement start for values 32 and 66 in the sampled line, and the value 0 also occurs (partly verified) |
 | 71 | STMT_BEGIN_IMPLICIT | - | statement start without explicit marker (e.g. after `Then`) |
 | 72 | LINE_BEGIN | - | line beginning |
 | 165 | DRAW_LINE | W | the `Line` graphics statement; W = option flags |
-| 166 | LINE_CONTINUATION | V | `_` continuation; trailer is opaque bytes |
+| 166 | LINE_CONTINUATION | V | `_` continuation; trailer: observed as pairs of 16-bit values, one per break: the number of tokens before the break and the indentation of the continuation line (292 of 318 pairs match both; the signed second value is negative inside comments) |
 | 168 | LABEL_NUMERIC | name | numeric line label |
 | 163 | LABEL_NAMED | name | named label |
-| 227 | COMMENT_QUOTE | W, V | `'` comment; W unknown (probably offset), V = text |
+| 227 | COMMENT_QUOTE | W, V | `'` comment; W = the column of the apostrophe in the line (observed, 2,636 of 2,640 comments), V = text |
 | 231 | COMMENT_REM_KEYWORD | V | `Rem` comment text |
 | 230 | TEXT_UNPARSED | V | raw text to be re-parsed (unparsed fragment, e.g. text that failed to compile) |
 
@@ -448,4 +448,4 @@ Canonical numbers; everything not listed has no operands.
 * Numbers of operands and their widths: high confidence for all tabulated shapes (VBA6/7 x86 and x64), medium for VBA5 (opcode existence differs; operand shapes assumed shared), low for VBA3.
 * Which canonical opcodes exist in which build: high confidence for the translation tables as they are algebraic.
 * Semantics/stack effects: inferred, medium at best; entries marked "inferred", "unknown" or "unverified" are guesses.
-* Unknown: purpose of RESERVED_A and RESERVED_B, CONST_SMALL_INT value location, the extra W of VAR_DECL with MOD 0x10, the four words of IMPLEMENTS_STMT, the first W of COMMENT_QUOTE, the second D of PROC_CONTEXT on x64, difference between PROC_HEADER and PROC_HEADER_ALT, between CONVERT_TO_TYPE and CONVERT_TO_TYPE_VARIANT, OPTION_STMT vs OPTION_BASE_MARKER, PP_MARKER.
+* Unknown: purpose of RESERVED_A and RESERVED_B, CONST_SMALL_INT value location, the extra W of VAR_DECL with MOD 0x10, the four words of IMPLEMENTS_STMT, the second D of PROC_CONTEXT on x64, difference between PROC_HEADER and PROC_HEADER_ALT, between CONVERT_TO_TYPE and CONVERT_TO_TYPE_VARIANT, OPTION_STMT vs OPTION_BASE_MARKER, PP_MARKER.

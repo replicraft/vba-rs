@@ -5,14 +5,14 @@
 # Environment (all optional):
 #   REPO        vba-rs checkout to test (default: the checkout containing this script)
 #   WINE_BIN    Wine bin dir (default: /Applications/Wine Stable.app/Contents/Resources/wine/bin)
-#   WORK        scratch/output dir (default: $REPO/.cache/wine, gitignored)
+#   WORK        scratch/output dir (default: $REPO/target/wine-tests, gitignored)
 #   DLLTOOL     path to llvm-dlltool (default: found on PATH or in Homebrew llvm)
 #   KEEP_TARGET set to 1 to keep the cargo target dir
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 REPO=${REPO:-$(cd "$here/../../../../.." 2>/dev/null && pwd)}
-WORK=${WORK:-$REPO/.cache/wine}
+WORK=${WORK:-$REPO/target/wine-tests}
 WINE_BIN=${WINE_BIN:-/Applications/Wine Stable.app/Contents/Resources/wine/bin}
 DLL_DIR=${DLL_DIR:-$(dirname "$WINE_BIN")/lib/wine/x86_64-windows}
 TARGET=x86_64-pc-windows-msvc
