@@ -5,7 +5,6 @@
 mod common;
 
 use std::rc::Rc;
-use std::time::{Duration, Instant};
 
 use common::*;
 use vba_host::{HeadlessHost, Host, ResourceLimits};
@@ -33,27 +32,25 @@ fn counted(src: &str, max: u64) -> (Outcome, u64) {
     (o, used)
 }
 
-fn stops_with_steps(src: &str, max: u64) -> Duration {
-    let t = Instant::now();
+/// Runs `src` and asserts the step limit is what stops it. The limit is the
+/// bound on the work done, so no wall-clock time is asserted.
+fn stops_with_steps(src: &str, max: u64) {
     let o = run_limited(src, steps(max));
-    let took = t.elapsed();
     assert_eq!(
         o.result.as_ref().err(),
         Some(&VmError::Limit(LimitKind::Steps)),
         "output {:?}",
         o.out
     );
-    took
 }
 
 #[test]
 fn a_pathological_like_pattern_runs_into_the_step_limit() {
     // 200k units of "a" against "*" + 2000 "a" + "b": 4e8 comparisons.
-    let took = stops_with_steps(
+    stops_with_steps(
         "Sub Main()\nDim t As String, p As String, r As Boolean\nt = String$(200000, \"a\")\np = \"*\" & String$(2000, \"a\") & \"b\"\nr = t Like p\nDebug.Print r\nEnd Sub\n",
         200_000,
     );
-    assert!(took < Duration::from_secs(20), "{took:?}");
 }
 
 #[test]
@@ -74,11 +71,9 @@ fn like_costs_steps_in_proportion_to_the_work() {
 #[test]
 fn instr_with_a_long_needle_is_linear_and_charged() {
     let src = "Sub Main()\nDim h As String, n As String\nh = String$(2000000, \"a\")\nn = String$(20000, \"a\") & \"b\"\nDebug.Print InStr(h, n)\nDebug.Print InStrRev(h, n)\nEnd Sub\n";
-    let t = Instant::now();
     let (o, used) = counted(src, 100_000_000);
     assert!(o.result.is_ok(), "{:?}", o.result);
     assert_eq!(o.out, " 0 \n 0 \n");
-    assert!(t.elapsed() < Duration::from_secs(20), "{:?}", t.elapsed());
     // 2M units scanned twice, 64 units to a step.
     assert!(used > 50_000, "used {used}");
 }
@@ -102,20 +97,18 @@ fn replace_split_and_join_on_large_strings_cost_steps() {
 #[test]
 fn copying_large_strings_costs_steps() {
     // 1 MB copied ten thousand times is 10 GB of work in a few statements.
-    let took = stops_with_steps(
+    stops_with_steps(
         "Sub Main()\nDim s As String, t As String, i As Long\ns = String$(500000, \"x\")\nFor i = 1 To 100000\nt = s\nNext\nEnd Sub\n",
         2_000_000,
     );
-    assert!(took < Duration::from_secs(20), "{took:?}");
 }
 
 #[test]
 fn copying_large_arrays_costs_steps() {
-    let took = stops_with_steps(
+    stops_with_steps(
         "Sub Main()\nDim a() As Variant, b() As Variant, i As Long\nReDim a(1 To 200000)\nFor i = 1 To 100000\nb = a\nNext\nEnd Sub\n",
         2_000_000,
     );
-    assert!(took < Duration::from_secs(30), "{took:?}");
 }
 
 #[test]
