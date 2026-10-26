@@ -31,7 +31,7 @@ from `cargo test --workspace`.
   Alongside: the lexer, parser, semantic analysis, IR and VM; the MS-OVBA reader and writer
   with byte-preserving round trips; type-library reading; native `Scripting.Dictionary` and
   `Scripting.FileSystemObject`; a language server core. `cargo test --workspace` runs
-  TESTS_TOTAL tests, all passing.
+  1,147 tests pass (6 more are ignored: they need local material or a Wine installation).
 * **Unverified.** An entry marked `implemented` means its listed programs pass, not that
   the construct is fully verified. Of the 336 entries, 140 rest on documentation examples,
   71 on reasoning from documented semantics and 125 only on the implementation's own
