@@ -83,6 +83,82 @@ impl Protection {
     pub fn is_locked(&self) -> bool {
         self.vbe_protected || self.has_password || self.user_protected
     }
+
+    /// Whether the project declares itself "locked for viewing": any of the
+    /// three protection bits of the `CMG` state (MS-OVBA 2.3.1.15) is set, or
+    /// the project is marked not visible (`GC`, 2.3.1.17).
+    ///
+    /// This is an editor restriction, not security: the module source of such
+    /// a project is stored unencrypted and is read like any other. Do not use
+    /// this flag to decide whether data may be shown to someone.
+    pub fn locked_for_viewing(&self) -> bool {
+        self.user_protected || self.host_protected || self.vbe_protected || !self.visible
+    }
+
+    /// Whether the project is marked not visible in the editor (`GC` is 0).
+    pub fn is_hidden(&self) -> bool {
+        !self.visible
+    }
+
+    /// A one-line notice for tools that report on a project, or `None` for
+    /// an unprotected project.
+    pub fn notice(&self) -> Option<&'static str> {
+        if self.has_password && self.locked_for_viewing() {
+            Some(
+                "project is locked for viewing and password protected; this is an editor restriction, the source is stored unencrypted",
+            )
+        } else if self.locked_for_viewing() {
+            Some(
+                "project is locked for viewing; this is an editor restriction, the source is stored unencrypted",
+            )
+        } else if self.has_password {
+            Some(
+                "project has a password; this is an editor restriction, the source is stored unencrypted",
+            )
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod protection_tests {
+    use super::Protection;
+
+    #[test]
+    fn default_is_unprotected() {
+        let p = Protection::default();
+        assert!(!p.locked_for_viewing() && !p.is_locked() && !p.is_hidden());
+        assert_eq!(p.notice(), None);
+    }
+
+    #[test]
+    fn each_declared_restriction_is_reported() {
+        for set in [
+            |p: &mut Protection| p.user_protected = true,
+            |p: &mut Protection| p.host_protected = true,
+            |p: &mut Protection| p.vbe_protected = true,
+            |p: &mut Protection| p.visible = false,
+        ] {
+            let mut p = Protection::default();
+            set(&mut p);
+            assert!(p.locked_for_viewing());
+            assert!(p.notice().unwrap().contains("locked for viewing"));
+            assert!(p.notice().unwrap().contains("unencrypted"));
+        }
+        let p = Protection {
+            has_password: true,
+            ..Protection::default()
+        };
+        assert!(p.is_locked() && !p.locked_for_viewing());
+        assert!(p.notice().unwrap().contains("password"));
+        let p = Protection {
+            has_password: true,
+            user_protected: true,
+            ..Protection::default()
+        };
+        assert!(p.notice().unwrap().contains("password protected"));
+    }
 }
 
 /// A host extender: an aggregatable server type library extending the VBA

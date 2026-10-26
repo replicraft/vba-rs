@@ -46,6 +46,12 @@ pub fn decrypt(enc: &[u8]) -> Option<Vec<u8>> {
 /// filled with zeros so the output is deterministic. `project_id` is the
 /// project CLSID text used for the project key checksum.
 pub fn encrypt(data: &[u8], seed: u8, project_id: &str) -> Vec<u8> {
+    encrypt_with_ignored(data, seed, project_id, 0)
+}
+
+/// Like [`encrypt`], with the ignored bytes set to `ignored` instead of zero
+/// (the specification's examples use `0x07`).
+pub fn encrypt_with_ignored(data: &[u8], seed: u8, project_id: &str, ignored: u8) -> Vec<u8> {
     let proj_key = project_id.bytes().fold(0u8, |a, b| a.wrapping_add(b));
     let version_enc = seed ^ 2;
     let proj_key_enc = seed ^ proj_key;
@@ -61,7 +67,7 @@ pub fn encrypt(data: &[u8], seed: u8, project_id: &str) -> Vec<u8> {
         byte_enc
     };
     for _ in 0..(seed & 6) / 2 {
-        out.push(step(0));
+        out.push(step(ignored));
     }
     for b in (data.len() as u32).to_le_bytes() {
         out.push(step(b));
@@ -107,6 +113,27 @@ mod tests {
         assert_eq!(dpb, [0]);
         let gc = decrypt(&hex_decode("1517CAF1D6F9D7F9D706").unwrap()).unwrap();
         assert_eq!(gc, [0xFF]);
+    }
+
+    /// The three examples of MS-OVBA section 3.1.6 reproduced byte for byte,
+    /// with the decrypted fields the specification lists.
+    #[test]
+    fn spec_examples_reproduce_exactly() {
+        // (hex, seed, plaintext, ignored count, ProjKey)
+        let cases: [(&str, u8, &[u8], usize); 3] = [
+            ("0705D8E3D8EDDBF1DBF1DBF1DBF1", 0x07, &[0, 0, 0, 0], 3),
+            ("0E0CD1ECDFF4E7F5E7F5E7", 0x0E, &[0x00], 3),
+            ("1517CAF1D6F9D7F9D706", 0x15, &[0xFF], 2),
+        ];
+        for (hex, seed, data, ignored) in cases {
+            let bytes = hex_decode(hex).unwrap();
+            assert_eq!(bytes[0], seed);
+            assert_eq!(bytes[1], seed ^ 0x02, "Version is 2");
+            assert_eq!(bytes[2], seed ^ 0xDF, "ProjKey is 0xDF");
+            assert_eq!(usize::from((seed & 6) / 2), ignored);
+            assert_eq!(decrypt(&bytes).unwrap(), data);
+            assert_eq!(encrypt_with_ignored(data, seed, ID, 0x07), bytes, "{hex}");
+        }
     }
 
     #[test]
