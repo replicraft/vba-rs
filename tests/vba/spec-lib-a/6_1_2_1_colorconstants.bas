@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.1
 ' SOURCE: spec ms-vbal 6.1.2.1 ColorConstants values
-' XFAIL: wrong pending
 ' EXPECT: vbBlack=0
 ' EXPECT: vbBlue=16711680
 ' EXPECT: vbCyan=16776960

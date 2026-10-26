@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.1.2
 ' SOURCE: spec ms-vbal 6.1.1.2 VbAppWinStyle values
-' XFAIL: wrong pending
 ' EXPECT: vbHide=0
 ' EXPECT: vbMaximizedFocus=3
 ' EXPECT: vbMinimizedFocus=2

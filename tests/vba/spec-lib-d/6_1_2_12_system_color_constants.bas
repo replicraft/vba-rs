@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.2.12
 ' SOURCE: spec ms-vbal 6.1.2.12 SystemColorConstants values, aliases
-' XFAIL: wrong pending
 ' EXPECT: 1=True
 ' EXPECT: 2=True
 ' EXPECT: 3=True

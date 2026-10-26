@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.1.10
 ' SOURCE: spec ms-vbal 6.1.1.10 VbIMEStatus values
-' XFAIL: wrong pending
 ' EXPECT: vbIMEAlphaDbl=7
 ' EXPECT: vbIMEAlphaSng=8
 ' EXPECT: vbIMEDisable=3

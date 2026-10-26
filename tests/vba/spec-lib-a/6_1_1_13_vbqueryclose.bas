@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.1.13
 ' SOURCE: spec ms-vbal 6.1.1.13 VbQueryClose values
-' XFAIL: wrong pending
 ' EXPECT: vbAppTaskManager=3
 ' EXPECT: vbAppWindows=2
 ' EXPECT: vbFormCode=1
