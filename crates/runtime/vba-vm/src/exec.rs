@@ -838,6 +838,7 @@ impl Vm {
                             refs: 1,
                             terminating: false,
                             sinks: Vec::new(),
+                            host_base: None,
                         },
                     );
                     return Ok(Variant::Object(ObjectRef::Handle(vm_handle(id))));

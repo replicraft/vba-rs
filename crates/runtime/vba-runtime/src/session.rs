@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use vba_ast::{ProcKind, Visibility};
+use vba_automation::Dispatch;
 use vba_diagnostics::{Severity, render_plain};
 use vba_host::{HeadlessHost, Host};
 use vba_ir::IrProgram;
@@ -60,6 +61,7 @@ pub struct SessionBuilder {
     command: String,
     config: VmConfig,
     allow_partial: bool,
+    host_members: Vec<String>,
 }
 
 impl Default for SessionBuilder {
@@ -83,6 +85,7 @@ impl SessionBuilder {
             command: String::new(),
             config: VmConfig::default(),
             allow_partial: false,
+            host_members: Vec::new(),
         }
     }
 
@@ -142,6 +145,22 @@ impl SessionBuilder {
         self
     }
 
+    /// Names the embedding application provides as members of document and
+    /// designer modules (control names, base-class properties). Inside such
+    /// a module an unqualified use of one of them, read or assigned, is
+    /// bound late to the host base object of the instance, even under
+    /// `Option Explicit`. Other undeclared names keep the normal rules, so
+    /// typos are still reported. See [`vba_sema::Options::host_members`].
+    #[must_use]
+    pub fn host_members<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.host_members = names.into_iter().map(Into::into).collect();
+        self
+    }
+
     /// Lets [`build_project`](SessionBuilder::build_project) accept a
     /// *mixed* project (some modules have no source). The modules without
     /// source are left out of the program, and running a procedure that
@@ -192,6 +211,7 @@ impl SessionBuilder {
         let options = Options {
             project_name: project.name.clone(),
             constants: vba_sema::parse_project_constants(&project.constants),
+            host_members: self.host_members.clone(),
             ..Options::default()
         };
         let (project_name, absent_modules) = (project.name.clone(), absent);
@@ -202,7 +222,11 @@ impl SessionBuilder {
 
     /// Loads source modules.
     pub fn build_sources(self, modules: &[SourceModule]) -> Result<Session, Error> {
-        self.build(modules, &Options::default())
+        let options = Options {
+            host_members: self.host_members.clone(),
+            ..Options::default()
+        };
+        self.build(modules, &options)
     }
 
     fn build(self, modules: &[SourceModule], options: &Options) -> Result<Session, Error> {
@@ -460,6 +484,12 @@ impl Session {
         name: &str,
         public_only: bool,
     ) -> Result<vba_sema::ProcId, Error> {
+        if matches!(obj, ObjectRef::Handle(_)) && !self.vm.is_live_instance(obj) {
+            // A destroyed instance, or a handle that never named one.
+            return Err(Error::from(vba_vm::VmError::Runtime(Box::new(
+                vba_vm::RuntimeError::new(vba_vm::RtErr::standard(91)),
+            ))));
+        }
         let Some(module) = self.vm.object_module(obj) else {
             return Err(Error::NotCallable(
                 name.to_owned(),
@@ -484,6 +514,130 @@ impl Session {
             return Err(Error::NotCallable(name.to_owned(), "it is private"));
         }
         Ok(id)
+    }
+
+    // ---- instances --------------------------------------------------------
+
+    fn class_like_module(&self, module: &str) -> Result<vba_sema::ModuleId, Error> {
+        if let Some((_, absent)) = &self.absent
+            && absent.iter().any(|a| a.eq_ignore_ascii_case(module))
+        {
+            return Err(self.compiled_only().expect("absent is non-empty"));
+        }
+        let m = self
+            .ir
+            .program
+            .module_by_name(module)
+            .ok_or_else(|| Error::NoSuchProcedure(module.to_owned()))?;
+        if !m.is_class_like() {
+            return Err(Error::NotCallable(
+                module.to_owned(),
+                "it is a standard module, which has no instances",
+            ));
+        }
+        Ok(m.id)
+    }
+
+    /// Creates a **new** instance of a class, document or designer module,
+    /// with its own module-level state; `Class_Initialize` runs before this
+    /// returns. `host_base` is bound as the instance's host base: members
+    /// the module does not define (`Me.Caption`, control names, `Me!Field`,
+    /// the default member) dispatch to it, late bound.
+    ///
+    /// The caller owns one reference; give it back with
+    /// [`destroy_object`](Session::destroy_object).
+    pub fn create_object(
+        &mut self,
+        module: &str,
+        host_base: Option<Rc<dyn Dispatch>>,
+    ) -> Result<ObjectRef, Error> {
+        self.require_trust()?;
+        let m = self.class_like_module(module)?;
+        Ok(self.vm.create_instance(m, host_base)?)
+    }
+
+    /// The default (predeclared) instance of a document, designer or
+    /// predeclared class module, created on first use. The reference is
+    /// borrowed: it lives as long as the session and cannot be destroyed
+    /// with [`destroy_object`](Session::destroy_object). A `host_base` is
+    /// bound when the instance has none yet (before `Class_Initialize` if
+    /// this call creates the instance).
+    pub fn default_instance(
+        &mut self,
+        module: &str,
+        host_base: Option<Rc<dyn Dispatch>>,
+    ) -> Result<ObjectRef, Error> {
+        self.require_trust()?;
+        let m = self.class_like_module(module)?;
+        if !self.ir.program.module(m).predeclared {
+            return Err(Error::NotCallable(
+                module.to_owned(),
+                "it is a class module without a default instance",
+            ));
+        }
+        Ok(self.vm.default_instance_with(m, host_base)?)
+    }
+
+    /// Gives back the reference [`create_object`](Session::create_object)
+    /// returned; `Class_Terminate` runs now unless VBA code still holds the
+    /// instance. A default instance cannot be destroyed.
+    pub fn destroy_object(&mut self, object: &ObjectRef) -> Result<(), Error> {
+        self.require_trust()?;
+        Ok(self.vm.destroy_instance(object)?)
+    }
+
+    /// Whether `object` has a `Sub`, `Function` or `Property Get` called
+    /// `name`, of any visibility (so a host can discover private event
+    /// handlers such as `Form_Current`).
+    pub fn has_procedure(&self, object: &ObjectRef, name: &str) -> bool {
+        self.find_in_object(object, name, false).is_ok()
+    }
+
+    /// Runs the handler `<source>_<event>` (for example `Form` /
+    /// `BeforeUpdate`, `Command1` / `Click`) on that specific instance,
+    /// whatever its visibility. `Ok(None)` means the instance has no such
+    /// handler.
+    pub fn raise_event_on(
+        &mut self,
+        object: &ObjectRef,
+        source: &str,
+        event: &str,
+        positional: Vec<Arg>,
+        named: Vec<(String, Arg)>,
+    ) -> Result<Option<RunOutput>, Error> {
+        self.require_trust()?;
+        let name = format!("{source}_{event}");
+        let id = match self.find_in_object(object, &name, false) {
+            Ok(id) => id,
+            Err(Error::NoSuchProcedure(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let args = self.vm.arrange_call_args(id, positional, named)?;
+        Ok(Some(self.vm.run_method(*object, id, args)?))
+    }
+
+    /// Reads a public variable or `Property Get` without parameters of an
+    /// instance by name; names the module lacks go to its host base.
+    pub fn get_member(&mut self, object: &ObjectRef, name: &str) -> Result<Variant, Error> {
+        self.require_trust()?;
+        Ok(self.vm.get_member(object, name)?)
+    }
+
+    /// Assigns a public variable or property of an instance by name.
+    pub fn set_member(
+        &mut self,
+        object: &ObjectRef,
+        name: &str,
+        value: Variant,
+    ) -> Result<(), Error> {
+        self.require_trust()?;
+        Ok(self.vm.set_member(object, name, value)?)
+    }
+
+    /// Releases the object references inside a value a call returned (the
+    /// result or a `ByRef` value).
+    pub fn release(&mut self, value: &Variant) {
+        self.vm.release(value);
     }
 
     /// Delivers a host event, for example `Workbook` / `Open`, to the

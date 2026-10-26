@@ -38,7 +38,7 @@ impl Sema<'_> {
     }
 
     fn check_class_hooks(&mut self, m: ModuleId) {
-        if self.program.modules[m.index()].kind != ModuleKind::Class {
+        if self.program.modules[m.index()].kind == ModuleKind::Standard {
             return;
         }
         let procs = self.program.modules[m.index()].procs.clone();

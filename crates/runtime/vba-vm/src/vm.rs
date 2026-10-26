@@ -96,6 +96,8 @@ pub struct Vm {
     pub(crate) debug_col: usize,
     pub(crate) declare: DeclareState,
     pub(crate) run_depth: u32,
+    /// How many host calls the VM is suspended in (nested embedder runs).
+    pub(crate) nesting: u32,
     pub(crate) stop_reason: Option<String>,
     pub(crate) last_site: Option<(String, u64, Vec<String>)>,
     pub(crate) push_request: Option<Option<vba_ir::Reg>>,
@@ -164,6 +166,7 @@ impl Vm {
             debug_col: 0,
             declare: DeclareState::new(),
             run_depth: 0,
+            nesting: 0,
             stop_reason: None,
             last_site: None,
             push_request: None,
@@ -214,6 +217,7 @@ impl Vm {
                 refs: 1 << 30,
                 terminating: false,
                 sinks: Vec::new(),
+                host_base: None,
             },
         );
         self.objects.insert(
@@ -223,6 +227,7 @@ impl Vm {
                 refs: 1 << 30,
                 terminating: false,
                 sinks: Vec::new(),
+                host_base: None,
             },
         );
         self.globals = Vec::with_capacity(ir.program.globals.len());

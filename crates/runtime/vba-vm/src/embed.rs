@@ -1,12 +1,16 @@
 //! Calls made by the embedder: argument preparation (`ByRef` slots, named
 //! and omitted arguments) and write-back.
 
-use vba_sema::ProcId;
-use vba_value::Variant;
+use std::rc::Rc;
+
+use vba_automation::Dispatch;
+use vba_ir::{InvokeKind, Member};
+use vba_sema::{ModuleId, ProcId};
+use vba_value::{ObjectRef, Variant};
 
 use crate::calls::BoundArg;
-use crate::error::{RtErr, RuntimeError, VResult, VmError};
-use crate::state::Loc;
+use crate::error::{Fault, RtErr, RuntimeError, VResult, VmError};
+use crate::state::{Loc, vm_handle, vm_id};
 use crate::vm::{Arg, Vm};
 
 /// Where the final value of a [`Arg::ByRef`] argument is read from.
@@ -134,4 +138,194 @@ impl Vm {
 /// running).
 pub(crate) fn plain_error(number: i32) -> VmError {
     VmError::Runtime(Box::new(RuntimeError::new(RtErr::standard(number))))
+}
+
+// ---- instances ------------------------------------------------------------
+
+impl Vm {
+    /// The class-like module called `name` (case-insensitive).
+    pub fn find_module(&self, name: &str) -> Option<ModuleId> {
+        self.ir.program.module_by_name(name).map(|m| m.id)
+    }
+
+    /// Creates a **new** instance of a class, document or designer module:
+    /// its own module-level state, `Class_Initialize` run. The caller owns
+    /// one reference (give it back with [`Vm::destroy_instance`]).
+    ///
+    /// `host_base` is bound as the instance's *host base* before any code
+    /// runs: members the module does not define (`Me.Caption`, control
+    /// names, `Me!Field`, the default member) are dispatched to it, late
+    /// bound. The VM takes one reference to the object in the host's table.
+    pub fn create_instance(
+        &mut self,
+        module: ModuleId,
+        host_base: Option<Rc<dyn Dispatch>>,
+    ) -> Result<ObjectRef, VmError> {
+        if self.ir.classes[module.index()].is_none() {
+            return Err(plain_error(429));
+        }
+        self.last_site = None;
+        let base = host_base.map(|rc| self.host.objects().insert(rc));
+        match self.new_class_instance_with(module, base) {
+            Ok(id) => Ok(ObjectRef::Handle(vm_handle(id))),
+            Err(f) => Err(self.finish_fault(f)),
+        }
+    }
+
+    /// The predeclared default instance of `module`, created on first use.
+    /// With a `host_base`: bound before `Class_Initialize` when this call
+    /// creates the instance, otherwise bound to the existing instance if it
+    /// has none yet (error 457 if it already has one). The reference is
+    /// borrowed.
+    pub fn default_instance_with(
+        &mut self,
+        module: ModuleId,
+        host_base: Option<Rc<dyn Dispatch>>,
+    ) -> Result<ObjectRef, VmError> {
+        self.last_site = None;
+        if let Some(id) = self.default_instances.get(&module).copied() {
+            let obj = ObjectRef::Handle(vm_handle(id));
+            if let Some(h) = host_base {
+                self.bind_host_base(&obj, h)?;
+            }
+            return Ok(obj);
+        }
+        let base = host_base.map(|rc| self.host.objects().insert(rc));
+        match self.new_class_instance_with(module, base) {
+            Ok(id) => {
+                self.default_instances.insert(module, id);
+                Ok(ObjectRef::Handle(vm_handle(id)))
+            }
+            Err(f) => Err(self.finish_fault(f)),
+        }
+    }
+
+    /// Binds a host base to an existing instance that has none (typically
+    /// the default instance of a form, whose `Class_Initialize` has then
+    /// already run without it).
+    pub fn bind_host_base(
+        &mut self,
+        object: &ObjectRef,
+        host_base: Rc<dyn Dispatch>,
+    ) -> Result<(), VmError> {
+        let id = self.live_object_id(object)?;
+        if self.objects.get(&id).is_some_and(|o| o.host_base.is_some()) {
+            return Err(plain_error(457));
+        }
+        let h = self.host.objects().insert(host_base);
+        if let Some(o) = self.objects.get_mut(&id) {
+            o.host_base = Some(h);
+        }
+        Ok(())
+    }
+
+    /// Gives back the reference [`Vm::create_instance`] handed out. When it
+    /// was the last one, `Class_Terminate` runs now and the object goes
+    /// away; if VBA code still references the instance it lives on until
+    /// that reference is released.
+    pub fn destroy_instance(&mut self, object: &ObjectRef) -> Result<(), VmError> {
+        let id = self.live_object_id(object)?;
+        if self.default_instances.values().any(|d| *d == id) {
+            return Err(plain_error(5));
+        }
+        self.last_site = None;
+        self.release_handle(vm_handle(id))
+            .map_err(|f| self.finish_fault(f))
+    }
+
+    /// Whether `object` is the default instance of a document, designer or
+    /// predeclared class module.
+    pub fn is_default_instance(&self, object: &ObjectRef) -> bool {
+        match object {
+            ObjectRef::Handle(h) => {
+                vm_id(*h).is_some_and(|id| self.default_instances.values().any(|d| *d == id))
+            }
+            ObjectRef::Nothing => false,
+        }
+    }
+
+    /// Whether the object is a live VM-owned instance.
+    pub fn is_live_instance(&self, object: &ObjectRef) -> bool {
+        self.live_object_id(object).is_ok()
+    }
+
+    /// Reads a public variable, property or parameterless member of an
+    /// object by name, as `object.name` does (members the module does not
+    /// define go to its host base). An object result carries a reference
+    /// the caller owns.
+    pub fn get_member(&mut self, object: &ObjectRef, name: &str) -> Result<Variant, VmError> {
+        self.member_access(object, name, None)
+    }
+
+    /// Assigns a public variable or property of an object by name
+    /// (`Let`, or `Set` when the value is an object).
+    pub fn set_member(
+        &mut self,
+        object: &ObjectRef,
+        name: &str,
+        value: Variant,
+    ) -> Result<(), VmError> {
+        self.member_access(object, name, Some(value)).map(|_| ())
+    }
+
+    fn member_access(
+        &mut self,
+        object: &ObjectRef,
+        name: &str,
+        put: Option<Variant>,
+    ) -> Result<Variant, VmError> {
+        self.live_object_id(object)?;
+        let (kind, args) = match put {
+            None => (InvokeKind::Get, Vec::new()),
+            Some(v) => {
+                let kind = if matches!(v, Variant::Object(_)) {
+                    InvokeKind::PutRef
+                } else {
+                    InvokeKind::Put
+                };
+                (kind, vec![(None, BoundArg::Val(v))])
+            }
+        };
+        self.last_site = None;
+        self.stop_reason = None;
+        let base = self.frames.len();
+        let r = self.invoke_value(
+            Variant::Object(*object),
+            &Member::Named(name.to_owned()),
+            kind,
+            args,
+            true,
+        );
+        // A member that is a procedure ran in a nested loop; anything else
+        // left no frame behind.
+        debug_assert!(self.frames.len() == base);
+        r.map_err(|f| self.finish_fault(f))
+    }
+
+    /// Releases the object references inside a value the VM handed out
+    /// (a function result or a `ByRef` value carries one reference per
+    /// object).
+    pub fn release(&mut self, value: &Variant) {
+        let _ = self.release_value(value.clone());
+    }
+
+    fn live_object_id(&self, object: &ObjectRef) -> Result<u64, VmError> {
+        let ObjectRef::Handle(h) = object else {
+            return Err(plain_error(91));
+        };
+        match vm_id(*h) {
+            Some(id) if self.objects.contains_key(&id) => Ok(id),
+            _ => Err(plain_error(91)),
+        }
+    }
+
+    /// Ends a failed top-level operation: the frames of the failed run are
+    /// dropped (unless this is a nested run inside a host call, whose
+    /// outer frames must survive).
+    pub(crate) fn finish_fault(&mut self, f: Fault) -> VmError {
+        if self.nesting == 0 {
+            self.frames.clear();
+        }
+        self.fault_to_error(f)
+    }
 }

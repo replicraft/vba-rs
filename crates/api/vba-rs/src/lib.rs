@@ -193,6 +193,7 @@
 mod call;
 mod engine;
 mod host;
+mod objects;
 mod project;
 
 pub mod prelude;
@@ -201,6 +202,7 @@ pub mod raw;
 pub use call::{Arg, CallResult, CallTarget};
 pub use engine::{Engine, Instance, Outcome};
 pub use host::{CancelToken, Factory};
+pub use objects::EventOutcome;
 pub use project::{DEFAULT_PROJECT_NAME, Project, Report};
 
 // Profiles.

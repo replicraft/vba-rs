@@ -48,6 +48,8 @@ pub(crate) struct Sema<'a> {
     pub diags: RefCell<Diagnostics>,
     pub provider: &'a dyn TypeProvider,
     pub project_name: Name,
+    /// Lower-case names the host supplies to document and designer modules.
+    pub host_members: std::collections::HashSet<String>,
     pub module_ids: HashMap<Name, ModuleId>,
     pub proc_src: Vec<&'a ProcDecl>,
     pub global_src: Vec<Option<&'a Declarator>>,
@@ -77,6 +79,7 @@ impl<'a> Sema<'a> {
             diags: RefCell::new(Diagnostics::new()),
             provider,
             project_name: Name::new(project_name),
+            host_members: std::collections::HashSet::new(),
             module_ids: HashMap::new(),
             proc_src: Vec::new(),
             global_src: Vec::new(),

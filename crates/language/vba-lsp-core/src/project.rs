@@ -210,6 +210,7 @@ impl Project {
             strict_syntax: true,
             project_name: config.project_name.clone(),
             constants: config.constants.clone(),
+            ..vba_sema::Options::default()
         };
         let sema = vba_sema::analyze_sources(&sources, &config.profile, &NoLibraries, &opts);
         let mut p = Project {

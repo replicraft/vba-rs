@@ -179,7 +179,7 @@ impl Vm {
                 _ => Err(VbaError::new(424).into()),
             },
             Variant::Object(ObjectRef::Handle(h)) => match vm_id(h) {
-                Some(id) => self.invoke_vm_object(id, member, kind, args, push),
+                Some(id) => self.invoke_vm_object(id, member, kind, args, push, want_value),
                 None => self.invoke_external(h, member, kind, args, want_value, dispid),
             },
             Variant::Object(ObjectRef::Nothing) | Variant::Empty => Err(VbaError::new(91).into()),
@@ -194,6 +194,7 @@ impl Vm {
         kind: InvokeKind,
         args: LateArgs,
         push: Option<Option<vba_ir::Reg>>,
+        want_value: bool,
     ) -> VResult<Variant> {
         let k = match self.objects.get(&id).map(|o| &o.kind) {
             Some(ObjKind::Class { module, .. }) => Some(*module),
@@ -201,7 +202,7 @@ impl Vm {
             None => return Err(VbaError::new(91).into()),
         };
         if let Some(m) = k {
-            return self.invoke_class(id, m, member, kind, args, push);
+            return self.invoke_class(id, m, member, kind, args, push, want_value);
         }
         match self.objects.get(&id).map(|o| &o.kind) {
             Some(ObjKind::Err) => self.invoke_err(member, kind, args),
@@ -242,6 +243,7 @@ impl Vm {
         Ok(out)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn invoke_class(
         &mut self,
         id: u64,
@@ -250,16 +252,24 @@ impl Vm {
         kind: InvokeKind,
         args: LateArgs,
         push: Option<Option<vba_ir::Reg>>,
+        want_value: bool,
     ) -> VResult<Variant> {
         let ir = self.ir.clone();
         let mi = ir.program.module(module);
+        // What the host object behind a document or designer module answers
+        // when the module does not define the member itself.
+        let host_base = self.objects.get(&id).and_then(|o| o.host_base);
         let name = match member {
             Member::Named(n) => n.clone(),
-            Member::Default => mi
-                .default_member
-                .as_ref()
-                .map(|n| n.to_string())
-                .ok_or(VbaError::new(438))?,
+            Member::Default => match mi.default_member.as_ref() {
+                Some(n) => n.to_string(),
+                None => {
+                    return match host_base {
+                        Some(h) => self.invoke_external(h, member, kind, args, want_value, None),
+                        None => Err(VbaError::new(438).into()),
+                    };
+                }
+            },
         };
         let lname = name.to_ascii_lowercase();
         if let Some(cands) = self.procs_by_name.get(&(module, lname)) {
@@ -341,7 +351,10 @@ impl Vm {
                 }
             }
         }
-        Err(VbaError::new(438).into())
+        match host_base {
+            Some(h) => self.invoke_external(h, member, kind, args, want_value, None),
+            None => Err(VbaError::new(438).into()),
+        }
     }
 
     // ---- default member ----------------------------------------------------------

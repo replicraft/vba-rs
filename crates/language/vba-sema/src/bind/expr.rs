@@ -497,7 +497,14 @@ impl Binder<'_, '_> {
             };
         }
         // Unresolved.
-        if (args.is_some() || stmt) && self.is_host_name(id) {
+        if self.is_host_name(id)
+            && (args.is_some()
+                || stmt
+                || self
+                    .sema
+                    .host_members
+                    .contains(&id.name.to_string_lossy().to_ascii_lowercase()))
+        {
             return self.host_member(id, span, args);
         }
         if args.is_none() && !stmt {
@@ -853,6 +860,26 @@ impl Binder<'_, '_> {
                             span,
                         };
                         self.member_of(base, &ident, Some(args), false)
+                    }
+                    None if matches!(
+                        mi.kind,
+                        vba_project::ModuleKind::Designer | vba_project::ModuleKind::Document
+                    ) =>
+                    {
+                        // `Me!Name`, `Me("Name")`: the default member of the
+                        // host-provided base class.
+                        self.sema.report(
+                            vba_diagnostics::Severity::Info,
+                            self.module,
+                            codes::LATE_BOUND_LIBRARY_MEMBER,
+                            span,
+                            format!(
+                                "`{}` does not declare a default member; it is assumed to be provided by the host base class and is bound late",
+                                mi.name
+                            ),
+                        );
+                        let la = self.late_args(args);
+                        self.late(base, LateMember::Default, la, Type::Variant, None)
                     }
                     None => {
                         self.err(

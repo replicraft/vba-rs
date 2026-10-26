@@ -139,6 +139,9 @@ pub(crate) struct Obj {
     pub refs: u32,
     pub terminating: bool,
     pub sinks: Vec<Sink>,
+    /// The host object that supplies the members a document or designer
+    /// module does not define (owned: one reference in the host's table).
+    pub host_base: Option<ObjectHandle>,
 }
 
 /// References released by the destruction of an object, processed by the

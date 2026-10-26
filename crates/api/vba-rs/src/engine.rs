@@ -46,6 +46,7 @@ pub struct Engine {
     files: Files,
     system_environment: bool,
     command: String,
+    host_members: Vec<String>,
 }
 
 impl Default for Engine {
@@ -68,6 +69,7 @@ impl Engine {
             files: Files::Memory(Vec::new()),
             system_environment: false,
             command: String::new(),
+            host_members: Vec::new(),
         }
     }
 
@@ -235,6 +237,23 @@ impl Engine {
         self
     }
 
+    /// Names the embedding application provides as members of document and
+    /// designer modules (the controls and base-class properties of a form).
+    /// Inside such a module an unqualified use of one of them (`Dirty`,
+    /// `CustomerName = "x"`) is bound late to the host base object of the
+    /// instance, even under `Option Explicit`; other undeclared names keep
+    /// the normal rules, so typos are still reported. `Me.Name`, `Me!Name`,
+    /// `Me("Name")` and calls `Name(args)` need no listing.
+    #[must_use]
+    pub fn host_members<I, S>(mut self, names: I) -> Engine
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.host_members = names.into_iter().map(Into::into).collect();
+        self
+    }
+
     /// The text `Command$` returns.
     #[must_use]
     pub fn command_line(mut self, command: &str) -> Engine {
@@ -269,6 +288,7 @@ impl Engine {
             .host(Rc::new(host))
             .debug_sink(sink.clone())
             .command_line(&self.command)
+            .host_members(self.host_members.clone())
             .vm_config(self.vm.clone());
         b = match &self.files {
             Files::Memory(files) => {

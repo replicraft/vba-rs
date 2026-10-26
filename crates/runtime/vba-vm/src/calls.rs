@@ -284,6 +284,17 @@ impl Vm {
 
     /// Creates an instance of a class module; the caller owns one reference.
     pub(crate) fn new_class_instance(&mut self, m: ModuleId) -> VResult<u64> {
+        self.new_class_instance_with(m, None)
+    }
+
+    /// Like [`Vm::new_class_instance`], with a host object that supplies the
+    /// members the module does not define. The instance takes over the
+    /// reference the caller holds on `host_base`.
+    pub(crate) fn new_class_instance_with(
+        &mut self,
+        m: ModuleId,
+        host_base: Option<ObjectHandle>,
+    ) -> VResult<u64> {
         let ir = self.ir.clone();
         let Some(info) = ir.classes[m.index()].as_ref() else {
             return Err(VbaError::new(429).into());
@@ -307,6 +318,7 @@ impl Vm {
                 refs: 1,
                 terminating: false,
                 sinks: Vec::new(),
+                host_base,
             },
         );
         let init: VResult<()> = (|| {
@@ -415,6 +427,12 @@ impl Vm {
             _ => {}
         }
         let obj = self.objects.remove(&id).expect("present");
+        if let Some(h) = obj.host_base {
+            let r = self.release_handle(h);
+            if result.is_ok() {
+                result = r;
+            }
+        }
         match obj.kind {
             ObjKind::Class {
                 module,

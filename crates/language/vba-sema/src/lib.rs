@@ -65,6 +65,14 @@ pub struct Options {
     pub project_name: String,
     /// Project-level conditional compilation constants.
     pub constants: Vec<(String, i64)>,
+    /// Names the embedding application provides as members of document and
+    /// designer modules (controls, base-class properties). An unqualified
+    /// use of one of these names, read or assigned, in such a module is
+    /// bound late to the host base object of the instance, even when it
+    /// would otherwise be an undeclared variable under `Option Explicit`.
+    /// Matched case-insensitively. Names not listed keep the normal rules
+    /// (a call, `Name(args)`, is always bound late).
+    pub host_members: Vec<String>,
 }
 
 impl Default for Options {
@@ -73,6 +81,7 @@ impl Default for Options {
             strict_syntax: true,
             project_name: "VBAProject".to_owned(),
             constants: Vec::new(),
+            host_members: Vec::new(),
         }
     }
 }
@@ -201,6 +210,11 @@ pub fn analyze_sources(
     let builtin = builtins::BuiltinLibrary;
     let chained = Chain(provider, &builtin);
     let mut s = sema::Sema::new(&asts, program, &chained, &opts.project_name);
+    s.host_members = opts
+        .host_members
+        .iter()
+        .map(|n| n.to_ascii_lowercase())
+        .collect();
     s.module_ids = ids;
     sema::run_declaration_passes(&mut s);
     let mut bound = Vec::new();
