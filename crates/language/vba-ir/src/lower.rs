@@ -1237,11 +1237,35 @@ impl<'p> Builder<'p> {
         for a in args {
             out.push(match a {
                 BArg::Value(e) => CallArg::Val(self.lower_expr(e)?),
-                BArg::Ref(p) => CallArg::Ref(self.place_ref(p)?),
+                BArg::Ref(p) => {
+                    let r = self.place_ref(p)?;
+                    self.ensure_new_ref(p, r);
+                    CallArg::Ref(r)
+                }
                 BArg::Missing => CallArg::Missing,
             });
         }
         Ok(out)
+    }
+
+    /// Passing an `As New` variable by reference instantiates it first, as
+    /// any other use of the variable does.
+    fn ensure_new_ref(&mut self, p: &BPlace, r: Reg) {
+        let ty = match p {
+            BPlace::Local(l) => self
+                .proc
+                .map(|pid| &self.prog.proc(pid).locals[l.index()])
+                .filter(|li| li.auto_new)
+                .map(|li| li.ty.clone()),
+            BPlace::Global(g) | BPlace::Field { global: g, .. } => {
+                let gi = self.prog.global(*g);
+                gi.auto_new.then(|| gi.ty.clone())
+            }
+            _ => None,
+        };
+        if let Some(target) = ty.and_then(|t| self.new_target(&t)) {
+            self.emit(InstKind::EnsureNew { r, target });
+        }
     }
 
     fn lower_late_args(&mut self, args: &[BLateArg]) -> Result<Vec<LateArg>, LowerError> {

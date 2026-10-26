@@ -818,6 +818,23 @@ fn auto_new_variable() {
 }
 
 #[test]
+fn auto_new_variable_passed_by_reference_is_instantiated() {
+    check(
+        "Sub Q(c As Collection)\nEnd Sub\nSub P()\nDim c As New Collection\nQ c\nEnd Sub\n",
+        "P",
+        expect![[r#"
+            func M.P
+              slot s0 c : VBA.Collection (local)
+              b0:
+                r0 = ref s0:c
+                ensure.new r0 lib VBA.Collection
+                call M.Q(ref r0)
+                return
+        "#]],
+    );
+}
+
+#[test]
 fn redim_erase_fixed_array() {
     check(
         "Sub P()\nDim f(1 To 3, 0 To 1) As Long, d() As Long\nReDim d(5)\nReDim Preserve d(1 To 8)\nErase d, f\nEnd Sub\n",
