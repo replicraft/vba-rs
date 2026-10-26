@@ -346,9 +346,85 @@ opcodes! {
     (263, InvalidSentinel, "INVALID_SENTINEL", None),
 }
 
+/// How well the meaning of an opcode is established.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Evidence {
+    /// Operand shape, operand order and stack effect were confirmed by
+    /// differential comparison with the source text of the same statement.
+    Verified,
+    /// Occurs in the observed material, but its meaning rests on the
+    /// opcode document or on partial agreement only.
+    Inferred,
+    /// Never observed; the operand shape comes from the document alone.
+    Unseen,
+}
+
+/// Opcodes whose meaning was confirmed by differential comparison on the
+/// observed material (VBA 7.0, x86).
+///
+/// Evidence: the cache instructions of a statement are replayed on an
+/// expression stack under the documented stack semantics and the resulting
+/// expression is compared with the source expression parsed with the VBAL
+/// operator precedence. Statements compared: 1,098 assignments (1,097
+/// agree), 237 block `If` conditions (237), 11 `ElseIf` (11), 18 `Do`/`Loop`
+/// conditions (18), 2 `Select Case` subjects (2), 35 `For` headers with
+/// start, end and step in order (35), 317 `Case` lists with values, ranges
+/// and `Is` comparisons (317), 15 `Debug.Print` lists with separators (15)
+/// and 137 call statements with argument count and `Call` keyword (137).
+/// Marker opcodes without operands are confirmed by agreement between the
+/// line they occur on and the keyword that starts the source line (zero
+/// disagreements for each, apart from single-line `If` statements that
+/// contain `Exit` or `GoTo`, and `Dim`-like declarations that share the
+/// marker). The one disagreement left is `&HFFFF` stored as a 32-bit hex
+/// literal with value 65535 where the language gives `-1`.
+const VERIFIED: &[u16] = &[
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 25, 26, 27, 29, 32,
+    36, 39, 65, 75, 76, 81, 82, 83, 84, 91, 93, 95, 97, 98, 100, 101, 103, 105, 107, 109, 110, 111,
+    113, 121, 122, 124, 132, 133, 134, 138, 145, 146, 149, 150, 154, 156, 172, 173, 176, 178, 183,
+    185, 186, 188, 189, 190, 202, 203, 208, 216, 217, 218, 220, 237, 245, 246, 247, 257, 258,
+];
+
+/// Opcodes that occur in the observed material (135 of 264).
+const SEEN: &[u16] = &[
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 29,
+    32, 33, 34, 36, 37, 39, 40, 41, 43, 44, 46, 53, 55, 57, 65, 66, 70, 71, 73, 75, 76, 81, 82, 83,
+    84, 86, 88, 91, 93, 94, 95, 97, 98, 100, 101, 103, 105, 106, 107, 109, 110, 111, 112, 113, 114,
+    121, 122, 124, 132, 133, 134, 138, 142, 145, 146, 147, 149, 150, 152, 154, 155, 156, 157, 163,
+    165, 166, 168, 170, 171, 172, 173, 175, 176, 178, 183, 185, 186, 188, 189, 190, 191, 198, 201,
+    202, 203, 204, 207, 208, 209, 210, 211, 216, 217, 218, 220, 227, 228, 229, 232, 237, 240, 243,
+    245, 246, 247, 248, 250, 257, 258, 260,
+];
+
+impl Opcode {
+    /// How well the meaning of this opcode is established.
+    pub fn evidence(self) -> Evidence {
+        let n = self.canonical();
+        if VERIFIED.contains(&n) {
+            Evidence::Verified
+        } else if SEEN.contains(&n) {
+            Evidence::Inferred
+        } else {
+            Evidence::Unseen
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evidence_tables_are_sorted_and_consistent() {
+        assert!(VERIFIED.windows(2).all(|w| w[0] < w[1]));
+        assert!(SEEN.windows(2).all(|w| w[0] < w[1]));
+        assert!(VERIFIED.iter().all(|v| SEEN.contains(v)));
+        assert_eq!(SEEN.len(), 135);
+        assert!(SEEN.iter().all(|&n| Opcode::from_canonical(n).is_some()));
+        assert_eq!(Opcode::NumAdd.evidence(), Evidence::Verified);
+        assert_eq!(Opcode::ReadDot.evidence(), Evidence::Inferred);
+        assert_eq!(Opcode::FileOpen.evidence(), Evidence::Inferred);
+        assert_eq!(Opcode::ImplementsStmt.evidence(), Evidence::Unseen);
+    }
 
     #[test]
     fn table_is_dense_and_consistent() {

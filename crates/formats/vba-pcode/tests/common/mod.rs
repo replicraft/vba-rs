@@ -5,6 +5,7 @@
 #![allow(dead_code, missing_docs)]
 
 pub mod consistency;
+pub mod expr;
 pub mod synth;
 
 use vba_format::{Limits, read_project};

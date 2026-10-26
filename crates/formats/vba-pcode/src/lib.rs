@@ -44,7 +44,7 @@ pub use lines::{
 };
 pub use module::{Span, TableLocations};
 pub use names::{CONFIRMED_BUILTINS, ME_WORD, Name, Resolver, builtin_name, name_suffix};
-pub use opcode::{Opcode, Shape};
+pub use opcode::{Evidence, Opcode, Shape};
 pub use project_stream::{IdentTable, ProjectCache, SIGNATURE, parse_identifiers, version_word};
 pub use recordmap::{RecordCoverage, RecordKind, RecordMap};
 pub use records::{
