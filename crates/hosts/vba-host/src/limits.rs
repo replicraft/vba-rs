@@ -165,6 +165,22 @@ impl Budget {
         self.memory.enter()
     }
 
+    /// Starts a fresh step allowance: the step counter returns to zero.
+    /// Memory (returned by the values that own it) and call depth describe
+    /// live state and are left alone.
+    pub fn reset_steps(&self) {
+        self.steps.set(0);
+        self.work_pending.set(0);
+    }
+
+    /// Starts over after a session discarded its state: a fresh step
+    /// allowance and a call depth of zero. Memory is not zeroed by hand: it
+    /// is given back as the values that own it are dropped.
+    pub fn reset(&self) {
+        self.reset_steps();
+        self.depth.set(0);
+    }
+
     /// Charges `n` steps.
     pub fn charge_steps(&self, n: u64) -> Result<(), LimitExceeded> {
         let built = self.memory.allocated_total();

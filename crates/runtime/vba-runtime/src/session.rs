@@ -645,8 +645,25 @@ impl Session {
     pub fn shutdown(&mut self) -> Result<(), Error> {
         self.require_trust()?;
         let r = self.vm.shutdown();
-        let closed = self.fs.borrow_mut().close_all();
+        let closed = self.close_files();
         r.map_err(Error::from)?;
+        closed
+    }
+
+    /// Discards all state of the program and starts over: module variables
+    /// get their initial values again, every object is dropped **without**
+    /// `Class_Terminate`, open files are closed, `Err` and the budget
+    /// counters are cleared. The trust decision is kept. See
+    /// [`Vm::reset`](vba_vm::Vm::reset).
+    pub fn reset(&mut self) -> Result<(), Error> {
+        let r = self.vm.reset();
+        let closed = self.close_files();
+        r.map_err(Error::from)?;
+        closed
+    }
+
+    fn close_files(&mut self) -> Result<(), Error> {
+        let closed = self.fs.borrow_mut().close_all();
         closed.map_err(|e| match e {
             vba_vm::ServiceError::Vba(i) => Error::Host(Box::new(
                 crate::error::ErrorReport::plain(i.number, i.description, i.source),

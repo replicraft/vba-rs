@@ -70,9 +70,7 @@ impl Instance {
         module: &str,
         host_me: Option<Rc<dyn Dispatch>>,
     ) -> Result<ObjectRef, Error> {
-        self.session
-            .create_object(module, host_me)
-            .map_err(Error::Run)
+        self.guarded(|s| s.create_object(module, host_me))
     }
 
     /// The default (predeclared) instance of a document, designer or
@@ -88,9 +86,7 @@ impl Instance {
         module: &str,
         host_me: Option<Rc<dyn Dispatch>>,
     ) -> Result<ObjectRef, Error> {
-        self.session
-            .default_instance(module, host_me)
-            .map_err(Error::Run)
+        self.guarded(|s| s.default_instance(module, host_me))
     }
 
     /// Gives back the reference [`create_object`](Instance::create_object)
@@ -99,7 +95,7 @@ impl Instance {
     /// until that reference is released. Destroying a stale or foreign
     /// object is VBA error 91, a default instance error 5.
     pub fn destroy_object(&mut self, object: ObjectRef) -> Result<(), Error> {
-        self.session.destroy_object(&object).map_err(Error::Run)
+        self.guarded(|s| s.destroy_object(&object))
     }
 
     /// Calls a public `Sub`, `Function` or `Property Get` of one instance.
@@ -118,7 +114,7 @@ impl Instance {
     /// base. An object value carries a reference the caller owns (see
     /// [`release`](Instance::release)).
     pub fn get_member(&mut self, object: ObjectRef, name: &str) -> Result<Variant, Error> {
-        self.session.get_member(&object, name).map_err(Error::Run)
+        self.guarded(|s| s.get_member(&object, name))
     }
 
     /// Assigns a public variable or `Property Let`/`Set` of one instance by
@@ -130,9 +126,7 @@ impl Instance {
         name: &str,
         value: Variant,
     ) -> Result<(), Error> {
-        self.session
-            .set_member(&object, name, value)
-            .map_err(Error::Run)
+        self.guarded(|s| s.set_member(&object, name, value))
     }
 
     /// Whether the instance defines a `Sub`, `Function` or `Property Get`
@@ -181,11 +175,9 @@ impl Instance {
             ))
         })?;
         let originals = by_ref_values(&positional, &named);
-        let r = self
-            .session
-            .raise_event_on(&object, source, event, positional, named);
+        let r = self.guarded(|s| s.raise_event_on(&object, source, event, positional, named));
         let output = self.sink.contents()[before..].to_owned();
-        Ok(match r.map_err(Error::Run)? {
+        Ok(match r? {
             Some(out) => EventOutcome {
                 handled: true,
                 status: out.status,
@@ -208,7 +200,7 @@ impl Instance {
     /// delivered at once, with `ByRef` write-back; see
     /// [`HostContext`](crate::HostContext) and the embedding guide.
     pub fn deliver_pending_events(&mut self) -> Result<(), Error> {
-        self.session.deliver_pending_events().map_err(Error::Run)
+        self.guarded(|s| s.deliver_pending_events())
     }
 
     /// Releases the object references inside a value a call returned: an

@@ -19,10 +19,21 @@ pub type Factory = Rc<dyn Fn(&ObjectTable) -> HostResult<Variant>>;
 
 /// A cancellation request that may be raised from any thread.
 ///
-/// The running session checks it where VBA yields to the host: at every
-/// `DoEvents`. A program that never calls `DoEvents` cannot be interrupted by
-/// a token; bound such programs with
-/// [`ResourceLimits::max_steps`](vba_host::ResourceLimits::max_steps).
+/// The running session polls it, so a handler is stopped even in a loop
+/// that never yields:
+///
+/// * before every call into the session (`Instance::call`, `run`,
+///   `raise_event_on`... and every nested run);
+/// * at every `DoEvents`;
+/// * every [`CANCEL_POLL_INTERVAL`](vba_host::CANCEL_POLL_INTERVAL)
+///   interpreter steps (basic blocks) of running code.
+///
+/// It cannot interrupt a single long operation inside the interpreter (a
+/// huge string built in one expression) or a host member that blocks:
+/// bound those with `ResourceLimits` and make host members return. A
+/// cancellation ends the call with a classified, untrappable
+/// `Error::Run(Cancelled)`; the token stays set until [`CancelToken::reset`],
+/// and `Instance::is_usable` is false meanwhile.
 #[derive(Debug, Clone, Default)]
 pub struct CancelToken(Arc<AtomicBool>);
 
@@ -32,8 +43,8 @@ impl CancelToken {
         CancelToken::default()
     }
 
-    /// Asks the sessions that share this token to stop at their next
-    /// `DoEvents`. Idempotent.
+    /// Asks the sessions that share this token to stop at their next poll
+    /// (see the type documentation). Idempotent.
     pub fn cancel(&self) {
         self.0.store(true, Ordering::SeqCst);
     }

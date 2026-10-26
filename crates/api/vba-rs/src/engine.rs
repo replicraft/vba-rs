@@ -332,7 +332,7 @@ impl Engine {
     pub fn load(&self, project: &Project) -> Result<Instance, Error> {
         let (builder, sink) = self.session_builder();
         let session = builder.build_project(project.model()).map_err(Error::Run)?;
-        Ok(Instance { session, sink })
+        Ok(Instance::new(session, sink, self.cancel.clone()))
     }
 
     /// Like [`load`](Engine::load), after `configure` adjusted the session
@@ -350,7 +350,7 @@ impl Engine {
         let session = configure(builder)
             .build_project(project.model())
             .map_err(Error::Run)?;
-        Ok(Instance { session, sink })
+        Ok(Instance::new(session, sink, self.cancel.clone()))
     }
 
     /// Loads, trusts, runs `procedure` and shuts the session down. Calling
@@ -393,9 +393,114 @@ pub struct Outcome {
 pub struct Instance {
     pub(crate) session: Session,
     pub(crate) sink: BufferSink,
+    cancel: CancelToken,
+    poisoned: Option<String>,
 }
 
 impl Instance {
+    pub(crate) fn new(session: Session, sink: BufferSink, cancel: CancelToken) -> Instance {
+        Instance {
+            session,
+            sink,
+            cancel,
+            poisoned: None,
+        }
+    }
+
+    /// Wraps a session you built yourself (see
+    /// [`Engine::session_builder`]). `cancel` is the token the session's
+    /// host polls (the engine's own, or a fresh one if your host has none);
+    /// it only feeds [`is_usable`](Instance::is_usable).
+    pub fn from_session(session: Session, sink: BufferSink, cancel: CancelToken) -> Instance {
+        Instance::new(session, sink, cancel)
+    }
+
+    /// Refuses to run on a poisoned instance.
+    pub(crate) fn guard(&self) -> Result<(), Error> {
+        match &self.poisoned {
+            Some(why) => Err(Error::Poisoned(why.clone())),
+            None => Ok(()),
+        }
+    }
+
+    /// Maps a session result; an internal error poisons the instance.
+    pub(crate) fn conv<T>(&mut self, r: Result<T, vba_runtime::Error>) -> Result<T, Error> {
+        r.map_err(|e| {
+            if let vba_runtime::Error::Internal(msg) = &e {
+                self.poisoned = Some(msg.clone());
+            }
+            Error::Run(e)
+        })
+    }
+
+    /// Runs `f` on the session: refuses a poisoned instance, maps the error.
+    pub(crate) fn guarded<T>(
+        &mut self,
+        f: impl FnOnce(&mut Session) -> Result<T, vba_runtime::Error>,
+    ) -> Result<T, Error> {
+        self.guard()?;
+        let r = f(&mut self.session);
+        self.conv(r)
+    }
+
+    /// Whether the instance can take another call right now.
+    ///
+    /// `false` when
+    ///
+    /// * the step allowance is spent (`ResourceLimits::max_steps` counts
+    ///   steps over the whole life of the instance, nested calls included):
+    ///   every call would fail at once. [`reset_step_counter`] gives a new
+    ///   allowance (per handler, say), [`reset`] starts over;
+    /// * the [`CancelToken`] is still cancelled: calls fail at once until
+    ///   `token.reset()`;
+    /// * the instance is *poisoned* by an internal error (a bug in vba-rs,
+    ///   never a mistake of the VBA program): calls are refused with
+    ///   [`Error::Poisoned`] until [`reset`](Instance::reset).
+    ///
+    /// Any other failure leaves the instance usable. An unhandled VBA error
+    /// unwinds its frames properly (locals are released, `Class_Terminate`
+    /// runs). A fatal fault (resource limit, cancellation, `End`) stops at
+    /// once and discards the frames of the run **without running code**:
+    /// objects only those frames held are never terminated, and module
+    /// state may be half updated, exactly as after any aborted procedure.
+    /// Call [`reset`](Instance::reset) when that matters.
+    ///
+    /// [`reset_step_counter`]: Instance::reset_step_counter
+    /// [`reset`]: Instance::reset
+    pub fn is_usable(&self) -> bool {
+        if self.poisoned.is_some() || self.cancel.is_cancelled() {
+            return false;
+        }
+        let budget = self.session.host().budget();
+        !budget
+            .limits()
+            .max_steps
+            .is_some_and(|max| budget.steps_used() >= max)
+    }
+
+    /// Starts a fresh step allowance: the counter of
+    /// `ResourceLimits::max_steps` goes back to zero, module state is kept.
+    /// The way to give every event handler its own budget.
+    pub fn reset_step_counter(&mut self) {
+        self.session.host().budget().reset_steps();
+    }
+
+    /// Discards all state and makes the instance usable again: module
+    /// variables return to their initial values (standard-module
+    /// initialisers run again), every object, including instances from
+    /// [`create_object`](Instance::create_object), becomes invalid
+    /// **without** `Class_Terminate`, `Err`, open files, the budget
+    /// counters and the poison flag are cleared. References VBA variables
+    /// held to host objects are released; what the *host* keeps (its own
+    /// state, event connections it still holds) is the host's to clean up.
+    /// The output buffer, the trust decision and the [`CancelToken`] (whose
+    /// request, if any, stays until you `reset()` the token) are untouched.
+    pub fn reset(&mut self) -> Result<(), Error> {
+        let r = self.session.reset();
+        self.poisoned = None;
+        self.conv(r)
+    }
+
     /// The embedder's decision to let this project's code run.
     pub fn trust(&mut self) {
         self.session.trust();
@@ -414,9 +519,9 @@ impl Instance {
     /// Runs a public procedure by `Proc` or `Module.Proc`.
     pub fn run(&mut self, procedure: &str, args: Vec<Variant>) -> Result<Outcome, Error> {
         let before = self.sink.contents().len();
-        let r = self.session.run_procedure(procedure, args);
+        let r = self.guarded(|s| s.run_procedure(procedure, args));
         let output = self.sink.contents()[before..].to_owned();
-        let out = r.map_err(Error::Run)?;
+        let out = r?;
         Ok(Outcome {
             value: out.value,
             status: out.status,
@@ -462,11 +567,9 @@ impl Instance {
         let (positional, named) = split_args(args).map_err(|why| {
             Error::Run(vba_runtime::Error::NotCallable(procedure.to_owned(), why))
         })?;
-        let r = self
-            .session
-            .call(&target.to_runtime(), procedure, positional, named);
+        let r = self.guarded(|s| s.call(&target.to_runtime(), procedure, positional, named));
         let output = self.sink.contents()[before..].to_owned();
-        let out = r.map_err(Error::Run)?;
+        let out = r?;
         Ok(CallResult {
             value: out.value,
             status: out.status,
@@ -483,9 +586,9 @@ impl Instance {
         args: Vec<Variant>,
     ) -> Result<Option<Outcome>, Error> {
         let before = self.sink.contents().len();
-        let r = self.session.raise_event(source, event, args);
+        let r = self.guarded(|s| s.raise_event(source, event, args));
         let output = self.sink.contents()[before..].to_owned();
-        Ok(r.map_err(Error::Run)?.map(|out| Outcome {
+        Ok(r?.map(|out| Outcome {
             value: out.value,
             status: out.status,
             output,
@@ -500,7 +603,7 @@ impl Instance {
     /// Releases module-level objects (running `Class_Terminate`) and closes
     /// files.
     pub fn shutdown(&mut self) -> Result<(), Error> {
-        self.session.shutdown().map_err(Error::Run)
+        self.guarded(|s| s.shutdown())
     }
 
     /// The underlying session.

@@ -170,6 +170,7 @@ impl Vm {
             declare: DeclareState::new(),
             run_depth: 0,
             nesting: 0,
+            poll_countdown: vba_host::POLL_INTERVAL,
             stop_reason: None,
             last_site: None,
             source_lines: Vec::new(),

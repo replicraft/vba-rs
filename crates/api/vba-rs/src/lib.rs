@@ -126,8 +126,9 @@
 //!
 //! # Resource limits and cancellation
 //!
-//! A step budget stops runaway loops; a [`CancelToken`] stops a program at its
-//! next `DoEvents`. Both end the run with a classified error that
+//! A step budget stops runaway loops; a [`CancelToken`] stops a program the
+//! next time the interpreter polls it (before each call, at `DoEvents` and
+//! every 1024 steps). Both end the run with a classified error that
 //! `On Error` cannot swallow.
 //!
 //! ```
@@ -282,6 +283,10 @@ pub enum Error {
     /// Loading or running failed; see [`runtime::Error`] for the taxonomy.
     #[error(transparent)]
     Run(vba_runtime::Error),
+    /// The instance hit an internal error and refuses further calls until
+    /// [`Instance::reset`] (see [`Instance::is_usable`]).
+    #[error("the instance is poisoned by an internal error ({0}); call reset()")]
+    Poisoned(String),
 }
 
 impl Error {
@@ -293,6 +298,7 @@ impl Error {
             Error::Source(_) => "source",
             Error::Io(_) => "io",
             Error::Run(e) => e.kind(),
+            Error::Poisoned(_) => "poisoned",
         }
     }
 }

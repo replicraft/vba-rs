@@ -10,7 +10,7 @@ use vba_value::{ObjectRef, Variant};
 
 use crate::calls::BoundArg;
 use crate::error::{Fault, RtErr, RuntimeError, VResult, VmError};
-use crate::state::{Loc, vm_handle, vm_id};
+use crate::state::{Loc, ObjKind, vm_handle, vm_id};
 use crate::vm::{Arg, Vm};
 
 /// Where the final value of a [`Arg::ByRef`] argument is read from.
@@ -131,6 +131,15 @@ impl Vm {
             out[i] = a;
         }
         Ok(out)
+    }
+}
+
+/// The handles of host objects (not VM-owned ones) inside a value.
+fn collect_host_handles(v: &Variant, out: &mut Vec<vba_value::ObjectHandle>) {
+    match v {
+        Variant::Object(ObjectRef::Handle(h)) if vm_id(*h).is_none() => out.push(*h),
+        Variant::Array(a) => a.iter().for_each(|x| collect_host_handles(x, out)),
+        _ => {}
     }
 }
 
@@ -255,6 +264,52 @@ impl Vm {
     /// Whether the object is a live VM-owned instance.
     pub fn is_live_instance(&self, object: &ObjectRef) -> bool {
         self.live_object_id(object).is_ok()
+    }
+
+    /// Asks the host now whether the run was cancelled (see
+    /// [`Host::poll_cancel`](vba_host::Host::poll_cancel)); the interpreter
+    /// does this at the start of every call from the embedder, besides its
+    /// periodic polling.
+    pub(crate) fn poll_now(&mut self) -> VResult<()> {
+        self.host
+            .poll_cancel()
+            .map_err(|e| Fault::Cancelled(e.description))
+    }
+
+    /// Discards all state of the program: module variables return to their
+    /// initial values (standard-module initialisers run again), every object
+    /// is dropped **without** running `Class_Terminate`, the `Err` object,
+    /// open files and the budget counters start over. References to host
+    /// objects held by VBA variables are released. Use it to recover an
+    /// instance after a fatal fault (see the embedding guide).
+    pub fn reset(&mut self) -> Result<(), VmError> {
+        let mut host_refs = Vec::new();
+        self.globals
+            .iter()
+            .for_each(|v| collect_host_handles(v, &mut host_refs));
+        for o in self.objects.values() {
+            match &o.kind {
+                ObjKind::Class { fields, .. } => fields
+                    .iter()
+                    .for_each(|v| collect_host_handles(v, &mut host_refs)),
+                ObjKind::Collection(items) => items
+                    .iter()
+                    .for_each(|i| collect_host_handles(&i.value, &mut host_refs)),
+                _ => {}
+            }
+            if let Some(h) = o.host_base {
+                host_refs.push(h);
+            }
+        }
+        for h in host_refs {
+            let _ = self.host.objects().release(h);
+        }
+        self.frames.clear();
+        self.services.reset();
+        self.pending_fatal = None;
+        self.last_site = None;
+        self.host.budget().reset();
+        self.reset_state().map_err(|f| self.fault_to_error(f))
     }
 
     /// Reads a module-level variable of a standard module. An object value

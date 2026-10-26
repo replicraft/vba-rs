@@ -374,6 +374,13 @@ impl Vm {
         self.last_site = None;
         self.stop_reason = None;
         let _meter = self.host.budget().enter();
+        if let Err(f) = self.poll_now() {
+            return if self.nesting > 0 {
+                self.finish_nested(Err(f), Vec::new())
+            } else {
+                Err(self.fault_to_error(f))
+            };
+        }
         let temp_base = self.globals.len();
         let (bound, outs) = match self.prepare_args(proc_, args) {
             Ok(x) => x,

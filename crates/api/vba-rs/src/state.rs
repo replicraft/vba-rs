@@ -38,7 +38,7 @@ impl Instance {
     /// [`AmbiguousMember`]: vba_runtime::Error::AmbiguousMember
     /// [`NotAccessible`]: vba_runtime::Error::NotAccessible
     pub fn get_global(&mut self, name: &str) -> Result<Variant, Error> {
-        self.session.get_global(name).map_err(Error::Run)
+        self.guarded(|s| s.get_global(name))
     }
 
     /// Assigns a public module-level variable of a standard module. The
@@ -47,7 +47,7 @@ impl Instance {
     /// a fixed-size array and a user-defined type are refused with
     /// [`NotAccessible`](vba_runtime::Error::NotAccessible).
     pub fn set_global(&mut self, name: &str, value: Variant) -> Result<(), Error> {
-        self.session.set_global(name, value).map_err(Error::Run)
+        self.guarded(|s| s.set_global(name, value))
     }
 
     /// The error the `Err` object holds now, with where it was raised and

@@ -139,7 +139,8 @@ pub trait Host {
     /// cancelled from another thread. It must be cheap (an atomic load); an
     /// error aborts the run. Unlike [`Host::idle`] it carries no other
     /// meaning and the default does nothing, so a host that cancels in `idle`
-    /// should cancel here too.
+    /// should cancel here too. The interpreter also polls it once at the
+    /// start of every call made by the embedder, nested ones included.
     fn poll_cancel(&self) -> HostResult<()> {
         Ok(())
     }
