@@ -254,7 +254,16 @@ pub fn arith(op: ArithOp, l: &Variant, r: &Variant, overflow: Overflow) -> VbaRe
     let b = val_of(r)?;
     match op {
         ArithOp::Add | ArithOp::Sub | ArithOp::Mul => add_sub_mul(op, a, b, overflow),
-        ArithOp::Div => divide(a, b),
+        ArithOp::Div => {
+            // MS-VBAL 5.6.9.3.5: 0 / 0 is Overflow, except that a Single,
+            // Double, String or Date divided by Empty is Division by zero.
+            let zero_by_empty = matches!(r, Variant::Empty)
+                && matches!(
+                    l,
+                    Variant::Single(_) | Variant::Double(_) | Variant::String(_) | Variant::Date(_)
+                );
+            divide(a, b, zero_by_empty)
+        }
         ArithOp::IntDiv | ArithOp::Mod => int_div_mod(op, a, b, overflow),
         ArithOp::Pow => power(a, b),
     }
@@ -335,7 +344,7 @@ fn add_sub_mul(op: ArithOp, a: Val, b: Val, overflow: Overflow) -> VbaResult<Var
     }
 }
 
-fn divide(a: Val, b: Val) -> VbaResult<Variant> {
+fn divide(a: Val, b: Val, zero_by_empty: bool) -> VbaResult<Variant> {
     use Val::{Cur, Dec, Single};
     if matches!(a, Dec(_)) || matches!(b, Dec(_)) {
         return Ok(Variant::Decimal(
@@ -349,7 +358,11 @@ fn divide(a: Val, b: Val) -> VbaResult<Variant> {
     }
     let d = b.to_f64();
     if d == 0.0 {
-        return Err(VbaError::DIVISION_BY_ZERO);
+        return Err(if a.to_f64() == 0.0 && !zero_by_empty {
+            VbaError::OVERFLOW
+        } else {
+            VbaError::DIVISION_BY_ZERO
+        });
     }
     let r = a.to_f64() / d;
     if matches!(a, Single(_)) && matches!(b, Single(_)) {
@@ -1008,7 +1021,8 @@ mod tests {
             (Variant::Single(1.0), Variant::Single(4.0), "Single:0.25"),
             (Variant::Single(1.0), Variant::Integer(4), "Double:0.25"),
             (Variant::Double(1.0), Variant::Integer(0), "Err:11"),
-            (Variant::Integer(0), Variant::Integer(0), "Err:11"),
+            (Variant::Integer(0), Variant::Integer(0), "Err:6"),
+            (Variant::Double(0.0), Variant::Empty, "Err:11"),
             (Variant::Double(1.0), Variant::Double(-0.0), "Err:11"),
             (Variant::Double(1e300), Variant::Double(1e-300), "Err:6"),
             (cur(10_000), cur(30_000), "Currency:0.3333"),

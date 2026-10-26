@@ -133,7 +133,7 @@ fn class_features() {
                 (
                     "M",
                     false,
-                    "Function Make() As Item\nDim r As New Item\nr.Name = \"tmp\"\nSet Make = r\nEnd Function\nSub Main()\nOn Error Resume Next\nDim x As Long\nx = Make().Weight / 0\nDebug.Print \"err \" & Err.Number\nEnd Sub\n",
+                    "Function Make() As Item\nDim r As New Item\nr.Name = \"tmp\"\nSet Make = r\nEnd Function\nSub Main()\nOn Error Resume Next\nDim x As Long\nx = (Make().Weight + 1) / 0\nDebug.Print \"err \" & Err.Number\nEnd Sub\n",
                 ),
             ],
             "free tmp\nerr 11\n",
