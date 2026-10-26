@@ -6,15 +6,64 @@ mod load;
 mod run;
 mod tools;
 
+use std::io::IsTerminal as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
+
+const AFTER_HELP: &str = "\
+Input files: wherever a file is expected, `-` reads standard input. Standard
+input is a standard module named Stdin (or a vbaProject.bin compound file).
+
+Exit codes:
+  0  success; for lex, parse, check and fmt-check: no errors or findings
+  1  findings (errors in the source) or bad input: unreadable or
+     unrecognized files, unknown profile, a project that does not compile
+  2  command-line usage error (and, for `run` only, an unhandled VBA
+     run-time error)
+  3  run: a capability that was not granted was needed
+  4  run: a resource limit was exceeded or the run was cancelled
+  5  run: a feature that is not implemented, or an internal error
+  6  the project is compiled-only: modules without source text
+
+Output: results go to standard output, errors to standard error prefixed
+`error:`. Colours are used only on a terminal, never when NO_COLOR is set,
+unless --color always is given.";
+
+/// When diagnostics use ANSI colours.
+#[derive(Clone, Copy, ValueEnum)]
+enum ColorWhen {
+    /// On a terminal, unless `NO_COLOR` is set or `TERM` is `dumb`.
+    Auto,
+    /// Always.
+    Always,
+    /// Never.
+    Never,
+}
+
+impl ColorWhen {
+    fn enabled(self) -> bool {
+        match self {
+            ColorWhen::Always => true,
+            ColorWhen::Never => false,
+            ColorWhen::Auto => {
+                std::io::stdout().is_terminal()
+                    && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
+                    && std::env::var_os("TERM").is_none_or(|v| v != "dumb")
+            }
+        }
+    }
+}
 
 /// Tools for working with Visual Basic for Applications projects.
 #[derive(Parser)]
-#[command(name = "vbars", version, about)]
+#[command(name = "vbars", version, about, after_long_help = AFTER_HELP)]
 struct Cli {
+    /// Colour the diagnostics.
+    #[arg(long, value_enum, default_value = "auto", global = true)]
+    color: ColorWhen,
     #[command(subcommand)]
     command: Command,
 }
@@ -28,7 +77,7 @@ enum Command {
     /// `VBA/dir`, `VBA/_VBA_PROJECT`, `PROJECT`, ...), or a standalone
     /// `.bas`, `.cls` or `.frm` source file.
     Inspect {
-        /// The file or directory to inspect.
+        /// The file or directory to inspect, or `-` for standard input.
         file: PathBuf,
         /// Print machine-readable JSON (schema in docs/formats/vba-format.md).
         #[arg(long)]
@@ -38,7 +87,7 @@ enum Command {
     ///
     /// Exits with 1 if there are lexical errors.
     Lex {
-        /// The `.bas`, `.cls` or `.frm` file.
+        /// The `.bas`, `.cls` or `.frm` file, or `-` for standard input.
         file: PathBuf,
         /// Also print whitespace, comments and line breaks.
         #[arg(long)]
@@ -51,11 +100,14 @@ enum Command {
     ///
     /// Exits with 1 if there are syntax errors.
     Parse {
-        /// The `.bas`, `.cls` or `.frm` file.
+        /// The `.bas`, `.cls` or `.frm` file, or `-` for standard input.
         file: PathBuf,
         /// Print the whole syntax tree.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "json")]
         tree: bool,
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
         /// Language profile id (see `vbars profiles`).
         #[arg(long)]
         profile: Option<String>,
@@ -64,7 +116,7 @@ enum Command {
     ///
     /// Prints syntax and semantic diagnostics; exits with 1 on errors.
     Check {
-        /// The files of the project.
+        /// The files of the project (`-` is standard input).
         #[arg(required = true)]
         files: Vec<PathBuf>,
         /// Language profile id (see `vbars profiles`).
@@ -74,20 +126,37 @@ enum Command {
         /// specification that real VBA is not known to enforce) as errors.
         #[arg(long)]
         strict_spec: bool,
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Check that a source file survives the syntax tree unchanged and
     /// follows basic whitespace conventions.
     ///
     /// Exits with 1 if there are findings.
     FmtCheck {
-        /// The `.bas`, `.cls` or `.frm` file.
+        /// The `.bas`, `.cls` or `.frm` file, or `-` for standard input.
         file: PathBuf,
         /// Language profile id (see `vbars profiles`).
         #[arg(long)]
         profile: Option<String>,
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// List the language profiles.
-    Profiles,
+    Profiles {
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print a shell completion script to standard output.
+    Completions {
+        /// The shell to generate for.
+        shell: Shell,
+    },
+    /// Print the manual page (roff) to standard output.
+    Man,
     /// Run a procedure.
     ///
     /// Running is explicit opt-in and every capability is denied unless a
@@ -100,7 +169,8 @@ enum Command {
     /// cancelled; 5 unsupported feature or internal error; 6 the project is
     /// compiled-only (modules without source).
     Run {
-        /// Source files (`.bas`, `.cls`, `.frm`) or one vbaProject.bin.
+        /// Source files (`.bas`, `.cls`, `.frm`) or one vbaProject.bin (`-` is
+        /// standard input).
         #[arg(required = true)]
         files: Vec<PathBuf>,
         /// The procedure to run: `Name` or `Module.Name`.
@@ -196,6 +266,7 @@ fn finish(r: Result<tools::Report, tools::ToolError>) -> ExitCode {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    diag::set_color(cli.color.enabled());
     match cli.command {
         Command::Inspect { file, json } => match inspect::run(&file, json) {
             Ok(report) => {
@@ -217,24 +288,50 @@ fn main() -> ExitCode {
         Command::Parse {
             file,
             tree,
+            json,
             profile,
         } => finish(
-            tools::profile_arg(profile.as_deref()).and_then(|p| tools::parse_file(&file, &p, tree)),
+            tools::profile_arg(profile.as_deref())
+                .and_then(|p| tools::parse_file(&file, &p, tree, json)),
         ),
         Command::Check {
             files,
             profile,
             strict_spec,
+            json,
         } => finish(
             tools::profile_arg(profile.as_deref())
-                .and_then(|p| tools::check_files(&files, &p, strict_spec)),
+                .and_then(|p| tools::check_files(&files, &p, strict_spec, json)),
         ),
-        Command::FmtCheck { file, profile } => {
-            finish(tools::profile_arg(profile.as_deref()).and_then(|p| tools::fmt_check(&file, &p)))
-        }
-        Command::Profiles => {
-            print!("{}", tools::list_profiles());
+        Command::FmtCheck {
+            file,
+            profile,
+            json,
+        } => finish(
+            tools::profile_arg(profile.as_deref()).and_then(|p| tools::fmt_check(&file, &p, json)),
+        ),
+        Command::Profiles { json } => {
+            print!("{}", tools::list_profiles(json));
             ExitCode::SUCCESS
+        }
+        Command::Completions { shell } => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "vbars", &mut std::io::stdout());
+            ExitCode::SUCCESS
+        }
+        Command::Man => {
+            let mut out = Vec::new();
+            match clap_mangen::Man::new(Cli::command()).render(&mut out) {
+                Ok(()) => {
+                    use std::io::Write as _;
+                    let _ = std::io::stdout().write_all(&out);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
         }
         Command::Run {
             files,

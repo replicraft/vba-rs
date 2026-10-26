@@ -52,7 +52,7 @@ pub const JSON_SCHEMA_VERSION: u32 = 1;
 /// Inspects `path` and returns the report to print: text, or JSON when
 /// `json` is set.
 pub fn run(path: &Path, json: bool) -> Result<String, InspectError> {
-    let shown = path.display().to_string();
+    let shown = crate::load::shown(path);
     if path.is_dir() {
         let streams = read_stream_dir(path, &shown)?;
         let project = vba_format::read_project_from_streams(
@@ -66,7 +66,7 @@ pub fn run(path: &Path, json: bool) -> Result<String, InspectError> {
         })?;
         return Ok(render_project(&project, "directory", json));
     }
-    let bytes = std::fs::read(path).map_err(|source| InspectError::Read {
+    let bytes = crate::load::read_input(path).map_err(|source| InspectError::Read {
         path: shown.clone(),
         source,
     })?;
@@ -74,14 +74,18 @@ pub fn run(path: &Path, json: bool) -> Result<String, InspectError> {
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase);
-    if matches!(ext.as_deref(), Some("bas" | "cls" | "frm")) {
+    let stdin_source = crate::load::is_stdin(path) && !bytes.starts_with(&CFB_MAGIC);
+    if stdin_source || matches!(ext.as_deref(), Some("bas" | "cls" | "frm")) {
         let text = decode_source(&bytes).ok_or_else(|| InspectError::Encoding {
             path: shown.clone(),
         })?;
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
+        let file_name = if stdin_source {
+            "Stdin.bas"
+        } else {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+        };
         let module =
             Module::from_source_file(file_name, &text).map_err(|source| InspectError::Source {
                 path: shown.clone(),

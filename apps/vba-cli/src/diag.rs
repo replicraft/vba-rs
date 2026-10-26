@@ -1,5 +1,7 @@
 //! Rendering diagnostics with source snippets.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use annotate_snippets::{AnnotationKind, Group, Level, Renderer, Snippet};
 use vba_diagnostics::{Diagnostic, Severity};
 use vba_source::{FileId, SourceEncoding, SourceFile, SourceMap};
@@ -102,9 +104,20 @@ fn render_one(d: &Diagnostic, sources: &SourceMap, renderer: &Renderer) -> Strin
     renderer.render(&groups)
 }
 
+static COLOR: AtomicBool = AtomicBool::new(false);
+
+/// Whether the diagnostics on standard output get ANSI colours.
+pub fn set_color(on: bool) {
+    COLOR.store(on, Ordering::Relaxed);
+}
+
 /// Renders every diagnostic, each followed by a blank line.
 pub fn render_all(diags: &[Diagnostic], sources: &SourceMap) -> String {
-    let renderer = Renderer::plain();
+    let renderer = if COLOR.load(Ordering::Relaxed) {
+        Renderer::styled()
+    } else {
+        Renderer::plain()
+    };
     let mut out = String::new();
     for d in diags {
         out.push_str(&render_one(d, sources, &renderer));
@@ -124,4 +137,43 @@ pub fn rename(sources: &SourceMap, names: &[String]) -> SourceMap {
         out.add(name.clone(), f.bytes().to_vec(), f.encoding());
     }
     out
+}
+
+/// The diagnostics as JSON values: code, severity, message, a 1-based
+/// `line`/`column` range in `file`, labels and notes.
+pub fn to_json(diags: &[Diagnostic], sources: &SourceMap) -> Vec<serde_json::Value> {
+    use serde_json::json;
+    let pos = |file, offset| {
+        sources.get(file).map_or((0, 0), |f| {
+            let lc = f.line_col(offset);
+            (lc.line + 1, lc.col + 1)
+        })
+    };
+    diags
+        .iter()
+        .map(|d| {
+            let (line, column) = pos(d.file, d.span.start);
+            let (end_line, end_column) = pos(d.file, d.span.end);
+            let labels: Vec<_> = d
+                .labels
+                .iter()
+                .map(|l| {
+                    let (line, column) = pos(d.file, l.span.start);
+                    json!({ "line": line, "column": column, "message": l.message })
+                })
+                .collect();
+            json!({
+                "code": d.code.0,
+                "severity": d.severity.as_str(),
+                "message": d.message,
+                "file": sources.get(d.file).map(|f| f.name().to_owned()),
+                "line": line,
+                "column": column,
+                "end_line": end_line,
+                "end_column": end_column,
+                "labels": labels,
+                "notes": d.notes,
+            })
+        })
+        .collect()
 }

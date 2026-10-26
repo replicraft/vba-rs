@@ -9,6 +9,49 @@ use vba_sema::SourceModule;
 /// Compound file signature.
 pub const CFB_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 
+/// The path that stands for standard input.
+const STDIN: &str = "-";
+
+/// The name shown in messages for standard input.
+pub const STDIN_NAME: &str = "<stdin>";
+
+/// Whether `path` is the `-` that stands for standard input.
+pub fn is_stdin(path: &Path) -> bool {
+    path.as_os_str() == STDIN
+}
+
+/// How `path` appears in messages and diagnostics.
+pub fn shown(path: &Path) -> String {
+    if is_stdin(path) {
+        STDIN_NAME.to_owned()
+    } else {
+        path.display().to_string()
+    }
+}
+
+/// Reads a file, or all of standard input for `-`.
+pub fn read_input(path: &Path) -> std::io::Result<Vec<u8>> {
+    if is_stdin(path) {
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut bytes)?;
+        Ok(bytes)
+    } else {
+        std::fs::read(path)
+    }
+}
+
+/// The file name a source gets when it is built into a module: standard
+/// input is a standard module named `Stdin`.
+fn module_file_name(path: &Path) -> &str {
+    if is_stdin(path) {
+        "Stdin.bas"
+    } else {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+    }
+}
+
 /// Why a file could not be loaded.
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -94,76 +137,30 @@ pub fn decode_source(bytes: &[u8]) -> Option<String> {
     }
 }
 
-/// Reads one `.bas`, `.cls` or `.frm` file as a module.
-pub fn read_module(path: &Path) -> Result<Module, LoadError> {
-    let shown = path.display().to_string();
-    let bytes = std::fs::read(path).map_err(|source| LoadError::Read {
-        path: shown.clone(),
-        source,
-    })?;
-    let text = decode_source(&bytes).ok_or_else(|| LoadError::Encoding {
-        path: shown.clone(),
-    })?;
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default();
-    Module::from_source_file(file_name, &text).map_err(|source| LoadError::Source {
-        path: shown,
-        source,
-    })
-}
-
 /// Loads source files, or a single `vbaProject.bin`.
 pub fn load(paths: &[PathBuf]) -> Result<Loaded, LoadError> {
     let mut modules = Vec::new();
     let mut origins = Vec::new();
     for path in paths {
-        let shown = path.display().to_string();
+        let shown = shown(path);
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
             .map(str::to_ascii_lowercase);
         if matches!(ext.as_deref(), Some("bas" | "cls" | "frm")) {
-            let m = read_module(path)?;
-            modules.push(SourceModule {
-                name: m.name.clone(),
-                kind: m.kind,
-                source: m.source.clone().into_bytes(),
-            });
+            modules.push(source_module(&shown, &read_bytes(path, &shown)?, path)?);
             origins.push(shown);
             continue;
         }
-        let bytes = std::fs::read(path).map_err(|source| LoadError::Read {
-            path: shown.clone(),
-            source,
-        })?;
+        let bytes = read_bytes(path, &shown)?;
         if bytes.starts_with(&CFB_MAGIC) {
-            let project =
-                vba_format::read_project(&bytes, &Limits::default()).map_err(|source| {
-                    LoadError::Project {
-                        path: shown.clone(),
-                        source,
-                    }
-                })?;
-            return Ok(Loaded {
-                origins: project
-                    .modules
-                    .iter()
-                    .map(|m| format!("{shown}[{}]", m.name))
-                    .collect(),
-                modules: project
-                    .modules
-                    .iter()
-                    .map(|m| SourceModule {
-                        name: m.name.clone(),
-                        kind: m.kind,
-                        source: m.source.clone().into_bytes(),
-                    })
-                    .collect(),
-                project: Some(project),
-                project_path: Some(shown),
-            });
+            return load_project(&bytes, shown);
+        }
+        // Standard input is a source file unless it is a compound file.
+        if is_stdin(path) {
+            modules.push(source_module(&shown, &bytes, path)?);
+            origins.push(shown);
+            continue;
         }
         return Err(LoadError::Unrecognized { path: shown });
     }
@@ -172,5 +169,56 @@ pub fn load(paths: &[PathBuf]) -> Result<Loaded, LoadError> {
         project_path: None,
         modules,
         origins,
+    })
+}
+
+fn read_bytes(path: &Path, shown: &str) -> Result<Vec<u8>, LoadError> {
+    read_input(path).map_err(|source| LoadError::Read {
+        path: shown.to_owned(),
+        source,
+    })
+}
+
+fn source_module(shown: &str, bytes: &[u8], path: &Path) -> Result<SourceModule, LoadError> {
+    let text = decode_source(bytes).ok_or_else(|| LoadError::Encoding {
+        path: shown.to_owned(),
+    })?;
+    let m = Module::from_source_file(module_file_name(path), &text).map_err(|source| {
+        LoadError::Source {
+            path: shown.to_owned(),
+            source,
+        }
+    })?;
+    Ok(SourceModule {
+        name: m.name.clone(),
+        kind: m.kind,
+        source: m.source.into_bytes(),
+    })
+}
+
+fn load_project(bytes: &[u8], shown: String) -> Result<Loaded, LoadError> {
+    let project = vba_format::read_project(bytes, &Limits::default()).map_err(|source| {
+        LoadError::Project {
+            path: shown.clone(),
+            source,
+        }
+    })?;
+    Ok(Loaded {
+        origins: project
+            .modules
+            .iter()
+            .map(|m| format!("{shown}[{}]", m.name))
+            .collect(),
+        modules: project
+            .modules
+            .iter()
+            .map(|m| SourceModule {
+                name: m.name.clone(),
+                kind: m.kind,
+                source: m.source.clone().into_bytes(),
+            })
+            .collect(),
+        project: Some(project),
+        project_path: Some(shown),
     })
 }

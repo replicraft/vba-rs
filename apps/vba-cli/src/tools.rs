@@ -10,8 +10,18 @@ use vba_sema::{NoLibraries, Options, SourceModule, analyze_sources};
 use vba_source::{SourceEncoding, SourceMap};
 use vba_syntax::ParseOptions;
 
-use crate::diag::{rename, render_all};
+use crate::diag::{rename, render_all, to_json};
 use crate::load::{self, LoadError};
+
+/// Version of the `--json` layout of `parse`, `check`, `fmt-check` and
+/// `profiles`.
+pub const JSON_SCHEMA_VERSION: u32 = 1;
+
+fn json_text(value: serde_json::Value) -> String {
+    let mut s = serde_json::to_string_pretty(&value).expect("JSON values serialize");
+    s.push('\n');
+    s
+}
 
 /// The outcome of a tool: text for standard output and whether the input is
 /// clean (exit code 0) or has findings (exit code 1).
@@ -44,12 +54,10 @@ pub fn profile_arg(id: Option<&str>) -> Result<Profile, ToolError> {
 }
 
 fn read_source(path: &Path) -> Result<Vec<u8>, LoadError> {
-    let shown = path.display().to_string();
-    let bytes = std::fs::read(path).map_err(|source| LoadError::Read {
-        path: shown,
+    load::read_input(path).map_err(|source| LoadError::Read {
+        path: load::shown(path),
         source,
-    })?;
-    Ok(bytes)
+    })
 }
 
 fn add_file(map: &mut SourceMap, path: &Path, bytes: Vec<u8>) -> vba_source::FileId {
@@ -58,7 +66,7 @@ fn add_file(map: &mut SourceMap, path: &Path, bytes: Vec<u8>) -> vba_source::Fil
     } else {
         SourceEncoding::Unknown
     };
-    map.add(path.display().to_string(), bytes, enc)
+    map.add(load::shown(path), bytes, enc)
 }
 
 fn count_errors(diags: &[Diagnostic]) -> usize {
@@ -98,20 +106,38 @@ pub fn lex_file(path: &Path, profile: &Profile, trivia: bool) -> Result<Report, 
 }
 
 /// `vbars parse`: a summary (or the tree) and the parser diagnostics.
-pub fn parse_file(path: &Path, profile: &Profile, tree: bool) -> Result<Report, ToolError> {
+pub fn parse_file(
+    path: &Path,
+    profile: &Profile,
+    tree: bool,
+    json: bool,
+) -> Result<Report, ToolError> {
     let bytes = read_source(path)?;
     if bytes.starts_with(&load::CFB_MAGIC) {
         // A project is not a source file. Say precisely why it cannot be
         // parsed instead of tokenizing binary data.
         let loaded = load::load(&[path.to_path_buf()])?;
         return Err(loaded.compiled_only_error().map_or_else(
-            || ToolError::NotSource(path.display().to_string()),
+            || ToolError::NotSource(load::shown(path).to_string()),
             ToolError::from,
         ));
     }
     let mut map = SourceMap::new();
     let file = add_file(&mut map, path, bytes.clone());
     let parsed = vba_ast::parse_module(file, &bytes, profile, &ParseOptions::strict());
+    if json {
+        return Ok(Report {
+            clean: count_errors(&parsed.diagnostics) == 0,
+            text: json_text(serde_json::json!({
+                "schema_version": JSON_SCHEMA_VERSION,
+                "file": load::shown(path),
+                "items": parsed.module.items.len(),
+                "nodes": parsed.tree.node_count(),
+                "tokens": parsed.tree.token_count(),
+                "diagnostics": to_json(&parsed.diagnostics, &map),
+            })),
+        });
+    }
     let mut text = String::new();
     if tree {
         text.push_str(&parsed.tree.debug_dump());
@@ -119,7 +145,7 @@ pub fn parse_file(path: &Path, profile: &Profile, tree: bool) -> Result<Report, 
         let _ = writeln!(
             text,
             "{}: {} item(s), {} node(s), {} token(s)",
-            path.display(),
+            load::shown(path),
             parsed.module.items.len(),
             parsed.tree.node_count(),
             parsed.tree.token_count()
@@ -137,6 +163,7 @@ pub fn check_files(
     paths: &[PathBuf],
     profile: &Profile,
     strict_spec: bool,
+    json: bool,
 ) -> Result<Report, ToolError> {
     let loaded = load::load(paths)?;
     if let Some(e) = loaded.compiled_only_error() {
@@ -168,6 +195,19 @@ pub fn check_files(
         .filter(|d| d.severity == Severity::Warning)
         .count();
     let sources = rename(&analysis.sources, &loaded.origins);
+    if json {
+        return Ok(Report {
+            clean: errors == 0,
+            text: json_text(serde_json::json!({
+                "schema_version": JSON_SCHEMA_VERSION,
+                "modules": analysis.program.modules.len(),
+                "procedures": analysis.program.procs.len(),
+                "errors": errors,
+                "warnings": warnings,
+                "diagnostics": to_json(&analysis.diagnostics, &sources),
+            })),
+        });
+    }
     let mut text = render_all(&analysis.diagnostics, &sources);
     let _ = writeln!(
         text,
@@ -183,7 +223,7 @@ pub fn check_files(
 
 /// `vbars fmt-check`: byte-exact losslessness of the syntax tree and the
 /// whitespace conventions that a formatter would normalise.
-pub fn fmt_check(path: &Path, profile: &Profile) -> Result<Report, ToolError> {
+pub fn fmt_check(path: &Path, profile: &Profile, json: bool) -> Result<Report, ToolError> {
     let bytes = read_source(path)?;
     let mut map = SourceMap::new();
     let file = add_file(&mut map, path, bytes.clone());
@@ -231,12 +271,22 @@ pub fn fmt_check(path: &Path, profile: &Profile) -> Result<Report, ToolError> {
     if !bytes.is_empty() && !bytes.ends_with(b"\n") && !bytes.ends_with(b"\r") {
         findings.push("the file does not end with a line break".into());
     }
+    if json {
+        return Ok(Report {
+            clean: findings.is_empty(),
+            text: json_text(serde_json::json!({
+                "schema_version": JSON_SCHEMA_VERSION,
+                "file": load::shown(path),
+                "findings": findings,
+            })),
+        });
+    }
     let mut text = String::new();
     for f in &findings {
-        let _ = writeln!(text, "{}: {f}", path.display());
+        let _ = writeln!(text, "{}: {f}", load::shown(path));
     }
     if findings.is_empty() {
-        let _ = writeln!(text, "{}: ok", path.display());
+        let _ = writeln!(text, "{}: ok", load::shown(path));
     }
     Ok(Report {
         clean: findings.is_empty(),
@@ -245,9 +295,31 @@ pub fn fmt_check(path: &Path, profile: &Profile) -> Result<Report, ToolError> {
 }
 
 /// `vbars profiles`.
-pub fn list_profiles() -> String {
-    let mut out = String::new();
+pub fn list_profiles(json: bool) -> String {
     let default = default_profile().id;
+    if json {
+        let list: Vec<_> = profiles()
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "id": p.id,
+                    "generation": p.generation.name(),
+                    "application": p.host.application.id(),
+                    "major": p.host.major,
+                    "minor": p.host.minor,
+                    "release_year": p.host.release_year,
+                    "os": format!("{:?}", p.target.os),
+                    "bitness": p.target.bitness.bits(),
+                    "default": p.id == default,
+                })
+            })
+            .collect();
+        return json_text(serde_json::json!({
+            "schema_version": JSON_SCHEMA_VERSION,
+            "profiles": list,
+        }));
+    }
+    let mut out = String::new();
     for p in profiles() {
         let _ = writeln!(
             out,

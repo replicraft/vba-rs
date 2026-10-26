@@ -68,6 +68,8 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 # Command-line interface
 annotate-snippets = "0.12"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.3"
 
 # Native interop
 libffi = "5.2.0"
