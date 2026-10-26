@@ -95,6 +95,29 @@ fn read_limited_refuses_a_file_over_the_limit_in_every_file_system() {
     assert_eq!(mem.read_limited("/a.txt", 9), Err(VfsError::TooLarge));
 }
 
+#[test]
+fn a_record_longer_than_any_file_is_refused_before_it_is_buffered() {
+    let fs = SharedFs::with(&[]);
+    let sink = BufferSink::new();
+    let h = host(all_files());
+    let mut s = Session::builder()
+        .host(h.clone())
+        .vfs(fs)
+        .debug_sink(sink.clone())
+        .build_sources(&[std_module(
+            "Public Sub Main()\nDim b As String * 3\nb = \"abc\"\nOn Error Resume Next\nOpen \"/f\" For Random As #1 Len = 2000000000\nDebug.Print Err.Number\nPut #1, 1, b\nDebug.Print Err.Number\nEnd Sub\n",
+        )])
+        .unwrap();
+    s.file_system().borrow_mut().set_max_file_bytes(1 << 20);
+    s.trust();
+    s.run_procedure("Main", vec![]).unwrap();
+    // 59 "Bad record length" at Open; the Put then has no open file (52).
+    assert_eq!(
+        sink.contents().split_whitespace().collect::<Vec<_>>(),
+        ["59", "52"]
+    );
+}
+
 #[cfg(unix)]
 mod real {
     use super::*;

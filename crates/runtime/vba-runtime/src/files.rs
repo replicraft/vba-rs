@@ -212,6 +212,11 @@ impl FileSystem {
             (OpenMode::Random, Some(_)) => return vba(59),
             _ => 128,
         };
+        // A record is buffered whole on every Get and Put; one that no file
+        // could hold must not be allocated first.
+        if mode == OpenMode::Random && record_len > self.max_file_bytes {
+            return vba(59);
+        }
         let st = self.vfs.stat(&p).map_err(map_vfs)?;
         if st.as_ref().is_some_and(|s| s.is_dir) {
             return vba(75);
