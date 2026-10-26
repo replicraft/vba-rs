@@ -226,7 +226,7 @@ impl Vm {
                 Variant::Null => Err(VbaError::INVALID_USE_OF_NULL.into()),
                 _ => Err(VbaError::TYPE_MISMATCH.into()),
             },
-            Type::Udt(_) => match v {
+            Type::Udt(_) | Type::LibRecord(_) => match v {
                 Variant::UserDefined(_) => Ok(v),
                 _ => Err(VbaError::TYPE_MISMATCH.into()),
             },

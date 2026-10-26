@@ -68,6 +68,9 @@ pub(crate) struct Binder<'s, 'a> {
     /// Set while binding the argument of `Len`/`LenB`, the only functions
     /// that accept a user-defined type value as their `Variant` argument.
     pub udt_arg_ok: bool,
+    /// The span of the assignment target being bound, if any: a write-only
+    /// library property may be named there.
+    pub target_span: Option<Span>,
 }
 
 /// Constant scope of a procedure: its local constants, then module scope.
@@ -120,6 +123,7 @@ pub(crate) fn bind_proc(sema: &Sema<'_>, id: ProcId) -> BoundProc {
         explicit: mi.options.explicit,
         class_like: mi.is_class_like(),
         udt_arg_ok: false,
+        target_span: None,
     };
     b.declare_params();
     b.prescan();

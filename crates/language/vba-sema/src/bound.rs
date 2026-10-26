@@ -219,9 +219,14 @@ pub struct BLate {
     pub kind: LateKind,
     /// Arguments.
     pub args: Vec<BLateArg>,
-    /// The library type of the receiver when it is statically known but its
-    /// member could not be verified.
+    /// The library type of the receiver when it is statically known.
     pub static_receiver: Option<LibraryType>,
+    /// The member id (`DISPID`) the library declares for the member. When
+    /// present, the access is early-bound: the arguments are already in
+    /// parameter order, converted to the declared parameter types, with the
+    /// declared defaults filled in, and the run time invokes the member by
+    /// id.
+    pub dispid: Option<i32>,
 }
 
 /// An assignable location.

@@ -120,8 +120,12 @@ pub enum Type {
     Udt(UdtId),
     /// An `Enum` (stored as `Long`).
     Enum(EnumId),
-    /// A library type.
+    /// A library type (interface, dispinterface or coclass).
     Library(LibraryType),
+    /// An enumeration of a type library (stored as `Long`).
+    LibEnum(LibraryType),
+    /// A record (UDT) of a type library; a value type like [`Type::Udt`].
+    LibRecord(LibraryType),
     /// An array; `rank` is `None` when unknown (`Dim a()`, parameters).
     Array {
         /// Element type.
@@ -164,6 +168,7 @@ impl Type {
                 | Type::Currency
                 | Type::Decimal
                 | Type::Enum(_)
+                | Type::LibEnum(_)
         )
     }
 
@@ -171,8 +176,23 @@ impl Type {
     pub fn is_integral(&self) -> bool {
         matches!(
             self,
-            Type::Byte | Type::Integer | Type::Long | Type::LongLong | Type::Enum(_)
+            Type::Byte
+                | Type::Integer
+                | Type::Long
+                | Type::LongLong
+                | Type::Enum(_)
+                | Type::LibEnum(_)
         )
+    }
+
+    /// Whether this is a project or library enumeration.
+    pub fn is_enum(&self) -> bool {
+        matches!(self, Type::Enum(_) | Type::LibEnum(_))
+    }
+
+    /// Whether this is a user-defined type of the project or of a library.
+    pub fn is_record(&self) -> bool {
+        matches!(self, Type::Udt(_) | Type::LibRecord(_))
     }
 
     /// Whether the type is `String` or `String * n`.
@@ -196,7 +216,7 @@ impl Type {
             Type::Boolean => VarType::Boolean,
             Type::Byte => VarType::Byte,
             Type::Integer => VarType::Integer,
-            Type::Long | Type::Enum(_) => VarType::Long,
+            Type::Long | Type::Enum(_) | Type::LibEnum(_) => VarType::Long,
             Type::LongLong => VarType::LongLong,
             Type::Single => VarType::Single,
             Type::Double => VarType::Double,
@@ -206,7 +226,7 @@ impl Type {
             Type::String | Type::FixedString(_) => VarType::String,
             Type::Variant => VarType::Variant,
             Type::Object | Type::Class(_) | Type::Library(_) | Type::Nothing => VarType::Object,
-            Type::Udt(_) => VarType::UserDefinedType,
+            Type::Udt(_) | Type::LibRecord(_) => VarType::UserDefinedType,
             Type::Array { .. } | Type::Any | Type::Error => return None,
         })
     }
@@ -225,7 +245,7 @@ impl Type {
         Some(match self {
             Type::Byte => 1,
             Type::Boolean | Type::Integer => 2,
-            Type::Long | Type::Enum(_) => 3,
+            Type::Long | Type::Enum(_) | Type::LibEnum(_) => 3,
             Type::LongLong => 4,
             _ => return None,
         })
@@ -252,7 +272,7 @@ impl fmt::Display for Type {
             Type::Class(m) => write!(f, "class#{}", m.0),
             Type::Udt(u) => write!(f, "udt#{}", u.0),
             Type::Enum(e) => write!(f, "enum#{}", e.0),
-            Type::Library(l) => write!(f, "{l}"),
+            Type::Library(l) | Type::LibEnum(l) | Type::LibRecord(l) => write!(f, "{l}"),
             Type::Array { elem, rank } => match rank {
                 Some(r) => write!(f, "{elem}[{r}]"),
                 None => write!(f, "{elem}[]"),
@@ -335,7 +355,7 @@ fn arith_result(op: BinaryOp, l: &Type, r: &Type) -> Type {
     use BinaryOp::*;
     let norm = |t: &Type| match t {
         Type::Boolean => Type::Integer,
-        Type::Enum(_) => Type::Long,
+        Type::Enum(_) | Type::LibEnum(_) => Type::Long,
         Type::String | Type::FixedString(_) => Type::Double,
         t => t.clone(),
     };
@@ -409,7 +429,7 @@ pub fn negate_result(t: &Type) -> Type {
     match t {
         Type::Variant => Type::Variant,
         Type::Boolean | Type::Byte => Type::Integer,
-        Type::Enum(_) => Type::Long,
+        Type::Enum(_) | Type::LibEnum(_) => Type::Long,
         Type::String | Type::FixedString(_) => Type::Double,
         Type::Error => Type::Error,
         t => t.clone(),

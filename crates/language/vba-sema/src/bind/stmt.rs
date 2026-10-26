@@ -31,10 +31,12 @@ impl Binder<'_, '_> {
             BPlace::Global(g) | BPlace::Field { global: g, .. } => {
                 self.sema.program.globals[g.index()].fixed_bounds.is_some()
             }
-            BPlace::UdtField { udt, index, .. } => self.sema.program.udts[udt.index()].fields
-                [*index as usize]
-                .fixed_bounds
-                .is_some(),
+            BPlace::UdtField { udt, index, .. } => self
+                .sema
+                .program
+                .udt_fields(*udt)
+                .get(*index as usize)
+                .is_some_and(|f| f.fixed_bounds.is_some()),
             _ => false,
         }
     }
@@ -99,7 +101,7 @@ impl Binder<'_, '_> {
                 let subject = self.rvalue(subject);
                 if matches!(
                     subject.ty,
-                    Type::Udt(_) | Type::Array { .. } | Type::Nothing
+                    Type::Udt(_) | Type::LibRecord(_) | Type::Array { .. } | Type::Nothing
                 ) {
                     self.err(
                         codes::TYPE_MISMATCH,
@@ -562,7 +564,7 @@ impl Binder<'_, '_> {
         };
         if matches!(mode, AssignMode::LSet | AssignMode::RSet) {
             let ok_target = pty.is_string()
-                || (mode == AssignMode::LSet && matches!(pty, Type::Udt(_)))
+                || (mode == AssignMode::LSet && matches!(pty, Type::Udt(_) | Type::LibRecord(_)))
                 || pty.is_variant();
             if !ok_target {
                 self.err(
@@ -572,7 +574,7 @@ impl Binder<'_, '_> {
                 );
                 return None;
             }
-            let v = if matches!(pty, Type::Udt(_)) {
+            let v = if matches!(pty, Type::Udt(_) | Type::LibRecord(_)) {
                 self.coerce(v, &pty, Ctx::Let)
             } else {
                 let v = self.rvalue(v);
@@ -951,7 +953,8 @@ impl Binder<'_, '_> {
                 },
             );
         }
-        if matches!(obj.ty, Type::Udt(_)) && self.expr_to_place(&obj).is_some() {
+        if matches!(obj.ty, Type::Udt(_) | Type::LibRecord(_)) && self.expr_to_place(&obj).is_some()
+        {
             self.withs.push(WithEntry { receiver: obj });
             let body = self.bind_block(body);
             self.withs.pop();

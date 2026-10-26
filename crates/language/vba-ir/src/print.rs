@@ -200,8 +200,13 @@ impl Printer<'_> {
                 format!("r{}[{}]", base.0, self.operands(indices))
             }
             RefPlace::UdtField { base, udt, index } => {
-                let u = &self.p.program.udts[udt.index()];
-                format!("r{}.{}.{}", base.0, u.name, u.fields[*index as usize].name)
+                let p = &self.p.program;
+                format!(
+                    "r{}.{}.{}",
+                    base.0,
+                    p.udt_name(*udt),
+                    p.udt_fields(*udt)[*index as usize].name
+                )
             }
         }
     }
@@ -441,13 +446,13 @@ impl Printer<'_> {
                 udt,
                 index,
             } => {
-                let u = &self.p.program.udts[udt.index()];
+                let p = &self.p.program;
                 format!(
                     "r{} = udt.field {}.{}.{}",
                     dst.0,
                     self.operand(base),
-                    u.name,
-                    u.fields[*index as usize].name
+                    p.udt_name(*udt),
+                    p.udt_fields(*udt)[*index as usize].name
                 )
             }
             InstKind::Call {

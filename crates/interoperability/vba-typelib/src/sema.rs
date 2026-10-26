@@ -10,18 +10,25 @@
 //! * `FUNCFLAG_FRESTRICTED` members are invisible; hidden ones stay callable.
 //! * A pointer to an interface is an object (`ByVal`); any other pointer is
 //!   a `ByRef` parameter of the pointee type.
-//! * Unsigned types map to the next wider signed VBA type; enums map to
-//!   `Long`.
+//! * Unsigned types map to the next wider signed VBA type.
 //! * A coclass exposes the members of its default interface, and its
 //!   `[source]` interface supplies the events.
 //!
-//! Gaps (also in `docs/formats/typelib.md`): a library enum or an alias of a
-//! primitive cannot be named as a declared type (`vba-sema` has no library
-//! enum type), so `resolve_type` answers "unknown" for them; their members
-//! and constants are still available as globals.
+//! * Enums are `Type::LibEnum` (stored as `Long`), records are
+//!   `Type::LibRecord`, aliases resolve transitively to the type they stand
+//!   for; coclasses report whether `New` may create them. Members carry
+//!   their `DISPID`s and the defaults the library declares for optional
+//!   parameters, which is what early binding uses.
+//!
+//! Unions are not modelled: naming one is an unresolved type.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use vba_sema::{
-    LibEvent, LibGlobal, LibMember, LibMemberKind, LibParam, LibraryType, Type, TypeProvider,
+    LibClass, LibEvent, LibField, LibGlobal, LibMember, LibMemberKind, LibParam, LibRecord,
+    LibraryType, Type, TypeProvider,
 };
 use vba_value::{Currency, Variant, VbaString};
 
@@ -34,7 +41,13 @@ use crate::model::{
 #[derive(Debug, Clone, Default)]
 pub struct TypelibProvider {
     libs: Vec<TypeLib>,
+    /// Members of a type, by `(library, type)` index; cleared when a library
+    /// is added.
+    cache: RefCell<HashMap<(usize, usize), Rc<Members>>>,
 }
+
+/// The VBA members of a type and whether the list is complete.
+type Members = (Vec<LibMember>, bool);
 
 const MAX_DEPTH: usize = 16;
 
@@ -47,13 +60,14 @@ impl TypelibProvider {
     /// Adds a library (builder style).
     #[must_use]
     pub fn with_library(mut self, lib: TypeLib) -> TypelibProvider {
-        self.libs.push(lib);
+        self.add_library(lib);
         self
     }
 
     /// Adds a library.
     pub fn add_library(&mut self, lib: TypeLib) {
         self.libs.push(lib);
+        self.cache.borrow_mut().clear();
     }
 
     /// The loaded libraries.
@@ -154,7 +168,17 @@ impl TypelibProvider {
         (out, complete)
     }
 
-    fn members(&self, li: usize, ti: usize) -> (Vec<LibMember>, bool) {
+    /// The VBA members of a type and whether the list is complete (cached).
+    fn members(&self, li: usize, ti: usize) -> Rc<Members> {
+        if let Some(m) = self.cache.borrow().get(&(li, ti)) {
+            return m.clone();
+        }
+        let m = Rc::new(self.compute_members(li, ti));
+        self.cache.borrow_mut().insert((li, ti), m.clone());
+        m
+    }
+
+    fn compute_members(&self, li: usize, ti: usize) -> (Vec<LibMember>, bool) {
         let info = &self.libs[li].types[ti];
         let (funcs, complete) = self.functions(li, ti);
         let mut order: Vec<String> = Vec::new();
@@ -198,6 +222,7 @@ impl TypelibProvider {
                 ty: self.map(li, &v.ty),
                 is_default: v.memid == 0,
                 is_sub: false,
+                dispid: Some(v.memid),
             });
         }
         (out, complete)
@@ -224,6 +249,7 @@ impl TypelibProvider {
                 ty: view.result.unwrap_or(Type::Variant),
                 is_default,
                 is_sub,
+                dispid: Some(f.memid),
             });
         }
         if let Some((l, f)) = get {
@@ -240,6 +266,7 @@ impl TypelibProvider {
                 ty: view.result.unwrap_or(Type::Variant),
                 is_default,
                 is_sub: false,
+                dispid: Some(f.memid),
             });
         }
         let (l, f) = put.or(putref)?;
@@ -252,6 +279,7 @@ impl TypelibProvider {
             ty: value.map_or(Type::Variant, |p| p.ty),
             is_default,
             is_sub: false,
+            dispid: Some(f.memid),
         })
     }
 
@@ -268,12 +296,20 @@ impl TypelibProvider {
                 continue;
             }
             let param_array = f.optional_count < 0 && i + 1 == n;
+            let ty = self.map(li, &p.ty);
+            let default = p
+                .default
+                .as_ref()
+                .filter(|_| p.flags.contains(ParamFlags::HAS_DEFAULT))
+                .and_then(|c| self.constant(c))
+                .and_then(|(v, _)| default_for(v, &ty));
             params.push(LibParam {
                 name: p.name.clone().unwrap_or_else(|| format!("arg{}", i + 1)),
-                ty: self.map(li, &p.ty),
+                ty,
                 optional: p.flags.contains(ParamFlags::OPTIONAL) || param_array,
                 by_ref: self.is_by_ref(li, &p.ty),
                 param_array,
+                default,
             });
         }
         let result = match retval {
@@ -333,12 +369,13 @@ impl TypelibProvider {
                 Some(Target::At(l, t)) => {
                     let info = &self.libs[l].types[t];
                     match info.kind {
-                        TypeKind::Enum => Type::Long,
+                        TypeKind::Enum => Type::LibEnum(self.lib_type(l, t)),
+                        TypeKind::Record => Type::LibRecord(self.lib_type(l, t)),
                         TypeKind::Alias => match &info.alias {
                             Some(a) => self.map_depth(l, a, depth + 1),
                             None => Type::Variant,
                         },
-                        TypeKind::Module => Type::Variant,
+                        TypeKind::Module | TypeKind::Union => Type::Variant,
                         _ => Type::Library(self.lib_type(l, t)),
                     }
                 }
@@ -411,14 +448,20 @@ fn alias_user(d: &TypeDesc) -> Option<TypeRef> {
     }
 }
 
+/// Converts a stored default to the representation of the parameter type.
+fn default_for(v: Variant, ty: &Type) -> Option<Variant> {
+    match ty.var_type() {
+        Some(vt) if !matches!(ty, Type::Variant | Type::Object | Type::Library(_)) => {
+            vba_value::convert::convert_to(&v, vt).ok()
+        }
+        _ => Some(v),
+    }
+}
+
 fn type_ok_for_decl(t: &TypeInfo) -> bool {
     matches!(
         t.kind,
-        TypeKind::Interface
-            | TypeKind::Dispatch
-            | TypeKind::CoClass
-            | TypeKind::Record
-            | TypeKind::Union
+        TypeKind::Interface | TypeKind::Dispatch | TypeKind::CoClass | TypeKind::Record
     )
 }
 
@@ -445,17 +488,122 @@ impl TypeProvider for TypelibProvider {
         None
     }
 
+    fn has_library(&self, name: &str) -> bool {
+        self.libs.iter().any(|l| l.name.eq_ignore_ascii_case(name))
+    }
+
+    fn resolve_declared(&self, qualifier: Option<&str>, name: &str) -> Option<Type> {
+        for (li, lib) in self.libs.iter().enumerate() {
+            if qualifier.is_some_and(|q| !lib.name.eq_ignore_ascii_case(q)) {
+                continue;
+            }
+            let Some((ti, info)) = lib.type_by_name(name) else {
+                continue;
+            };
+            let t = match info.kind {
+                TypeKind::Enum => Type::LibEnum(self.lib_type(li, ti)),
+                TypeKind::Record => Type::LibRecord(self.lib_type(li, ti)),
+                TypeKind::Alias => self.map(li, &TypeDesc::User(TypeRef::Local(ti))),
+                TypeKind::Interface | TypeKind::Dispatch | TypeKind::CoClass => {
+                    Type::Library(self.lib_type(li, ti))
+                }
+                TypeKind::Module | TypeKind::Union => continue,
+            };
+            return Some(t);
+        }
+        None
+    }
+
+    fn enum_members(&self, ty: &LibraryType) -> Option<Vec<(String, i64)>> {
+        let (li, ti) = self.find(ty)?;
+        let info = &self.libs[li].types[ti];
+        if info.kind != TypeKind::Enum {
+            return None;
+        }
+        Some(
+            info.variables
+                .iter()
+                .filter(|v| v.kind == VarKind::Const)
+                .filter_map(|v| {
+                    let value = match &v.value.as_ref()?.value {
+                        ConstValue::Int(i) => *i,
+                        ConstValue::UInt(u) => i64::try_from(*u).ok()?,
+                        ConstValue::Bool(b) => i64::from(*b),
+                        _ => return None,
+                    };
+                    Some((v.name.clone(), value))
+                })
+                .collect(),
+        )
+    }
+
+    fn record(&self, ty: &LibraryType) -> Option<LibRecord> {
+        let (li, ti) = self.find(ty)?;
+        let info = &self.libs[li].types[ti];
+        if info.kind != TypeKind::Record {
+            return None;
+        }
+        Some(LibRecord {
+            fields: info
+                .variables
+                .iter()
+                .filter(|v| v.kind == VarKind::PerInstance)
+                .map(|v| LibField {
+                    name: v.name.clone(),
+                    ty: self.map(li, &v.ty),
+                    offset: v.offset,
+                })
+                .collect(),
+            size: info.instance_size,
+            alignment: u32::from(info.alignment),
+        })
+    }
+
+    fn class_info(&self, ty: &LibraryType) -> Option<LibClass> {
+        let (li, ti) = self.find(ty)?;
+        let info = &self.libs[li].types[ti];
+        match info.kind {
+            TypeKind::CoClass => {
+                let default_interface = info
+                    .implements
+                    .iter()
+                    .find(|i| {
+                        i.flags.contains(crate::model::ImplFlags::DEFAULT)
+                            && !i.flags.contains(crate::model::ImplFlags::SOURCE)
+                    })
+                    .and_then(|i| match self.target(li, i.target) {
+                        Some(Target::At(l, t)) => Some(self.lib_type(l, t)),
+                        _ => None,
+                    });
+                Some(LibClass {
+                    default_interface,
+                    creatable: info.flags.contains(crate::model::TypeFlags::CAN_CREATE),
+                })
+            }
+            TypeKind::Interface | TypeKind::Dispatch => Some(LibClass {
+                default_interface: None,
+                creatable: false,
+            }),
+            _ => None,
+        }
+    }
+
     fn member(&self, ty: &LibraryType, name: &str) -> Option<LibMember> {
         let (li, ti) = self.find(ty)?;
         self.members(li, ti)
             .0
-            .into_iter()
+            .iter()
             .find(|m| m.name.eq_ignore_ascii_case(name))
+            .cloned()
     }
 
     fn default_member(&self, ty: &LibraryType) -> Option<LibMember> {
         let (li, ti) = self.find(ty)?;
-        self.members(li, ti).0.into_iter().find(|m| m.is_default)
+        self.members(li, ti)
+            .0
+            .iter()
+            .find(|m| m.is_default)
+            .cloned()
     }
 
     fn describes_members(&self, ty: &LibraryType) -> bool {
@@ -471,8 +619,8 @@ impl TypeProvider for TypelibProvider {
         if !matches!(info.kind, TypeKind::Interface | TypeKind::Dispatch) {
             return None;
         }
-        let (members, complete) = self.members(li, ti);
-        complete.then_some(members)
+        let m = self.members(li, ti);
+        m.1.then(|| m.0.clone())
     }
 
     fn events(&self, ty: &LibraryType) -> Option<Vec<LibEvent>> {
@@ -511,6 +659,13 @@ impl TypeProvider for TypelibProvider {
                                 && let Some((val, ty)) =
                                     v.value.as_ref().and_then(|c| self.constant(c))
                             {
+                                let ty = if t.kind == TypeKind::Enum
+                                    && matches!(ty, Type::Long | Type::Integer)
+                                {
+                                    Type::LibEnum(self.lib_type(li, ti))
+                                } else {
+                                    ty
+                                };
                                 return Some(LibGlobal::Constant(val, ty));
                             }
                         }

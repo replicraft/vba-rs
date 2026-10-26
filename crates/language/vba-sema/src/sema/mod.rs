@@ -5,6 +5,7 @@
 mod check;
 mod collect;
 mod consts;
+mod libtypes;
 mod scope;
 mod typeres;
 
@@ -59,6 +60,8 @@ pub(crate) struct Sema<'a> {
     pub event_src: Vec<&'a EventDecl>,
     pub implements_src: Vec<Vec<&'a ImplementsDecl>>,
     pub statics: HashMap<(crate::types::ProcId, Name), crate::types::GlobalId>,
+    /// Library enums and records met while analysing (see `libtypes`).
+    pub lib_types: RefCell<libtypes::LibTypes>,
 }
 
 impl<'a> Sema<'a> {
@@ -86,6 +89,7 @@ impl<'a> Sema<'a> {
             event_src: Vec::new(),
             implements_src: Vec::new(),
             statics: HashMap::new(),
+            lib_types: RefCell::default(),
         }
     }
 

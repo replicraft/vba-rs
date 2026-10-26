@@ -24,6 +24,10 @@ pub struct LibParam {
     pub by_ref: bool,
     /// `ParamArray`.
     pub param_array: bool,
+    /// The default value the library declares for an omitted `Optional`
+    /// argument (`[optional, defaultvalue(...)]`). Early-bound calls pass it
+    /// explicitly; without one the argument is passed as missing.
+    pub default: Option<Variant>,
 }
 
 impl LibParam {
@@ -35,7 +39,16 @@ impl LibParam {
             optional: false,
             by_ref: false,
             param_array: false,
+            default: None,
         }
+    }
+
+    /// An optional parameter with a declared default value.
+    #[must_use]
+    pub fn with_default(mut self, v: Variant) -> LibParam {
+        self.optional = true;
+        self.default = Some(v);
+        self
     }
 
     /// An optional parameter.
@@ -75,6 +88,10 @@ pub struct LibMember {
     pub is_default: bool,
     /// Whether a `Sub` (no result).
     pub is_sub: bool,
+    /// The member id (`DISPID`) when the library records one. With an id,
+    /// calls on a statically typed receiver are early-bound: the run time
+    /// invokes the member by id instead of looking its name up.
+    pub dispid: Option<i32>,
 }
 
 impl LibMember {
@@ -87,6 +104,7 @@ impl LibMember {
             ty,
             is_default: false,
             is_sub: false,
+            dispid: None,
         }
     }
 
@@ -99,6 +117,7 @@ impl LibMember {
             ty,
             is_default: false,
             is_sub: false,
+            dispid: None,
         }
     }
 
@@ -116,6 +135,22 @@ impl LibMember {
         self.is_default = true;
         self
     }
+
+    /// Sets the member id used for early binding.
+    #[must_use]
+    pub fn with_dispid(mut self, id: i32) -> LibMember {
+        self.dispid = Some(id);
+        self
+    }
+
+    /// Makes the member a read-only property.
+    #[must_use]
+    pub fn read_only(mut self) -> LibMember {
+        if self.kind == LibMemberKind::Property {
+            self.kind = LibMemberKind::PropertyGet;
+        }
+        self
+    }
 }
 
 /// An event of a library type.
@@ -125,6 +160,37 @@ pub struct LibEvent {
     pub name: String,
     /// Parameters.
     pub params: Vec<LibParam>,
+}
+
+/// A field of a library record.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibField {
+    /// Name.
+    pub name: String,
+    /// Declared type.
+    pub ty: Type,
+    /// Byte offset in the record, when the library gives one.
+    pub offset: Option<u32>,
+}
+
+/// A record (UDT) of a library: its fields in declaration order and layout.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibRecord {
+    /// Fields in declaration order.
+    pub fields: Vec<LibField>,
+    /// Size of an instance in bytes (`0` when unknown).
+    pub size: u32,
+    /// Alignment in bytes (`0` when unknown).
+    pub alignment: u32,
+}
+
+/// What a library says about a coclass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibClass {
+    /// The default (non-source) interface, whose members the class exposes.
+    pub default_interface: Option<LibraryType>,
+    /// Whether `New` may create instances (`cancreate`).
+    pub creatable: bool,
 }
 
 /// A global name provided by a library.
@@ -147,6 +213,37 @@ pub trait TypeProvider {
     /// Resolves a type name, with an optional library qualifier
     /// (`Excel.Range` is `(Some("Excel"), "Range")`).
     fn resolve_type(&self, qualifier: Option<&str>, name: &str) -> Option<LibraryType>;
+
+    /// Resolves the type named in an `As` clause. This differs from
+    /// [`resolve_type`](Self::resolve_type) when the name is an enum
+    /// ([`Type::LibEnum`]), a record ([`Type::LibRecord`]) or an alias, which
+    /// resolves to the type it stands for (an alias of `Long` is `Long`).
+    /// The default treats every resolved type as an object type.
+    fn resolve_declared(&self, qualifier: Option<&str>, name: &str) -> Option<Type> {
+        self.resolve_type(qualifier, name).map(Type::Library)
+    }
+
+    /// Whether `name` is the name of a library this provider serves, so that
+    /// `Library.Name` can qualify constants and enum names.
+    fn has_library(&self, _name: &str) -> bool {
+        false
+    }
+
+    /// The named members of a library enum, with their values.
+    fn enum_members(&self, _ty: &LibraryType) -> Option<Vec<(String, i64)>> {
+        None
+    }
+
+    /// The fields and layout of a library record.
+    fn record(&self, _ty: &LibraryType) -> Option<LibRecord> {
+        None
+    }
+
+    /// Facts about a coclass; `None` for types that are not coclasses or are
+    /// not described.
+    fn class_info(&self, _ty: &LibraryType) -> Option<LibClass> {
+        None
+    }
 
     /// Looks a member up. `None` means "not described", unless
     /// [`describes_members`](Self::describes_members) is `true`, in which
@@ -206,6 +303,18 @@ struct StaticType {
     events: Vec<LibEvent>,
     complete: bool,
     interface: bool,
+    shape: Shape,
+    creatable: Option<bool>,
+}
+
+/// What a [`StaticLibrary`] type is.
+#[derive(Debug, Clone, Default)]
+enum Shape {
+    #[default]
+    Object,
+    Enum(Vec<(String, i64)>),
+    Record(LibRecord),
+    Alias(Type),
 }
 
 impl StaticLibrary {
@@ -251,6 +360,82 @@ impl StaticLibrary {
         self
     }
 
+    /// Declares an enum with named members.
+    #[must_use]
+    pub fn with_enum(mut self, name: &str, members: &[(&str, i64)]) -> StaticLibrary {
+        self.types.insert(
+            name.to_ascii_lowercase(),
+            StaticType {
+                shape: Shape::Enum(members.iter().map(|(n, v)| ((*n).to_owned(), *v)).collect()),
+                complete: true,
+                ..StaticType::default()
+            },
+        );
+        for (n, v) in members {
+            self.globals.insert(
+                n.to_ascii_lowercase(),
+                LibGlobal::Constant(
+                    Variant::Long(i32::try_from(*v).unwrap_or_default()),
+                    Type::LibEnum(LibraryType {
+                        library: self.library.clone(),
+                        name: name.to_owned(),
+                    }),
+                ),
+            );
+        }
+        self
+    }
+
+    /// Declares a record with the given fields.
+    #[must_use]
+    pub fn with_record(mut self, name: &str, fields: Vec<LibField>) -> StaticLibrary {
+        self.types.insert(
+            name.to_ascii_lowercase(),
+            StaticType {
+                members: fields
+                    .iter()
+                    .map(|f| {
+                        (
+                            f.name.to_ascii_lowercase(),
+                            LibMember::property(&f.name, f.ty.clone()),
+                        )
+                    })
+                    .collect(),
+                shape: Shape::Record(LibRecord {
+                    fields,
+                    size: 0,
+                    alignment: 0,
+                }),
+                complete: true,
+                ..StaticType::default()
+            },
+        );
+        self
+    }
+
+    /// Declares an alias of another type.
+    #[must_use]
+    pub fn with_alias(mut self, name: &str, target: Type) -> StaticLibrary {
+        self.types.insert(
+            name.to_ascii_lowercase(),
+            StaticType {
+                shape: Shape::Alias(target),
+                complete: true,
+                ..StaticType::default()
+            },
+        );
+        self
+    }
+
+    /// Records whether `New` may create instances of a declared type.
+    #[must_use]
+    pub fn with_creatable(mut self, name: &str, creatable: bool) -> StaticLibrary {
+        if let Some(t) = self.types.get_mut(&name.to_ascii_lowercase()) {
+            t.creatable = Some(creatable);
+        }
+        self
+    }
+
     /// Adds events to a declared type.
     #[must_use]
     pub fn with_events(mut self, name: &str, events: Vec<LibEvent>) -> StaticLibrary {
@@ -288,6 +473,42 @@ impl TypeProvider for StaticLibrary {
                 library: self.library.clone(),
                 name: name.to_owned(),
             })
+    }
+
+    fn has_library(&self, name: &str) -> bool {
+        self.library.eq_ignore_ascii_case(name)
+    }
+
+    fn resolve_declared(&self, qualifier: Option<&str>, name: &str) -> Option<Type> {
+        let lt = self.resolve_type(qualifier, name)?;
+        Some(match &self.types.get(&name.to_ascii_lowercase())?.shape {
+            Shape::Object => Type::Library(lt),
+            Shape::Enum(_) => Type::LibEnum(lt),
+            Shape::Record(_) => Type::LibRecord(lt),
+            Shape::Alias(t) => t.clone(),
+        })
+    }
+
+    fn enum_members(&self, ty: &LibraryType) -> Option<Vec<(String, i64)>> {
+        match &self.ty(ty)?.shape {
+            Shape::Enum(m) => Some(m.clone()),
+            _ => None,
+        }
+    }
+
+    fn record(&self, ty: &LibraryType) -> Option<LibRecord> {
+        match &self.ty(ty)?.shape {
+            Shape::Record(r) => Some(r.clone()),
+            _ => None,
+        }
+    }
+
+    fn class_info(&self, ty: &LibraryType) -> Option<LibClass> {
+        let t = self.ty(ty)?;
+        Some(LibClass {
+            default_interface: None,
+            creatable: t.creatable?,
+        })
     }
 
     fn member(&self, ty: &LibraryType, name: &str) -> Option<LibMember> {
@@ -337,6 +558,23 @@ impl TypeProvider for Chain<'_> {
         self.0
             .resolve_type(q, n)
             .or_else(|| self.1.resolve_type(q, n))
+    }
+    fn has_library(&self, n: &str) -> bool {
+        self.0.has_library(n) || self.1.has_library(n)
+    }
+    fn resolve_declared(&self, q: Option<&str>, n: &str) -> Option<Type> {
+        self.0
+            .resolve_declared(q, n)
+            .or_else(|| self.1.resolve_declared(q, n))
+    }
+    fn enum_members(&self, t: &LibraryType) -> Option<Vec<(String, i64)>> {
+        self.0.enum_members(t).or_else(|| self.1.enum_members(t))
+    }
+    fn record(&self, t: &LibraryType) -> Option<LibRecord> {
+        self.0.record(t).or_else(|| self.1.record(t))
+    }
+    fn class_info(&self, t: &LibraryType) -> Option<LibClass> {
+        self.0.class_info(t).or_else(|| self.1.class_info(t))
     }
     fn member(&self, t: &LibraryType, n: &str) -> Option<LibMember> {
         self.0.member(t, n).or_else(|| self.1.member(t, n))

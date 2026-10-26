@@ -86,14 +86,17 @@ fn errors_are_found_with_library_knowledge() {
          s.Nope\n\
          q.Scale 1#, \"a\", 3, 4\n\
          Dim e As Shapes.Color\n\
+         q.Area = 2#\n\
+         s.Width = 1\n\
+         e = Red\n\
          End Sub\n",
     );
-    // Line 5: no such member; line 6: too many arguments; line 7: library
-    // enums cannot be declared types (sema gap). Assignment to a read-only
-    // library property is not diagnosed by vba-sema.
+    // Line 5: no such member; line 6: too many arguments; line 7 is fine
+    // (library enums are declarable); lines 8 and 9 assign to read-only
+    // properties.
     assert_eq!(
         codes(&a),
-        vec!["SEM019@5", "SEM008@6", "SEM004@7"],
+        vec!["SEM019@5", "SEM008@6", "SEM029@8", "SEM029@9"],
         "{:?}",
         a.diagnostics
     );
@@ -106,10 +109,31 @@ fn resolve_type_rules() {
     assert_eq!(p.resolve_type(None, "Rect"), Some(lt("Rect")));
     assert_eq!(p.resolve_type(Some("Other"), "Rect"), None);
     assert_eq!(p.resolve_type(None, "ShapeClass"), Some(lt("ShapeClass")));
-    // Enums, aliases of primitives and modules are not declarable types.
+    // `resolve_type` answers for object types and records only; enums,
+    // aliases of primitives and modules go through `resolve_declared`.
     assert_eq!(p.resolve_type(None, "Color"), None);
     assert_eq!(p.resolve_type(None, "Handle"), None);
     assert_eq!(p.resolve_type(None, "Native"), None);
+    assert_eq!(
+        p.resolve_declared(None, "Color"),
+        Some(Type::LibEnum(lt("Color")))
+    );
+    assert_eq!(
+        p.resolve_declared(Some("Shapes"), "Handle"),
+        Some(Type::Long)
+    );
+    assert_eq!(
+        p.resolve_declared(None, "Rect"),
+        Some(Type::LibRecord(lt("Rect")))
+    );
+    assert_eq!(
+        p.resolve_declared(None, "ShapeClass"),
+        Some(Type::Library(lt("ShapeClass")))
+    );
+    assert_eq!(p.resolve_declared(None, "Native"), None);
+    assert_eq!(p.resolve_declared(Some("Other"), "Color"), None);
+    assert!(p.has_library("SHAPES"));
+    assert!(!p.has_library("Other"));
 }
 
 #[test]
@@ -135,7 +159,7 @@ fn members_map_to_vba_shapes() {
     assert_eq!(parent.ty, Type::Library(lt("Shape")));
     let draw = p.member(&lt("Shape"), "Draw").unwrap();
     assert!(draw.is_sub);
-    assert_eq!(draw.params[0].ty, Type::Library(lt("Rect")));
+    assert_eq!(draw.params[0].ty, Type::LibRecord(lt("Rect")));
     assert!(draw.params[0].by_ref, "pointer to a record is ByRef");
     assert!(draw.params[1].param_array);
     assert_eq!(
@@ -150,7 +174,7 @@ fn members_map_to_vba_shapes() {
 
     // Record fields are properties.
     let fill = p.member(&lt("Rect"), "Fill").unwrap();
-    assert_eq!(fill.ty, Type::Long);
+    assert_eq!(fill.ty, Type::LibEnum(lt("Color")));
     let tag = p.member(&lt("Rect"), "Tag").unwrap();
     assert_eq!(
         tag.ty,
@@ -189,13 +213,13 @@ fn globals_are_enum_constants_and_module_functions() {
     let p = provider();
     match p.global("blue") {
         Some(LibGlobal::Constant(v, t)) => {
-            assert_eq!(t, Type::Long);
+            assert_eq!(t, Type::LibEnum(lt("Color")));
             assert_eq!(format!("{v:?}"), "Long(4)");
         }
         other => panic!("{other:?}"),
     }
     match p.global("Big") {
-        Some(LibGlobal::Constant(_, t)) => assert_eq!(t, Type::Long),
+        Some(LibGlobal::Constant(_, t)) => assert_eq!(t, Type::LibEnum(lt("Color"))),
         other => panic!("{other:?}"),
     }
     match p.global("Label") {

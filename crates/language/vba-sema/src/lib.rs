@@ -27,12 +27,12 @@ mod sema;
 
 pub use program::{
     Analysis, ConstInfo, DeclareInfo, EnumInfo, EventHandler, EventInfo, EventRef, FieldInfo,
-    GlobalInfo, ImplementsInfo, LabelInfo, LabelKey, LocalInfo, LocalKind, ModuleInfo,
-    ModuleOptions, ParamInfo, ProcInfo, Program, PropGroup, Symbol, UdtInfo,
+    GlobalInfo, ImplementsInfo, LabelInfo, LabelKey, LibEnumInfo, LibRecordInfo, LocalInfo,
+    LocalKind, ModuleInfo, ModuleOptions, ParamInfo, ProcInfo, Program, PropGroup, Symbol, UdtInfo,
 };
 pub use provider::{
-    Chain, LibEvent, LibGlobal, LibMember, LibMemberKind, LibParam, NoLibraries, StaticLibrary,
-    TypeProvider,
+    Chain, LibClass, LibEvent, LibField, LibGlobal, LibMember, LibMemberKind, LibParam, LibRecord,
+    NoLibraries, StaticLibrary, TypeProvider,
 };
 pub use types::*;
 
@@ -195,6 +195,8 @@ pub fn analyze_sources(
         enums: Vec::new(),
         declares: Vec::new(),
         events: Vec::new(),
+        lib_enums: Vec::new(),
+        lib_records: Vec::new(),
     };
     let builtin = builtins::BuiltinLibrary;
     let chained = Chain(provider, &builtin);
@@ -212,6 +214,7 @@ pub fn analyze_sources(
         p.labels = b.labels;
         p.body = b.body;
     }
+    s.finish_library_types();
     all.extend(s.diags.into_inner().as_slice().iter().cloned());
     Analysis {
         program: s.program,

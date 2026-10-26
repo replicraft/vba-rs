@@ -14,7 +14,7 @@ use crate::provider::{LibGlobal, LibMemberKind};
 use crate::sema::Found;
 use crate::types::*;
 
-use super::call::Sig;
+use super::call::{Sig, with_dispid};
 use super::{Binder, LocalSym};
 
 /// A qualifier that is not a value.
@@ -22,6 +22,10 @@ enum Namespace {
     Module(ModuleId),
     Enum(EnumId),
     Project,
+    /// A library enum: `IOMode.ForReading`.
+    LibEnum(LibraryType),
+    /// A library: `Scripting.ForReading`, `Scripting.IOMode`.
+    Library(String),
 }
 
 fn lookup_intrinsic(id: &Ident) -> Option<vba_stdlib::Resolved> {
@@ -93,7 +97,10 @@ impl Binder<'_, '_> {
                 if o.ty.is_error() {
                     return self.error_expr(span);
                 }
-                if matches!(o.ty, Type::Udt(_) | Type::Array { .. } | Type::Nothing) {
+                if matches!(
+                    o.ty,
+                    Type::Udt(_) | Type::LibRecord(_) | Type::Array { .. } | Type::Nothing
+                ) {
                     self.err(
                         codes::TYPE_MISMATCH,
                         span,
@@ -135,11 +142,15 @@ impl Binder<'_, '_> {
                     Type::Class(m) => {
                         BExpr::new(span, Type::Class(m), BExprKind::New(NewTarget::Class(m)))
                     }
-                    Type::Library(lt) => BExpr::new(
-                        span,
-                        Type::Library(lt.clone()),
-                        BExprKind::New(NewTarget::Library(lt)),
-                    ),
+                    Type::Library(lt) => {
+                        self.sema
+                            .check_creatable(self.module, span, &Type::Library(lt.clone()));
+                        BExpr::new(
+                            span,
+                            Type::Library(lt.clone()),
+                            BExprKind::New(NewTarget::Library(lt)),
+                        )
+                    }
                     Type::Error => self.error_expr(span),
                     other => {
                         self.err(
@@ -222,7 +233,7 @@ impl Binder<'_, '_> {
         for t in [&l.ty, &r.ty] {
             if matches!(
                 t,
-                Type::Udt(_) | Type::Array { .. } | Type::Nothing | Type::Any
+                Type::Udt(_) | Type::LibRecord(_) | Type::Array { .. } | Type::Nothing | Type::Any
             ) {
                 self.err(
                     codes::TYPE_MISMATCH,
@@ -900,7 +911,7 @@ impl Binder<'_, '_> {
                     && !self.scope.contains_key(&id.name) =>
             {
                 self.result_local
-                    .filter(|r| matches!(self.local_ty(*r), Type::Udt(_)))
+                    .filter(|r| matches!(self.local_ty(*r), Type::Udt(_) | Type::LibRecord(_)))
             }
             _ => None,
         };
@@ -975,9 +986,20 @@ impl Binder<'_, '_> {
                     Found::Sym(_, Symbol::Enum(e)) => Some(Namespace::Enum(e)),
                     Found::Sym(..) | Found::Ambiguous(_) => None,
                     Found::Module(m) => Some(Namespace::Module(m)),
-                    Found::None => (id.name == sema.project_name
-                        && sema.provider.global(&id.name.to_string_lossy()).is_none())
-                    .then_some(Namespace::Project),
+                    Found::None => {
+                        let text = id.name.to_string_lossy();
+                        if id.name == sema.project_name && sema.provider.global(&text).is_none() {
+                            Some(Namespace::Project)
+                        } else if let Some(Type::LibEnum(lt)) =
+                            sema.provider.resolve_declared(None, &text)
+                        {
+                            Some(Namespace::LibEnum(lt))
+                        } else if sema.provider.has_library(&text) {
+                            Some(Namespace::Library(text))
+                        } else {
+                            None
+                        }
+                    }
                 }
             }
             ExprKind::Member {
@@ -994,7 +1016,16 @@ impl Binder<'_, '_> {
                         _ => None,
                     }
                 }
-                Namespace::Enum(_) => None,
+                Namespace::Library(q) => {
+                    match sema
+                        .provider
+                        .resolve_declared(Some(&q), &name.name.to_string_lossy())
+                    {
+                        Some(Type::LibEnum(lt)) => Some(Namespace::LibEnum(lt)),
+                        _ => None,
+                    }
+                }
+                Namespace::Enum(_) | Namespace::LibEnum(_) => None,
             },
             _ => None,
         }
@@ -1015,6 +1046,51 @@ impl Binder<'_, '_> {
                     codes::NO_SUCH_MEMBER,
                     name.span,
                     format!("project has no module `{}`", name.name),
+                );
+                self.error_expr(span)
+            }
+            Namespace::LibEnum(lt) => {
+                let text = name.name.to_string_lossy();
+                let member = sema
+                    .provider
+                    .enum_members(&lt)
+                    .and_then(|ms| ms.into_iter().find(|(n, _)| n.eq_ignore_ascii_case(&text)));
+                match member {
+                    Some((_, v)) if args.is_none() => {
+                        sema.note_type(&Type::LibEnum(lt.clone()));
+                        BExpr::new(
+                            span,
+                            Type::LibEnum(lt),
+                            BExprKind::Const(Constant::Value(Variant::Long(v as i32))),
+                        )
+                    }
+                    Some(_) => {
+                        self.err(
+                            codes::NOT_CALLABLE,
+                            span,
+                            "an enum member cannot be called or indexed",
+                        );
+                        self.error_expr(span)
+                    }
+                    None => {
+                        self.err(
+                            codes::NO_SUCH_MEMBER,
+                            name.span,
+                            format!("enum `{lt}` has no member `{}`", name.name),
+                        );
+                        self.error_expr(span)
+                    }
+                }
+            }
+            Namespace::Library(q) => {
+                let text = name.name.to_string_lossy();
+                if sema.provider.global(&text).is_some() {
+                    return self.bind_library_name(name, span, args, stmt);
+                }
+                self.err(
+                    codes::NO_SUCH_MEMBER,
+                    name.span,
+                    format!("library `{q}` has no global `{}`", name.name),
                 );
                 self.error_expr(span)
             }
@@ -1183,6 +1259,38 @@ impl Binder<'_, '_> {
                 }
             }
             Type::Library(lt) => self.member_of_lib(receiver, lt, name, args, stmt, span),
+            Type::LibRecord(lt) => {
+                let Some(u) = sema.lib_record_id(&lt) else {
+                    self.err(
+                        codes::NO_SUCH_MEMBER,
+                        name.span,
+                        format!("record `{lt}` is not described by any provider"),
+                    );
+                    return self.error_expr(span);
+                };
+                match sema.lib_record_field(u, &name.name) {
+                    Some((index, ty)) => {
+                        let b = BExpr::new(
+                            span,
+                            ty,
+                            BExprKind::UdtField {
+                                base: Box::new(receiver),
+                                udt: u,
+                                index,
+                            },
+                        );
+                        self.var_use(b, span, args)
+                    }
+                    None => {
+                        self.err(
+                            codes::NO_SUCH_MEMBER,
+                            name.span,
+                            format!("record `{lt}` has no field `{}`", name.name),
+                        );
+                        self.error_expr(span)
+                    }
+                }
+            }
             Type::Object | Type::Variant => {
                 let la = self.late_args(args.unwrap_or(&[]));
                 self.late(
@@ -1250,6 +1358,15 @@ impl Binder<'_, '_> {
                     );
                     return self.error_expr(span);
                 }
+                if m.kind == LibMemberKind::PropertyPut && self.target_span != Some(span) {
+                    self.err(
+                        codes::WRITE_ONLY_PROPERTY,
+                        name.span,
+                        format!("property `{}` of `{lt}` is write-only", m.name),
+                    );
+                    return self.error_expr(span);
+                }
+                self.sema.note_type(&m.ty);
                 let sig = Sig::of_lib(&m);
                 let bargs = self.match_args(&sig, args.unwrap_or(&[]), span);
                 let la = bargs
@@ -1261,14 +1378,14 @@ impl Binder<'_, '_> {
                 } else {
                     m.ty.clone()
                 };
-                let _ = LibMemberKind::Method;
-                self.late(
+                let l = self.late(
                     receiver,
                     LateMember::Named(Name::new(&m.name)),
                     la,
                     ty,
                     Some(lt),
-                )
+                );
+                with_dispid(l, m.dispid)
             }
             None if provider.describes_members(&lt) => {
                 self.err(

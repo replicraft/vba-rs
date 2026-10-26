@@ -26,6 +26,8 @@ pub(crate) struct SigParam {
     /// buffer, so a variable argument is passed by reference and receives
     /// the converted-back buffer.
     pub buffer: bool,
+    /// The default a library declares for an omitted optional argument.
+    pub default: Option<vba_value::Variant>,
 }
 
 /// The callable part of a procedure-like thing.
@@ -55,6 +57,14 @@ pub(crate) fn var_type_to_type(v: VarType) -> Type {
     }
 }
 
+/// Marks a late-bound access as early-bound by member id.
+pub(crate) fn with_dispid(mut e: BExpr, id: Option<i32>) -> BExpr {
+    if let BExprKind::Late(l) = &mut e.kind {
+        l.dispid = id;
+    }
+    e
+}
+
 impl Sig {
     pub fn of_proc(p: &ProcInfo) -> Sig {
         Sig {
@@ -69,6 +79,7 @@ impl Sig {
                     optional: q.optional,
                     param_array: q.param_array,
                     buffer: false,
+                    default: None,
                 })
                 .collect(),
             ret: p.has_result.then(|| p.ret.clone()),
@@ -88,6 +99,7 @@ impl Sig {
                     optional: q.optional,
                     param_array: q.param_array,
                     buffer: q.by_val && q.ty.is_string(),
+                    default: None,
                 })
                 .collect(),
             ret: d.is_function.then(|| d.ret.clone()),
@@ -107,6 +119,7 @@ impl Sig {
                     optional: q.optional,
                     param_array: q.param_array,
                     buffer: false,
+                    default: None,
                 })
                 .collect(),
             ret: None,
@@ -126,6 +139,7 @@ impl Sig {
                     optional: q.optional,
                     param_array: q.param_array,
                     buffer: false,
+                    default: q.default.clone(),
                 })
                 .collect(),
             ret: (!m.is_sub).then(|| m.ty.clone()),
@@ -145,6 +159,7 @@ impl Sig {
                     optional: q.optional,
                     param_array: q.param_array,
                     buffer: false,
+                    default: None,
                 })
                 .collect(),
             ret: Some(if dollar && f.dollar {
@@ -217,13 +232,14 @@ impl Binder<'_, '_> {
                 Type::Library(lt) => match self.sema.provider.default_member(&lt) {
                     Some(m) => {
                         let ty = m.ty.clone();
-                        self.late(
+                        let l = self.late(
                             e,
                             LateMember::Named(vba_ast::Name::new(&m.name)),
                             Vec::new(),
                             ty,
                             Some(lt),
-                        )
+                        );
+                        with_dispid(l, m.dispid)
                     }
                     None => {
                         self.info_late(e.span, &lt);
@@ -254,6 +270,7 @@ impl Binder<'_, '_> {
                 kind: LateKind::Get,
                 args,
                 static_receiver,
+                dispid: None,
             })),
         )
     }
@@ -314,14 +331,20 @@ impl Binder<'_, '_> {
         // Constants are converted at analysis time when that is exact.
         if let BExprKind::Const(Constant::Value(v)) = &e.kind
             && !from.is_object()
-            && !matches!(from, Type::Udt(_) | Type::Array { .. })
+            && !matches!(from, Type::Udt(_) | Type::LibRecord(_) | Type::Array { .. })
         {
             match to {
                 Type::Variant => {
                     return BExpr::new(span, Type::Variant, e.kind);
                 }
                 t if !t.is_object()
-                    && !matches!(t, Type::FixedString(_) | Type::Udt(_) | Type::Array { .. }) =>
+                    && !matches!(
+                        t,
+                        Type::FixedString(_)
+                            | Type::Udt(_)
+                            | Type::LibRecord(_)
+                            | Type::Array { .. }
+                    ) =>
                 {
                     if let Some(vt) = t.var_type()
                         && let Ok(c) = vba_value::convert::convert_to(v, vt)
@@ -348,10 +371,10 @@ impl Binder<'_, '_> {
                     return self.rvalue(e);
                 }
                 match from {
-                    Type::Udt(_) if ctx == Ctx::Arg && self.udt_arg_ok => {
+                    Type::Udt(_) | Type::LibRecord(_) if ctx == Ctx::Arg && self.udt_arg_ok => {
                         self.mk_convert(e, Type::Variant)
                     }
-                    Type::Udt(_) => {
+                    Type::Udt(_) | Type::LibRecord(_) => {
                         mismatch(self);
                         self.error_expr(span)
                     }
@@ -371,7 +394,7 @@ impl Binder<'_, '_> {
                     }
                 }
             }
-            Type::Udt(_) => {
+            Type::Udt(_) | Type::LibRecord(_) => {
                 mismatch(self);
                 self.error_expr(span)
             }
@@ -407,7 +430,7 @@ impl Binder<'_, '_> {
                     Type::Array { ref elem, .. } if **elem == Type::Byte && to.is_string() => {
                         self.mk_convert(e, to.clone())
                     }
-                    Type::Udt(_) | Type::Array { .. } => {
+                    Type::Udt(_) | Type::LibRecord(_) | Type::Array { .. } => {
                         mismatch(self);
                         self.error_expr(span)
                     }
@@ -415,7 +438,8 @@ impl Binder<'_, '_> {
                         // Enum <-> Long are the same representation.
                         if matches!(
                             (&from, to),
-                            (Type::Enum(_), Type::Long) | (Type::Long, Type::Enum(_))
+                            (Type::Enum(_) | Type::LibEnum(_), Type::Long)
+                                | (Type::Long, Type::Enum(_) | Type::LibEnum(_))
                         ) {
                             let mut e = e;
                             e.ty = to.clone();
@@ -434,7 +458,7 @@ impl Binder<'_, '_> {
         let e = self.rvalue(e);
         match &e.ty {
             Type::Boolean | Type::Variant | Type::Error => e,
-            Type::Udt(_) | Type::Array { .. } | Type::Nothing => {
+            Type::Udt(_) | Type::LibRecord(_) | Type::Array { .. } | Type::Nothing => {
                 self.err(
                     codes::TYPE_MISMATCH,
                     e.span,
@@ -453,7 +477,7 @@ impl Binder<'_, '_> {
             return e;
         }
         match &e.ty {
-            Type::Udt(_) | Type::Array { .. } | Type::Nothing => {
+            Type::Udt(_) | Type::LibRecord(_) | Type::Array { .. } | Type::Nothing => {
                 self.err(
                     codes::TYPE_MISMATCH,
                     e.span,
@@ -461,7 +485,9 @@ impl Binder<'_, '_> {
                 );
                 self.error_expr(e.span)
             }
-            Type::Byte | Type::Integer | Type::Long | Type::Enum(_) if to == Type::Long => {
+            Type::Byte | Type::Integer | Type::Long | Type::Enum(_) | Type::LibEnum(_)
+                if to == Type::Long =>
+            {
                 // Integral subscripts need no conversion.
                 e
             }
@@ -539,7 +565,7 @@ impl Binder<'_, '_> {
                     Some(v) => slots[idx] = Some(self.bind_arg(v, &sig.params[idx])),
                     None => {
                         if sig.params[idx].optional {
-                            slots[idx] = Some(BArg::Missing);
+                            slots[idx] = Some(self.omitted_arg(&sig.params[idx], a.span));
                         } else {
                             self.err(
                                 codes::BAD_ARGUMENTS,
@@ -578,7 +604,8 @@ impl Binder<'_, '_> {
                 Some(a) => out.push(a),
                 None => {
                     if sig.params[i].optional {
-                        out.push(BArg::Missing);
+                        let a = self.omitted_arg(&sig.params[i], call_span);
+                        out.push(a);
                     } else {
                         if ok {
                             self.err(
@@ -597,6 +624,19 @@ impl Binder<'_, '_> {
         }
         out.extend(extra);
         out
+    }
+
+    /// An omitted `Optional` argument: missing, or the default the library
+    /// declares for it.
+    fn omitted_arg(&mut self, p: &SigParam, span: Span) -> BArg {
+        match &p.default {
+            Some(v) if !matches!(v, vba_value::Variant::Empty) => {
+                let ty = var_type_to_type(v.vartype());
+                let c = BExpr::new(span, ty, BExprKind::Const(Constant::Value(v.clone())));
+                BArg::Value(self.coerce(c, &p.ty, Ctx::Arg))
+            }
+            _ => BArg::Missing,
+        }
     }
 
     /// Binds one argument against its parameter (`ByRef`, `ByVal`, copies).
@@ -627,7 +667,8 @@ impl Binder<'_, '_> {
             let same = be.ty == *pty
                 || matches!(
                     (&be.ty, pty),
-                    (Type::Enum(_), Type::Long) | (Type::Long, Type::Enum(_))
+                    (Type::Enum(_) | Type::LibEnum(_), Type::Long)
+                        | (Type::Long, Type::Enum(_) | Type::LibEnum(_))
                 )
                 || *pty == Type::Any
                 || match (&be.ty, pty) {

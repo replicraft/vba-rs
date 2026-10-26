@@ -7,6 +7,7 @@ use vba_source::Span;
 use crate::bound::*;
 use crate::codes;
 use crate::program::Symbol;
+use crate::provider::LibMemberKind;
 use crate::sema::Found;
 use crate::types::*;
 
@@ -60,7 +61,9 @@ impl Binder<'_, '_> {
         if let Some(r) = self.try_write_only_property(e, set) {
             return r;
         }
+        let saved = self.target_span.replace(e.span);
         let b = self.bind_expr(e);
+        self.target_span = saved;
         if b.ty.is_error() {
             return None;
         }
@@ -139,6 +142,35 @@ impl Binder<'_, '_> {
                 None
             }
             BExprKind::Late(mut late) if late.kind == LateKind::Get => {
+                let mut value_ty = Type::Variant;
+                if let (Some(lt), LateMember::Named(n)) = (&late.static_receiver, &late.member)
+                    && late.dispid.is_some()
+                    && let Some(m) = self.sema.provider.member(lt, &n.to_string_lossy())
+                {
+                    match m.kind {
+                        LibMemberKind::PropertyGet => {
+                            self.err(
+                                codes::READ_ONLY_PROPERTY,
+                                span,
+                                format!("property `{}` of `{lt}` is read-only", m.name),
+                            );
+                            return None;
+                        }
+                        LibMemberKind::Method if !m.is_default => {
+                            self.err(
+                                codes::NOT_ASSIGNABLE,
+                                span,
+                                format!(
+                                    "`{}` of `{lt}` is a method and cannot be assigned to",
+                                    m.name
+                                ),
+                            );
+                            return None;
+                        }
+                        _ => {}
+                    }
+                    value_ty = m.ty.clone();
+                }
                 late.kind = if set {
                     LateKind::PropertyPutRef
                 } else {
@@ -152,10 +184,10 @@ impl Binder<'_, '_> {
                 Some((
                     BPlace::Late {
                         late,
-                        ty: Type::Variant,
+                        ty: value_ty.clone(),
                         receiver_place,
                     },
-                    Type::Variant,
+                    value_ty,
                 ))
             }
             BExprKind::Const(_) => {

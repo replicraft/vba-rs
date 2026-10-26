@@ -491,16 +491,18 @@ fn check_inst(cx: &mut Ctx<'_>, bid: BlockId, k: &InstKind) {
             RefPlace::Global(g) | RefPlace::Field { global: g, .. } if !global_ok(*g) => {
                 bad.push(format!("global g{} out of range", g.0))
             }
-            RefPlace::UdtField { udt, index, .. } => match p.program.udts.get(udt.index()) {
-                Some(u) if (*index as usize) < u.fields.len() => {}
-                _ => bad.push("udt field out of range".into()),
-            },
+            RefPlace::UdtField { udt, index, .. }
+                if (*index as usize) >= p.program.udt_fields(*udt).len() =>
+            {
+                bad.push("udt field out of range".into());
+            }
             _ => {}
         },
-        InstKind::UdtField { udt, index, .. } => match p.program.udts.get(udt.index()) {
-            Some(u) if (*index as usize) < u.fields.len() => {}
-            _ => bad.push("udt field out of range".into()),
-        },
+        InstKind::UdtField { udt, index, .. } => {
+            if (*index as usize) >= p.program.udt_fields(*udt).len() {
+                bad.push("udt field out of range".into());
+            }
+        }
         InstKind::SetErrorMode {
             mode: ErrMode::Handler(h),
         } => {

@@ -380,7 +380,7 @@ impl Vm {
                     let n = self
                         .udts
                         .get(&h.0)
-                        .map(|u| self.ir.program.udts[u.udt.index()].name.to_string())
+                        .map(|u| self.ir.program.udt_name(u.udt))
                         .unwrap_or_default();
                     Variant::from_text(&n)
                 }

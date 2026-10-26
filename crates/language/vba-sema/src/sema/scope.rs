@@ -167,6 +167,41 @@ impl ModuleScope<'_, '_> {
         }
     }
 
+    /// `Enum.Member`, `Library.Member` and `Library.Enum.Member` of a
+    /// library (`first` is the first identifier of the path).
+    fn library_path(&self, first: &Name, rest: &[&Ident]) -> ConstLookup {
+        let provider = self.sema.provider;
+        let enum_member = |lt: &LibraryType, m: &Name| -> ConstLookup {
+            let text = m.to_string_lossy();
+            match provider
+                .enum_members(lt)
+                .and_then(|ms| ms.into_iter().find(|(n, _)| n.eq_ignore_ascii_case(&text)))
+            {
+                Some((_, v)) => ConstLookup::Found(
+                    Constant::Value(vba_value::Variant::Long(v as i32)),
+                    Type::LibEnum(lt.clone()),
+                ),
+                None => ConstLookup::Missing,
+            }
+        };
+        let head = first.to_string_lossy();
+        match rest {
+            [member] => {
+                if let Some(Type::LibEnum(lt)) = provider.resolve_declared(None, &head) {
+                    return enum_member(&lt, &member.name);
+                }
+                self.library(&member.name)
+            }
+            [en, member] if provider.has_library(&head) => {
+                match provider.resolve_declared(Some(&head), &en.name.to_string_lossy()) {
+                    Some(Type::LibEnum(lt)) => enum_member(&lt, &member.name),
+                    _ => ConstLookup::Missing,
+                }
+            }
+            _ => ConstLookup::Missing,
+        }
+    }
+
     fn library(&self, name: &Name) -> ConstLookup {
         match self.sema.provider.global(&name.to_string_lossy()) {
             Some(LibGlobal::Constant(v, t)) => ConstLookup::Found(Constant::Value(v), t),
@@ -216,10 +251,7 @@ impl ConstScope for ModuleScope<'_, '_> {
                     _ => {}
                 }
                 let Some(owner) = owner else {
-                    if let [member] = rest {
-                        return self.library(&member.name);
-                    }
-                    return ConstLookup::Missing;
+                    return self.library_path(&first.name, rest);
                 };
                 match rest {
                     [name] => match sema.program.modules[owner.index()].symbols.get(&name.name) {

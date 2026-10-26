@@ -188,22 +188,24 @@ impl Sema<'_> {
                     }
                     TypeFound::None => {}
                 }
-                if let Some(lt) = self
+                if let Some(t) = self
                     .provider
-                    .resolve_type(None, &one.name.to_string_lossy())
+                    .resolve_declared(None, &one.name.to_string_lossy())
                 {
-                    return Type::Library(lt);
+                    self.note_type(&t);
+                    return t;
                 }
             }
             [q, n] => {
                 if let Some(t) = self.qualified_project_type(q, n) {
                     return t;
                 }
-                if let Some(lt) = self
+                if let Some(t) = self
                     .provider
-                    .resolve_type(Some(&q.name.to_string_lossy()), &n.name.to_string_lossy())
+                    .resolve_declared(Some(&q.name.to_string_lossy()), &n.name.to_string_lossy())
                 {
-                    return Type::Library(lt);
+                    self.note_type(&t);
+                    return t;
                 }
             }
             [p, q, n] if p.name == self.project_name => {
@@ -284,6 +286,7 @@ impl Sema<'_> {
                 }
                 if a.is_new {
                     if matches!(t, Type::Class(_) | Type::Library(_)) {
+                        self.check_creatable(module, a.span, &t);
                         auto_new = true;
                     } else if !t.is_error() {
                         self.error(
@@ -476,7 +479,7 @@ impl Sema<'_> {
             } else {
                 elem.clone()
             };
-            if p.optional && (matches!(elem, Type::Udt(_)) || is_array) {
+            if p.optional && (matches!(elem, Type::Udt(_) | Type::LibRecord(_)) || is_array) {
                 self.error(
                     module,
                     codes::PARAMETER_RULE,

@@ -423,6 +423,37 @@ pub struct DeclareInfo {
     pub span: Span,
 }
 
+/// A library enumeration the project refers to: its members by name, for
+/// tools that show enum members (hover, completion) without asking the
+/// library again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibEnumInfo {
+    /// The library type.
+    pub ty: LibraryType,
+    /// Members with their values, in declaration order.
+    pub members: Vec<(String, i64)>,
+}
+
+/// A library record (UDT) the project refers to. Records get a synthetic
+/// [`UdtId`] numbered after the project's own user-defined types (so ids at
+/// or above `Program::udts.len()` denote library records); use
+/// [`Program::udt_name`] and [`Program::udt_fields`] to read either kind.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibRecordInfo {
+    /// The synthetic id.
+    pub id: UdtId,
+    /// The library type.
+    pub ty: LibraryType,
+    /// Fields in declaration order.
+    pub fields: Vec<FieldInfo>,
+    /// Byte offset of each field in the library's layout, when known.
+    pub offsets: Vec<Option<u32>>,
+    /// Size of an instance in bytes (`0` when unknown).
+    pub size: u32,
+    /// Alignment in bytes (`0` when unknown).
+    pub alignment: u32,
+}
+
 /// An `Event` declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EventInfo {
@@ -459,6 +490,10 @@ pub struct Program {
     pub declares: Vec<DeclareInfo>,
     /// Events, indexed by [`EventId`].
     pub events: Vec<EventInfo>,
+    /// Library enumerations used by the project.
+    pub lib_enums: Vec<LibEnumInfo>,
+    /// Library records used by the project, numbered after `udts`.
+    pub lib_records: Vec<LibRecordInfo>,
 }
 
 impl Program {
@@ -491,12 +526,47 @@ impl Program {
         m.procs.iter().map(|p| self.proc(*p)).find(|p| p.name == n)
     }
 
+    /// The name of a user-defined type of the project or of a library.
+    pub fn udt_name(&self, id: UdtId) -> String {
+        match self.udts.get(id.index()) {
+            Some(u) => u.name.to_string(),
+            None => self
+                .lib_record(id)
+                .map_or_else(|| format!("udt#{}", id.0), |r| r.ty.name.clone()),
+        }
+    }
+
+    /// The fields of a user-defined type of the project or of a library.
+    pub fn udt_fields(&self, id: UdtId) -> &[FieldInfo] {
+        match self.udts.get(id.index()) {
+            Some(u) => &u.fields,
+            None => self.lib_record(id).map_or(&[], |r| &r.fields),
+        }
+    }
+
+    /// The library record with a synthetic id.
+    pub fn lib_record(&self, id: UdtId) -> Option<&LibRecordInfo> {
+        let i = id.index().checked_sub(self.udts.len())?;
+        self.lib_records.get(i)
+    }
+
+    /// The synthetic id of a library record type.
+    pub fn lib_record_id(&self, ty: &LibraryType) -> Option<UdtId> {
+        self.lib_records.iter().find(|r| r.ty == *ty).map(|r| r.id)
+    }
+
+    /// The members of a library enum the project refers to.
+    pub fn lib_enum(&self, ty: &LibraryType) -> Option<&LibEnumInfo> {
+        self.lib_enums.iter().find(|e| e.ty == *ty)
+    }
+
     /// A readable name of a type.
     pub fn type_name(&self, t: &Type) -> String {
         match t {
             Type::Class(m) => self.module(*m).name.to_string(),
             Type::Udt(u) => self.udts[u.index()].name.to_string(),
             Type::Enum(e) => self.enums[e.index()].name.to_string(),
+            Type::LibEnum(l) | Type::LibRecord(l) => l.to_string(),
             Type::Array { elem, rank } => {
                 let e = self.type_name(elem);
                 match rank {

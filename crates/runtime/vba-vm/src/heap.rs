@@ -38,7 +38,7 @@ impl Vm {
             Type::Boolean => Variant::Boolean(false),
             Type::Byte => Variant::Byte(0),
             Type::Integer => Variant::Integer(0),
-            Type::Long | Type::Enum(_) => Variant::Long(0),
+            Type::Long | Type::Enum(_) | Type::LibEnum(_) => Variant::Long(0),
             Type::LongLong => Variant::LongLong(0),
             Type::Single => Variant::Single(0.0),
             Type::Double => Variant::Double(0.0),
@@ -51,6 +51,12 @@ impl Vm {
                 Variant::Object(ObjectRef::Nothing)
             }
             Type::Udt(u) => udt_variant(self.alloc_udt(*u)?),
+            Type::LibRecord(lt) => {
+                let id = self.ir.program.lib_record_id(lt).ok_or_else(|| {
+                    Fault::Internal(format!("library record `{lt}` has no layout"))
+                })?;
+                udt_variant(self.alloc_udt(id)?)
+            }
             Type::Array { elem, .. } => {
                 Variant::Array(Box::new(VbaArray::new_dynamic(elem_vartype(elem))))
             }
@@ -61,10 +67,10 @@ impl Vm {
     /// Allocates a user-defined-type value with default fields.
     pub(crate) fn alloc_udt(&mut self, id: UdtId) -> VResult<u64> {
         let ir = self.ir.clone();
-        let info = &ir.program.udts[id.index()];
-        self.charge_memory(32 + 32 * info.fields.len() as u64)?;
-        let mut fields = Vec::with_capacity(info.fields.len());
-        for f in &info.fields {
+        let info_fields = ir.program.udt_fields(id);
+        self.charge_memory(32 + 32 * info_fields.len() as u64)?;
+        let mut fields = Vec::with_capacity(info_fields.len());
+        for f in info_fields {
             let v = match (&f.ty, &f.fixed_bounds) {
                 (Type::Array { elem, .. }, Some(b)) => {
                     Variant::Array(Box::new(self.make_fixed_array(elem, b)?))
@@ -103,10 +109,10 @@ impl Vm {
     /// proper initial value (user-defined types, fixed-length strings).
     pub(crate) fn fill_special(&mut self, a: &mut VbaArray, elem: &Type) -> VResult<()> {
         match elem {
-            Type::Udt(u) => {
+            Type::Udt(_) | Type::LibRecord(_) => {
                 for e in a.iter_mut() {
                     if matches!(e, Variant::Empty) {
-                        *e = udt_variant(self.alloc_udt(*u)?);
+                        *e = self.default_for(elem)?;
                     }
                 }
             }

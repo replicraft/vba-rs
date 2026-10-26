@@ -58,5 +58,11 @@ pub const BYREF_MISMATCH: Code = Code("SEM026");
 pub const TYPE_DECLARATION: Code = Code("SEM027");
 /// Visibility: the name exists but is not accessible from here.
 pub const NOT_ACCESSIBLE: Code = Code("SEM028");
+/// Assignment to a read-only library property.
+pub const READ_ONLY_PROPERTY: Code = Code("SEM029");
+/// Read of a write-only library property.
+pub const WRITE_ONLY_PROPERTY: Code = Code("SEM030");
+/// `New` applied to a library type that cannot be instantiated.
+pub const NOT_CREATABLE: Code = Code("SEM031");
 /// A construct that this implementation does not analyse yet.
 pub const UNSUPPORTED: Code = Code("SEM099");

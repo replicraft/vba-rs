@@ -85,7 +85,7 @@ impl Sema<'_> {
         if t.is_object()
             || matches!(
                 t,
-                Type::Udt(_) | Type::Array { .. } | Type::Any | Type::Variant
+                Type::Udt(_) | Type::LibRecord(_) | Type::Array { .. } | Type::Any | Type::Variant
             )
         {
             if !t.is_error() {

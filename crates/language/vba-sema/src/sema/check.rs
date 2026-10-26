@@ -315,11 +315,14 @@ impl Sema<'_> {
 
     fn check_handler_signature(&self, m: ModuleId, pi: &ProcInfo, event_params: &[Type]) {
         let same = pi.params.len() == event_params.len()
-            && pi
-                .params
-                .iter()
-                .zip(event_params)
-                .all(|(a, b)| a.ty == *b || a.ty.is_error() || b.is_error());
+            && pi.params.iter().zip(event_params).all(|(a, b)| {
+                a.ty == *b
+                        || a.ty.is_error()
+                        || b.is_error()
+                        // Enums are `Long`s: a handler may declare either.
+                        || (matches!(a.ty, Type::Long) && matches!(b, Type::LibEnum(_)))
+                        || (matches!(a.ty, Type::LibEnum(_)) && matches!(b, Type::Long))
+            });
         if !same {
             self.error(
                 m,
