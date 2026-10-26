@@ -20,6 +20,14 @@ const PROGRAMS: &[(&str, &str)] = &[
         "collection_calls",
         include_str!("../programs/collection_calls.bas"),
     ),
+    (
+        "collection_large",
+        include_str!("../programs/collection_large.bas"),
+    ),
+    (
+        "collection_churn",
+        include_str!("../programs/collection_churn.bas"),
+    ),
     ("class_calls", include_str!("../programs/class_calls.bas")),
     ("recursion", include_str!("../programs/recursion.bas")),
     ("variant_math", include_str!("../programs/variant_math.bas")),
