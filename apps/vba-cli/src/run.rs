@@ -230,13 +230,12 @@ pub fn run(a: RunArgs) -> u8 {
     let shutdown = session.shutdown();
     let mut code = exit::OK;
     match result {
-        Ok(out) => match out.status {
-            RunStatus::Stopped => {
+        Ok(out) => {
+            if out.status == RunStatus::Stopped {
                 let why = session.vm().stop_reason().unwrap_or("Stop").to_owned();
                 eprintln!("stopped: {why}");
             }
-            _ => {}
-        },
+        }
         Err(e) => {
             eprintln!("error: {e}");
             code = exit_code(&e);
