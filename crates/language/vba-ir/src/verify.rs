@@ -67,6 +67,7 @@ pub fn verify(p: &IrProgram) -> Result<(), Vec<VerifyError>> {
         }
         verify_function(p, f, &mut errs);
     }
+    verify_classes(p, &mut errs);
     for m in p.module_init.iter().flatten() {
         if m.0 as usize >= p.functions.len() {
             errs.push(VerifyError {
@@ -77,6 +78,54 @@ pub fn verify(p: &IrProgram) -> Result<(), Vec<VerifyError>> {
         }
     }
     if errs.is_empty() { Ok(()) } else { Err(errs) }
+}
+
+/// The class table refers to modules, procedures, functions, variables and
+/// events by index; the interpreter indexes with them directly.
+fn verify_classes(p: &IrProgram, errs: &mut Vec<VerifyError>) {
+    let mut bad = |what: String| {
+        errs.push(VerifyError {
+            function: "<program>".into(),
+            block: None,
+            message: format!("class table: {what}"),
+        });
+    };
+    let nprocs = p.program.procs.len();
+    let nglobals = p.program.globals.len();
+    for (i, ci) in p.classes.iter().enumerate() {
+        let Some(ci) = ci else { continue };
+        if ci.module.index() != i {
+            bad(format!("entry {i} describes module {}", ci.module.0));
+        }
+        for (what, pid) in [("initialize", ci.initialize), ("terminate", ci.terminate)] {
+            if pid.is_some_and(|q| q.index() >= nprocs) {
+                bad(format!("{what} procedure of module {i} out of range"));
+            }
+        }
+        if ci.init.is_some_and(|f| f.0 as usize >= p.functions.len()) {
+            bad(format!("initialiser function of module {i} out of range"));
+        }
+        if ci.fields.iter().any(|g| g.index() >= nglobals) {
+            bad(format!("field of module {i} is not a variable"));
+        }
+        if ci.events.iter().any(|e| e.index() >= p.program.events.len()) {
+            bad(format!("event of module {i} out of range"));
+        }
+        for im in &ci.implements {
+            if im
+                .members
+                .iter()
+                .any(|(a, b)| a.index() >= nprocs || b.index() >= nprocs)
+            {
+                bad(format!("implemented member of module {i} out of range"));
+            }
+        }
+        for h in &ci.handlers {
+            if h.var.index() >= nglobals || h.proc.index() >= nprocs {
+                bad(format!("event handler of module {i} out of range"));
+            }
+        }
+    }
 }
 
 struct Ctx<'a> {
