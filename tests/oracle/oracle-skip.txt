@@ -20,6 +20,7 @@ collections/dictionary_keys_and_compare_mode	safety	needs the `com-create` grant
 collections/dictionary_object_items	safety	needs the `com-create` grant
 collections/filesystemobject_file_exists	safety	needs the `com-create` grant; needs the `file-read` grant
 collections/userform_not_provided	ui	Load needs a UserForm; Unload needs a UserForm
+datetime/datevalue_year_omitted	engine-only	needs the engine clock fixed at a given date
 events/document_event_raise	host	needs a host event delivered by the harness; uses a document module
 events/event_declared_in_standard_module	engine-only	expects a compile error (needs a modal dialog in a real host)
 file-io/append	safety	needs the `file-read` grant; needs the `file-write` grant
