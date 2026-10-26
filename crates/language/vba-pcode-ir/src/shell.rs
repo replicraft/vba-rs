@@ -58,11 +58,15 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
             let ty = scalar_type(&a.ty).unwrap_or(vba_sema::Type::Variant);
             let _ = write!(
                 text,
-                "{} {} As {}",
+                "{}{} {} As {}",
+                if a.optional { "Optional " } else { "" },
                 if a.by_val { "ByVal" } else { "ByRef" },
                 a.name.spelling().unwrap_or("_"),
                 type_spelling(&ty)
             );
+            if let Some(Some(d)) = p.defaults.get(k) {
+                let _ = write!(text, " = {d}");
+            }
         }
         text.push(')');
         if p.info.is_function {

@@ -495,7 +495,12 @@ impl Lw<'_> {
 
     fn project_call(&mut self, ins: &Listed, id: ProcId, args: Vec<Ex>) -> R<Ex> {
         let callee = self.cx.program.proc(id);
-        if callee.params.len() != args.len() {
+        let given = args.len();
+        if given > callee.params.len()
+            || callee.params[given..]
+                .iter()
+                .any(|p| !p.optional || p.param_array)
+        {
             return Err(self.no(ins.opcode, "argument count differs from the parameter list"));
         }
         let mut out = Vec::new();
@@ -521,6 +526,7 @@ impl Lw<'_> {
             }
             out.push(ArgEx::Val(self.coerce(a, &p.ty)));
         }
+        out.resize(callee.params.len(), ArgEx::Missing);
         Ok(Ex::Call {
             callee: Callee::Proc(id),
             ty: if callee.has_result {

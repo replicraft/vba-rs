@@ -108,6 +108,19 @@ impl Tables {
         off
     }
 
+    /// Marks the `index`-th argument of the function record at `func` as
+    /// `Optional`, with a default value when `default` is set.
+    pub fn mark_optional(&mut self, func: u32, index: usize, default: bool) {
+        let f = func as usize;
+        let mut at = u32::from_le_bytes(self.ind[f + 40..f + 44].try_into().unwrap()) as usize;
+        for _ in 0..index {
+            at = u32::from_le_bytes(self.ind[at + 20..at + 24].try_into().unwrap()) as usize;
+        }
+        let mut opt = u16::from_le_bytes(self.ind[at + 24..at + 26].try_into().unwrap());
+        opt |= 0x200 | if default { 0x400 } else { 0 };
+        self.ind[at + 24..at + 26].copy_from_slice(&opt.to_le_bytes());
+    }
+
     /// Adds a variable record; returns its offset.
     pub fn variable(&mut self, name: &str, ty: Option<u8>) -> u32 {
         self.pad8();

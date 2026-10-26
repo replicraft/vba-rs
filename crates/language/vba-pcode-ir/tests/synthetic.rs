@@ -894,6 +894,96 @@ fn unsupported_constructs_are_reported_with_opcode_procedure_and_line() {
 }
 
 #[test]
+fn optional_parameters_with_and_without_defaults() {
+    let mut t = Tables::default();
+    let (a, b, v, sn) = (t.name("a"), t.name("b"), t.name("v"), t.name("s"));
+    let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
+    // Function Opt(a As Long, Optional b As Long = 7) As Long: Opt = a + b
+    let opt = t.name("Opt");
+    let f = t.function(
+        "Opt",
+        Some(T_LONG),
+        &[("a", T_LONG, true), ("b", T_LONG, true)],
+    );
+    t.mark_optional(f, 1, true);
+    lines.push(
+        Line::new()
+            .op(Opcode::ConstExprWithCall)
+            .i16(7)
+            .rec(Opcode::ProcHeader, 6, f),
+    );
+    lines.push(Line::new().read(a).read(b).op(Opcode::NumAdd).write(opt));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    // Function Greet(Optional s As String = "x") As String: Greet = "<" & s
+    let gr = t.name("Greet");
+    let f = t.function("Greet", Some(T_STRING), &[("s", T_STRING, true)]);
+    t.mark_optional(f, 0, true);
+    lines.push(
+        Line::new()
+            .op(Opcode::ConstExprWithCall)
+            .text("x")
+            .rec(Opcode::ProcHeader, 6, f),
+    );
+    lines.push(
+        Line::new()
+            .text("<")
+            .read(sn)
+            .op(Opcode::TextJoin)
+            .write(gr),
+    );
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    // Function Miss(Optional v As Variant) As Boolean: Miss = IsMissing(v)
+    let mi = t.name("Miss");
+    let ism = t.name("IsMissing");
+    let f = t.function("Miss", Some(T_BOOLEAN), &[("v", T_VARIANT, true)]);
+    t.mark_optional(f, 0, false);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(Line::new().read(v).call(ism, 1).write(mi));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    // Function Use() As Long: Use = Opt(1)     (b omitted, so 1 + 7)
+    let us = t.name("Use");
+    let opn = t.name("Opt");
+    let f = t.function("Use", Some(T_LONG), &[]);
+    lines.push(Line::new().rec(Opcode::ProcHeader, 6, f));
+    lines.push(Line::new().i16(1).call(opn, 1).write(us));
+    lines.push(Line::new().op(Opcode::ProcEndFunction));
+    let lp = lower(&t, &lines);
+    assert_eq!(lp.lowered_count(), 4, "{:?}", lp.procedures);
+    let run_args = |entry: &str, args: Vec<Arg>| {
+        let mut vm = Vm::new(
+            Rc::new(lp.ir.clone()),
+            Rc::new(HeadlessHost::new()),
+            Box::new(NoServices),
+            Box::new(vba_stdlib::FixedHost::default()),
+            Box::new(BufferSink::new()),
+            VmConfig::default(),
+        )
+        .expect("vm");
+        let p = vm.find_procedure(entry).expect("entry");
+        vm.run_procedure(p, args).expect("runs").value
+    };
+    assert_eq!(
+        run_args("Calc.Opt", vec![Arg::Value(l(1)), Arg::Missing]),
+        l(8)
+    );
+    assert_eq!(
+        run_args("Calc.Opt", vec![Arg::Value(l(1)), Arg::Value(l(2))]),
+        l(3)
+    );
+    assert_eq!(run_args("Calc.Greet", vec![Arg::Missing]), s("<x"));
+    assert_eq!(run_args("Calc.Greet", vec![Arg::Value(s("y"))]), s("<y"));
+    assert_eq!(
+        run_args("Calc.Miss", vec![Arg::Missing]),
+        Variant::Boolean(true)
+    );
+    assert_eq!(
+        run_args("Calc.Miss", vec![Arg::Value(l(3))]),
+        Variant::Boolean(false)
+    );
+    assert_eq!(run_args("Calc.Use", vec![]), l(8));
+}
+
+#[test]
 fn hostile_caches_never_panic() {
     use proptest::prelude::*;
     let mut t = Tables::default();

@@ -38,23 +38,33 @@ fn pool(t: &Type) -> Vec<Variant> {
     }
 }
 
-fn arg_sets(params: &[Type]) -> Vec<Vec<Variant>> {
-    let pools: Vec<Vec<Variant>> = params.iter().map(pool).collect();
-    let mut sets: Vec<Vec<Variant>> = Vec::new();
+/// Argument sets; `None` is an omitted argument. Sets with the trailing
+/// `Optional` parameters omitted (each cut point) are added.
+fn arg_sets(params: &[(Type, bool)]) -> Vec<Vec<Option<Variant>>> {
+    let pools: Vec<Vec<Variant>> = params.iter().map(|p| pool(&p.0)).collect();
+    let mut sets: Vec<Vec<Option<Variant>>> = Vec::new();
     for k in 0..6 {
-        let set: Vec<Variant> = pools
+        let set: Vec<Option<Variant>> = pools
             .iter()
             .enumerate()
-            .map(|(i, p)| p[(k + i) % p.len()].clone())
+            .map(|(i, p)| Some(p[(k + i) % p.len()].clone()))
             .collect();
-        if !sets.contains(&set) {
-            sets.push(set);
+        for cut in 0..=params.len() {
+            if params[cut..].iter().all(|p| p.1) {
+                let mut c = set.clone();
+                for slot in &mut c[cut..] {
+                    *slot = None;
+                }
+                if !sets.contains(&c) {
+                    sets.push(c);
+                }
+            }
         }
     }
     sets
 }
 
-fn run_one(ir: &Rc<IrProgram>, name: &str, args: &[Variant]) -> String {
+fn run_one(ir: &Rc<IrProgram>, name: &str, args: &[Option<Variant>]) -> String {
     let sink = BufferSink::new();
     let host = HeadlessHost::new().with_limits(ResourceLimits {
         max_steps: Some(300_000),
@@ -74,7 +84,13 @@ fn run_one(ir: &Rc<IrProgram>, name: &str, args: &[Variant]) -> String {
     let Some(p) = vm.find_procedure(name) else {
         return "no such procedure".into();
     };
-    let r = vm.run_procedure(p, args.iter().cloned().map(Arg::Value).collect());
+    let r = vm.run_procedure(
+        p,
+        args.iter()
+            .cloned()
+            .map(|a| a.map_or(Arg::Missing, Arg::Value))
+            .collect(),
+    );
     format!("{r:?} | out={:?}", sink.contents())
 }
 
@@ -156,12 +172,12 @@ fn lowered_procedures_agree_with_source() {
     let (mut ran, mut runs, mut mismatches, mut errors_both) = (0usize, 0usize, 0usize, 0usize);
     for r in lp.procedures.iter().filter(|r| r.outcome.is_lowered()) {
         let Some(id) = r.id else { continue };
-        let params: Vec<Type> = cache_ir
+        let params: Vec<(Type, bool)> = cache_ir
             .program
             .proc(id)
             .params
             .iter()
-            .map(|q| q.ty.clone())
+            .map(|q| (q.ty.clone(), q.optional))
             .collect();
         let full = format!("{}.{}", r.module, r.procedure);
         let mut any = false;

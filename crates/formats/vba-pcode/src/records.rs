@@ -475,6 +475,13 @@ impl ArgumentRecord {
         self.option & 0x200 != 0
     }
 
+    /// Whether an `Optional` argument was declared with a default value
+    /// (option bit 0x400, observed: it is set exactly when the header line
+    /// carries a default-value expression for the argument).
+    pub fn has_default(&self) -> bool {
+        self.option & 0x400 != 0
+    }
+
     /// The argument type (see [`type_from_field`]); `TypeRef::None` when no
     /// `As` clause was written.
     ///

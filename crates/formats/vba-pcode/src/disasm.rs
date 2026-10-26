@@ -61,6 +61,8 @@ pub struct ArgInfo {
     pub by_val: bool,
     /// `Optional` was written.
     pub optional: bool,
+    /// An `Optional` argument with a default value (`= expr`).
+    pub has_default: bool,
     /// `ParamArray` was written.
     pub param_array: bool,
     /// Declared type.
@@ -536,6 +538,7 @@ impl<'a> Disassembler<'a> {
             name: self.resolver.resolve(a.name),
             by_val: a.is_by_val(),
             optional: a.is_optional(),
+            has_default: a.has_default(),
             param_array: a.is_param_array(),
             ty: match a.type_ref(self.indirect, self.objects) {
                 Ok(t) => self.resolve_type(t),

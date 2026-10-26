@@ -39,6 +39,9 @@ pub(crate) struct ProcModel {
     /// Why the procedure cannot even get a signature in the shell.
     pub signature_problem: Option<Unsupported>,
     pub locals: Vec<LocalDecl>,
+    /// Default values of the arguments (VBA spelling), aligned with
+    /// `info.args`; `None` for arguments without one.
+    pub defaults: Vec<Option<String>>,
 }
 
 /// One decoded module.
@@ -129,6 +132,9 @@ pub(crate) fn extract_module(
     for line in 0..cache.lines.lines.len() {
         let listing = dis.line(line);
         let decode_failed = listing.error.is_some();
+        // Default-value expressions of the header line precede the header
+        // instruction, after a `CONST_EXPR_WITH_CALL` marker.
+        let mut pending: Option<Vec<Listed>> = None;
         for ins in listing.instructions {
             if cur.is_some() && is_end(ins.opcode) {
                 if let Some(mut done) = cur.take() {
@@ -140,6 +146,18 @@ pub(crate) fn extract_module(
             }
             if let Some(p) = cur.as_mut() {
                 p.body.push((line, ins));
+                continue;
+            }
+            if ins.opcode == Opcode::ConstExprWithCall {
+                pending = Some(Vec::new());
+                continue;
+            }
+            if !matches!(ins.opcode, Opcode::ProcHeader | Opcode::ProcHeaderAlt)
+                && let Some(list) = pending.as_mut()
+            {
+                if ins.opcode != Opcode::LineContinuation {
+                    list.push(ins);
+                }
                 continue;
             }
             match ins.opcode {
@@ -168,7 +186,14 @@ pub(crate) fn extract_module(
                         body: Vec::new(),
                         signature_problem: None,
                         locals: Vec::new(),
+                        defaults: Vec::new(),
                     };
+                    match default_values(&p.info, pending.take()) {
+                        Ok(d) => p.defaults = d,
+                        Err(reason) => {
+                            p.signature_problem = Some(unsup(ins.opcode, &p.name, line, reason));
+                        }
+                    }
                     if ins.opcode == Opcode::ProcHeaderAlt {
                         p.signature_problem = Some(unsup(
                             ins.opcode,
@@ -210,6 +235,57 @@ pub(crate) fn extract_module(
     model
 }
 
+/// Renders the default-value expressions of a header line as VBA text, one
+/// per argument that declares a default. The expressions are stored in
+/// reverse argument order (observed: the last defaulted argument first).
+fn default_values(
+    info: &ProcedureInfo,
+    exprs: Option<Vec<Listed>>,
+) -> Result<Vec<Option<String>>, &'static str> {
+    let wanted = info.args.iter().filter(|a| a.has_default).count();
+    let mut texts: Vec<String> = Vec::new();
+    for ins in exprs.unwrap_or_default() {
+        let t = match (ins.opcode, ins.operands.first()) {
+            (
+                Opcode::ConstInt16Decimal | Opcode::ConstInt32Decimal,
+                Some(Operand::Int { value, .. }),
+            ) => value.to_string(),
+            (Opcode::ConstFloat64, Some(Operand::Float64(v))) if v.is_finite() => format!("{v:?}"),
+            (Opcode::ConstText, Some(Operand::Text(t))) if t.is_ascii() => {
+                let body = String::from_utf8_lossy(t).replace('\"', "\"\"");
+                format!("\"{body}\"")
+            }
+            (Opcode::ConstKeywordValue, _) => match ins.modifier {
+                0 => "False".to_owned(),
+                1 => "True".to_owned(),
+                _ => return Err("default value expression is not supported"),
+            },
+            (
+                Opcode::ReadSimple,
+                Some(Operand::Name {
+                    name,
+                    suffix: None,
+                    bracketed: false,
+                }),
+            ) if !matches!(name, Name::Me) && name.spelling().is_some() => {
+                name.spelling().unwrap_or_default().to_owned()
+            }
+            _ => return Err("default value expression is not supported"),
+        };
+        texts.push(t);
+    }
+    if texts.len() != wanted {
+        return Err("default values do not match the arguments");
+    }
+    texts.reverse();
+    let mut it = texts.into_iter();
+    Ok(info
+        .args
+        .iter()
+        .map(|a| if a.has_default { it.next() } else { None })
+        .collect())
+}
+
 /// Checks the signature and collects the declared locals.
 fn finish_signature(p: &mut ProcModel) {
     let line = p.header_line;
@@ -236,8 +312,12 @@ fn finish_signature(p: &mut ProcModel) {
         return;
     }
     for a in &info.args {
-        if a.optional || a.param_array {
-            p.signature_problem = Some(fail("Optional or ParamArray parameter"));
+        if a.param_array {
+            p.signature_problem = Some(fail("ParamArray parameter"));
+            return;
+        }
+        if a.has_default && !a.optional {
+            p.signature_problem = Some(fail("default value on a required parameter"));
             return;
         }
         if a.name.spelling().is_none() || scalar_type(&a.ty).is_none() {
