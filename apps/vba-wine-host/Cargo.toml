@@ -1,0 +1,27 @@
+[package]
+name = "vba-wine-host"
+description = "Windows PE helper run under Wine by vba-wine: a protocol endpoint for LoadLibrary/GetProcAddress/call (not an interpreter, not a sandbox)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+vba-wine.workspace = true
+
+[dev-dependencies]
+vba-ffi.workspace = true
+vba-host.workspace = true
+vba-winapi.workspace = true
+
+# Not `workspace = true`: the Windows call path needs `unsafe` (FFI to kernel32
+# and a function-pointer call). The workspace forbids unsafe code, and `forbid`
+# cannot be relaxed per module, so this crate restates the workspace lints with
+# `unsafe_code = "deny"`; the only `#[allow(unsafe_code)]` is the cfg(windows)
+# module `native`.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
