@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.8, stmt.print
 ' SOURCE: spec ms-vbal 5.4.5.8 revision 3.0 grammar: output-list rules apply with the Debug.Print file form
-' XFAIL: wrong pending
 ' EXPECT: [ 5 x]
 ' GRANT: file-read
 ' GRANT: file-write

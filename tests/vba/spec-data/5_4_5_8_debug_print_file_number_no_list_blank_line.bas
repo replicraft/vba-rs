@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.8, stmt.print
 ' SOURCE: spec ms-vbal 5.4.5.8 revision 3.0 grammar: Debug.Print #n, with no list writes a line terminator
-' XFAIL: wrong pending
 ' EXPECT: [a]
 ' EXPECT: []
 ' EXPECT: [b]

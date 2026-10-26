@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.8, stmt.print
 ' SOURCE: spec ms-vbal 5.4.5.8 revision 3.0 grammar: "?" form with a marked file number
-' XFAIL: wrong pending
 ' EXPECT: [viaQ]
 ' GRANT: file-read
 ' GRANT: file-write

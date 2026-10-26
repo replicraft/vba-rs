@@ -159,7 +159,11 @@ impl Parser<'_> {
                 K::Unlock => self.file_stmt(NodeKind::UnlockStmt),
                 K::RaiseEvent => self.parse_raise_event(),
                 K::Attribute => self.parse_attribute(),
-                K::Debug if self.kind(1) == Some(TokenKind::Dot) && self.kw_at(2, K::Print) => {
+                K::Debug
+                    if self.kind(1) == Some(TokenKind::Dot)
+                        && (self.kw_at(2, K::Print)
+                            || self.kind(2) == Some(TokenKind::Question)) =>
+                {
                     self.parse_debug_print();
                 }
                 K::Option
@@ -767,11 +771,22 @@ impl Parser<'_> {
         self.finish();
     }
 
+    /// `Debug.Print|Debug.? [#n,] items` (MS-VBAL 5.4.5.8, revision 3.0).
+    /// With a file number the statement is the file `Print` statement.
     fn parse_debug_print(&mut self) {
-        self.start(NodeKind::DebugPrintStmt);
-        self.bump();
-        self.bump();
-        self.bump();
+        if self.kind(3) == Some(TokenKind::Hash) {
+            self.start(NodeKind::PrintStmt);
+            for _ in 0..3 {
+                self.bump();
+            }
+            self.parse_postfix(true);
+            self.eat(TokenKind::Comma);
+        } else {
+            self.start(NodeKind::DebugPrintStmt);
+            for _ in 0..3 {
+                self.bump();
+            }
+        }
         self.parse_output_list();
         self.finish();
     }

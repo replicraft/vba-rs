@@ -1,6 +1,5 @@
 ' INV: vbal.5.4.5.8, stmt.print
 ' SOURCE: spec ms-vbal 5.4.5.8 revision 3.0 grammar: file-number form writes to the file, not to Debug output
-' XFAIL: wrong pending
 ' EXPECT: only
 ' GRANT: file-read
 ' GRANT: file-write
