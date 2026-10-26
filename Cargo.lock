@@ -1347,6 +1347,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-pcode"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "thiserror",
+ "vba-format",
+ "vba-lexer",
+ "vba-profile",
+ "vba-project",
+ "vba-source",
+]
+
+[[package]]
 name = "vba-profile"
 version = "0.1.0"
 

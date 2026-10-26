@@ -1,0 +1,21 @@
+[package]
+name = "vba-pcode"
+description = "Decoder and disassembler for the compiled-code (p-code) cache of VBA modules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+vba-format.workspace = true
+vba-project.workspace = true
+vba-lexer.workspace = true
+vba-source.workspace = true
+vba-profile.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -27,6 +27,7 @@ vba-host = { path = "crates/hosts/vba-host" }
 vba-ir = { path = "crates/language/vba-ir" }
 vba-lexer = { path = "crates/language/vba-lexer" }
 vba-lsp-core = { path = "crates/language/vba-lsp-core" }
+vba-pcode = { path = "crates/formats/vba-pcode" }
 vba-profile = { path = "crates/foundation/vba-profile" }
 vba-project = { path = "crates/model/vba-project" }
 vba-rs = { path = "crates/api/vba-rs" }
