@@ -329,7 +329,14 @@ proptest! {
             }
         }
         // A fresh, unused name must be accepted for many positions.
-        if new_name == "zeta" {
+        // (Only for sources without clashing declarations: a function and a
+        // variable of one module, or a parameter and a local, with the same
+        // name make the project erroneous and every rename is refused.)
+        let distinct = |a: &str, b: &str| !a.eq_ignore_ascii_case(b);
+        let clash_free = distinct(names.func, names.var)
+            && distinct(names.param, names.local)
+            && distinct(names.member, names.field);
+        if new_name == "zeta" && clash_free {
             prop_assert!(successes > 20, "only {successes} renames succeeded");
         }
     }
