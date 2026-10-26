@@ -2,7 +2,7 @@
 //! The `C*` functions delegate to `vba_value::convert`.
 
 use crate::call::{Args, Ctx, text};
-use crate::error::{StdError, StdResult};
+use crate::error::StdResult;
 use vba_value::{VarType, Variant, VbaError, VbaResult, VbaString, convert};
 
 const E5: VbaError = VbaError::INVALID_PROCEDURE_CALL;
@@ -33,11 +33,12 @@ pub fn radix_string(v: &Variant, radix: u32) -> VbaResult<String> {
 
 /// `Str(number)`: the number as text with a leading space in place of the
 /// sign for non-negative values. `.` is always the decimal separator.
-/// `Date` arguments are unsupported (their `Str` form is not documented).
+/// A `Date` is its `String` coercion without the sign space (MS-VBAL
+/// 6.1.2.3.1.20: `Str` of a non-number is its string coercion).
 pub fn str_number(v: &Variant) -> StdResult<VbaString> {
     let n = match v {
         Variant::Null => return Err(VbaError::INVALID_USE_OF_NULL.into()),
-        Variant::Date(_) => return Err(StdError::Unsupported("Str of a Date value")),
+        Variant::Date(_) => return Ok(convert::to_vba_string(v)?),
         Variant::Empty => Variant::Integer(0),
         Variant::Boolean(b) => Variant::Integer(if *b { -1 } else { 0 }),
         Variant::String(_) => Variant::Double(convert::to_double(v)?),
