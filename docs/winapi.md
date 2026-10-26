@@ -64,7 +64,7 @@ hand-edited:
 cargo run -p vba-winapi-gen --release   # rewrites the data file
 ```
 
-`apps/vba-winapi-gen` is a dev tool (not a shipped library). It reads the
+`tooling/vba-winapi-gen` is a dev tool (not a shipped library). It reads the
 `Windows.Win32.winmd` bundled in the `windows-default` crate (version pinned in
 the root `Cargo.toml`, `0.100.0` when generated) with `windows-metadata`, both
 from Microsoft's windows-rs repository and licensed `MIT OR Apache-2.0`
