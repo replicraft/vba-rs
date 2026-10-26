@@ -6,14 +6,24 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = ["sema"]
+# Adapter implementing `vba_sema::TypeProvider` for a loaded library.
+sema = ["dep:vba-sema", "dep:vba-value"]
+
 [dependencies]
 bitflags.workspace = true
 encoding_rs.workspace = true
 object.workspace = true
 thiserror.workspace = true
+vba-sema = { workspace = true, optional = true }
+vba-value = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
+vba-diagnostics.workspace = true
+vba-profile.workspace = true
+vba-project.workspace = true
 
 [lints]
 workspace = true

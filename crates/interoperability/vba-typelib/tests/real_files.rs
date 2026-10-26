@@ -219,3 +219,58 @@ fn stdole2_has_the_standard_ole_types() {
     assert_eq!(load.optional_count, 1);
     assert!(load.params[1].default.is_some());
 }
+
+#[cfg(feature = "sema")]
+#[test]
+#[ignore = "needs local Wine type libraries"]
+fn scripting_runtime_drives_sema() {
+    use vba_diagnostics::Severity;
+    use vba_profile::find_profile;
+    use vba_project::ModuleKind;
+    use vba_sema::{Options, SourceModule, analyze_sources};
+    use vba_typelib::sema::TypelibProvider;
+
+    let Some(f) = candidates()
+        .into_iter()
+        .find(|p| p.file_name().is_some_and(|n| n == "scrrun.dll"))
+    else {
+        eprintln!("scrrun.dll not found; skipping");
+        return;
+    };
+    let lib = vba_typelib::load(&std::fs::read(f).unwrap()).unwrap();
+    assert_eq!(lib.name, "Scripting");
+    let provider = TypelibProvider::new().with_library(lib);
+    let src = "Option Explicit\n\
+        Sub T()\n\
+        Dim d As Scripting.Dictionary\n\
+        Dim n As Long\n\
+        Dim b As Boolean\n\
+        Set d = CreateObject(\"Scripting.Dictionary\")\n\
+        d.Add \"a\", 1\n\
+        b = d.Exists(\"a\")\n\
+        n = d.Count\n\
+        d.RemoveAll\n\
+        d.Frobnicate\n\
+        End Sub\n";
+    let profile = *find_profile("vba7.1-excel-win64").unwrap();
+    let a = analyze_sources(
+        &[SourceModule {
+            name: "M".into(),
+            kind: ModuleKind::Standard,
+            source: src.as_bytes().to_vec(),
+        }],
+        &profile,
+        &provider,
+        &Options::default(),
+    );
+    let errs: Vec<String> = a
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| {
+            let line = a.sources.get(d.file).unwrap().line_col(d.span.start).line + 1;
+            format!("{}@{line}", d.code.0)
+        })
+        .collect();
+    assert_eq!(errs, vec!["SEM019@11"], "{:?}", a.diagnostics);
+}

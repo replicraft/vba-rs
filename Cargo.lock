@@ -1491,6 +1491,11 @@ dependencies = [
  "object",
  "proptest",
  "thiserror",
+ "vba-diagnostics",
+ "vba-profile",
+ "vba-project",
+ "vba-sema",
+ "vba-value",
 ]
 
 [[package]]
