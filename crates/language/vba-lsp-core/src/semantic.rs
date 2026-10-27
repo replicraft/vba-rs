@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use vba_lexer::{Keyword, TokenKind};
 use vba_project::ModuleKind;
-use vba_sema::{ModuleId, Symbol, Type};
+use vba_sema::{LibMember, LibraryType, ModuleId, Symbol, Type};
 use vba_source::Span;
 use vba_syntax::{NodeKind, SyntaxToken};
 
@@ -650,7 +650,19 @@ impl View<'_> {
         }
         let name = String::from_utf8_lossy(t.text()).into_owned();
         let (owner, m) = ctx.lib_member(&ctx.receiver_ty(node), &name)?;
-        let (label, spans) = sem.proj.lib_member_sig(&owner, &m);
+        Some(self.member_signature(&sem.proj, &owner, &m, arg, named))
+    }
+
+    /// Signature help for the member `m` of `owner`.
+    fn member_signature(
+        &self,
+        proj: &Project,
+        owner: &LibraryType,
+        m: &LibMember,
+        arg: u32,
+        named: Option<&str>,
+    ) -> crate::types::SignatureHelp {
+        let (label, spans) = proj.lib_member_sig(owner, m);
         let n = m.params.len();
         let idx = match named {
             Some(nm) => m
@@ -669,10 +681,10 @@ impl View<'_> {
                 None
             }
         });
-        Some(crate::types::SignatureHelp {
+        crate::types::SignatureHelp {
             signatures: vec![crate::types::SignatureInfo {
                 label,
-                documentation: Some(match sem.proj.lib_doc(Some(&owner), Some(&m.name)) {
+                documentation: Some(match proj.lib_doc(Some(owner), Some(&m.name)) {
                     Some(d) => format!("{d}\n\nMember of `{owner}`."),
                     None => format!("Member of `{owner}`."),
                 }),
@@ -682,7 +694,7 @@ impl View<'_> {
                     .collect(),
             }],
             active_parameter: active,
-        })
+        }
     }
 
     /// Signature help for a call of a global function of a described
@@ -693,7 +705,16 @@ impl View<'_> {
         arg: u32,
         named: Option<&str>,
     ) -> Option<crate::types::SignatureHelp> {
-        self.sem()?.proj.lib_global_signature(name, arg, named)
+        let sem = self.sem()?;
+        if !name.contains('.') {
+            // A method of the module's described host class, called by its
+            // bare name.
+            let ctx = Ctx::new(&sem.proj, sem.m);
+            if let Some((owner, m)) = ctx.host_member(name) {
+                return Some(self.member_signature(&sem.proj, &owner, &m, arg, named));
+            }
+        }
+        sem.proj.lib_global_signature(name, arg, named)
     }
 
     /// The names a described library offers after `Library.`.
@@ -757,13 +778,28 @@ impl View<'_> {
     ) -> Option<Hover> {
         let node = t.parent();
         let name = String::from_utf8_lossy(t.text()).into_owned();
+        if node.kind() == NodeKind::NameExpr
+            && let Some((owner, m)) = ctx.host_member(&name)
+        {
+            return self.member_hover(proj, &owner, &m, fence);
+        }
         if node.kind() != NodeKind::MemberExpr {
             return proj.lib_global_hover(&name, node.kind() == NodeKind::TypeRef, fence);
         }
         let (owner, m) = ctx.lib_member(&ctx.receiver_ty(node), &name)?;
-        let (label, _) = proj.lib_member_sig(&owner, &m);
+        self.member_hover(proj, &owner, &m, fence)
+    }
+
+    fn member_hover(
+        &self,
+        proj: &Project,
+        owner: &LibraryType,
+        m: &LibMember,
+        fence: impl Fn(String, Vec<String>) -> Option<Hover>,
+    ) -> Option<Hover> {
+        let (label, _) = proj.lib_member_sig(owner, m);
         let mut extra = Vec::new();
-        extra.extend(proj.lib_doc(Some(&owner), Some(&m.name)));
+        extra.extend(proj.lib_doc(Some(owner), Some(&m.name)));
         extra.push(format!("Member of `{owner}`."));
         if m.is_default {
             extra.push("Default member.".to_string());
@@ -834,6 +870,9 @@ impl View<'_> {
                     }
                     push_symbol(&n.to_string_lossy(), sym, m, &mut items);
                 }
+                if let Some(lt) = proj.host_classes.get(&m.index()) {
+                    items.extend(self.host_class_items(&ctx, lt));
+                }
                 Some(items)
             }
             Ty::Known(Type::Udt(u)) => {
@@ -892,6 +931,23 @@ impl View<'_> {
         }
     }
 
+    /// The controls, properties and methods of a module's described host
+    /// class, as completion items.
+    fn host_class_items(&self, ctx: &Ctx<'_>, lt: &LibraryType) -> Vec<CompletionItem> {
+        ctx.lib_members(lt)
+            .into_iter()
+            .map(|m| CompletionItem {
+                label: m.name.clone(),
+                kind: match m.kind {
+                    vba_sema::LibMemberKind::Method => CompletionKind::Procedure,
+                    _ => CompletionKind::Property,
+                },
+                detail: Some(ctx.proj.lib_member_sig(lt, &m).0),
+                documentation: ctx.proj.lib_doc(Some(lt), Some(&m.name)),
+            })
+            .collect()
+    }
+
     /// Names of other modules that are visible without qualification:
     /// public members of standard modules, public types and enums, and
     /// module names (as qualifiers or class types).
@@ -902,6 +958,9 @@ impl View<'_> {
         let proj = &sem.proj;
         let prog = &proj.sema.program;
         let mut items = proj.lib_catalog_items(types_only);
+        if !types_only && let Some(lt) = proj.host_classes.get(&sem.m) {
+            items.extend(self.host_class_items(&Ctx::new(proj, sem.m), lt));
+        }
         for (i, m) in prog.modules.iter().enumerate().take(proj.mods.len()) {
             if i == sem.m {
                 continue;

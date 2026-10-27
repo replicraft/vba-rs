@@ -64,6 +64,11 @@ pub struct Config {
     /// the file extension (`.bas` standard, `.cls` class, `.frm`
     /// designer) or the export header, and is standard otherwise.
     pub module_kinds: Vec<(String, crate::ModuleKind)>,
+    /// The described class that is the `Me` of a module, by module name:
+    /// inside such a module the controls and members of that class are
+    /// completed, hovered and checked, and the other modules' controls are
+    /// not. The class is looked up in the workspace's type provider.
+    pub module_hosts: Vec<vba_sema::ModuleHost>,
 }
 
 impl Default for Config {
@@ -75,6 +80,7 @@ impl Default for Config {
             semantic: true,
             project_name: "VBAProject".to_string(),
             module_kinds: Vec::new(),
+            module_hosts: Vec::new(),
         }
     }
 }

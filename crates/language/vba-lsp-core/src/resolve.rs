@@ -226,11 +226,37 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// The described host class of this module, if it has one.
+    pub fn host_class(&self) -> Option<&'a LibraryType> {
+        self.proj.host_classes.get(&self.m)
+    }
+
+    /// The host class of module `m` as the type of its instances.
+    fn host_class_of(&self, m: ModuleId) -> Option<&'a LibraryType> {
+        self.proj.host_classes.get(&(m.0 as usize))
+    }
+
+    /// A member of this module's described host class: a control or
+    /// property that a bare name denotes.
+    pub fn host_member(&self, name: &str) -> Option<(LibraryType, LibMember)> {
+        let lt = self.host_class()?;
+        let p = self.proj.provider.as_deref()?;
+        p.member(lt, name).map(|m| (lt.clone(), m))
+    }
+
     /// The library type and member a member access denotes, when the
     /// receiver is a library type and the provider describes the member.
+    /// An instance of a module with a described host class also answers for
+    /// the members of that class.
     pub fn lib_member(&self, recv: &Ty, name: &str) -> Option<(LibraryType, LibMember)> {
-        let Ty::Known(Type::Library(lt)) = recv else {
-            return None;
+        let host;
+        let lt = match recv {
+            Ty::Known(Type::Library(lt)) => lt,
+            Ty::Known(Type::Class(m)) => {
+                host = self.host_class_of(*m)?;
+                host
+            }
+            _ => return None,
         };
         let p = self.proj.provider.as_deref()?;
         let direct = p.member(lt, name).map(|m| (lt.clone(), m));
@@ -316,7 +342,10 @@ impl<'a> Ctx<'a> {
                 match self.resolve_simple(&norm, t.span().start, false) {
                     Some(d) => self.decl_ty(&d),
                     None if norm == normalize(self.proj.project_name.as_bytes()) => Ty::Project,
-                    None => self.lib_global_ty(t.text()),
+                    None => match self.host_member(&String::from_utf8_lossy(t.text())) {
+                        Some((_, m)) => Ty::Known(m.ty),
+                        None => self.lib_global_ty(t.text()),
+                    },
                 }
             }
             NodeKind::ParenExpr => node

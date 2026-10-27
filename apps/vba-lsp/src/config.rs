@@ -7,6 +7,7 @@
 //!            "semantic": true,
 //!            "projectName": "VBAProject",
 //!            "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" },
+//!            "moduleHosts": { "Form_Orders": "Form_Orders", "Report_Sales": { "class": "Report_Sales", "eventSource": "Report" } },
 //!            "typeLibraries": ["C:/libs/scrrun.dll", "libs/Shapes.tlb"],
 //!            "hostLibraries": ["libs/app-objects.json", { "format": "vba-host-library", "version": 1, "name": "App", "classes": [], "enums": [], "constants": [], "functions": [], "globals": [] }] } }
 //! ```
@@ -83,6 +84,20 @@ pub fn from_settings(settings: &Value) -> (Config, Vec<String>) {
                     }
                 }
                 None => warnings.push("`vba.moduleKinds` must be an object".to_string()),
+            },
+            "moduleHosts" => match value.as_object() {
+                Some(m) => {
+                    for (module, entry) in m {
+                        match module_host(module, entry) {
+                            Some(h) => cfg.module_hosts.push(h),
+                            None => warnings.push(format!(
+                                "`vba.moduleHosts.{module}` must be a class name or an object \
+                                 `{{ \"class\": name, \"eventSource\": prefix }}`"
+                            )),
+                        }
+                    }
+                }
+                None => warnings.push("`vba.moduleHosts` must be an object".to_string()),
             },
             // Read by `type_library_paths`.
             "typeLibraries" | "hostLibraries" => {}
@@ -164,6 +179,24 @@ pub fn host_libraries(settings: &Value) -> (Vec<HostSource>, Vec<String>) {
     (sources, warnings)
 }
 
+/// One `vba.moduleHosts` entry: the class that is the `Me` of `module`.
+fn module_host(module: &str, entry: &Value) -> Option<vba_sema::ModuleHost> {
+    match entry {
+        Value::String(class) if !class.trim().is_empty() => {
+            Some(vba_sema::ModuleHost::new(module, class))
+        }
+        Value::Object(o) => {
+            let class = o.get("class")?.as_str().filter(|c| !c.trim().is_empty())?;
+            let mut h = vba_sema::ModuleHost::new(module, class);
+            if let Some(src) = o.get("eventSource") {
+                h = h.event_source(src.as_str().filter(|s| !s.trim().is_empty())?);
+            }
+            Some(h)
+        }
+        _ => None,
+    }
+}
+
 fn module_kind(s: &str) -> Option<ModuleKind> {
     match s.to_ascii_lowercase().as_str() {
         "standard" => Some(ModuleKind::Standard),
@@ -190,6 +223,26 @@ mod tests {
         assert_eq!(cfg.profile.id, "vba6-excel-win32");
         assert_eq!(cfg.constants, [("DEBUGGING".to_string(), 1)]);
         assert_eq!(cfg.encoding, parse_encoding("932").unwrap());
+    }
+
+    #[test]
+    fn module_hosts() {
+        let (cfg, w) = from_settings(&json!({"vba": {"moduleHosts": {
+            "Form_Orders": "Form_Orders",
+            "Report_Sales": {"class": "Sales", "eventSource": "Report"},
+            "Bad": 5,
+            "Worse": {"eventSource": "x"}
+        }}}));
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert_eq!(
+            cfg.module_hosts,
+            [
+                vba_sema::ModuleHost::new("Form_Orders", "Form_Orders"),
+                vba_sema::ModuleHost::new("Report_Sales", "Sales").event_source("Report"),
+            ]
+        );
+        let (_, w) = from_settings(&json!({"vba": {"moduleHosts": []}}));
+        assert_eq!(w.len(), 1);
     }
 
     #[test]

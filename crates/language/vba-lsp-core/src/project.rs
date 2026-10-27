@@ -86,6 +86,8 @@ pub(crate) struct Project {
     pub project_name: String,
     /// The embedding application's view of type libraries and host types.
     pub provider: Option<SharedProvider>,
+    /// The described host class of modules that have one (module index).
+    pub host_classes: HashMap<usize, vba_sema::LibraryType>,
 }
 
 pub(crate) fn mid(i: usize) -> ModuleId {
@@ -220,6 +222,7 @@ impl Project {
             strict_syntax: true,
             project_name: config.project_name.clone(),
             constants: config.constants.clone(),
+            module_hosts: config.module_hosts.clone(),
             ..vba_sema::Options::default()
         };
         let lib: &dyn TypeProvider = match provider.as_deref() {
@@ -235,10 +238,36 @@ impl Project {
             decl_at: HashMap::new(),
             order: Vec::new(),
             project_name: config.project_name.clone(),
+            host_classes: HashMap::new(),
             provider,
         };
+        p.index_host_classes(&config.module_hosts);
         p.index_decls();
         p
+    }
+
+    /// Resolves the configured host classes through the provider, as the
+    /// analysis did.
+    fn index_host_classes(&mut self, hosts: &[vba_sema::ModuleHost]) {
+        let Some(provider) = self.provider.clone() else {
+            return;
+        };
+        for h in hosts {
+            let Some(i) = self
+                .mods
+                .iter()
+                .position(|m| m.name.eq_ignore_ascii_case(&h.module))
+            else {
+                continue;
+            };
+            let (q, n) = match h.class.rsplit_once('.') {
+                Some((q, n)) => (Some(q), n),
+                None => (None, h.class.as_str()),
+            };
+            if let Some(lt) = provider.resolve_type(q, n) {
+                self.host_classes.insert(i, lt);
+            }
+        }
     }
 
     fn add_decl(&mut self, d: Decl, m: ModuleId, span: Span) {

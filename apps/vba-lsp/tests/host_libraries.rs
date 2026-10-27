@@ -220,3 +220,49 @@ fn changing_the_setting_reloads() {
     let d = c.diagnostics(1);
     assert!(codes(&d).contains(&"SEM004".to_string()), "{d:?}");
 }
+
+#[test]
+fn module_hosts_scope_a_form_to_its_class() {
+    let forms = HostLibrary::new("FormLib")
+        .class(HostClass::new("TextBox").member(HostMember::property("Value", "Variant")))
+        .class(
+            HostClass::new("Form_Orders")
+                .member(HostMember::property("txtName", "TextBox").read_only())
+                .member(HostMember::sub("Requery").doc("Runs the query again.")),
+        );
+    let src = "Option Explicit\nSub Main()\n    txtName.Value = 1\n    txtOther.Value = 2\n    Requery\nEnd Sub\n";
+    let mut c = start(json!({"vba": {
+        "hostLibraries": [forms.to_json()],
+        "moduleKinds": {"Module1.bas": "document"},
+        "moduleHosts": {"Module1": "Form_Orders"}
+    }}));
+    open(&mut c, src);
+    let d = c.diagnostics(1);
+    assert_eq!(codes(&d), ["SEM002"], "{d:?}");
+    assert!(
+        d[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("host class `FormLib.Form_Orders`"),
+        "{d:?}"
+    );
+    let r = c.request("textDocument/completion", at(src, "    Requery", 7));
+    let labels: Vec<&str> = r["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["label"].as_str().unwrap())
+        .collect();
+    assert!(
+        labels.contains(&"txtName") && labels.contains(&"Requery"),
+        "{labels:?}"
+    );
+    // A changed setting reloads: without the scope the form is not special.
+    c.notify(
+        "workspace/didChangeConfiguration",
+        json!({"settings": {"vba": {"hostLibraries": [forms.to_json()],
+            "moduleKinds": {"Module1.bas": "document"}}}}),
+    );
+    let d = c.diagnostics(1);
+    assert!(!codes(&d).is_empty(), "{d:?}");
+}
