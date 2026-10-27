@@ -400,6 +400,18 @@ impl Binder<'_, '_> {
             return self.error_expr(span);
         }
         if id.name.eq_ignore_case("Me") && !self.scope.contains_key(&id.name) {
+            if !self.class_like
+                && self.sema.friend.is_some_and(|(f, _)| f == self.module)
+                && let Some(LocalSym::Local(l)) = self.scope.get(&Name::new("zzMe")).cloned()
+            {
+                // Code evaluated for a frame: `Me` is the parameter that
+                // carries the frame's object (see `Options::friend`).
+                let e = self.local_expr(l, span);
+                return match args {
+                    Some(a) => self.apply_args(e, a, span),
+                    None => e,
+                };
+            }
             if !self.class_like {
                 self.err(
                     codes::NO_OBJECT_CONTEXT,

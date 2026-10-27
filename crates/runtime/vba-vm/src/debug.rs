@@ -295,7 +295,8 @@ impl Vm {
                 continue;
             }
             if let Some(ls) = self.source_lines.get(fi) {
-                lines.extend(ls.iter().copied().filter(|&l| l > 0));
+                let header = self.proc_lines.get(fi).map_or(0, |r| r.0);
+                lines.extend(ls.iter().copied().filter(|&l| l > 0 && l != header));
             }
         }
         lines.sort_unstable();
@@ -358,7 +359,9 @@ impl Vm {
             .and_then(|l| l.get(stmt.0 as usize))
             .copied()
             .unwrap_or(0);
-        if line == 0 {
+        // The line of the procedure header holds the entry bookkeeping, not
+        // a statement a person can stop at.
+        if line == 0 || self.proc_lines.get(func).is_some_and(|r| r.0 == line) {
             return Ok(());
         }
         let loc = (depth, func, line);

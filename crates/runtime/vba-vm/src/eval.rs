@@ -33,9 +33,9 @@ use crate::vm::{Arg, Vm};
 pub const EVAL_MODULE: &str = "VbaRsImmediate";
 /// The procedure of [`EVAL_MODULE`] that holds the text.
 pub const EVAL_PROC: &str = "Evaluate";
-/// The name `Me` is passed under: the parameter is called `Me`, which takes
-/// the place of the keyword inside the procedure.
-pub const EVAL_ME: &str = "Me";
+/// The parameter that carries `Me` of a frame; inside the evaluation module
+/// the keyword `Me` stands for it.
+pub const EVAL_ME: &str = "zzMe";
 
 /// What to compile; see [`EvalCompiler`].
 #[derive(Debug, Clone, PartialEq, Eq)]

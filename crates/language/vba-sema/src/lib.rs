@@ -183,7 +183,8 @@ pub struct Options {
     /// target, and additionally the variables, procedures and declarations
     /// of a standard-module target. A class-like target contributes only
     /// constants, enums and types, because its other members need an
-    /// instance.
+    /// instance. In the friend module, `Me` means the parameter called
+    /// `zzMe` of the procedure it appears in, when there is one.
     pub friend: Option<(String, String)>,
 }
 
