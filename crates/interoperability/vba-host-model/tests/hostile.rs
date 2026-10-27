@@ -121,3 +121,23 @@ fn enormous_counts_and_numbers_are_refused() {
         let _ = HostLibrary::from_json_str(text);
     }
 }
+
+/// The single hook a coverage-guided fuzzer needs: the one byte-level entry
+/// point of the crate (the JSON reader) and the checker behind it.
+pub fn fuzz_entry(bytes: &[u8]) {
+    let text = String::from_utf8_lossy(bytes);
+    if let Ok(lib) = HostLibrary::from_json_str(&text) {
+        let _ = lib.problems();
+    }
+    let _ = TypeRef::parse(&text);
+}
+
+#[test]
+fn fuzz_entry_accepts_arbitrary_bytes() {
+    let mut rng = Rng(0x5EED_0011);
+    for _ in 0..3000 {
+        let n = rng.below(300);
+        let b: Vec<u8> = (0..n).map(|_| b"{}[]\":,01 aeE-\\()Lng"[rng.below(20)]).collect();
+        fuzz_entry(&b);
+    }
+}

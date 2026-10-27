@@ -535,6 +535,29 @@ mod hostile_tests {
         assert_eq!(decode(&shape, &mut r, false), Err(FsError::Vba(7)));
     }
 
+    /// The single hook a coverage-guided fuzzer needs: the bytes of a file
+    /// decoded as a `Get` record under each representative shape.
+    fn fuzz_entry(bytes: &[u8]) {
+        let shapes = [
+            Shape::Scalar(VarType::Variant),
+            Shape::VarString { current_len: 3 },
+            Shape::DynArray {
+                elem: Box::new(Shape::Scalar(VarType::Variant)),
+            },
+            Shape::Udt(vec![
+                Shape::Scalar(VarType::Decimal),
+                Shape::FixedString(4),
+                Shape::Scalar(VarType::Date),
+            ]),
+        ];
+        for shape in &shapes {
+            for random in [false, true] {
+                let mut r = Reader::new(bytes, 0);
+                let _ = decode(shape, &mut r, random);
+            }
+        }
+    }
+
     /// Seeded mutation of valid records never panics.
     #[test]
     fn mutated_records_never_panic() {
@@ -577,6 +600,7 @@ mod hostile_tests {
                     let _ = decode(shape, &mut r, random);
                 }
             }
+            fuzz_entry(&data);
         }
     }
 }

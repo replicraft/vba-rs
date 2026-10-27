@@ -259,3 +259,34 @@ fn mutated_real_libraries_never_panic() {
     }
     println!("{seen} files, {runs} mutations");
 }
+
+/// The single hook a coverage-guided fuzzer needs: every byte-level entry
+/// point of the crate on one input.
+pub fn fuzz_entry(bytes: &[u8]) {
+    let _ = vba_typelib::parse_msft(bytes);
+    let _ = vba_typelib::parse_sltg(bytes);
+    let _ = vba_typelib::load(bytes);
+    if let Ok(all) = vba_typelib::load_all(bytes) {
+        for (_, lib) in &all {
+            for t in &lib.types {
+                for f in &t.functions {
+                    let _ = lib.describe(&f.ret);
+                }
+            }
+        }
+    }
+    let _ = vba_typelib::pe::typelib_resources(bytes);
+}
+
+#[test]
+fn fuzz_entry_accepts_arbitrary_bytes() {
+    let mut rng = Rng(0x5EED_0072);
+    for _ in 0..3000 {
+        let n = rng.below(600);
+        let mut b: Vec<u8> = (0..n).map(|_| rng.next() as u8).collect();
+        if rng.below(2) == 0 && b.len() >= 4 {
+            b[..4].copy_from_slice([b"MSFT", b"SLTG", b"MZ\0\0"][rng.below(3)]);
+        }
+        fuzz_entry(&b);
+    }
+}

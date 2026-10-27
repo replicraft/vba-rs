@@ -261,3 +261,44 @@ fn mutated_project_streams_never_panic() {
         let _ = ProjectCache::parse(&m, 1);
     }
 }
+
+/// The single hook a coverage-guided fuzzer needs: every byte-level entry
+/// point of the crate on one input (read as a project stream and as a module
+/// cache under each layout).
+pub fn fuzz_entry(bytes: &[u8]) {
+    let ident_layout = Layout::select(0x97, 1).unwrap();
+    let idents = parse_identifiers(bytes, &ident_layout).unwrap_or(IdentTable {
+        names: Vec::new(),
+        announced: 0,
+        dummies: 0,
+        end: 0,
+        stream_len: 0,
+    });
+    let _ = ProjectCache::parse(bytes, 1);
+    for l in [
+        Layout::select(0x97, 1).unwrap(),
+        Layout::select(0xD7, 3).unwrap(),
+        Layout::select(0x70, 1).unwrap(),
+        Layout::select(0x50, 1).unwrap(),
+    ] {
+        let _ = decode_line(bytes, &l);
+        if let Ok(c) = ModuleCache::parse(bytes, &l) {
+            let _ = c.coverage();
+            let _ = Disassembly::of_module(&c, &idents).to_string();
+            let _ = RecordMap::collect(&c);
+            let _ = IndirectMap::build(&c).coverage();
+        }
+    }
+}
+
+#[test]
+fn fuzz_entry_accepts_arbitrary_bytes() {
+    let mut rng = Rng(0x5EED_0032);
+    for _ in 0..3000 {
+        let n = rng.below(400);
+        let b: Vec<u8> = (0..n).map(|_| rng.next() as u8).collect();
+        fuzz_entry(&b);
+    }
+    fuzz_entry(&synth::build_cache(&CacheSpec::default()));
+    fuzz_entry(&synth::build_project_stream(0x97, &["A"]));
+}
