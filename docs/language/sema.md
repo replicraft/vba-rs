@@ -144,6 +144,7 @@ length|missing, value)` (`MidBStatement` for `MidB`).
 | SEM025 | not assignable (constant, call result) |
 | SEM026 | `ByRef` argument type mismatch |
 | SEM027 | UDT/enum declaration (recursion, value range) |
+| SEM098 | a size budget of `Options::limits` was exceeded (bytes of source, modules, or bound statements and expressions); analysis is partial |
 | SEM099 | construct not supported (explicit; `DefDec`, `AddressOf` in profiles without it) |
 
 `PtrSafe` on 64-bit targets and its availability by generation are diagnosed

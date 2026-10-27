@@ -9,7 +9,7 @@ mod libtypes;
 mod scope;
 mod typeres;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use vba_ast::{
@@ -66,6 +66,12 @@ pub(crate) struct Sema<'a> {
     pub statics: HashMap<(crate::types::ProcId, Name), crate::types::GlobalId>,
     /// Library enums and records met while analysing (see `libtypes`).
     pub lib_types: RefCell<libtypes::LibTypes>,
+    /// Bound statements and expressions allowed in all (`None`: no limit).
+    pub node_limit: Option<u64>,
+    /// Bound statements and expressions so far.
+    pub nodes: Cell<u64>,
+    /// Set once `nodes` passed `node_limit`; binding then stops descending.
+    pub over_nodes: Cell<bool>,
 }
 
 impl<'a> Sema<'a> {
@@ -96,7 +102,26 @@ impl<'a> Sema<'a> {
             implements_src: Vec::new(),
             statics: HashMap::new(),
             lib_types: RefCell::default(),
+            node_limit: None,
+            nodes: Cell::new(0),
+            over_nodes: Cell::new(false),
         }
+    }
+
+    /// Counts one bound statement or expression. True when the node budget
+    /// is spent: the caller must not descend further, so that a hostile
+    /// program costs a bounded amount of work and memory.
+    pub(crate) fn charge_node(&self) -> bool {
+        if self.over_nodes.get() {
+            return true;
+        }
+        let n = self.nodes.get() + 1;
+        self.nodes.set(n);
+        if self.node_limit.is_some_and(|l| n > l) {
+            self.over_nodes.set(true);
+            return true;
+        }
+        false
     }
 
     pub(crate) fn profile(&self) -> &Profile {

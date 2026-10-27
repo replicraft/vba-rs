@@ -68,3 +68,5 @@ pub const NOT_CREATABLE: Code = Code("SEM031");
 pub const PROCEDURE_RULE: Code = Code("SEM032");
 /// A construct that this implementation does not analyse yet.
 pub const UNSUPPORTED: Code = Code("SEM099");
+/// A size budget of the analysis was exceeded (see `AnalysisLimits`).
+pub const LIMIT_EXCEEDED: Code = Code("SEM098");

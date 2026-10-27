@@ -597,6 +597,10 @@ pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
     /// The sources, for rendering diagnostics.
     pub sources: SourceMap,
+    /// The size budget the project went over, if any. The analysis is then
+    /// partial (bodies after the point of exhaustion are not bound) and
+    /// carries an error diagnostic.
+    pub limit_exceeded: Option<crate::AnalysisLimit>,
 }
 
 impl Analysis {

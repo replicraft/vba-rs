@@ -47,6 +47,9 @@ impl Binder<'_, '_> {
 
     fn bind_stmt(&mut self, s: &Stmt) -> Option<BStmt> {
         let span = s.span;
+        if self.sema.charge_node() {
+            return None;
+        }
         match &s.kind {
             StmtKind::Label(l) => {
                 let key = match &l.label {

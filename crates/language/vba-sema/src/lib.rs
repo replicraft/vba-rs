@@ -56,6 +56,101 @@ pub struct SourceModule {
     pub source: Vec<u8>,
 }
 
+/// Size budgets of one analysis. `None` means unlimited.
+///
+/// They bound the work and memory a hostile project can cost before it
+/// runs: the bytes of source (checked before anything is parsed), the
+/// number of modules (before parsing too) and the number of statements and
+/// expressions that get bound (checked while binding, which stops descending
+/// as soon as the budget is spent). Exceeding one yields an
+/// [`AnalysisLimit`] in [`Analysis::limit_exceeded`] and an error diagnostic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct AnalysisLimits {
+    /// Total bytes of source over all modules.
+    pub max_source_bytes: Option<u64>,
+    /// Number of modules.
+    pub max_modules: Option<u64>,
+    /// Bound statements and expressions over the whole project.
+    pub max_nodes: Option<u64>,
+}
+
+impl AnalysisLimits {
+    /// No budget at all.
+    pub const fn unlimited() -> Self {
+        AnalysisLimits {
+            max_source_bytes: None,
+            max_modules: None,
+            max_nodes: None,
+        }
+    }
+
+    /// Sets [`max_source_bytes`](AnalysisLimits::max_source_bytes).
+    #[must_use]
+    pub const fn with_max_source_bytes(mut self, n: Option<u64>) -> Self {
+        self.max_source_bytes = n;
+        self
+    }
+
+    /// Sets [`max_modules`](AnalysisLimits::max_modules).
+    #[must_use]
+    pub const fn with_max_modules(mut self, n: Option<u64>) -> Self {
+        self.max_modules = n;
+        self
+    }
+
+    /// Sets [`max_nodes`](AnalysisLimits::max_nodes).
+    #[must_use]
+    pub const fn with_max_nodes(mut self, n: Option<u64>) -> Self {
+        self.max_nodes = n;
+        self
+    }
+}
+
+/// Which analysis budget a project went over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AnalysisLimit {
+    /// More bytes of source than [`AnalysisLimits::max_source_bytes`].
+    SourceBytes {
+        /// The budget.
+        limit: u64,
+        /// What the project has.
+        actual: u64,
+    },
+    /// More modules than [`AnalysisLimits::max_modules`].
+    Modules {
+        /// The budget.
+        limit: u64,
+        /// What the project has.
+        actual: u64,
+    },
+    /// More statements and expressions than [`AnalysisLimits::max_nodes`].
+    Nodes {
+        /// The budget.
+        limit: u64,
+    },
+}
+
+impl std::fmt::Display for AnalysisLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AnalysisLimit::SourceBytes { limit, actual } => write!(
+                f,
+                "the project has {actual} bytes of source; the limit is {limit}"
+            ),
+            AnalysisLimit::Modules { limit, actual } => {
+                write!(f, "the project has {actual} modules; the limit is {limit}")
+            }
+            AnalysisLimit::Nodes { limit } => write!(
+                f,
+                "the project has more than {limit} statements and expressions; \
+                 analysis was stopped"
+            ),
+        }
+    }
+}
+
 /// Analysis options.
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -78,6 +173,8 @@ pub struct Options {
     /// (see `docs/language/spec-coverage.md`); by default they are warnings
     /// and do not block loading.
     pub strict_spec: bool,
+    /// Size budgets; unlimited by default.
+    pub limits: AnalysisLimits,
 }
 
 impl Default for Options {
@@ -88,6 +185,7 @@ impl Default for Options {
             constants: Vec::new(),
             host_members: Vec::new(),
             strict_spec: false,
+            limits: AnalysisLimits::unlimited(),
         }
     }
 }
@@ -160,6 +258,9 @@ pub fn analyze_sources(
     opts: &Options,
 ) -> Analysis {
     let mut sources = SourceMap::new();
+    if let Some(limit) = check_input_size(modules, &opts.limits) {
+        return refused(sources, limit, *profile);
+    }
     let mut parse_opts = if opts.strict_syntax {
         ParseOptions::strict()
     } else {
@@ -250,10 +351,14 @@ pub fn analyze_sources(
         .collect();
     s.strict_spec = opts.strict_spec;
     s.module_ids = ids;
+    s.node_limit = opts.limits.max_nodes;
     sema::run_declaration_passes(&mut s);
     let mut bound = Vec::new();
     for i in 0..s.program.procs.len() {
         bound.push(bind::bind_proc(&s, ProcId(i as u32)));
+        if s.over_nodes.get() {
+            break;
+        }
     }
     for (i, b) in bound.into_iter().enumerate() {
         let p = &mut s.program.procs[i];
@@ -263,11 +368,74 @@ pub fn analyze_sources(
         p.body = b.body;
     }
     s.finish_library_types();
+    let mut limit_exceeded = None;
+    if s.over_nodes.get() {
+        let limit = AnalysisLimit::Nodes {
+            limit: opts.limits.max_nodes.unwrap_or(0),
+        };
+        limit_exceeded = Some(limit);
+        if let Some(m) = s.program.modules.first() {
+            all.push(Diagnostic::error(
+                codes::LIMIT_EXCEEDED,
+                m.file,
+                Span::empty(0),
+                limit.to_string(),
+            ));
+        }
+    }
     all.extend(s.diags.into_inner().as_slice().iter().cloned());
     Analysis {
         program: s.program,
         diagnostics: all.into_sorted(),
         sources,
+        limit_exceeded,
+    }
+}
+
+/// The budget that the unparsed input already exceeds, if any.
+fn check_input_size(modules: &[SourceModule], limits: &AnalysisLimits) -> Option<AnalysisLimit> {
+    if let Some(limit) = limits.max_modules {
+        let actual = modules.len() as u64;
+        if actual > limit {
+            return Some(AnalysisLimit::Modules { limit, actual });
+        }
+    }
+    if let Some(limit) = limits.max_source_bytes {
+        let actual: u64 = modules.iter().map(|m| m.source.len() as u64).sum();
+        if actual > limit {
+            return Some(AnalysisLimit::SourceBytes { limit, actual });
+        }
+    }
+    None
+}
+
+/// The analysis of a project that was refused before anything was parsed:
+/// no modules, one error.
+fn refused(mut sources: SourceMap, limit: AnalysisLimit, profile: Profile) -> Analysis {
+    let file = sources.add("(project)".to_owned(), Vec::new(), SourceEncoding::Utf8);
+    let diagnostics = vec![Diagnostic::error(
+        codes::LIMIT_EXCEEDED,
+        file,
+        Span::empty(0),
+        limit.to_string(),
+    )];
+    Analysis {
+        program: Program {
+            profile,
+            modules: Vec::new(),
+            procs: Vec::new(),
+            globals: Vec::new(),
+            consts: Vec::new(),
+            udts: Vec::new(),
+            enums: Vec::new(),
+            declares: Vec::new(),
+            events: Vec::new(),
+            lib_enums: Vec::new(),
+            lib_records: Vec::new(),
+        },
+        diagnostics,
+        sources,
+        limit_exceeded: Some(limit),
     }
 }
 

@@ -73,6 +73,9 @@ impl Binder<'_, '_> {
     /// stays an object).
     pub(crate) fn bind_expr(&mut self, e: &Expr) -> BExpr {
         let span = e.span;
+        if self.sema.charge_node() {
+            return self.error_expr(span);
+        }
         match &e.kind {
             ExprKind::Literal(l) => match literal(l, self.sema.profile()) {
                 Ok((c, t)) => BExpr::new(span, t, BExprKind::Const(c)),
