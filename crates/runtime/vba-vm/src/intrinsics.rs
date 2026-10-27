@@ -51,6 +51,13 @@ fn svc<T>(r: Result<T, ServiceError>) -> VResult<T> {
     })
 }
 
+/// Intrinsics that look at the default member of an object argument when it
+/// has a usable one (`IsNull(Me.Name)` asks about the control's value, and
+/// `VarType` documents "the type of an object's default property") and
+/// otherwise see the object itself (a collection, `Nothing`, a class
+/// without a default member).
+const DEFAULT_IF_ANY: &[&str] = &["vartype", "isnull", "isempty", "isdate", "isnumeric"];
+
 /// Intrinsics whose object arguments are not replaced by their default
 /// member.
 const RAW_OBJECT_ARGS: &[&str] = &[
@@ -81,6 +88,7 @@ impl Vm {
         &mut self,
         args: &[CallArg],
         resolve_objects: bool,
+        lenient: bool,
     ) -> VResult<Vec<Option<Variant>>> {
         let mut out = Vec::with_capacity(args.len());
         for a in args {
@@ -94,6 +102,12 @@ impl Vm {
             };
             let v = match v {
                 Some(v @ Variant::Object(_)) if resolve_objects => Some(self.value_of(v)?),
+                Some(v @ Variant::Object(_)) if lenient => match self.value_of(v.clone()) {
+                    Ok(value) => Some(value),
+                    // No usable default member: the function sees the object.
+                    Err(Fault::Err(_)) => Some(v),
+                    Err(fatal) => return Err(fatal),
+                },
                 other => other,
             };
             out.push(v);
@@ -219,7 +233,7 @@ impl Vm {
         };
         match lname {
             "tab" | "spc" => {
-                let a = self.intrinsic_args(args, true)?;
+                let a = self.intrinsic_args(args, true, false)?;
                 let h = if lname == "tab" {
                     PrintHelper::Tab(match a.first() {
                         Some(Some(v)) => Some(convert::to_long(v)?),
@@ -241,7 +255,7 @@ impl Vm {
             _ => {}
         }
         let raw = RAW_OBJECT_ARGS.contains(&lname);
-        let a = self.intrinsic_args(args, !raw)?;
+        let a = self.intrinsic_args(args, !raw, DEFAULT_IF_ANY.contains(&lname))?;
         let v = match lname {
             "ismissing" => {
                 Variant::Boolean(matches!(a.first(), Some(Some(v)) if is_missing_marker(v)))
