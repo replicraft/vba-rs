@@ -529,8 +529,20 @@ fn load_libraries(
     warnings.extend(problems);
     let loaded = libraries::load(&paths);
     warnings.extend(loaded.errors);
-    ws.set_type_provider(loaded.provider);
-    (!paths.is_empty()).then(|| format!("loaded {} type libraries", loaded.libraries))
+    let (sources, problems) = config::host_libraries(settings);
+    warnings.extend(problems);
+    let hosted = libraries::load_host(&sources);
+    warnings.extend(hosted.errors);
+    // The application's own object model first, then the type libraries.
+    ws.set_type_provider(libraries::combine(hosted.provider, loaded.provider));
+    let mut info = Vec::new();
+    if !paths.is_empty() {
+        info.push(format!("loaded {} type libraries", loaded.libraries));
+    }
+    if !sources.is_empty() {
+        info.push(format!("loaded {} host libraries", hosted.libraries));
+    }
+    (!info.is_empty()).then(|| info.join(", "))
 }
 
 fn format_options(o: &lsp::FormattingOptions) -> core::FormatOptions {

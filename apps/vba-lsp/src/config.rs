@@ -7,7 +7,8 @@
 //!            "semantic": true,
 //!            "projectName": "VBAProject",
 //!            "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" },
-//!            "typeLibraries": ["C:/libs/scrrun.dll", "libs/Shapes.tlb"] } }
+//!            "typeLibraries": ["C:/libs/scrrun.dll", "libs/Shapes.tlb"],
+//!            "hostLibraries": ["libs/app-objects.json", { "format": "vba-host-library", "version": 1, "name": "App", "classes": [], "enums": [], "constants": [], "functions": [], "globals": [] }] } }
 //! ```
 //!
 //! The object under `vba` may also be passed directly (initialization
@@ -84,7 +85,7 @@ pub fn from_settings(settings: &Value) -> (Config, Vec<String>) {
                 None => warnings.push("`vba.moduleKinds` must be an object".to_string()),
             },
             // Read by `type_library_paths`.
-            "typeLibraries" => {}
+            "typeLibraries" | "hostLibraries" => {}
             other => warnings.push(format!("unknown setting `vba.{other}`")),
         }
     }
@@ -120,6 +121,47 @@ pub fn type_library_paths(settings: &Value) -> (Vec<PathBuf>, Vec<String>) {
         Some(_) => warnings.push("`vba.typeLibraries` must be a list of paths".to_string()),
     }
     (paths, warnings)
+}
+
+/// Where a described host library comes from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostSource {
+    /// A JSON file (the format of `docs/architecture/host-model.md`).
+    Path(PathBuf),
+    /// The description itself, passed in the settings.
+    Inline(Value),
+}
+
+/// The `vba.hostLibraries` entries (file paths or inline descriptions) and
+/// warnings for malformed ones. Absent means none.
+pub fn host_libraries(settings: &Value) -> (Vec<HostSource>, Vec<String>) {
+    let section = settings.get("vba").unwrap_or(settings);
+    let mut warnings = Vec::new();
+    let mut sources = Vec::new();
+    match section.get("hostLibraries") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(items)) => {
+            for item in items {
+                if sources.len() == MAX_PATHS {
+                    warnings.push(format!(
+                        "`vba.hostLibraries` lists more than {MAX_PATHS} entries, the rest are ignored"
+                    ));
+                    break;
+                }
+                match item {
+                    Value::String(p) if !p.trim().is_empty() => {
+                        sources.push(HostSource::Path(PathBuf::from(p)));
+                    }
+                    Value::Object(_) => sources.push(HostSource::Inline(item.clone())),
+                    _ => warnings.push(format!(
+                        "`vba.hostLibraries` entries must be a file path or a description object, got {item}"
+                    )),
+                }
+            }
+        }
+        Some(_) => warnings.push("`vba.hostLibraries` must be a list".to_string()),
+    }
+    (sources, warnings)
 }
 
 fn module_kind(s: &str) -> Option<ModuleKind> {
@@ -196,6 +238,26 @@ mod tests {
         // The key is known to the general settings reader.
         let (_, w) = from_settings(&json!({"vba": {"typeLibraries": []}}));
         assert!(w.is_empty());
+    }
+
+    #[test]
+    fn host_library_sources() {
+        let inline = json!({"format": "vba-host-library"});
+        let (s, w) =
+            host_libraries(&json!({"vba": {"hostLibraries": ["db.json", inline.clone(), 3, ""]}}));
+        assert_eq!(
+            s,
+            [
+                HostSource::Path(PathBuf::from("db.json")),
+                HostSource::Inline(inline)
+            ]
+        );
+        assert_eq!(w.len(), 2, "{w:?}");
+        let (s, w) = host_libraries(&json!({"hostLibraries": "db.json"}));
+        assert!(s.is_empty());
+        assert_eq!(w.len(), 1);
+        let (_, w) = from_settings(&json!({"vba": {"hostLibraries": []}}));
+        assert!(w.is_empty(), "the key is known to the general reader");
     }
 
     #[test]

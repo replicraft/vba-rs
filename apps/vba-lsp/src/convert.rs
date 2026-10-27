@@ -212,6 +212,12 @@ pub fn completions(c: core::Completions) -> lsp::CompletionList {
                     core::CompletionKind::Field => lsp::CompletionItemKind::FIELD,
                 }),
                 detail: i.detail,
+                documentation: i.documentation.map(|d| {
+                    lsp::Documentation::MarkupContent(lsp::MarkupContent {
+                        kind: lsp::MarkupKind::Markdown,
+                        value: d,
+                    })
+                }),
                 text_edit: Some(lsp::CompletionTextEdit::Edit(lsp::TextEdit::new(
                     replace,
                     i.label.clone(),
