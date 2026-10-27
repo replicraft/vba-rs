@@ -121,11 +121,13 @@ fn handle(table: &ObjectTable, o: HostObject) -> Variant {
     Variant::Object(ObjectRef::Handle(table.insert_obj(o)))
 }
 
+pub type Cell2 = Rc<RefCell<Variant>>;
+
 pub struct Data {
     pub rows: Vec<(String, i32)>,
     pub pos: Cell<usize>,
     pub name: RefCell<String>,
-    pub cells: Vec<(Rc<RefCell<Variant>>, Rc<RefCell<Variant>>)>,
+    pub cells: Vec<(Cell2, Cell2)>,
 }
 
 pub fn field(lib: &CheckedLibrary, name: &'static str, cell: Rc<RefCell<Variant>>) -> HostObject {

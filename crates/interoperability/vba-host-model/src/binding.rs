@@ -13,6 +13,10 @@ use crate::runtime::{BindError, HostImpl, HostObject, Invocation, run_member};
 
 type Func = Rc<dyn Fn(&mut Invocation<'_>) -> Result<Variant, DispError>>;
 
+/// Creates a value (a predeclared object or a new instance) in a table;
+/// the value carries one reference for the receiver.
+pub type ValueFactory = Rc<dyn Fn(&ObjectTable) -> Result<Variant, DispError>>;
+
 struct FuncImpl(Func);
 
 impl HostImpl for FuncImpl {
@@ -224,12 +228,7 @@ impl HostRuntime {
 
     /// The predeclared objects: name and a function that creates the
     /// object in a table, returning a value that carries one reference.
-    pub fn globals(
-        &self,
-    ) -> Vec<(
-        String,
-        Rc<dyn Fn(&ObjectTable) -> Result<Variant, DispError>>,
-    )> {
+    pub fn globals(&self) -> Vec<(String, ValueFactory)> {
         self.globals
             .iter()
             .map(|(n, f)| (n.clone(), insert_with(f.clone())))
@@ -237,12 +236,7 @@ impl HostRuntime {
     }
 
     /// The creatable classes, as [`globals`](HostRuntime::globals) does.
-    pub fn classes(
-        &self,
-    ) -> Vec<(
-        String,
-        Rc<dyn Fn(&ObjectTable) -> Result<Variant, DispError>>,
-    )> {
+    pub fn classes(&self) -> Vec<(String, ValueFactory)> {
         self.classes
             .iter()
             .map(|(n, f)| (n.clone(), insert_with(f.clone())))
@@ -250,7 +244,7 @@ impl HostRuntime {
     }
 }
 
-fn insert_with(f: ObjectFactory) -> Rc<dyn Fn(&ObjectTable) -> Result<Variant, DispError>> {
+fn insert_with(f: ObjectFactory) -> ValueFactory {
     Rc::new(move |table| {
         let o = f(table)?;
         Ok(Variant::Object(ObjectRef::Handle(table.insert_obj(o))))

@@ -80,7 +80,9 @@ fn bind(lib: &vba::host_model::CheckedLibrary) -> HostRuntime {
                 calls: Cell::new(0),
             };
             let handlers = Handlers::new(state)
-                .get("Count", |s, _| Ok(Variant::Long(s.orders.borrow().len() as i32)))
+                .get("Count", |s, _| {
+                    Ok(Variant::Long(s.orders.borrow().len() as i32))
+                })
                 .method("Total", |s, cx| {
                     s.calls.set(s.calls.get() + 1);
                     let who = cx.args.string(0)?;
@@ -101,7 +103,12 @@ fn bind(lib: &vba::host_model::CheckedLibrary) -> HostRuntime {
                 })
                 .method("Find", |s, cx| {
                     let who = cx.args.string(0)?;
-                    let hit = s.orders.borrow().iter().find(|(c, _)| *c == who).map(|o| o.1);
+                    let hit = s
+                        .orders
+                        .borrow()
+                        .iter()
+                        .find(|(c, _)| *c == who)
+                        .map(|o| o.1);
                     if let Some(amount) = hit {
                         cx.args.set(1, Variant::Double(amount));
                     }
@@ -158,7 +165,9 @@ fn main() {
     };
     println!("members of Shop.Orders:");
     for m in lib.interface_members(&ty).unwrap_or_default() {
-        let doc = lib.documentation(Some(&ty), Some(&m.name)).unwrap_or_default();
+        let doc = lib
+            .documentation(Some(&ty), Some(&m.name))
+            .unwrap_or_default();
         println!("  {} - {doc}", m.name);
     }
     println!("\nthe JSON a language server reads (vba.hostLibraries):");

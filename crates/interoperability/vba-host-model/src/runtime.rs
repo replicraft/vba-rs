@@ -265,6 +265,8 @@ where
 }
 
 type Handler<S> = Box<dyn Fn(&S, &mut Invocation<'_>) -> Result<Variant, DispError>>;
+type TerminateFn<S> = Box<dyn Fn(&S, &ObjectTable)>;
+type HeldFn<S> = Box<dyn Fn(&S) -> Vec<ObjectHandle>>;
 
 /// A [`HostImpl`] made of one closure per member and kind of call, around a
 /// state value. [`HostObject::new`] checks the table against the
@@ -277,8 +279,8 @@ pub struct Handlers<S> {
     state: S,
     table: HashMap<(String, CallKind), Handler<S>>,
     order: Vec<(String, CallKind)>,
-    on_terminate: Option<Box<dyn Fn(&S, &ObjectTable)>>,
-    held: Option<Box<dyn Fn(&S) -> Vec<ObjectHandle>>>,
+    on_terminate: Option<TerminateFn<S>>,
+    held: Option<HeldFn<S>>,
     reentrant: bool,
 }
 

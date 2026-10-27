@@ -718,7 +718,6 @@ fn derive(lib: HostLibrary) -> Inner {
         .enumerate()
         .map(|(i, f)| ctx.member_sig(f, DispId(i as i32 + 1), true))
         .collect();
-    drop(ctx);
     inner.lib = lib;
     inner
 }

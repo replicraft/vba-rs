@@ -46,6 +46,18 @@ entry that made it:
 
 ### Added
 
+- `vba-host-model` and `vba::host_model`: describe an embedding application's object model once
+  (`HostLibrary`, `HostClass`, `HostMember`, `HostParam`, `HostEnum`, `HostConst`, `HostGlobal`;
+  validated by `check()` with typed `ModelError`s) and derive from it the sema `TypeProvider`, the
+  `Dispatch` objects (`HostObject`, `Handlers`, `HostImpl`), global functions, `Engine::host_library`,
+  the language-server data and a stable JSON form (`to_json_string`, `from_json_str`). `vba-lsp`
+  reads it through `vba.hostLibraries`. See `docs/architecture/host-model.md`.
+- `vba-sema`: `TypeProvider::catalog` and `documentation` (default: nothing), `Layers`; `Let`
+  through the default member of a library type (`rs.Fields("a") = 5`).
+- `vba-host`: `Host::call_function`, the hook for global functions an embedding application provides.
+- `vba-lsp-core`: `CompletionItem::documentation`; completion, hover and signature help for the names
+  and documentation of described libraries.
+
 - `vba`: `thread::InstanceThread`, an `Instance` on a dedicated thread driven through a command
   channel (`spawn`, `call`, `submit` and `Reply`, `cancel_token`, `close`; `std` only, commands run
   in submission order, a panicking command stops the thread), with `ThreadError`. This is the pattern
