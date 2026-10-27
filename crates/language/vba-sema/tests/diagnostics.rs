@@ -592,7 +592,11 @@ const CASES: &[Case] = &[
                 Class,
                 "Attribute VB_PredeclaredId = True\nPublic Enum Mode\nA\nB\nEnd Enum\nPublic Type Pt\nx As Long\nEnd Type\n",
             ),
-            ("N", Standard, "Public Function Helper() As Long\nHelper = 1\nEnd Function\n"),
+            (
+                "N",
+                Standard,
+                "Public Function Helper() As Long\nHelper = 1\nEnd Function\n",
+            ),
             (
                 "M",
                 Standard,
@@ -604,7 +608,11 @@ const CASES: &[Case] = &[
     Case {
         name: "the project name does not reach private or missing names",
         mods: &[
-            ("N", Standard, "Private Function Hidden() As Long\nEnd Function\n"),
+            (
+                "N",
+                Standard,
+                "Private Function Hidden() As Long\nEnd Function\n",
+            ),
             (
                 "M",
                 Standard,
@@ -624,7 +632,11 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "a name the VBA library does not have",
-        mods: &[("M", Standard, "Sub F()\nDim s As String\ns = VBA.NoSuchFunction(1)\nEnd Sub\n")],
+        mods: &[(
+            "M",
+            Standard,
+            "Sub F()\nDim s As String\ns = VBA.NoSuchFunction(1)\nEnd Sub\n",
+        )],
         expect: &["SEM019@3"],
     },
     Case {
