@@ -53,7 +53,8 @@ impl HostFunctions {
             .lib
             .function(name)
             .ok_or_else(|| BindError::UnknownFunction(name.to_owned()))?;
-        self.imps.insert(key(&sig.name), Rc::new(FuncImpl(Rc::new(f))));
+        self.imps
+            .insert(key(&sig.name), Rc::new(FuncImpl(Rc::new(f))));
         Ok(self)
     }
 
@@ -223,7 +224,12 @@ impl HostRuntime {
 
     /// The predeclared objects: name and a function that creates the
     /// object in a table, returning a value that carries one reference.
-    pub fn globals(&self) -> Vec<(String, Rc<dyn Fn(&ObjectTable) -> Result<Variant, DispError>>)> {
+    pub fn globals(
+        &self,
+    ) -> Vec<(
+        String,
+        Rc<dyn Fn(&ObjectTable) -> Result<Variant, DispError>>,
+    )> {
         self.globals
             .iter()
             .map(|(n, f)| (n.clone(), insert_with(f.clone())))
@@ -231,7 +237,12 @@ impl HostRuntime {
     }
 
     /// The creatable classes, as [`globals`](HostRuntime::globals) does.
-    pub fn classes(&self) -> Vec<(String, Rc<dyn Fn(&ObjectTable) -> Result<Variant, DispError>>)> {
+    pub fn classes(
+        &self,
+    ) -> Vec<(
+        String,
+        Rc<dyn Fn(&ObjectTable) -> Result<Variant, DispError>>,
+    )> {
         self.classes
             .iter()
             .map(|(n, f)| (n.clone(), insert_with(f.clone())))

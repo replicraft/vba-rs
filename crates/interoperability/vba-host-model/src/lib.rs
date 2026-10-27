@@ -25,9 +25,7 @@ mod provider;
 mod runtime;
 
 pub use binding::{HostFunctions, HostRuntime};
-pub use check::{
-    CheckedLibrary, EventSig, MemberSig, ModelError, ModelErrors, ParamSig,
-};
+pub use check::{CheckedLibrary, EventSig, MemberSig, ModelError, ModelErrors, ParamSig};
 pub use json::{FORMAT_NAME, FORMAT_VERSION, JsonError};
 pub use model::{
     Access, ConstValue, HostClass, HostConst, HostEnum, HostEvent, HostGlobal, HostLibrary,

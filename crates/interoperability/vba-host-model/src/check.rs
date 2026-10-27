@@ -15,8 +15,7 @@ use vba_sema::{LibMember, LibMemberKind, LibParam, LibraryType, Type};
 use vba_value::Variant;
 
 use crate::model::{
-    Access, ConstValue, HostClass, HostLibrary, HostMember, HostParam, MemberKind,
-    TypeRef,
+    Access, ConstValue, HostClass, HostLibrary, HostMember, HostParam, MemberKind, TypeRef,
 };
 
 /// One problem found in a description. Validation reports all of them.
@@ -250,7 +249,12 @@ pub struct MemberSig {
 impl MemberSig {
     /// The `vba-automation` description of the member.
     pub fn to_member_info(&self) -> MemberInfo {
-        MemberInfo::new(self.name.clone(), self.id, self.supports, self.infos.clone())
+        MemberInfo::new(
+            self.name.clone(),
+            self.id,
+            self.supports,
+            self.infos.clone(),
+        )
     }
 
     /// The `vba-sema` description of the member.
@@ -614,10 +618,7 @@ fn validate_class(lib: &HostLibrary, c: &HostClass, errors: &mut Vec<ModelError>
         if let Some(id) = m.dispid {
             let reserved = id == DispId::NEWENUM.0 || (id == 0) != m.default_member;
             if reserved {
-                errors.push(ModelError::ReservedDispId {
-                    at: at.clone(),
-                    id,
-                });
+                errors.push(ModelError::ReservedDispId { at: at.clone(), id });
             } else if let Some(first) = ids.insert(id, &m.name) {
                 errors.push(ModelError::DuplicateDispId {
                     class: c.name.clone(),
@@ -697,12 +698,9 @@ fn derive(lib: HostLibrary) -> Inner {
                 .map(|(i, s)| (key(&s.name), i))
                 .collect(),
         );
-        inner.class_id_ix.push(
-            sigs.iter()
-                .enumerate()
-                .map(|(i, s)| (s.id.0, i))
-                .collect(),
-        );
+        inner
+            .class_id_ix
+            .push(sigs.iter().enumerate().map(|(i, s)| (s.id.0, i)).collect());
         inner.class_members.push(sigs);
         inner.class_events.push(
             c.events
@@ -757,7 +755,6 @@ pub(crate) fn sema_type(lib: &HostLibrary, t: &TypeRef) -> Type {
         TypeRef::Array(e) => Type::array_of(sema_type(lib, e), None),
     }
 }
-
 
 struct Ctx<'a> {
     lib: &'a HostLibrary,
@@ -857,27 +854,27 @@ impl CheckedLibrary {
     }
 
     /// The signatures of a class's members, in declaration order.
-    pub fn members(&self, class: &str) -> Option<&[MemberSig]> {
+    pub fn class_members(&self, class: &str) -> Option<&[MemberSig]> {
         self.class_index(class)
             .map(|i| self.inner.class_members[i].as_slice())
     }
 
     /// The signature of one member of a class.
-    pub fn member(&self, class: &str, name: &str) -> Option<&MemberSig> {
+    pub fn class_member(&self, class: &str, name: &str) -> Option<&MemberSig> {
         let i = self.class_index(class)?;
         let j = *self.inner.class_member_ix[i].get(&key(name))?;
         Some(&self.inner.class_members[i][j])
     }
 
     /// The signature of the member of a class with this `DISPID`.
-    pub fn member_by_id(&self, class: &str, id: DispId) -> Option<&MemberSig> {
+    pub fn class_member_by_id(&self, class: &str, id: DispId) -> Option<&MemberSig> {
         let i = self.class_index(class)?;
         let j = *self.inner.class_id_ix[i].get(&id.0)?;
         Some(&self.inner.class_members[i][j])
     }
 
     /// The signatures of a class's events.
-    pub fn events(&self, class: &str) -> Option<&[EventSig]> {
+    pub fn class_events(&self, class: &str) -> Option<&[EventSig]> {
         self.class_index(class)
             .map(|i| self.inner.class_events[i].as_slice())
     }

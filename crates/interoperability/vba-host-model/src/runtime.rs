@@ -355,9 +355,9 @@ impl<S: 'static> Handlers<S> {
     /// `For Each`: the items of the collection. Object items carry a
     /// reference that the enumerator takes over.
     #[must_use]
-    pub fn enumerate(self, f: impl Fn(&S) -> Vec<Variant> + 'static) -> Self {
+    pub fn enumerate(self, f: impl Fn(&S, &ObjectTable) -> Vec<Variant> + 'static) -> Self {
         self.add("_NewEnum", CallKind::NewEnum, move |s, cx| {
-            let en = VecEnum::new(f(s));
+            let en = VecEnum::new(f(s, cx.table));
             Ok(Variant::Object(ObjectRef::Handle(cx.table.insert_obj(en))))
         })
     }
@@ -493,7 +493,10 @@ pub struct HostObject {
 
 fn required_kinds(sig: &MemberSig) -> Vec<CallKind> {
     let mut v = Vec::new();
-    if sig.supports.intersects(InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET) {
+    if sig
+        .supports
+        .intersects(InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET)
+    {
         v.push(match sig.kind {
             vba_sema::LibMemberKind::Method => CallKind::Call,
             _ => CallKind::Get,
@@ -541,12 +544,12 @@ impl HostObject {
                     }
                     continue;
                 }
-                let sig = lib
-                    .member(&c.name, name)
-                    .ok_or_else(|| BindError::UnknownMember {
-                        class: c.name.clone(),
-                        member: name.clone(),
-                    })?;
+                let sig =
+                    lib.class_member(&c.name, name)
+                        .ok_or_else(|| BindError::UnknownMember {
+                            class: c.name.clone(),
+                            member: name.clone(),
+                        })?;
                 let ok = required_kinds(sig).contains(kind) || put_kinds(sig).contains(kind);
                 if !ok {
                     return Err(BindError::KindNotSupported {
@@ -666,7 +669,8 @@ impl Dispatch for HostObject {
     }
 
     fn accepts_dispid(&self, id: DispId, name: &str) -> bool {
-        self.sig_by_id(id).is_some_and(|s| names_equal(&s.name, name))
+        self.sig_by_id(id)
+            .is_some_and(|s| names_equal(&s.name, name))
     }
 
     fn invoke(

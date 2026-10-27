@@ -47,7 +47,9 @@ impl TypeProvider for CheckedLibrary {
             return None;
         }
         if let Some(i) = self.class_index(name) {
-            return Some(Type::Library(self.lib_type(&self.library().classes[i].name)));
+            return Some(Type::Library(
+                self.lib_type(&self.library().classes[i].name),
+            ));
         }
         let i = self.enum_index(name)?;
         Some(Type::LibEnum(self.lib_type(&self.library().enums[i].name)))
@@ -87,7 +89,7 @@ impl TypeProvider for CheckedLibrary {
 
     fn default_member(&self, ty: &LibraryType) -> Option<LibMember> {
         self.owns(ty)?;
-        self.members(&ty.name)?
+        self.class_members(&ty.name)?
             .iter()
             .find(|m| m.is_default)
             .map(|s| s.to_lib_member())
@@ -101,7 +103,7 @@ impl TypeProvider for CheckedLibrary {
     fn interface_members(&self, ty: &LibraryType) -> Option<Vec<LibMember>> {
         self.owns(ty)?;
         Some(
-            self.members(&ty.name)?
+            self.class_members(&ty.name)?
                 .iter()
                 .filter(|m| !m.hidden)
                 .map(|s| s.to_lib_member())
@@ -112,7 +114,7 @@ impl TypeProvider for CheckedLibrary {
     fn events(&self, ty: &LibraryType) -> Option<Vec<LibEvent>> {
         self.owns(ty)?;
         Some(
-            CheckedLibrary::events(self, &ty.name)?
+            self.class_events(&ty.name)?
                 .iter()
                 .map(|e| LibEvent {
                     name: e.name.clone(),
@@ -161,7 +163,11 @@ impl TypeProvider for CheckedLibrary {
             kind,
         };
         let mut v = Vec::new();
-        v.extend(lib.classes.iter().map(|c| entry(&c.name, LibEntryKind::Class)));
+        v.extend(
+            lib.classes
+                .iter()
+                .map(|c| entry(&c.name, LibEntryKind::Class)),
+        );
         v.extend(lib.enums.iter().map(|e| entry(&e.name, LibEntryKind::Enum)));
         v.extend(
             lib.consts
@@ -221,7 +227,7 @@ impl TypeProvider for CheckedLibrary {
 
 impl CheckedLibrary {
     fn member_sig(&self, class: &str, name: &str) -> Option<&crate::check::MemberSig> {
-        self.member(class, name)
+        self.class_member(class, name)
     }
 
     fn sema_type_of(&self, t: &crate::model::TypeRef) -> Type {

@@ -16,6 +16,9 @@ vba-value.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+vba-diagnostics.workspace = true
+vba-profile.workspace = true
+vba-project.workspace = true
 
 [lints]
 workspace = true

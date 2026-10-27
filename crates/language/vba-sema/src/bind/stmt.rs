@@ -659,9 +659,19 @@ impl Binder<'_, '_> {
         }
         // `w = 5` with an object target assigns the object's default member
         // (MS-VBAL 5.4.3.8: let-assignment uses the default member).
+        let default_name = match &pty {
+            Type::Class(m) => self.sema.program.modules[m.index()].default_member.clone(),
+            // `rs!Name = v` on a library type: the provider names the
+            // default member.
+            Type::Library(lt) => self
+                .sema
+                .provider
+                .default_member(lt)
+                .map(|m| vba_ast::Name::new(&m.name)),
+            _ => None,
+        };
         if mode == AssignMode::Let
-            && let Type::Class(m) = &pty
-            && let Some(dm) = self.sema.program.modules[m.index()].default_member.clone()
+            && let Some(dm) = default_name
         {
             let synth = Expr {
                 span: target.span,
