@@ -3,7 +3,8 @@
 
 mod common;
 
-use common::builder::build;
+use common::builder::{Dt, FuncKind, FuncSpec, InvokeKind, R, TypeKind, TypeSpec, build};
+use common::{IN, OUT, RETVAL, VT_BSTR, VT_HRESULT, VT_I4};
 use vba_diagnostics::Severity;
 use vba_profile::find_profile;
 use vba_project::ModuleKind;
@@ -234,4 +235,85 @@ fn globals_are_enum_constants_and_module_functions() {
         other => panic!("{other:?}"),
     }
     assert!(p.global("Nope").is_none());
+}
+
+/// `Shapes.Shape.Spawn(n)` returns `Shapes.Plain`, a fully described type
+/// without a default member; `Shape.Twin(n)` returns `Shape`, which has one.
+fn spawn_provider() -> TypelibProvider {
+    let mut spec = common::sample();
+    let plain_ix = spec.types.len();
+    let mut plain = TypeSpec::new("Plain", TypeKind::Dispatch);
+    plain.guid = Some([0x77; 16]);
+    plain.flags = 0x1000;
+    plain.implements.push((R::Import(0), 0));
+    plain.funcs.push(FuncSpec::new(
+        "Label",
+        1,
+        InvokeKind::PropertyGet,
+        Dt::Prim(VT_BSTR),
+    ));
+    let mut spawn = FuncSpec::new("Spawn", 9, InvokeKind::Func, Dt::Prim(VT_HRESULT))
+        .param("n", Dt::Prim(VT_I4), IN)
+        .param(
+            "pOut",
+            Dt::Ptr(Box::new(Dt::Ptr(Box::new(Dt::User(R::Local(plain_ix)))))),
+            OUT | RETVAL,
+        );
+    spawn.kind = FuncKind::Dispatch;
+    let mut twin = FuncSpec::new("Twin", 10, InvokeKind::Func, Dt::Prim(VT_HRESULT))
+        .param("n", Dt::Prim(VT_I4), IN)
+        .param(
+            "pOut",
+            Dt::Ptr(Box::new(Dt::Ptr(Box::new(Dt::User(R::Local(4)))))),
+            OUT | RETVAL,
+        );
+    twin.kind = FuncKind::Dispatch;
+    spec.types[4].funcs.push(spawn);
+    spec.types[4].funcs.push(twin);
+    spec.types.push(plain);
+    TypelibProvider::new().with_library(parse_msft(&build(&spec)).unwrap())
+}
+
+#[test]
+fn surplus_arguments_need_a_default_member_on_the_result() {
+    let p = spawn_provider();
+    let spawn = p.member(&lt("Shape"), "Spawn").expect("described");
+    assert_eq!(spawn.ty, Type::Library(lt("Plain")), "{spawn:?}");
+    assert!(p.describes_members(&lt("Plain")) && p.default_member(&lt("Plain")).is_none());
+    let profile = *find_profile("vba7.1-excel-win64").expect("profile");
+    let a = analyze_sources(
+        &[SourceModule {
+            name: "M".into(),
+            kind: ModuleKind::Standard,
+            source: b"Option Explicit\n\
+                Sub Main()\n\
+                Dim s As Shapes.Shape\n\
+                Dim v As Variant\n\
+                v = s.Spawn(1)\n\
+                v = s.Spawn(1, 2)\n\
+                v = s.Twin(1, 2)\n\
+                End Sub\n"
+                .to_vec(),
+        }],
+        &profile,
+        &p,
+        &Options::default(),
+    );
+    // Line 6: `Plain` has no default member. Line 7: `Shape` has one (its
+    // `Name`), so the surplus argument goes there, and is refused by `Name`
+    // itself, which takes none: the chain still happens.
+    assert_eq!(
+        codes(&a),
+        vec!["SEM008@6", "SEM008@7"],
+        "{:?}",
+        a.diagnostics
+    );
+    let msgs: Vec<&str> = a
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.0 == "SEM008")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert!(msgs[0].starts_with("wrong number of arguments"), "{msgs:?}");
+    assert_eq!(msgs[1], "too many arguments for Name");
 }

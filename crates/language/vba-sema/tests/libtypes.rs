@@ -73,7 +73,23 @@ fn library() -> StaticLibrary {
                 LibMember::property("Child", Type::Library(lt("Widget")))
                     .read_only()
                     .with_dispid(6),
+                LibMember::function(
+                    "Spawn",
+                    vec![LibParam::optional("Kind", Type::Long)],
+                    Type::Library(lt("Plain")),
+                )
+                .with_dispid(7),
+                LibMember::function(
+                    "Anything",
+                    vec![LibParam::optional("Kind", Type::Long)],
+                    Type::Object,
+                )
+                .with_dispid(8),
             ],
+        )
+        .with_type(
+            "Plain",
+            vec![LibMember::property("Label", Type::String).with_dispid(1)],
         )
         .with_creatable("Widget", true)
         .with_type("IWidget", vec![LibMember::property("Name", Type::String)])
@@ -377,4 +393,33 @@ fn surplus_arguments_go_to_the_default_member_of_the_result() {
         "{:?}",
         a.diagnostics
     );
+}
+
+#[test]
+fn surplus_arguments_are_an_error_when_the_result_has_no_default_member() {
+    let a = run("Option Explicit\n\
+         Sub Main()\n\
+         Dim w As Lib.Widget\n\
+         Dim p As Lib.Plain\n\
+         Dim v As Variant\n\
+         Set p = w.Spawn(1)\n\
+         Set p = w.Spawn(1, 2)\n\
+         w.Spawn 1, 2, 3\n\
+         v = w.Anything(1, 2)\n\
+         v = w.Child(3)\n\
+         End Sub\n");
+    // `Plain` is fully described and has no default member; an `Object`
+    // result is not known, and `Widget` has a default member.
+    assert_eq!(
+        codes(&a),
+        vec!["SEM008@7", "SEM008@8"],
+        "{:?}",
+        a.diagnostics
+    );
+    let msg = a
+        .diagnostics
+        .iter()
+        .find(|d| d.message.contains("wrong number of arguments"))
+        .expect("the message names the problem");
+    assert!(msg.message.contains("Spawn"), "{}", msg.message);
 }

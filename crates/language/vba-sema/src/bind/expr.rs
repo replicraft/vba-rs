@@ -1606,6 +1606,11 @@ impl Binder<'_, '_> {
                     && !m.params.iter().any(|p| p.param_array)
                     && all_args.iter().all(|a| a.name.is_none())
                     && matches!(m.ty, Type::Library(_) | Type::Object | Type::Variant);
+                // The result of a fully described type without a default
+                // member cannot take them: the call has too many arguments.
+                let no_default = chain
+                    && matches!(&m.ty, Type::Library(rt)
+                        if provider.describes_members(rt) && provider.default_member(rt).is_none());
                 let (own_args, tail) = if chain {
                     all_args.split_at(m.params.len())
                 } else {
@@ -1632,6 +1637,24 @@ impl Binder<'_, '_> {
                 let l = with_dispid(l, m.dispid);
                 if tail.is_empty() {
                     l
+                } else if no_default {
+                    self.err(
+                        codes::BAD_ARGUMENTS,
+                        tail[0].span,
+                        format!(
+                            "wrong number of arguments: `{}` takes at most {} and its result `{}` has no default member to take the {} surplus",
+                            m.name,
+                            m.params.len(),
+                            self.tn(&m.ty),
+                            tail.len(),
+                        ),
+                    );
+                    for a in tail {
+                        if let Some(v) = &a.value {
+                            let _ = self.bind_expr(v);
+                        }
+                    }
+                    self.error_expr(span)
                 } else {
                     self.apply_args(l, tail, span)
                 }
