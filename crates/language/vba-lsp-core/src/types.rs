@@ -330,6 +330,97 @@ impl Default for FormatOptions {
     }
 }
 
+/// Budgets of the checked formatting entry points
+/// ([`View::try_format`](crate::View::try_format)). `None` means unlimited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct FormatLimits {
+    /// Bytes of the document.
+    pub max_source_bytes: Option<u64>,
+    /// Width of one line's indentation, in characters (spaces, or tabs when
+    /// indenting with tabs). Guards against a huge `tab_size`; a line that
+    /// would be indented wider refuses the whole request.
+    pub max_indent_width: Option<u64>,
+}
+
+/// Document size of [`FormatLimits::untrusted`].
+pub const UNTRUSTED_FORMAT_SOURCE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Indent width of [`FormatLimits::untrusted`].
+pub const UNTRUSTED_FORMAT_INDENT_WIDTH: u64 = 1024;
+
+impl FormatLimits {
+    /// No budget.
+    pub const fn unlimited() -> Self {
+        FormatLimits {
+            max_source_bytes: None,
+            max_indent_width: None,
+        }
+    }
+
+    /// Budgets for source that is not trusted: [`UNTRUSTED_FORMAT_SOURCE_BYTES`]
+    /// bytes and an indent of at most [`UNTRUSTED_FORMAT_INDENT_WIDTH`]
+    /// characters. The source size matches `ResourceLimits::untrusted()`.
+    pub const fn untrusted() -> Self {
+        FormatLimits {
+            max_source_bytes: Some(UNTRUSTED_FORMAT_SOURCE_BYTES),
+            max_indent_width: Some(UNTRUSTED_FORMAT_INDENT_WIDTH),
+        }
+    }
+
+    /// Sets [`max_source_bytes`](FormatLimits::max_source_bytes).
+    #[must_use]
+    pub const fn with_max_source_bytes(mut self, n: Option<u64>) -> Self {
+        self.max_source_bytes = n;
+        self
+    }
+
+    /// Sets [`max_indent_width`](FormatLimits::max_indent_width).
+    #[must_use]
+    pub const fn with_max_indent_width(mut self, n: Option<u64>) -> Self {
+        self.max_indent_width = n;
+        self
+    }
+}
+
+/// Why a checked formatting request was refused before any work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FormatError {
+    /// The document is larger than [`FormatLimits::max_source_bytes`].
+    TooLarge {
+        /// The budget.
+        limit: u64,
+        /// The size of the document.
+        actual: u64,
+    },
+    /// The options would indent a line wider than
+    /// [`FormatLimits::max_indent_width`].
+    IndentTooWide {
+        /// The budget.
+        limit: u64,
+        /// The width the options ask for at the deepest allowed nesting.
+        wanted: u64,
+    },
+}
+
+impl std::fmt::Display for FormatError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FormatError::TooLarge { limit, actual } => write!(
+                f,
+                "the document has {actual} bytes; the formatting limit is {limit}"
+            ),
+            FormatError::IndentTooWide { limit, wanted } => write!(
+                f,
+                "the indentation would be {wanted} characters wide; the limit is {limit}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FormatError {}
+
 /// Why a request could not be answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
