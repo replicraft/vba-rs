@@ -64,15 +64,21 @@ pub const EXTENDED_HEADER_FROM: u16 = 0xDF;
 /// same version word occurs with both platform kinds (`0xB2` was seen on
 /// 32-bit and on 64-bit Windows).
 pub const VERIFIED_LAYOUTS: &[(VersionFamily, Bitness, u16)] = &[
+    (VersionFamily::Vba5, Bitness::X86, 0x5E),
+    (VersionFamily::Vba6, Bitness::X86, 0x6D),
     (VersionFamily::Vba6, Bitness::X86, 0x79),
     (VersionFamily::Vba6, Bitness::X86, 0x88),
+    (VersionFamily::Vba6, Bitness::X86, 0x8E),
+    (VersionFamily::Vba6, Bitness::X86, 0x91),
     (VersionFamily::Vba7, Bitness::X86, 0x97),
+    (VersionFamily::Vba7, Bitness::X86, 0xA3),
     (VersionFamily::Vba7, Bitness::X86, 0xAF),
     (VersionFamily::Vba7, Bitness::X86, 0xB2),
     (VersionFamily::Vba7, Bitness::X64, 0x9A),
     (VersionFamily::Vba7, Bitness::X64, 0xA6),
     (VersionFamily::Vba7, Bitness::X64, 0xB2),
     (VersionFamily::Vba7, Bitness::X64, 0xB5),
+    (VersionFamily::Vba7, Bitness::X64, 0xDF),
 ];
 impl Layout {
     /// Selects the layout from the project-stream version word and the

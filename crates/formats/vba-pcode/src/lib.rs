@@ -6,8 +6,8 @@
 //! specification, and direct observation. The crate takes
 //! plain byte slices; reading the container is the caller's job.
 //!
-//! The layouts listed in [`VERIFIED_LAYOUTS`] (VBA 6 and 7, 32-bit and 64-bit
-//! Windows) are verified against real material. Every other combination is
+//! The layouts listed in [`VERIFIED_LAYOUTS`] (VBA 5, 6 and 7, 32-bit and
+//! 64-bit Windows) are verified against real material. Every other combination is
 //! implemented from the specification text and reported as
 //! [`Verification::SpecUnverified`].
 

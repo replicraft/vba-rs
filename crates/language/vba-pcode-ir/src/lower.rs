@@ -881,6 +881,22 @@ impl Lw<'_> {
         Some(pick)
     }
 
+    /// Whether a procedure of the project with this name is visible to the
+    /// procedure being lowered (its own module's, or one of a standard
+    /// module). A library name that is shadowed this way is bound by the
+    /// source side to the project procedure, even when written `VBA.Name` or
+    /// with a `$` suffix, so the lowering does not assert either binding.
+    fn shadowed_by_project(&self, name: &str) -> bool {
+        self.cx
+            .index
+            .by_name
+            .get(&name.to_ascii_lowercase())
+            .is_some_and(|list| {
+                list.iter()
+                    .any(|(m, _, _)| *m == self.cx.module || !self.cx.class_like[*m])
+            })
+    }
+
     /// An enum type by name: the module's own, then a public one of any
     /// module (enums are project-wide names).
     fn enum_by_name(&self, name: &str) -> Option<EnumId> {
@@ -2916,6 +2932,12 @@ impl Lw<'_> {
             Some('$') => true,
             Some(_) => return Err(self.no(ins.opcode, "type-suffixed name")),
         };
+        if dollar && self.shadowed_by_project(name) {
+            return Err(self.no(
+                ins.opcode,
+                "`$` library function shadowed by a project procedure",
+            ));
+        }
         if suffix.is_none() && self.is_host_name(name, false) {
             return Ok(self.host_member(name, args));
         }
@@ -3091,6 +3113,12 @@ impl Lw<'_> {
             Some('$') => true,
             Some(_) => return Err(self.no(ins.opcode, "type-suffixed name")),
         };
+        if self.shadowed_by_project(name) {
+            return Err(self.no(
+                ins.opcode,
+                "library name shadowed by a project procedure",
+            ));
+        }
         if args.is_empty() && !dollar {
             match BuiltinLibrary.global(name) {
                 Some(LibGlobal::Constant(v, ty)) => return Ok(Ex::Const(v, ty)),
