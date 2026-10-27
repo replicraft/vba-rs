@@ -1110,6 +1110,20 @@ impl Vm {
         Ok(n)
     }
 
+    /// MS-VBAL 5.4.3.3: an array whose element is passed `ByRef` to a running
+    /// procedure is locked; resizing or erasing it is error 10.
+    fn check_not_locked(&self, loc: &Loc) -> VResult<()> {
+        let locked = self.frames.iter().any(|f| {
+            f.slots
+                .iter()
+                .any(|s| matches!(s, Slot::Bound(Loc::Elem { base, .. }) if **base == *loc))
+        });
+        if locked {
+            return Err(VbaError::new(10).into());
+        }
+        Ok(())
+    }
+
     fn exec_redim(
         &mut self,
         r: vba_ir::Reg,
@@ -1143,6 +1157,7 @@ impl Vm {
             return Err(VbaError::OUT_OF_MEMORY.into());
         }
         let loc = self.reg_loc(r)?;
+        self.check_not_locked(&loc)?;
         let mut arr = match self.load(&loc)? {
             Variant::Array(a) => *a,
             Variant::Empty => VbaArray::new_dynamic(crate::heap::elem_vartype(elem)),
@@ -1173,6 +1188,7 @@ impl Vm {
             _ => Type::Variant,
         };
         let loc = self.reg_loc(r)?;
+        self.check_not_locked(&loc)?;
         let Variant::Array(mut a) = self.load(&loc)? else {
             return Err(VbaError::TYPE_MISMATCH.into());
         };
