@@ -529,11 +529,11 @@ impl Binder<'_, '_> {
             return self.call_intrinsic(r, span, args);
         }
         // The `$` forms of the run-time functions that return a String
-        // (`Command$`, `CurDir$`, `Dir$`, `Input$`, `InputB$`).
+        // (`Command$`, `CurDir$`, `Dir$`, `Input$`, `InputB$`, `InputBox$`).
         let dollar_rt = id.suffix == Some(TypeSuffix::String)
             && matches!(
                 id.name.to_string_lossy().to_ascii_lowercase().as_str(),
-                "command" | "curdir" | "dir" | "input" | "inputb"
+                "command" | "curdir" | "dir" | "input" | "inputb" | "inputbox"
             );
         if (id.suffix.is_none() || dollar_rt)
             && let Some(g) = self.sema.provider.global(&id.name.to_string_lossy())
