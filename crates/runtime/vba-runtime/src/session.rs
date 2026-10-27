@@ -5,16 +5,16 @@ use std::rc::Rc;
 
 use vba_ast::{ProcKind, Visibility};
 use vba_automation::Dispatch;
-use vba_diagnostics::{Severity, render_plain};
 use vba_host::{HeadlessHost, Host};
 use vba_ir::IrProgram;
 use vba_project::VbaProject;
 use vba_scripting::ScriptingHost;
 use vba_sema::{NoLibraries, Options, SourceModule, TypeProvider};
 use vba_value::{ObjectRef, Variant};
-use vba_vm::{Arg, DebugSink, LimitKind, NullSink, RunOutput, Vm, VmConfig, VmError};
+use vba_vm::{Arg, DebugSink, NullSink, RunOutput, Vm, VmConfig, VmError};
 
-use crate::error::{Error, ErrorReport, LoadError};
+use crate::devtools::{Compiled, Compiler};
+use crate::error::{Error, ErrorReport};
 use crate::files::{FileSystem, FsServices, ScriptFsAdapter};
 use crate::memfs::MemFs;
 use crate::ops::{Ops, Target};
@@ -41,7 +41,7 @@ pub struct ProcedureInfo {
 }
 
 /// Two owned providers consulted in order.
-struct OwnedChain(Box<dyn TypeProvider>, Box<dyn TypeProvider>);
+struct OwnedChain(Rc<dyn TypeProvider>, Rc<dyn TypeProvider>);
 
 impl TypeProvider for OwnedChain {
     fn resolve_type(&self, q: Option<&str>, n: &str) -> Option<vba_sema::LibraryType> {
@@ -104,7 +104,7 @@ impl TypeProvider for OwnedChain {
 /// builds the session, trusts it and asks it to run something.
 pub struct SessionBuilder {
     host: Rc<dyn Host>,
-    provider: Box<dyn TypeProvider>,
+    provider: Rc<dyn TypeProvider>,
     vfs: Box<dyn Vfs>,
     std_host: Box<dyn vba_stdlib::Host>,
     debug: Box<dyn DebugSink>,
@@ -129,7 +129,7 @@ impl SessionBuilder {
     pub fn new() -> SessionBuilder {
         SessionBuilder {
             host: Rc::new(HeadlessHost::new()),
-            provider: Box::new(NoLibraries),
+            provider: Rc::new(NoLibraries),
             vfs: Box::new(MemFs::new()),
             std_host: Box::new(vba_stdlib::FixedHost::default()),
             debug: Box::new(NullSink),
@@ -152,7 +152,7 @@ impl SessionBuilder {
     /// The external type libraries visible to the analysis.
     #[must_use]
     pub fn provider(mut self, p: impl TypeProvider + 'static) -> Self {
-        self.provider = Box::new(p);
+        self.provider = Rc::new(p);
         self
     }
 
@@ -162,8 +162,8 @@ impl SessionBuilder {
     /// [`provider`](SessionBuilder::provider) replaces everything instead.
     #[must_use]
     pub fn extra_provider(mut self, p: impl TypeProvider + 'static) -> Self {
-        let old = std::mem::replace(&mut self.provider, Box::new(NoLibraries));
-        self.provider = Box::new(OwnedChain(Box::new(p), old));
+        let old = std::mem::replace(&mut self.provider, Rc::new(NoLibraries));
+        self.provider = Rc::new(OwnedChain(Rc::new(p), old));
         self
     }
 
@@ -307,50 +307,20 @@ impl SessionBuilder {
 
     fn build(self, modules: &[SourceModule], options: &Options) -> Result<Session, Error> {
         let profile = self.host.metadata().profile;
-        // The size budgets of the host's limits bound the work done before
-        // anything runs: hostile source is refused with a typed limit.
-        let limits = *self.host.limits();
-        let options = Options {
-            limits: vba_sema::AnalysisLimits::unlimited()
-                .with_max_source_bytes(limits.max_source_bytes)
-                .with_max_modules(limits.max_modules)
-                .with_max_nodes(limits.max_analysis_nodes),
-            ..options.clone()
-        };
-        let analysis = vba_sema::analyze_sources(modules, &profile, &*self.provider, &options);
-        if let Some(limit) = analysis.limit_exceeded {
-            use vba_sema::AnalysisLimit as L;
-            return Err(Error::Limit(match limit {
-                L::SourceBytes { .. } => LimitKind::SourceSize,
-                L::Modules { .. } => LimitKind::ModuleCount,
-                _ => LimitKind::AnalysisSize,
-            }));
-        }
-        let render = |sev: Severity| -> Vec<String> {
-            analysis
-                .diagnostics
-                .iter()
-                .filter(|d| d.severity == sev)
-                .map(|d| render_plain(d, &analysis.sources))
-                .collect()
-        };
-        let errors = render(Severity::Error);
-        if !errors.is_empty() {
-            return Err(Error::Load(LoadError {
-                diagnostics: errors,
-            }));
-        }
-        let warnings = render(Severity::Warning);
-        let lower_limits =
-            vba_ir::LowerLimits::unlimited().with_max_instructions(limits.max_ir_instructions);
-        let ir = vba_ir::lower_with_limits(&analysis, &lower_limits).map_err(|e| match e {
-            vba_ir::LowerError::TooLarge { .. } => Error::Limit(LimitKind::ProgramSize),
-            e => Error::Load(LoadError {
-                diagnostics: vec![e.to_string()],
-            }),
-        })?;
-        vba_ir::verify(&ir).map_err(|e| Error::Internal(format!("IR verification: {e:?}")))?;
-        let ir = Rc::new(ir);
+        let compiler = Rc::new(Compiler {
+            profile,
+            provider: self.provider.clone(),
+            options: options.clone(),
+            limits: *self.host.limits(),
+            modules: RefCell::new(modules.to_vec()),
+        });
+        let compiled = compiler.compile(modules, None)?;
+        let Compiled {
+            ir,
+            lines: source_lines,
+            proc_lines,
+            warnings,
+        } = compiled;
         let fs = Rc::new(RefCell::new(FileSystem::new(
             self.host.clone(),
             self.vfs,
@@ -363,7 +333,6 @@ impl SessionBuilder {
         let scripting = ScriptingHost::new(self.host.clone());
         scripting.set_fs(Rc::new(ScriptFsAdapter(Rc::downgrade(&fs))));
         let host: Rc<dyn Host> = scripting;
-        let source_lines = statement_lines(&ir, &analysis.sources);
         let mut vm = Vm::new(
             ir.clone(),
             host.clone(),
@@ -373,6 +342,8 @@ impl SessionBuilder {
             self.config,
         )?;
         vm.set_source_lines(source_lines);
+        vm.set_procedure_lines(proc_lines);
+        vm.set_eval_compiler(Some(compiler.clone()));
         Ok(Session {
             vm,
             fs,
@@ -381,41 +352,25 @@ impl SessionBuilder {
             warnings,
             trusted: false,
             absent: None,
+            compiler,
         })
     }
-}
-
-/// The 1-based source line of every statement of every function, for error
-/// locations.
-fn statement_lines(ir: &IrProgram, sources: &vba_source::SourceMap) -> Vec<Vec<u32>> {
-    ir.functions
-        .iter()
-        .map(|f| {
-            let module = match f.kind {
-                vba_ir::FuncKind::Proc(p) => ir.program.proc(p).module,
-                vba_ir::FuncKind::ModuleInit(m) => m,
-            };
-            let file = sources.get(ir.program.module(module).file);
-            f.stmts
-                .iter()
-                .map(|s| file.map_or(0, |file| file.line_col(s.span.start).line + 1))
-                .collect()
-        })
-        .collect()
 }
 
 /// A loaded project: its own module variables, objects, `Err`, random
 /// generator and open files. Creating a session runs no user code; the
 /// embedder must [`trust`](Session::trust) it before it runs anything.
 pub struct Session {
-    vm: Vm,
+    pub(crate) vm: Vm,
     fs: Rc<RefCell<FileSystem>>,
-    ir: Rc<IrProgram>,
+    pub(crate) ir: Rc<IrProgram>,
     host: Rc<dyn Host>,
-    warnings: Vec<String>,
+    pub(crate) warnings: Vec<String>,
     trusted: bool,
     /// Project name and modules left out because they have no source.
     absent: Option<(String, Vec<String>)>,
+    /// Compiles the program again for edits and evaluation.
+    pub(crate) compiler: Rc<Compiler>,
 }
 
 impl Session {

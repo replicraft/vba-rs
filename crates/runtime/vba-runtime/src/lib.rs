@@ -36,6 +36,7 @@
 //! assert_eq!(sink.contents(), "hi\n");
 //! ```
 
+mod devtools;
 mod error;
 mod files;
 mod host_context;
@@ -51,6 +52,7 @@ mod shell;
 mod system;
 mod vfs;
 
+pub use devtools::{CallableProcedure, EditReport, ModuleEdit};
 pub use error::{Error, ErrorReport, FsError, LoadError, StackFrame, VbaErrorInfo};
 pub use files::{DEFAULT_MAX_FILE_BYTES, FileSystem, FsServices, ScriptFsAdapter, write_value};
 pub use host_context::HostContext;

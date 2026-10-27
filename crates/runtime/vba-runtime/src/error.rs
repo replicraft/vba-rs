@@ -277,6 +277,12 @@ pub enum Error {
     /// A broken invariant (a bug).
     #[error("internal error: {0}")]
     Internal(String),
+    /// The operation needs an idle session (no procedure running).
+    #[error("a procedure is running")]
+    Busy,
+    /// An edit of the project was refused (unknown or duplicate module).
+    #[error("edit refused: {0}")]
+    BadEdit(String),
 }
 
 impl Error {
@@ -331,6 +337,8 @@ impl Error {
             Error::Cancelled(_) => "cancelled",
             Error::Unsupported(_) => "unsupported",
             Error::Internal(_) => "internal",
+            Error::Busy => "busy",
+            Error::BadEdit(_) => "bad-edit",
         }
     }
 }

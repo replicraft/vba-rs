@@ -117,7 +117,8 @@ impl Vm {
                     && n.static_of.is_some() == g.static_of.is_some()
                     && new.program.module(n.module).name == old.program.module(g.module).name
                     && !new.program.module(n.module).is_class_like()
-                    && static_name(&new.program, n.static_of) == static_name(&old.program, g.static_of)
+                    && static_name(&new.program, n.static_of)
+                        == static_name(&old.program, g.static_of)
             });
             if let Some(n) = target
                 && is_plain(v)
@@ -247,8 +248,7 @@ pub fn same_layout(a: &Program, b: &Program) -> bool {
         && a.declares.len() == b.declares.len()
         && a.lib_enums == b.lib_enums
         && a.lib_records == b.lib_records
-        && a
-            .modules
+        && a.modules
             .iter()
             .zip(&b.modules)
             .all(|(x, y)| x.name == y.name && x.kind == y.kind && x.predeclared == y.predeclared)
@@ -275,8 +275,7 @@ pub fn same_layout(a: &Program, b: &Program) -> bool {
                 && x.with_events == y.with_events
                 && x.auto_new == y.auto_new
         })
-        && a
-            .consts
+        && a.consts
             .iter()
             .zip(&b.consts)
             .all(|(x, y)| x.module == y.module && x.name == y.name && x.ty == y.ty)
@@ -288,9 +287,10 @@ pub fn same_layout(a: &Program, b: &Program) -> bool {
                     p.name == q.name && p.ty == q.ty && p.fixed_bounds == q.fixed_bounds
                 })
         })
-        && a.enums.iter().zip(&b.enums).all(|(x, y)| {
-            x.module == y.module && x.name == y.name && x.members == y.members
-        })
+        && a.enums
+            .iter()
+            .zip(&b.enums)
+            .all(|(x, y)| x.module == y.module && x.name == y.name && x.members == y.members)
         && a.events.iter().zip(&b.events).all(|(x, y)| {
             x.module == y.module && x.name == y.name && x.params.len() == y.params.len()
         })

@@ -93,7 +93,7 @@ pub enum EvalError {
     Run(Box<VmError>),
     /// Writing a changed local back failed (for example `i = 70000` for an
     /// `Integer`); the other locals were written.
-    WriteBack(String),
+    WriteBack(Box<VmError>),
 }
 
 impl std::fmt::Display for EvalError {
@@ -104,7 +104,7 @@ impl std::fmt::Display for EvalError {
             EvalError::NoSuchModule(m) => write!(f, "no such module: {m}"),
             EvalError::Compile(d) => f.write_str(&d.join("\n")),
             EvalError::Run(e) => write!(f, "{e}"),
-            EvalError::WriteBack(s) => write!(f, "{s}"),
+            EvalError::WriteBack(e) => write!(f, "{e}"),
         }
     }
 }
@@ -203,7 +203,9 @@ impl Vm {
             }
             if let Some(id) = self.frames[fi].me {
                 me = true;
-                args.push(Arg::Value(Variant::Object(ObjectRef::Handle(vm_handle(id)))));
+                args.push(Arg::Value(Variant::Object(ObjectRef::Handle(vm_handle(
+                    id,
+                )))));
             }
         }
         let request = EvalRequest {
@@ -258,26 +260,23 @@ impl Vm {
                 Err(EvalError::Run(Box::new(e)))
             }
             Ok(out) => {
-                let mut failed: Option<String> = None;
+                let mut failed: Option<VmError> = None;
                 if let Some(fi) = frame {
                     for (k, slot, ty) in back {
                         let Some(v) = out.byref.get(k).cloned() else {
                             continue;
                         };
-                        let loc = Loc::Local {
-                            frame: fi,
-                            slot,
-                        };
+                        let loc = Loc::Local { frame: fi, slot };
                         let r = self.convert_value(v, &ty).and_then(|v| self.store(&loc, v));
                         if let Err(f) = r {
                             let e = self.fault_to_error(f);
-                            failed.get_or_insert(e.to_string());
+                            failed.get_or_insert(e);
                         }
                     }
                 }
                 self.last_site = None;
-                if let Some(msg) = failed {
-                    return Err(EvalError::WriteBack(msg));
+                if let Some(e) = failed {
+                    return Err(EvalError::WriteBack(Box::new(e)));
                 }
                 if expression {
                     let text = print_value(&out.value);

@@ -272,7 +272,11 @@ impl Vm {
                 continue;
             }
             let lines = self.source_lines.get(fi)?;
-            let best = lines.iter().copied().filter(|&l| l >= line && l <= end).min();
+            let best = lines
+                .iter()
+                .copied()
+                .filter(|&l| l >= line && l <= end)
+                .min();
             return best.map(|l| (fi, l));
         }
         None
@@ -420,7 +424,9 @@ impl Vm {
             return Err(f);
         }
         if action == ResumeAction::Abort {
-            return Err(Fault::Cancelled("the run was aborted by the debugger".into()));
+            return Err(Fault::Cancelled(
+                "the run was aborted by the debugger".into(),
+            ));
         }
         Ok(())
     }
@@ -628,7 +634,12 @@ impl Vm {
         out
     }
 
-    /// A declared type spelled like VBA source.
+    /// A declared type spelled like VBA source (class, type and enum names
+    /// instead of ids).
+    pub fn type_name_of(&self, ty: &Type) -> String {
+        self.type_name(ty)
+    }
+
     pub(crate) fn type_name(&self, ty: &Type) -> String {
         let p = &self.ir.program;
         match ty {

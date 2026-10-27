@@ -16,6 +16,7 @@ vba-diagnostics.workspace = true
 vba-ffi.workspace = true
 vba-host.workspace = true
 vba-ir.workspace = true
+vba-profile.workspace = true
 vba-project.workspace = true
 vba-scripting.workspace = true
 vba-sema.workspace = true
@@ -31,7 +32,6 @@ rustix.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
-vba-profile.workspace = true
 
 [lints]
 workspace = true
