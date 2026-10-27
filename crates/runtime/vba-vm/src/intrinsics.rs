@@ -481,6 +481,8 @@ impl Vm {
             _ => {
                 if vba_stdlib::lookup(name).is_some() {
                     self.call_stdlib(name, dollar, &a)?
+                } else if let Some(v) = self.host.call_function(name, &a).map_err(Fault::from)? {
+                    v
                 } else {
                     svc(self.services.call(lname, &a))?
                 }

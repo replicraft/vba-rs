@@ -31,8 +31,8 @@ pub use program::{
     LocalKind, ModuleInfo, ModuleOptions, ParamInfo, ProcInfo, Program, PropGroup, Symbol, UdtInfo,
 };
 pub use provider::{
-    Chain, LibClass, LibEvent, LibField, LibGlobal, LibMember, LibMemberKind, LibParam, LibRecord,
-    NoLibraries, StaticLibrary, TypeProvider,
+    Chain, LibClass, LibEntry, LibEntryKind, LibEvent, LibField, LibGlobal, LibMember,
+    LibMemberKind, LibParam, LibRecord, NoLibraries, StaticLibrary, TypeProvider,
 };
 pub use types::*;
 

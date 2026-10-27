@@ -204,6 +204,34 @@ pub enum LibGlobal {
     Function(LibMember),
 }
 
+/// What kind of top-level name a library offers (see
+/// [`TypeProvider::catalog`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibEntryKind {
+    /// A class or interface that can follow `As`.
+    Class,
+    /// An enumeration that can follow `As`.
+    Enum,
+    /// A constant or an enumeration member.
+    Constant,
+    /// A global function or sub.
+    Function,
+    /// A predeclared global object.
+    Global,
+}
+
+/// One top-level name of a library, for tools that list what can be typed
+/// (completion, symbol search).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibEntry {
+    /// The library the name belongs to.
+    pub library: String,
+    /// The name, as the library spells it.
+    pub name: String,
+    /// What the name is.
+    pub kind: LibEntryKind,
+}
+
 /// Knowledge about external libraries, injected by the embedder.
 ///
 /// Every method has a "does not know" default so that a provider only
@@ -275,6 +303,22 @@ pub trait TypeProvider {
 
     /// A global name of a referenced library.
     fn global(&self, _name: &str) -> Option<LibGlobal> {
+        None
+    }
+
+    /// Every top-level name the provider offers: types, enumerations,
+    /// constants, global functions and predeclared objects. Analysis never
+    /// needs it; editors use it to list what can be typed. The default
+    /// lists nothing.
+    fn catalog(&self) -> Vec<LibEntry> {
+        Vec::new()
+    }
+
+    /// Documentation text, for hover and signature help. `(Some(ty), None)`
+    /// documents a type, `(Some(ty), Some(m))` one of its members and
+    /// `(None, Some(n))` a global name (constant, function, object). The
+    /// default has none.
+    fn documentation(&self, _ty: Option<&LibraryType>, _member: Option<&str>) -> Option<String> {
         None
     }
 }
@@ -597,5 +641,15 @@ impl TypeProvider for Chain<'_> {
     }
     fn global(&self, n: &str) -> Option<LibGlobal> {
         self.0.global(n).or_else(|| self.1.global(n))
+    }
+    fn catalog(&self) -> Vec<LibEntry> {
+        let mut v = self.0.catalog();
+        v.extend(self.1.catalog());
+        v
+    }
+    fn documentation(&self, t: Option<&LibraryType>, m: Option<&str>) -> Option<String> {
+        self.0
+            .documentation(t, m)
+            .or_else(|| self.1.documentation(t, m))
     }
 }

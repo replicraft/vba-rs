@@ -84,6 +84,16 @@ pub trait Host {
     /// exported by project references). `Ok(None)` means "not a global". An
     /// object result carries a reference owned by the caller.
     fn lookup_global(&self, name: &str) -> HostResult<Option<Variant>>;
+    /// Hook: calls a global function the embedding application provides
+    /// (a function its `TypeProvider` reports as a global function, such
+    /// as `Nz` or `DLookup`). Called for a name that is neither a project
+    /// procedure nor a built-in function; `args` holds one entry per
+    /// declared parameter in order, `None` for an omitted one. `Ok(None)`
+    /// means "not a host function" and the call fails as an unknown
+    /// function. The default provides none.
+    fn call_function(&self, _name: &str, _args: &[Option<Variant>]) -> HostResult<Option<Variant>> {
+        Ok(None)
+    }
     /// Hook for `CreateObject(progid, server)`; only called when ComCreate is
     /// granted.
     fn create_object_hook(&self, progid: &str, server: Option<&str>) -> HostResult<Variant>;

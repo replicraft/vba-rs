@@ -97,6 +97,9 @@ impl Host for ScriptingHost {
     fn lookup_global(&self, name: &str) -> HostResult<Option<Variant>> {
         self.inner.lookup_global(name)
     }
+    fn call_function(&self, name: &str, args: &[Option<Variant>]) -> HostResult<Option<Variant>> {
+        self.inner.call_function(name, args)
+    }
     fn create_object_hook(&self, progid: &str, server: Option<&str>) -> HostResult<Variant> {
         self.inner.create_object_hook(progid, server)
     }

@@ -88,6 +88,16 @@ impl TypeProvider for OwnedChain {
     fn global(&self, n: &str) -> Option<vba_sema::LibGlobal> {
         self.0.global(n).or_else(|| self.1.global(n))
     }
+    fn catalog(&self) -> Vec<vba_sema::LibEntry> {
+        let mut v = self.0.catalog();
+        v.extend(self.1.catalog());
+        v
+    }
+    fn documentation(&self, t: Option<&vba_sema::LibraryType>, m: Option<&str>) -> Option<String> {
+        self.0
+            .documentation(t, m)
+            .or_else(|| self.1.documentation(t, m))
+    }
 }
 
 /// Collects everything a [`Session`] needs; nothing runs until the embedder
