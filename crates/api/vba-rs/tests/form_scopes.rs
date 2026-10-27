@@ -131,7 +131,7 @@ fn a_form_runs_against_its_described_class() {
         .create_object("Form_Orders", Some(me(&lib, false)))
         .unwrap();
     let out = inst
-        .call(vba::CallTarget::Object(form.clone()), "Greet", vec![])
+        .call(vba::CallTarget::Object(form), "Greet", vec![])
         .unwrap();
     assert_eq!(out.value, Variant::from("Orders for ANN/ANN|ANN"));
     let ev = inst
@@ -243,7 +243,7 @@ fn a_running_instance_follows_a_design_change() {
         .create_object("Form_Orders", Some(me(&lib, true)))
         .unwrap();
     let v = inst
-        .call(vba::CallTarget::Object(form.clone()), "City", vec![])
+        .call(vba::CallTarget::Object(form), "City", vec![])
         .unwrap();
     assert_eq!(v.value, Variant::from("oslo"));
     // The form loses the control again: the code that uses it is refused.

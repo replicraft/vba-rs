@@ -192,7 +192,7 @@ fn a_design_change_is_a_new_workspace_configuration() {
             .unwrap()
             .diagnostics()
             .iter()
-            .any(|d| d.code.to_string() == "SEM002")
+            .any(|d| d.code == "SEM002")
     );
     // The form gained a control: install the new description, nothing else.
     let newer = HostLibrary::new("FormLib")
@@ -217,6 +217,6 @@ fn a_design_change_is_a_new_workspace_configuration() {
             .unwrap()
             .diagnostics()
             .iter()
-            .all(|d| d.code.to_string() != "SEM002")
+            .all(|d| d.code != "SEM002")
     );
 }

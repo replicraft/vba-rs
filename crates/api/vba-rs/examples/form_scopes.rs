@@ -128,7 +128,7 @@ fn main() {
         .create_object("Form_Orders", Some(form_object(&describe(false), false)))
         .expect("form");
     let title = inst
-        .call(CallTarget::Object(form.clone()), "Title", vec![])
+        .call(CallTarget::Object(form), "Title", vec![])
         .expect("runs");
     println!("{:?}", title.value);
     let raised = inst
