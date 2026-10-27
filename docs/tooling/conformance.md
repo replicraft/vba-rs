@@ -24,12 +24,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 562 |
-| partial | 124 |
+| implemented | 560 |
+| partial | 126 |
 | unsupported | 5 |
 | not-started | 17 |
 | Conformance programs | 2154 |
-| Programs that are known deviations (XFAIL) | 126 |
+| Programs that are known deviations (XFAIL) | 127 |
 
 ## Entries per category and status
 
@@ -41,7 +41,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | function-type-conversion | 13 | 12 | 1 | 0 | 0 |
 | derived-math | 21 | 21 | 0 | 0 | 0 |
 | function-string | 20 | 16 | 4 | 0 | 0 |
-| function-datetime | 20 | 18 | 2 | 0 | 0 |
+| function-datetime | 20 | 17 | 3 | 0 | 0 |
 | function-financial | 13 | 13 | 0 | 0 | 0 |
 | function-information | 11 | 10 | 1 | 0 | 0 |
 | function-array | 3 | 3 | 0 | 0 | 0 |
@@ -66,7 +66,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-statements | 55 | 45 | 10 | 0 | 0 |
 | spec-coercion | 18 | 12 | 6 | 0 | 0 |
 | spec-expressions | 53 | 27 | 21 | 0 | 5 |
-| spec-library | 193 | 165 | 19 | 0 | 9 |
+| spec-library | 193 | 164 | 20 | 0 | 9 |
 
 ## Entries per provenance
 
@@ -139,6 +139,7 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `func.string` | function-string | String | partial |  |
 | `func.datepart` | function-datetime | DatePart | partial |  |
 | `func.day` | function-datetime | Day | partial |  |
+| `func.timeserial` | function-datetime | TimeSerial | partial |  |
 | `func.isnumeric` | function-information | IsNumeric | partial |  |
 | `func.partition` | function-logic | Partition | partial | Partition is not defined ('Sub or Function not defined') |
 | `func.eof` | function-file | EOF | partial |  |
@@ -244,6 +245,7 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.6.1.2.4.1.3` | spec-library | DatePart | partial |  |
 | `vbal.6.1.2.4.1.6` | spec-library | Day | partial |  |
 | `vbal.6.1.2.4.1.9` | spec-library | Month | partial |  |
+| `vbal.6.1.2.4.1.11` | spec-library | TimeSerial | partial |  |
 | `vbal.6.1.2.4.1.14` | spec-library | Year | partial |  |
 | `vbal.6.1.2.5.1.3` | spec-library | EOF | partial |  |
 | `vbal.6.1.2.5.1.6` | spec-library | FileLen | partial |  |
@@ -350,6 +352,7 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-lib-a/6_1_2_3_1_17_hex_long_minus_one` | wrong | VBA behaviour kept where MS-VBAL text differs: Hex of a negative Long has 8 digits |
 | `spec-lib-a/6_1_2_3_1_20_str_null_returns_null` | wrong | VBA behaviour kept where MS-VBAL text differs: Str(Null) is error 94 |
 | `spec-lib-a/6_1_2_3_1_2_cbyte_boolean_true` | wrong | VBA behaviour kept where MS-VBAL text differs: CByte(True) is error 6 |
+| `spec-lib-a/6_1_2_4_1_11_timeserial` | wrong | not implemented: TimeSerial minute overflow carrying into the date part |
 | `spec-lib-a/6_1_2_4_1_3_datepart_intervals` | wrong | VBA behaviour kept where MS-VBAL text differs: DatePart returns a Long |
 | `spec-lib-a/6_1_2_4_1_6_day_errors` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-lib-b/6_1_2_5_1_3_eof_binary_short_get` | wrong | VBA behaviour kept where MS-VBAL text differs: EOF on an Output file is error 54; EOF is True after the last full record |
