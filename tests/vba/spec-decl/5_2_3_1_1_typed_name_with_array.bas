@@ -1,6 +1,5 @@
 ' INV: vbal.5.2.3.1.1
 ' SOURCE: spec ms-vbal 5.2.3.1.1 typed-variable-dcl element type from suffix
-' XFAIL: wrong not implemented: Dim a&(n) at module level
 ' EXPECT: Long Double String
 Dim a&(2)
 Dim b#(1 To 2)

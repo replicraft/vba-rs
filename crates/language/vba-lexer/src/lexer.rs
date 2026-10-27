@@ -130,6 +130,14 @@ pub struct Lexer<'a> {
     /// file number (`Print`, `Write`, `Get`, `Width`...): a following `#`
     /// followed by a file number is not a date literal.
     prev_file_stmt: bool,
+    /// Whether the next name is in a declaring position (statement start,
+    /// after a declaration keyword, or after the comma of a declaration list),
+    /// where a directly following `&` is a type suffix even before `(`.
+    decl_name_next: bool,
+    /// Whether the current statement began with a declaration keyword.
+    in_decl_stmt: bool,
+    /// Whether the previous significant token was the word `Property`.
+    prev_property: bool,
     diags: Vec<Diagnostic>,
 }
 
@@ -149,6 +157,9 @@ impl<'a> Lexer<'a> {
             prev_operand: false,
             prev_dot: false,
             prev_file_stmt: false,
+            decl_name_next: true,
+            in_decl_stmt: false,
+            prev_property: false,
             diags: Vec::new(),
         }
     }
@@ -613,7 +624,12 @@ impl<'a> Lexer<'a> {
         }
         self.pos = match self.byte(i) {
             Some(b'%' | b'#' | b'@' | b'$') => i + 1,
-            Some(b'&') if !self.byte(i + 1).is_some_and(starts_operand) => i + 1,
+            Some(b'&')
+                if !self.byte(i + 1).is_some_and(starts_operand)
+                    || (self.decl_name_next && self.byte(i + 1) == Some(b'(')) =>
+            {
+                i + 1
+            }
             Some(b'!')
                 if !self
                     .byte(i + 1)
@@ -632,6 +648,56 @@ impl<'a> Lexer<'a> {
             _ => i,
         };
         TokenKind::Ident
+    }
+
+    /// Tracks whether the next name is in a declaring position.
+    fn update_decl_state(&mut self, kind: TokenKind, text: &[u8]) {
+        let was_property = self.prev_property;
+        self.prev_property = false;
+        self.decl_name_next = match kind {
+            TokenKind::Newline | TokenKind::Colon => {
+                self.in_decl_stmt = false;
+                true
+            }
+            TokenKind::Comma => self.in_decl_stmt,
+            TokenKind::Keyword(k) => {
+                if matches!(
+                    k,
+                    Keyword::Dim
+                        | Keyword::Static
+                        | Keyword::Const
+                        | Keyword::Public
+                        | Keyword::Private
+                        | Keyword::Global
+                        | Keyword::Friend
+                ) {
+                    self.in_decl_stmt = true;
+                }
+                matches!(
+                    k,
+                    Keyword::Dim
+                        | Keyword::Static
+                        | Keyword::Const
+                        | Keyword::Public
+                        | Keyword::Private
+                        | Keyword::Global
+                        | Keyword::Friend
+                        | Keyword::Sub
+                        | Keyword::Function
+                        | Keyword::ByVal
+                        | Keyword::ByRef
+                        | Keyword::Optional
+                        | Keyword::ParamArray
+                        | Keyword::WithEvents
+                        | Keyword::Shared
+                ) || (was_property && matches!(k, Keyword::Get | Keyword::Let | Keyword::Set))
+            }
+            TokenKind::Ident => {
+                self.prev_property = text.eq_ignore_ascii_case(b"property");
+                false
+            }
+            _ => false,
+        };
     }
 
     fn update_state(&mut self, kind: TokenKind) {
@@ -674,6 +740,9 @@ impl<'a> Iterator for Lexer<'a> {
             self.pos = start + 1;
         }
         self.update_state(kind);
+        if !kind.is_trivia() {
+            self.update_decl_state(kind, &self.src[start..self.pos]);
+        }
         self.prev_file_stmt = if kind.is_trivia() {
             self.prev_file_stmt
         } else {

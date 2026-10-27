@@ -300,7 +300,10 @@ impl Lowerer<'_> {
     }
 
     pub(crate) fn declarator(&mut self, d: SyntaxNode<'_>) -> Declarator {
-        let name = match toks(d).iter().find(|x| is_name_token(x.kind())) {
+        let is_member = d.kind() == NodeKind::TypeMember;
+        let name = match toks(d).iter().find(|x| {
+            is_name_token(x.kind()) || (is_member && matches!(x.kind(), TokenKind::Keyword(_)))
+        }) {
             Some(x) => ident(*x),
             None => {
                 self.report(AST_INCOMPLETE, d.span(), "expected a name");

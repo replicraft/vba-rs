@@ -42,7 +42,10 @@ let out = vba_lexer::lex(file_id, bytes, LexOptions::new(generation));
     significant token cannot end an operand; otherwise `&` is the operator.
   - A `&`, `^` or `!` directly after a name or number is a type suffix unless
     the next byte starts an operand (`a&b`, `x^2`, `rs!Name` are operators).
-    `^` is only a suffix where `LongLong` exists (VBA 7+).
+    `^` is only a suffix where `LongLong` exists (VBA 7+). The exception is a
+    declaring position (statement start, after `Dim`/`Const`/`Static`/`Public`/
+    `Private`/`Sub`/`Function`/`Property Get`/`ByVal`/`ByRef`/`Optional`, or after
+    a comma of a declaration), where `a&(` is a typed name followed by bounds.
   - `%`, `#`, `@`, `$` always attach to a non-keyword identifier. Keywords
     take no suffix except `Date$`, `String$`, `Input$`, `InputB$`, which become
     identifiers; this keeps `Print#1` as `Print`, `#`, `1`.

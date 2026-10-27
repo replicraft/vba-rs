@@ -288,7 +288,11 @@ impl Parser<'_> {
     /// `name [(bounds)] [As [New] type]`.
     pub(crate) fn parse_declarator(&mut self, kind: NodeKind) {
         self.start(kind);
-        self.name_token("variable name");
+        if kind == NodeKind::TypeMember && matches!(self.cur(), Some(TokenKind::Keyword(_))) {
+            self.bump();
+        } else {
+            self.name_token("variable name");
+        }
         if self.at(TokenKind::LParen) {
             self.parse_arg_list_paren();
         }
@@ -305,7 +309,13 @@ impl Parser<'_> {
         self.bump();
         self.name_token("type name");
         self.parse_members(Term::ENDTYPE, |p| {
-            if matches!(p.cur(), Some(TokenKind::Ident | TokenKind::ForeignName)) {
+            // A member may be named like a reserved word (`Date As Long`,
+            // MS-VBAL §5.2.3.3 reserved-name-member-dcl).
+            let reserved = matches!(p.cur(), Some(TokenKind::Keyword(_)))
+                && matches!(p.kind(1), Some(TokenKind::LParen))
+                || matches!(p.cur(), Some(TokenKind::Keyword(_)))
+                    && p.kind(1) == Some(TokenKind::Keyword(Keyword::As));
+            if matches!(p.cur(), Some(TokenKind::Ident | TokenKind::ForeignName)) || reserved {
                 p.parse_declarator(NodeKind::TypeMember);
             } else {
                 p.unexpected_line(false);
