@@ -297,7 +297,7 @@ fn undeclared_control_names_are_reported_at_load_not_at_run() {
     assert!(report.has_errors());
     let text = report.rendered().join("\n");
     assert!(text.contains("txtMissing"), "{text}");
-    let err = engine(&db).load(&p).err().expect("refused");
+    let err = engine(&db).load(&p).expect_err("refused");
     assert_eq!(err.kind(), "load");
 }
 
