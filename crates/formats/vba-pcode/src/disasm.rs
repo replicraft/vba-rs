@@ -170,8 +170,8 @@ pub enum Operand {
     NameList(Vec<Name>),
     /// An object-table reference.
     Object {
-        /// The operand as stored. On x86 it is the byte offset of the entry;
-        /// on x64 it is the entry index times 8.
+        /// The operand as stored: the entry index times the pointer size
+        /// (4 on x86, 8 on x64).
         offset: u16,
         /// Class name, when the entry is in range.
         class: Option<Name>,
@@ -314,13 +314,15 @@ impl<'a> Disassembler<'a> {
         }
     }
 
-    /// Byte offset in the object table of the entry an `obj` operand names.
+    /// Byte offset in the object table of the entry an `obj` operand names:
+    /// the operand is the entry index times the pointer size (4 or 8).
     fn object_entry_offset(&self, operand: u16) -> usize {
-        if self.cache.layout.bitness == Bitness::X64 {
-            usize::from(operand >> 3) * OBJECT_ENTRY_SIZE
+        let shift = if self.cache.layout.bitness == Bitness::X64 {
+            3
         } else {
-            usize::from(operand)
-        }
+            2
+        };
+        usize::from(operand >> shift) * OBJECT_ENTRY_SIZE
     }
 
     /// Resolves the operands of one instruction.

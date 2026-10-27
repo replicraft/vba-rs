@@ -95,6 +95,14 @@ impl TableLocations {
             VersionFamily::Vba5 => Self::locate_vba5(cache, limit),
             _ => {
                 let x64 = layout.bitness == Bitness::X64;
+                // `[obs]`: the word at offset 2 is the platform kind the cache
+                // was compiled for (1 or 3) in all 492 modules seen.
+                let expected = if x64 { 3 } else { 1 };
+                if matches!(w, 1 | 3) && w != expected {
+                    return Err(PcodeError::UnsupportedLayout(
+                        UnsupportedLayout::PlatformMismatch { found: w, expected },
+                    ));
+                }
                 // The declaration table length sits at 0x3F in every layout
                 // observed, 64-bit ones included.
                 let declarations_len_at = 0x3F;

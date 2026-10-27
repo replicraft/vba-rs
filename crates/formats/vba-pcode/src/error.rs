@@ -67,6 +67,16 @@ pub enum UnsupportedLayout {
     /// The platform kind is not 32-bit or 64-bit Windows.
     #[error("platform kind {0} (neither 32-bit nor 64-bit Windows)")]
     PlatformKind(u32),
+    /// The module stream says it was compiled for the other bitness than the
+    /// platform kind of the project (the word at offset 2 of a VBA 6 or 7
+    /// module stream is 1 for 32-bit and 3 for 64-bit Windows).
+    #[error("module stream is marked for platform kind {found}, the project says {expected}")]
+    PlatformMismatch {
+        /// The word found in the module stream.
+        found: u16,
+        /// The platform kind the selected layout stands for.
+        expected: u16,
+    },
     /// The version word belongs to a family without a known layout.
     #[error("version word {0:#06x} has no known layout")]
     Version(u16),

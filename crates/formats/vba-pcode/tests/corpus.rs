@@ -169,6 +169,12 @@ fn records(
                     if let Ok(TypeRef::Intrinsic(ty)) = variable_type(&v, ind, obj, layout)
                         && let Some(w) = ty.intrinsic.name().map(str::to_lowercase)
                     {
+                        // `LongLong` with the pointer flag is `LongPtr`.
+                        let w = if ty.intrinsic == IntrinsicType::LongLong && ty.flags & 0x80 != 0 {
+                            "longptr".to_string()
+                        } else {
+                            w
+                        };
                         t.rec_types += 1;
                         if toks.contains(&w) {
                             t.rec_types_ok += 1;

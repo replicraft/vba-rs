@@ -50,7 +50,7 @@ fn utf16(s: &str) -> Vec<u8> {
 /// Builds a module cache in the VBA 7.0 x86 arrangement.
 pub fn build_cache(spec: &CacheSpec) -> Vec<u8> {
     let mut v = vec![0u8; 0x3F];
-    v[..5].copy_from_slice(&[0x01, 0x16, 0x01, 0x00, 0x06]);
+    v[..5].copy_from_slice(&[0x01, 0x16, if spec.x64 { 3 } else { 1 }, 0x00, 0x06]);
     // Declaration table.
     v.extend_from_slice(&(spec.decl.len() as u32).to_le_bytes());
     v.extend_from_slice(&spec.decl);

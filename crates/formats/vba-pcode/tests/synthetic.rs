@@ -239,6 +239,25 @@ fn x64_arrangement_end_to_end() {
     assert_eq!(cache.tables.indirect.len(), 88 + 32 + 32 + 8);
     assert_eq!(cache.tables.declarations.len(), 0);
 
+    // The module says which platform kind it was compiled for.
+    let x86 = Layout::select(0xB5, 1).unwrap();
+    assert_eq!(
+        ModuleCache::parse(&bytes, &x86).err(),
+        Some(PcodeError::UnsupportedLayout(
+            UnsupportedLayout::PlatformMismatch {
+                found: 3,
+                expected: 1
+            }
+        ))
+    );
+    let x86_bytes = synth::build_cache(&CacheSpec::default());
+    assert!(matches!(
+        ModuleCache::parse(&x86_bytes, &pc.layout),
+        Err(PcodeError::UnsupportedLayout(
+            UnsupportedLayout::PlatformMismatch { .. }
+        ))
+    ));
+
     let dis = Disassembler::new(&cache, &pc.idents);
     let l0 = dis.line(0);
     assert!(l0.error.is_none());
