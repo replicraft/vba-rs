@@ -30,9 +30,48 @@ pub struct Project {
 
 /// Loads the local project, or `None` when it is not configured or absent.
 pub fn load() -> Option<Project> {
-    let path = std::env::var_os(PROJECT_ENV)?;
+    load_path(std::path::Path::new(&std::env::var_os(PROJECT_ENV)?))
+}
+
+/// Environment variable naming a directory of local project files (never
+/// committed), for the multi-layout runs.
+pub const CORPUS_ENV: &str = "VBA_PCODE_CORPUS";
+
+/// The files below the directory named by `VBA_PCODE_CORPUS`, sorted; empty
+/// when unset or unreadable.
+pub fn corpus_files() -> Vec<std::path::PathBuf> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+    let mut v = Vec::new();
+    if let Some(dir) = std::env::var_os(CORPUS_ENV) {
+        walk(std::path::Path::new(&dir), &mut v);
+    }
+    v.sort();
+    v
+}
+
+/// Loads one project file, or `None` when it cannot be read.
+pub fn load_path(path: &std::path::Path) -> Option<Project> {
     let bytes = std::fs::read(path).ok()?;
-    let p = read_project(&bytes, &Limits::default()).expect("local project reads");
+    let ext = vba_format::extract_project(&bytes, &Limits::default()).ok()?;
+    let p = match read_project(&ext.bytes, &Limits::default()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("read_project: {e}");
+            return None;
+        }
+    };
     let project_stream = p
         .preserved
         .get(vba_format::keys::VBA_PROJECT_STREAM)?
@@ -47,8 +86,7 @@ pub fn load() -> Option<Project> {
                     .preserved
                     .get(vba_project::PERFORMANCE_CACHE_KEY)?
                     .to_vec(),
-                source: vba_format::codepage::encode(p.code_page, &m.source, "source")
-                    .expect("source re-encodes"),
+                source: vba_format::codepage::encode(p.code_page, &m.source, "source").ok()?,
             })
         })
         .collect();
@@ -76,7 +114,7 @@ pub struct SrcLine {
     pub raw: Vec<u8>,
 }
 
-/// Splits module source into logical lines, skipping the leading
+/// Splits module source into logical lines, skipping the
 /// `Attribute` lines (they have no code in the cache).
 pub fn logical_lines(source: &[u8]) -> Vec<SrcLine> {
     let out = lex(
@@ -117,10 +155,8 @@ pub fn logical_lines(source: &[u8]) -> Vec<SrcLine> {
     {
         lines.pop();
     }
-    let skip = lines
-        .iter()
-        .take_while(|l| l.raw.starts_with(b"Attribute "))
-        .count();
-    lines.drain(..skip);
+    // `Attribute` lines (leading ones and those after a procedure header)
+    // have no line in the cache.
+    lines.retain(|l| !l.raw.starts_with(b"Attribute "));
     lines
 }

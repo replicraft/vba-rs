@@ -11,6 +11,9 @@ use vba_format::{Limits, read_project};
 use vba_project::ModuleKind;
 use vba_sema::SourceModule;
 
+/// Environment variable naming the local project file (never committed).
+pub const PROJECT_ENV: &str = "VBA_PCODE_PROJECT";
+
 pub struct Mod {
     pub name: String,
     pub kind: vba_project::ModuleKind,
@@ -27,9 +30,42 @@ pub struct Project {
 /// Loads the project named by `VBA_PCODE_PROJECT`, or `None` when unset or
 /// unreadable.
 pub fn load() -> Option<Project> {
-    let path = std::env::var_os("VBA_PCODE_PROJECT")?;
+    load_path(std::path::Path::new(&std::env::var_os(PROJECT_ENV)?))
+}
+
+/// Environment variable naming a directory of local project files (never
+/// committed), for the multi-layout runs.
+pub const CORPUS_ENV: &str = "VBA_PCODE_CORPUS";
+
+/// The files below the directory named by `VBA_PCODE_CORPUS`, sorted; empty
+/// when unset or unreadable.
+pub fn corpus_files() -> Vec<std::path::PathBuf> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+    let mut v = Vec::new();
+    if let Some(dir) = std::env::var_os(CORPUS_ENV) {
+        walk(std::path::Path::new(&dir), &mut v);
+    }
+    v.sort();
+    v
+}
+
+/// Loads one project file, or `None` when it cannot be read.
+pub fn load_path(path: &std::path::Path) -> Option<Project> {
     let bytes = std::fs::read(path).ok()?;
-    let p = read_project(&bytes, &Limits::default()).ok()?;
+    let ext = vba_format::extract_project(&bytes, &Limits::default()).ok()?;
+    let p = read_project(&ext.bytes, &Limits::default()).ok()?;
     let project_stream = p
         .preserved
         .get(vba_format::keys::VBA_PROJECT_STREAM)?
@@ -57,7 +93,7 @@ pub fn load() -> Option<Project> {
 }
 
 /// Splits module source into logical lines (continuations joined), skipping
-/// the leading `Attribute` lines, which have no code in the cache. Each
+/// the `Attribute` lines, which have no line in the cache. Each
 /// entry is the raw text of the line.
 pub fn logical_lines(source: &[u8]) -> Vec<Vec<u8>> {
     use vba_lexer::{LexOptions, TokenKind, lex};
@@ -82,11 +118,9 @@ pub fn logical_lines(source: &[u8]) -> Vec<Vec<u8>> {
     if lines.last().is_some_and(Vec::is_empty) && has_token.last() == Some(&false) {
         lines.pop();
     }
-    let skip = lines
-        .iter()
-        .take_while(|l| l.starts_with(b"Attribute "))
-        .count();
-    lines.drain(..skip);
+    // `Attribute` lines (leading ones and those after a procedure header)
+    // have no line in the cache.
+    lines.retain(|l| !l.starts_with(b"Attribute "));
     lines
 }
 

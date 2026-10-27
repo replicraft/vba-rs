@@ -212,7 +212,7 @@ fn source_program(
     p: &common::Project,
     lp: &LoweredProject,
     host_members: &[String],
-) -> Rc<IrProgram> {
+) -> Result<Rc<IrProgram>, String> {
     let mut mods = Vec::new();
     for m in &p.modules {
         let lines = common::logical_lines(&m.source);
@@ -268,20 +268,109 @@ fn source_program(
         .filter(|d| d.severity == vba_diagnostics::Severity::Error)
         .map(|d| vba_diagnostics::render_plain(d, &a.sources))
         .collect();
-    assert!(
-        errs.is_empty(),
-        "source side does not compile:\n{}",
-        errs.join("\n")
-    );
-    let ir = vba_ir::lower(&a).expect("source lowering");
-    vba_ir::verify(&ir).expect("source IR verifies");
-    Rc::new(ir)
+    if !errs.is_empty() && std::env::var_os("DUMP_SRC").is_some() {
+        for m in &mods {
+            println!("--- {}\n{}", m.name, String::from_utf8_lossy(&m.source));
+        }
+    }
+    if !errs.is_empty() {
+        return Err(format!(
+            "source side does not compile:\n{}",
+            errs.join("\n")
+        ));
+    }
+    let ir = vba_ir::lower(&a).map_err(|e| format!("source lowering: {e:?}"))?;
+    vba_ir::verify(&ir).map_err(|e| format!("source IR does not verify: {e:?}"))?;
+    Ok(Rc::new(ir))
+}
+
+/// What one differential run covered.
+#[derive(Debug, Default, Clone, Copy)]
+struct Summary {
+    procedures: usize,
+    lowered: usize,
+    /// `[standard, class-like]`
+    executed: [usize; 2],
+    runs: [usize; 2],
+    errors_both: usize,
+    sessions: usize,
+    mismatches: usize,
 }
 
 #[test]
 #[ignore = "needs a local project (VBA_PCODE_PROJECT)"]
 fn lowered_procedures_agree_with_source() {
     let Some(p) = common::load() else { return };
+    let s = differential(&p).expect("differential run");
+    println!(
+        "procedures {}, lowered {}, executed {} + {}, runs {} + {} (source-side errors {}), sessions {}, mismatches {}",
+        s.procedures,
+        s.lowered,
+        s.executed[0],
+        s.executed[1],
+        s.runs[0],
+        s.runs[1],
+        s.errors_both,
+        s.sessions,
+        s.mismatches
+    );
+    assert_eq!(s.mismatches, 0);
+}
+
+/// The differential run over every project file below the directory named by
+/// `VBA_PCODE_CORPUS`: one line per file with what was lowered, executed and
+/// compared. A file whose source side cannot be compiled by the source
+/// analysis is reported and skipped.
+#[test]
+#[ignore = "needs a local corpus (VBA_PCODE_CORPUS)"]
+fn corpus_agrees_with_source() {
+    let mut total = Summary::default();
+    let (mut files, mut skipped) = (0, 0);
+    for (n, path) in common::corpus_files().iter().enumerate() {
+        let Some(p) = common::load_path(path) else {
+            continue;
+        };
+        let v = vba_pcode::version_word(&p.project_stream).unwrap_or(0);
+        match differential(&p) {
+            Ok(s) => {
+                files += 1;
+                println!(
+                    "#{n} v={v:#x} sys={} procedures {} lowered {} executed {} + {} runs {} + {} sessions {} mismatches {}",
+                    p.sys_kind,
+                    s.procedures,
+                    s.lowered,
+                    s.executed[0],
+                    s.executed[1],
+                    s.runs[0],
+                    s.runs[1],
+                    s.sessions,
+                    s.mismatches
+                );
+                total.procedures += s.procedures;
+                total.lowered += s.lowered;
+                for i in 0..2 {
+                    total.executed[i] += s.executed[i];
+                    total.runs[i] += s.runs[i];
+                }
+                total.errors_both += s.errors_both;
+                total.sessions += s.sessions;
+                total.mismatches += s.mismatches;
+            }
+            Err(e) => {
+                skipped += 1;
+                println!(
+                    "#{n} v={v:#x} sys={} skipped: {}",
+                    p.sys_kind,
+                    e.lines().take(4).collect::<Vec<_>>().join(" / ")
+                );
+            }
+        }
+    }
+    println!("files compared {files}, skipped {skipped}, total {total:?}");
+    assert_eq!(total.mismatches, 0);
+}
+
+fn differential(p: &common::Project) -> Result<Summary, String> {
     let inputs: Vec<ModuleInput<'_>> = p
         .modules
         .iter()
@@ -292,13 +381,13 @@ fn lowered_procedures_agree_with_source() {
         })
         .collect();
     let options = LowerOptions {
-        host_members: common::host_member_names(&p),
+        host_members: common::host_member_names(p),
     };
     let lp = lower_project_with_options(&p.project_stream, p.sys_kind, &inputs, &options)
-        .expect("lowers");
+        .map_err(|e| format!("lowering: {e}"))?;
     let total = lp.procedures.len();
     let lowered = lp.lowered_count();
-    let src = source_program(&p, &lp, &options.host_members);
+    let src = source_program(p, &lp, &options.host_members)?;
     let cache_ir = Rc::new(lp.ir.clone());
     let class_like_of = |name: &str| {
         p.modules
@@ -397,9 +486,13 @@ fn lowered_procedures_agree_with_source() {
             }
         }
     }
-    println!(
-        "procedures {total}, lowered {lowered} (standard {}, class-like {}), executed {} + {}, runs {} + {} (source-side errors {errors_both}), sessions {sessions}, mismatches {mismatches}",
-        lowered_by[0], lowered_by[1], ran[0], ran[1], runs[0], runs[1]
-    );
-    assert_eq!(mismatches, 0);
+    Ok(Summary {
+        procedures: total,
+        lowered,
+        executed: ran,
+        runs,
+        errors_both,
+        sessions,
+        mismatches,
+    })
 }
