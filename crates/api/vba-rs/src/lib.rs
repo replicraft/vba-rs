@@ -188,6 +188,15 @@
 //! assert_eq!(edited.name(), project.name());
 //! ```
 //!
+//! # Threads
+//!
+//! An [`Instance`] (and an [`Engine`], which holds host-object factories) is
+//! not `Send`: one session is one interpreter on one thread. Plain data
+//! ([`Project`], [`Report`], [`Error`], [`Policy`]...) and [`CancelToken`] are
+//! `Send + Sync`. An application with a multi-threaded runtime gives the
+//! instance a thread of its own and talks to it through a command channel;
+//! [`thread::InstanceThread`] does that with `std` alone.
+//!
 //! # Layers
 //!
 //! The crate re-exports a curated surface at the top level and in the

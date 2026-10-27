@@ -606,12 +606,97 @@ assert!(limited.is_usable());
 
 ## 9. Threading
 
-`Instance`, `Session`, `HostContext` and host objects (`Rc`/`RefCell`) are not
-`Send`: create an instance on the thread that runs it and keep using it there. A
-host that serves several documents makes one instance per document (they share
-nothing) or runs each on its own thread. The only cross-thread handle is
-`CancelToken`. There is no async runtime and no background thread; a call
-returns when the VBA code, and any nested work, has finished.
+**What is `Send` and `Sync`** (pinned by `tests/send_sync.rs`):
+
+| Type | `Send` | `Sync` | Why |
+| --- | --- | --- | --- |
+| `Project`, `Report`, `Diagnostic`, `Error`, `CallLimits`, `Policy`, `ResourceLimits`, `Profile`, `Capability`, `ModuleKind`, `RunStatus` | yes | yes | plain data |
+| `CancelToken` | yes | yes | one `AtomicBool` behind an `Arc`; the handle meant to be used from another thread |
+| `Variant`, `Arg`, `CallTarget`, `Outcome`, `CallResult`, `EventOutcome` | yes | not promised | values; an `ObjectRef` inside is a handle that means something only to the instance that issued it |
+| `Engine` | no | no | it holds host-object factories (`Rc<dyn Fn>`), so it is built on the thread that uses it |
+| `Instance`, `Session`, `HostContext`, host objects (`Dispatch`) | no | no | one session is one interpreter: `Rc`/`RefCell` object tables, a re-entrant call stack and a per-thread memory meter that charges the strings and arrays created while it runs. Moving it would break all three, so the compiler refuses it (`compile_fail` doctest on `Instance`) |
+| `thread::InstanceThread` | yes | yes | owns a channel, not the instance (below) |
+
+Sessions are independent: module variables, default instances, `Err`, the random
+generator, open files and the budget are per session, so several `Instance`s may
+run at the same time on different threads, one thread each.
+
+**The pattern for an application with a multi-threaded runtime** is a dedicated
+interpreter thread that owns the instance, and a command channel: other threads
+send closures, the interpreter thread runs them one at a time in order and sends
+the results back. `vba::thread::InstanceThread` is that pattern on `std` alone (one
+thread, `std::sync::mpsc`; no runtime, no dependency). Build the engine, the project
+and the host objects *inside* the builder closure, because they are not `Send`:
+
+```rust
+use std::sync::Arc;
+use vba::thread::InstanceThread;
+use vba::{Engine, Project, Variant};
+
+let worker = Arc::new(
+    InstanceThread::spawn(|| {
+        let project = Project::from_source(
+            "Module1",
+            "Public Total As Long\n\
+             Public Function Add(ByVal n As Long) As Long\n\
+             \x20 Total = Total + n\n\
+             \x20 Add = Total\n\
+             End Function\n\
+             Public Sub Spin()\n\
+             \x20 Do\n\
+             \x20 Loop\n\
+             End Sub\n",
+        );
+        let mut instance = Engine::new().load(&project)?;
+        instance.trust();
+        Ok(instance)
+    })
+    .unwrap(),
+);
+
+// Any thread (a runtime's worker, a request handler) may submit commands; they
+// are serialized, so no two ever run at once and the state is consistent.
+let handles: Vec<_> = (1..=4)
+    .map(|n| {
+        let worker = worker.clone();
+        std::thread::spawn(move || {
+            worker.call(move |i| i.run("Add", vec![Variant::Long(n)])).unwrap().unwrap()
+        })
+    })
+    .collect();
+for h in handles {
+    h.join().unwrap();
+}
+let total = worker.call(|i| i.get_global("Total")).unwrap().unwrap();
+assert_eq!(total, Variant::Long(10));
+
+// Cancellation crosses threads through the token; the running command ends with a
+// classified error, and the instance is usable again once the token is reset.
+let token = worker.cancel_token();
+let pending = worker.submit(|i| i.run("Spin", vec![])).unwrap();
+token.cancel();
+assert!(matches!(pending.wait().unwrap(), Err(vba::Error::Run(vba::RunError::Cancelled(_)))));
+token.reset();
+worker.call(|i| i.run("Add", vec![Variant::Long(0)])).unwrap().unwrap();
+```
+
+From an async runtime: `call` blocks, so run it where blocking is allowed
+(`spawn_blocking` or an equivalent), or `submit` and hand the `Reply` to such a
+thread. Nothing in vba-rs depends on a runtime. Rules of the helper (details in
+the module documentation): commands run in submission order; a command that
+panics stops the thread (the instance may be half updated) and later commands
+fail with `ThreadError::Stopped`; closing or dropping the handle lets the running
+command finish, drops the queued ones and drops the instance without
+`Class_Terminate` (run `Instance::shutdown` in a last command when that
+matters); closing does not cancel the token. State that host objects share with
+other threads is your design: make the shared part `Send + Sync` (an
+`Arc<Mutex<..>>` or a channel to your own service) and keep the `Dispatch`
+wrapper on the interpreter thread.
+
+Without the helper the pattern is the same: spawn a thread, build everything in
+it, loop on `Receiver::recv`, and keep a `CancelToken` clone outside. There is no
+async runtime and no background thread inside vba-rs; a call returns when the
+VBA code, and any nested work, has finished.
 
 ## 10. Determinism and the permission model
 
