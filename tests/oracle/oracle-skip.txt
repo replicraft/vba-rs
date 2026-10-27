@@ -69,6 +69,8 @@ file-io/write_format	safety	needs the `file-read` grant; needs the `file-write` 
 file-io/write_input	safety	needs the `file-read` grant; needs the `file-write` grant
 file-io/write_input_double_type_characters	safety	needs the `file-read` grant; needs the `file-write` grant
 host/appactivate_denied	safety	AppActivate drives the UI
+host/appactivate_granted_without_a_ui_provider_is_error_70	safety	needs the `ui-automation` grant
+host/appactivate_title_is_required	engine-only	expects a compile error (needs a modal dialog in a real host)
 host/callback_denied_without_declare_grant	safety	Declare calls native code
 host/callback_error_surfaces_at_the_declare	safety	needs the `native-declare` grant
 host/callback_forged_token_is_refused	safety	needs the `native-declare` grant
@@ -78,8 +80,15 @@ host/callback_signature_mismatch_is_error_49	safety	needs the `native-declare` g
 host/callback_step_limit_cancels_the_callback	safety	needs the `native-declare` grant; expects the engine-specific outcome `limit`; tests the engine step budget
 host/callback_timer_runs_at_doevents	safety	needs the `native-declare` grant
 host/command_empty_by_default	safety	Command is machine specific
+host/command_empty_is_a_zero_length_string	safety	Command is machine specific
+host/command_returns_the_configured_text	safety	Command is machine specific
+host/createobject_class_argument_is_required	safety	needs the `com-create` grant; expects a compile error (needs a modal dialog in a real host)
 host/createobject_denied	safety	CreateObject instantiates COM classes
 host/createobject_granted_but_unregistered	safety	needs the `com-create` grant
+host/createobject_instances_are_independent	safety	needs the `com-create` grant
+host/createobject_makes_a_dictionary	safety	needs the `com-create` grant
+host/createobject_release_with_nothing	safety	needs the `com-create` grant
+host/createobject_remote_server_needs_network	safety	needs the `com-create` grant
 host/declare_denied	safety	Declare calls native code
 host/declare_granted_portable_shim	safety	needs the `native-declare` grant
 host/declare_granted_unknown_function	safety	needs the `native-declare` grant; expects the engine-specific outcome `bridge`
@@ -92,8 +101,16 @@ host/file_denied_is_trappable	safety	Open uses the file system
 host/file_read_denied	safety	Dir reads the file system
 host/file_write_denied	safety	Open uses the file system
 host/getallsettings	safety	GetAllSettings reads the registry; SaveSetting writes the registry
+host/getobject_class_without_a_running_instance_is_an_error	safety	needs the `com-create` grant
 host/getobject_denied	safety	GetObject binds COM objects
+host/getobject_missing_file_is_error_432	safety	needs the `file-read` grant
+host/getobject_without_arguments_is_an_error	safety	needs the `com-create` grant
+host/inputbox_dollar_form_returns_a_string	ui	InputBox opens a modal dialog
 host/inputbox_headless	ui	InputBox opens a modal dialog
+host/inputbox_prompt_and_title_reach_the_host	ui	InputBox opens a modal dialog
+host/inputbox_prompt_is_required	engine-only	expects a compile error (needs a modal dialog in a real host)
+host/inputbox_returns_queued_answers_in_order	ui	InputBox opens a modal dialog
+host/inputbox_without_a_queued_answer_is_error_70	ui	InputBox opens a modal dialog
 host/load_unload_form	ui	Load needs a UserForm
 host/msgbox_headless	ui	MsgBox opens a modal dialog
 host/read_grant_does_not_allow_write	safety	needs the `file-read` grant
@@ -101,12 +118,16 @@ host/scoped_grant_allows_prefix	safety	needs the `file-write=/ok` grant; needs t
 host/scoped_grant_blocks_dotdot	safety	needs the `file-write=/ok/` grant
 host/scoped_grant_blocks_other_paths	safety	needs the `file-write=/ok` grant
 host/sendkeys_denied	safety	SendKeys drives the UI
+host/sendkeys_granted_without_a_ui_provider_is_error_70	safety	needs the `ui-automation` grant
+host/sendkeys_keys_are_required	engine-only	expects a compile error (needs a modal dialog in a real host)
 host/shell_denied	safety	Shell starts processes
 host/step_limit_not_trappable	engine-only	expects the engine-specific outcome `limit`; tests the engine step budget
 host/step_limit_stops_loop	engine-only	expects the engine-specific outcome `limit`; tests the engine step budget
 host/unsupported_feature_is_not_success	safety	GetSetting reads the registry; SaveSetting writes the registry
 language/addressof_class_member_operand_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 language/addressof_declare_operand_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+language/addressof_operand_must_be_a_procedure_of_the_project	engine-only	expects a compile error (needs a modal dialog in a real host)
+language/addressof_variable_operand_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 language/cc_const	untranslatable	no `Main` procedure in a standard module outside conditional compilation
 language/cc_if_else	untranslatable	no `Main` procedure in a standard module outside conditional compilation
 language/dollar_functions_of_the_runtime_resolve	safety	needs the `file-read` grant; needs the `file-write` grant
@@ -344,6 +365,9 @@ spec-data/5_4_5_9_write_spc_item	safety	needs the `file-read` grant; needs the `
 spec-data/5_4_5_9_write_trailing_semicolon_continues_line	safety	needs the `file-read` grant; needs the `file-write` grant
 spec-data/5_4_5_9_write_unmarked_file_number_invalid	safety	needs the `file-read` grant; needs the `file-write` grant; expects a compile error (needs a modal dialog in a real host)
 spec-data/5_4_5_9_write_unopened_error52	safety	needs the `file-read` grant; needs the `file-write` grant
+spec-decl/4_1_private_member_is_not_visible_in_another_module	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-decl/4_1_unqualified_use_of_a_name_public_in_two_modules_is_ambiguous	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-decl/4_2_1_document_module_event_handler_is_called_by_the_host	host	needs a host event delivered by the harness; uses a document module
 spec-decl/5_1_declaration_after_procedure	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-decl/5_1_option_after_procedure	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-decl/5_2_1_1_option_compare_twice	engine-only	expects a compile error (needs a modal dialog in a real host)
@@ -536,6 +560,12 @@ spec-ops/5_6_12_member_access_udt_missing_field_invalid	engine-only	expects a co
 spec-ops/5_6_13_1_arglist_byval_non_external_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_13_1_arglist_positional_after_named_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_13_1_arglist_trailing_comma_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_13_2_missing_required_argument_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_13_2_named_argument_for_a_filled_parameter_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_13_2_named_argument_naming_no_parameter_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_13_2_named_argument_with_a_paramarray_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_13_2_positional_argument_after_a_named_one_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_13_2_too_many_positional_arguments_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_13_index_array_named_argument_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_13_index_array_rank_mismatch_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_13_index_function_too_many_arguments_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
@@ -556,6 +586,14 @@ spec-ops/5_6_16_4_integer_expression_udt_invalid	engine-only	expects a compile e
 spec-ops/5_6_16_5_variable_expression_non_variable_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_16_6_bound_variable_for_next_member	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_16_7_type_expression_not_a_type_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_1_enum_type_name_is_not_a_value_expression	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_1_function_call_is_not_a_variable_expression	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_1_literal_is_not_a_variable_expression	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_1_module_name_is_not_a_value_expression	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_1_sub_call_is_not_a_value_expression	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_2_3_self_referential_default_member_condition_is_bounded	ui	Beep makes a sound
+spec-ops/5_6_2_3_self_referential_default_member_typed_target_is_rejected	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-ops/5_6_4_set_of_a_value_expression_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_9_4_concat_array_operand_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_9_4_concat_udt_operand_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-ops/5_6_9_5_rel_array_declared_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
@@ -577,6 +615,9 @@ spec-proc/5_3_1_1_friend_in_standard_module_invalid	engine-only	expects a compil
 spec-proc/5_3_1_1_global_in_class_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_3_1_1_private_not_accessible_other_module	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_3_1_2_static_both_positions_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-proc/5_3_1_3_duplicate_procedure_name_in_a_module_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-proc/5_3_1_3_procedure_name_clashes_with_module_variable	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-proc/5_3_1_3_reserved_word_as_procedure_name_is_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_3_1_5_any_in_non_external_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_3_1_5_byval_array_parameter_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-proc/5_3_1_5_duplicate_parameter_names_invalid	engine-only	expects a compile error (needs a modal dialog in a real host)
