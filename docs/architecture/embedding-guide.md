@@ -930,6 +930,149 @@ Expected values in the stand-in tests are reasoned from VBA semantics; messages
 and numbers that imitate a familiar product are marked unverified there. The
 stand-in does not claim compatibility with any real product.
 
+## 14. Editor services: debugger, Immediate window, hot edits
+
+An application with a code window, an Immediate window, Locals/Watch,
+breakpoints and stepping needs a few services of the interpreter. All are
+opt-in; an instance that never uses them runs exactly as before, with the same
+results and the same step counts (the corpus step digest is unchanged). A
+runnable walk-through is `examples/editor_session.rs`.
+
+### Output and `Stop`
+
+`Debug.Print` text goes to the instance buffer (`Instance::output`,
+`Outcome::output`) and, with `Engine::debug_sink`, also to a sink of your own
+(`vba::DebugSink`, one per instance). `Stop` and a failed `Debug.Assert`
+**halt the run** with `RunStatus::Stopped` when no debugger is attached (a
+documented choice of this implementation; the reason is
+`session().vm().stop_reason()`); a true assertion has no effect. With a
+debugger attached they pause (below) and the program continues when the hook
+returns `Continue`.
+
+### Source locations
+
+`Erl` and the line-number labels, and the error stack with module, procedure,
+`Erl` and source line for every frame (`Error::report().frames`), are described
+in section 7. VBA has no `Err.Line`; the location of a failure is `Erl`
+(when the procedure uses line-number labels) or the source line vba-rs
+computes. Positions map back to the module text as given to the engine: one
+line number per statement, 1-based. `Instance::breakable_lines(module)` lists
+the lines that hold a statement; the line of a procedure header and lines of
+declarations are not breakable.
+
+### Debugger
+
+```rust
+use vba::{DebugContext, Engine, Project, ResumeAction};
+
+let project = Project::from_source(
+    "Module1",
+    "Public Function Sum(ByVal n As Long) As Long\n  Dim i As Long, total As Long\n  For i = 1 To n\n    total = total + i\n  Next i\n  Sum = total\nEnd Function\n",
+);
+let mut inst = Engine::new().load(&project)?;
+inst.trust();
+let placed = inst.set_breakpoints(&[("Module1", 4)]); // (module, line)
+assert_eq!(placed[0].line, Some(4));                  // or the next line with code
+inst.attach_debugger(|ctx: &mut DebugContext<'_>| {
+    let top = &ctx.frames()[0];                        // innermost first
+    let i = ctx.locals(0).into_iter().find(|v| v.name == "i").unwrap();
+    println!("{}.{} line {}: i = {:?} ({})", top.module, top.procedure, top.line, i.value, i.type_name);
+    ResumeAction::Continue                             // StepInto / StepOver / StepOut / Abort
+});
+inst.run("Sum", vec![3.into()])?;
+# Ok::<(), vba::Error>(())
+```
+
+* The callback runs **on the interpreter's thread, inside the run**; it
+  returns the action to take. A synchronous host (a modal debugger window, a
+  nested event loop) simply blocks in the callback. Nothing else runs on that
+  instance meanwhile (it is borrowed by the running call).
+* Pauses happen at line events: the first statement of a line that differs
+  from the previous statement's line in the same frame (`a = 1: b = 2` pauses
+  once). Reasons: `Breakpoint`, `Step`, `Stop`, `AssertFailed`. Code of module
+  initialisers and code run by `eval` never pauses. Stepping state is reset at
+  the start of every call; `Instance::break_on_next_statement` makes the next
+  call pause at its first statement.
+* `DebugContext` gives the frames (module, procedure, kind, source line, `Erl`),
+  `locals(frame)` (parameters, the function-result slot, locals and `Static`
+  locals with their declared type names and `Variant` values),
+  `module_variables(module)`, `me(frame)` (the object and its fields) and
+  `describe(&value)` (class name of an object value). Objects are plain
+  `Variant::Object` handles valid while paused; the host decides how to show them.
+  Omitted `Optional` arguments read as the "missing" error value.
+* `Abort` ends the run with `Error::Run(Cancelled)`, which `On Error` cannot
+  catch. The cancel token cannot interrupt a callback that blocks: make the
+  callback return `Abort` when the host wants to stop.
+* **Budgets.** Pausing charges no steps and so never changes step accounting.
+  The wall-clock allowance of the call (`Engine::call_timeout`,
+  `CallLimits::timeout`) is measured on a clock that stops while the callback
+  runs (`Budget::suspend_deadline`), so time spent at a breakpoint does not
+  burn the timeout; time running code uses still does. Step, memory and depth
+  limits are unaffected and apply to code a callback runs through `eval`.
+
+### Immediate window: `Instance::eval`
+
+`inst.eval("? expr", EvalScope::Module("Module1"))` evaluates an expression;
+any other text is a list of statements separated by `:` (`Total = 0`,
+`Call Reset`, `Debug.Print Total`). One line only. In the module scope the
+module's own names are visible unqualified, private ones included (for a
+standard module: variables, constants, procedures, types; for a class-like
+module: constants and types). From the pause callback `ctx.eval(frame, text)`
+also sees the frame's parameters and locals; `x = 5` assigns a plain local
+(converted to its declared type; the write is reported when it does not fit).
+Objects, user-defined types and `Static` locals are visible by value:
+members can be read and called, `Set o = ...` does not rebind the frame's
+variable. In a class frame `Me` is the object (late bound, public members).
+
+* The text is compiled with the project as an extra module and run on the live
+  state; it is an ordinary call: **trust is required** (`NotTrusted`
+  otherwise), the capabilities of the host policy, the step and memory budgets
+  and the call timeout apply, a denied capability is error 70. The compiled
+  program must be the running program plus that one module, or it is refused,
+  so the text cannot declare procedures, variables, types or `Declare`s.
+* Errors do not end a paused run and do not touch `Err`: a VBA error is an
+  `Err(Error::Run(..))` whose `Error::immediate_message()` reads
+  `Run-time error '11': Division by zero`; compile problems carry the
+  diagnostics. A fatal fault (a limit, cancellation) ends the run as usual.
+* `EvalResult::text` is the value rendered like `Debug.Print` writes it
+  (numbers carry the sign space and trailing space). Whether the real
+  Immediate window renders `? 3` identically is not verified.
+* The whole project is analysed again per evaluation (cost of a load, bounded
+  by the host's source and node limits).
+
+### Hot edit: `Instance::apply_edits`
+
+`ModuleEdit::{Replace, Add, Remove}` are checked together; nothing changes
+when the new program does not compile (the `Load` error carries the
+diagnostics), a limit is hit or a call is running. State policy:
+
+1. Identical text: no recompile, nothing changes (`EditReport::unchanged`).
+2. Same declarations (only bodies, comments, constant values changed): all
+   state is kept, including class instances and default instances, `Err`, open
+   files; breakpoints are resolved again by `(module, line)`.
+3. Different declarations: a module-level variable of a standard module (and
+   a `Static` local) keeps its value if the same module still declares a
+   variable of that name and declared type and the value is plain data;
+   others return to their initial value. Every object owned by the interpreter
+   is dropped **without** `Class_Terminate` (as `reset` does), their host
+   references released, handles of instances from `create_object` become
+   invalid. `EditReport::state` lists what was kept and reset.
+4. Trust and budgets are untouched: edited code runs with the trust given to
+   the old code. Edits during a pause are not offered (the instance is borrowed
+   by the running call); stop the run, edit, run again. There is no
+   edit-and-continue.
+
+### Run Macro
+
+`Instance::run("Module.Proc", args)` / `call(CallTarget::Project, ..)` is the
+`Application.Run`-style entry: `Module.Proc` or a bare `Proc` of a standard
+module (ambiguous names are an error), case-insensitive, public `Sub`s and
+`Function`s; procedures of a class-like module only when it has a default
+instance. `Project.Module.Proc` is not accepted. `callable_procedures()` lists
+what the dialog can offer with parameters, `requires_arguments` and whether the
+bare name is unique. Whether real `Application.Run` agrees in every corner
+(optional arguments, class modules) is unverified.
+
 ## Phased integration
 
 A suggested order for an embedding application (a database application with

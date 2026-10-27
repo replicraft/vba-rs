@@ -107,6 +107,48 @@ session with a trust gate (see `docs/runtime/runtime.md`).
   nested runs use, `max_native_stack_bytes` (1 MiB); beyond either the run ends
   with a call-depth limit error.
 
+## Debugger, evaluation and program replacement
+
+Opt-in services for an editor (facade: `docs/architecture/embedding-guide.md`,
+section 13). With none of them in use the interpreter does one `Option` test where
+a statement begins and nothing else: step counts and results of every corpus
+program are identical (`VBA_STEP_DIGEST` of `tests/determinism.rs`, before and after).
+
+* **`Stop`** is the instruction `InstKind::Stop` (it used to end the block as a
+  terminator; the terminator variant remains for hand-built IR). Without a hook
+  it halts the run (`Fault::Stop`, `RunStatus::Stopped`) at the same step cost
+  as before; with a hook it pauses and continues. A failed `Debug.Assert` does
+  the same.
+* **Hook** (`debug.rs`): `Vm::set_debug_hook`, `set_breakpoints`,
+  `breakable_lines`, `request_step`. A *line event* is the first instruction of a
+  statement whose `(frame depth, function, source line)` differs from the last one
+  seen; breakpoints are `(function, line)` pairs resolved from `(module, line)`
+  with the per-function line ranges (`set_procedure_lines`) and per-statement lines
+  (`set_source_lines`); the header line of a procedure and module initialisers do
+  not pause. `StepOver` pauses at depth `<=` and `StepOut` at depth `<` the
+  depth of the pause. The callback runs with the deadline clock of the
+  budget stopped (`Budget::suspend_deadline`) and may call `DebugContext::eval`.
+  `Abort` is a `Fault::Cancelled`.
+* **Eval** (`eval.rs`): an `EvalCompiler` (supplied by `vba-runtime`) builds the
+  running program plus the module `VbaRsImmediate` (last) with the procedure
+  `Evaluate`, whose parameters carry the frame's plain locals (`ByRef`, written
+  back, converted to the declared type), other locals and `zzMe` (`Me`) by
+  value. `vba-sema`'s `Options::friend` makes that module resolve names in a
+  target module, private ones included. The VM checks that every id of the running
+  program is unchanged (modules, procedures, variables, types) and that nothing but
+  that one procedure was added, swaps the program in, runs it as a nested run
+  (frames of a paused run survive; a fatal fault is re-raised in the outer run),
+  and swaps back. `Err` is restored when the text fails.
+* **Program replacement** (`hotswap.rs`): `Vm::replace_program` on an idle VM.
+  `same_layout` compares declarations ignoring bodies; equal: swap, nothing else
+  touched. Different: carry plain module variables by (module, name, declared type),
+  drop objects and user-defined-type values without `Class_Terminate`, run
+  standard-module initialisers, keep `Err`, files and the random generator.
+  Frames are never remapped, hence idle only.
+
+Not verified against Office: where the real debugger breaks (line versus statement
+granularity) and whether `Stop`/`Debug.Assert` pause points match; this is our reading.
+
 ## Embedder calls
 
 `run_procedure` / `run_method` take `Arg::Value`, `Arg::Missing` and `Arg::ByRef`.

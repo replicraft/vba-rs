@@ -96,6 +96,10 @@ entry that made it:
   (`crates/api/vba-rs/tests/db_host/`) and the "Known limits" and section 13 of the embedding
   guide.
 
+- `vba`: editor services for an embedding application: `attach_debugger` (breakpoints by module and line, step into/over/out, `DebugContext` with frames, locals, module variables and `Me`), `Instance::eval` (Immediate window, also in a paused frame), `apply_edits` (hot edit with a documented state policy), `callable_procedures`, `Engine::debug_sink`. All opt-in; step accounting is unchanged when unused.
+- `vba-host`: `Budget::suspend_deadline` stops the wall-clock deadline clock while a host waits for a person.
+- `vba-sema`: `Options::friend`.
+- `vba-ir`: `Stop` is an instruction (`InstKind::Stop`) so a debugger can continue after it.
 - `vbars`: every file argument accepts `-` for standard input.
 - `vbars`: `--json` for `check`, `parse`, `fmt-check` and `profiles` (schema version 1).
 - `vbars`: `--color auto|always|never`; colors are used only on a terminal and never when
