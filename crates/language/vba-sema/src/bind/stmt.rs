@@ -661,12 +661,14 @@ impl Binder<'_, '_> {
         // (MS-VBAL 5.4.3.8: let-assignment uses the default member).
         let default_name = match &pty {
             Type::Class(m) => self.sema.program.modules[m.index()].default_member.clone(),
-            // `rs!Name = v` on a library type: the provider names the
-            // default member.
+            // `rs.Fields("a") = v` on a library type: the provider names
+            // the default member, which must be callable without
+            // arguments (`c = x` for a `Collection` stays an error).
             Type::Library(lt) => self
                 .sema
                 .provider
                 .default_member(lt)
+                .filter(|m| m.params.iter().all(|p| p.optional || p.param_array))
                 .map(|m| vba_ast::Name::new(&m.name)),
             _ => None,
         };
