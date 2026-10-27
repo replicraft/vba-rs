@@ -9,7 +9,7 @@
 //! anything, and runs it under the session's step, depth and stack budgets.
 //!
 //! The emulated window list and timer table that the enumeration and timer
-//! shims work on live in the [`CallContext`](crate::CallContext), so they are
+//! shims work on live in the [`CallContext`], so they are
 //! empty unless the embedding application fills them.
 
 use crate::CallContext;

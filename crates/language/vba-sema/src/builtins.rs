@@ -6,7 +6,7 @@
 //! Provenance: names and values follow the documented VBA constants
 //! (`vbCrLf`, `vbBinaryCompare`, `vbYes`, `VarType` constants, ...). Only
 //! the commonly used subset is listed; names outside it resolve through the
-//! injected [`TypeProvider`](crate::TypeProvider) or are reported.
+//! injected [`TypeProvider`] or are reported.
 
 use vba_value::{Variant, VbaString};
 

@@ -4,7 +4,7 @@
 //! the request and reports [`NativeCallError::Unavailable`]; it never loads
 //! anything and the crate contains no reachable `unsafe` code.
 //!
-//! With the feature, [`call_prepared`] (and [`call_native`] for declarations
+//! With the feature, `call_prepared` (and [`call_native`] for declarations
 //! whose parameters are all `ByVal` scalars) really loads the library
 //! (`libloading`) and performs the call (`libffi`):
 //!
@@ -165,7 +165,7 @@ pub fn host_target() -> Target {
 ///
 /// Without the `native-call` feature this is always an error (see module
 /// docs). With it, declarations that take memory arguments are refused here
-/// and must go through [`call_prepared`].
+/// and must go through `call_prepared`.
 pub fn call_native(
     permission: &NativePermission,
     decl: &ValidatedDeclare,
