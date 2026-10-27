@@ -8,7 +8,7 @@ use vba_value::VarType;
 
 use crate::bound::{BArg, BExpr, BExprKind, BLate, CallTarget, Constant, LateKind, LateMember};
 use crate::codes;
-use crate::program::{DeclareInfo, EventInfo, ProcInfo};
+use crate::program::{DeclareInfo, EventInfo, LocalInfo, LocalKind, ProcInfo};
 use crate::provider::LibMember;
 use crate::types::*;
 
@@ -688,8 +688,28 @@ impl Binder<'_, '_> {
                 return BArg::Ref(place);
             }
             if *pty == Type::Variant {
-                // A Variant parameter receives a converted temporary.
-                return BArg::Value(self.coerce(be, pty, Ctx::Arg));
+                // A Variant parameter receives a converted copy; the variable
+                // is assigned from it when the call returns.
+                let value = self.coerce(be.clone(), pty, Ctx::Arg);
+                if value.ty.is_error() || be.ty.is_error() {
+                    return BArg::Value(value);
+                }
+                let temp = self.new_local(LocalInfo {
+                    name: vba_ast::Name::new(""),
+                    ty: Type::Variant,
+                    kind: LocalKind::Temp,
+                    fixed_bounds: None,
+                    auto_new: false,
+                    span: be.span,
+                });
+                let read = BExpr::new(be.span, Type::Variant, BExprKind::Local(temp));
+                let back = self.coerce(read, &be.ty, Ctx::Let);
+                return BArg::RefCopy(Box::new(crate::bound::BRefCopy {
+                    place,
+                    temp,
+                    value,
+                    back,
+                }));
             }
             self.err(
                 codes::BYREF_MISMATCH,

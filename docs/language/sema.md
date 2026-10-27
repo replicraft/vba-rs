@@ -79,9 +79,13 @@ runtime index), class with `Attribute x.VB_UserMemId = 0` (default member),
 library type (provider default member). Argument matching supports
 positional, named, skipped optional, `Optional` and `ParamArray`; `ByRef`
 arguments pass variables, elements and fields by reference and make a
-temporary for expressions, parenthesised values and type-converted copies
-(`Variant` parameters). `SEM026` is the `ByRef argument type mismatch`
-error.
+temporary for expressions and parenthesised values. A variable of another
+declared type passed to a `ByRef Variant` parameter is bound copy-in/copy-out
+(`BArg::RefCopy`): the callee works on a hidden `Variant` copy and the variable
+is assigned from it, converted to its declared type (error 13 if it does not
+fit), when the call returns normally. Deviation: the variable is not updated
+while the callee runs, nor when the callee ends with an error. `SEM026` is the
+`ByRef argument type mismatch` error.
 
 Assignment: `Let` of an object variable needs `Set` (`SEM007`); an object on
 the right of `Let` yields its default member (`rvalue`); `Set` needs object

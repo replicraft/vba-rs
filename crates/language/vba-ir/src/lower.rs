@@ -292,6 +292,9 @@ struct Builder<'p> {
     count: u64,
     /// Instructions this function may emit (the budget that is left).
     cap: u64,
+    /// Copy-out assignments of `ByRef Variant` arguments, emitted after the
+    /// call that collected them.
+    writebacks: Vec<(BPlace, LocalId, BExpr)>,
 }
 
 impl<'p> Builder<'p> {
@@ -309,6 +312,7 @@ impl<'p> Builder<'p> {
             cur_span: Span::empty(0),
             label_blocks: HashMap::new(),
             loops: Vec::new(),
+            writebacks: Vec::new(),
             loop_witnesses: Vec::new(),
             line: None,
             count: 0,
@@ -777,11 +781,13 @@ impl<'p> Builder<'p> {
             }
             BStmtKind::Io(io) => self.lower_io(io)?,
             BStmtKind::RaiseEvent { event, args } => {
+                let mark = self.writebacks.len();
                 let args = self.lower_args(args)?;
                 self.emit(InstKind::RaiseEvent {
                     event: *event,
                     args,
                 });
+                self.flush_writebacks(mark)?;
             }
             BStmtKind::DebugPrint(items) => {
                 let items = self.lower_out(items)?;
@@ -1312,6 +1318,7 @@ impl<'p> Builder<'p> {
                     Some(r) => Some(self.lower_expr(r)?),
                     None => None,
                 };
+                let mark = self.writebacks.len();
                 let mut args = self.lower_args(&call.args)?;
                 args.push(CallArg::Val(v));
                 self.emit(InstKind::Call {
@@ -1320,6 +1327,7 @@ impl<'p> Builder<'p> {
                     receiver: recv,
                     args,
                 });
+                self.flush_writebacks(mark)?;
             }
             BPlace::Late {
                 late,
@@ -1424,10 +1432,39 @@ impl<'p> Builder<'p> {
                     self.ensure_new_ref(p, r);
                     CallArg::Ref(r)
                 }
+                BArg::RefCopy(rc) => {
+                    let v = self.lower_expr(&rc.value)?;
+                    self.store(&BPlace::Local(rc.temp), v, StoreMode::Let)?;
+                    let r = self.reg(Type::Variant);
+                    self.emit(InstKind::MakeRef {
+                        dst: r,
+                        place: RefPlace::Local(rc.temp),
+                    });
+                    self.writebacks
+                        .push((rc.place.clone(), rc.temp, rc.back.clone()));
+                    CallArg::Ref(r)
+                }
                 BArg::Missing => CallArg::Missing,
             });
         }
         Ok(out)
+    }
+
+    /// Assigns the variables behind the `ByRef Variant` arguments collected
+    /// since `mark` from their copies, after a normal return.
+    fn flush_writebacks(&mut self, mark: usize) -> Result<(), LowerError> {
+        while self.writebacks.len() > mark {
+            let (place, temp, back) = self.writebacks.remove(mark);
+            let v = self.lower_expr(&back)?;
+            self.store(&place, v, StoreMode::Let)?;
+            // Release what the copy still holds (objects, arrays).
+            self.store(
+                &BPlace::Local(temp),
+                Operand::Const(Constant::Value(vba_value::Variant::Empty)),
+                StoreMode::Let,
+            )?;
+        }
+        Ok(())
     }
 
     /// Passing an `As New` variable by reference instantiates it first, as
@@ -1502,6 +1539,8 @@ impl<'p> Builder<'p> {
             let arg = match &a.arg {
                 BArg::Value(e) => CallArg::Val(self.lower_expr(e)?),
                 BArg::Ref(p) => CallArg::Ref(self.place_ref(p)?),
+                // Late-bound arguments never carry a copy-out binding.
+                BArg::RefCopy(rc) => CallArg::Val(self.lower_expr(&rc.value)?),
                 BArg::Missing => CallArg::Missing,
             };
             out.push(LateArg {
@@ -1532,6 +1571,7 @@ impl<'p> Builder<'p> {
             Some(r) => Some(self.lower_expr(r)?),
             None => None,
         };
+        let mark = self.writebacks.len();
         let args = self.lower_args(&c.args)?;
         let dst = want.then(|| self.reg(ty.clone()));
         self.emit(InstKind::Call {
@@ -1540,6 +1580,7 @@ impl<'p> Builder<'p> {
             receiver: recv,
             args,
         });
+        self.flush_writebacks(mark)?;
         Ok(dst)
     }
 

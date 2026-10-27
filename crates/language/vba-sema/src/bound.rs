@@ -177,8 +177,25 @@ pub enum BArg {
     Value(BExpr),
     /// Passed by reference to a variable, element or field.
     Ref(BPlace),
+    /// A variable of another type passed to a `ByRef Variant` parameter
+    /// (MS-VBAL 5.3.1.11): the callee works on a `Variant` copy that is
+    /// converted back into the variable when the call returns.
+    RefCopy(Box<BRefCopy>),
     /// An omitted `Optional` argument.
     Missing,
+}
+
+/// The copy-in/copy-out binding of a [`BArg::RefCopy`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct BRefCopy {
+    /// The variable, element or field passed.
+    pub place: BPlace,
+    /// The hidden `Variant` local that carries the copy.
+    pub temp: LocalId,
+    /// The variable's value converted to `Variant`.
+    pub value: BExpr,
+    /// The temporary converted back to the variable's type.
+    pub back: BExpr,
 }
 
 /// The member a late-bound access names.

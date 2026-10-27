@@ -1,6 +1,6 @@
 ' INV: vbal.5.3.1.11, decl.byref-byval
 ' SOURCE: spec ms-vbal 5.3.1.11 ByRef Object parameter with differently typed class variable: local copy, set back on normal return
-' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: ByRef arguments of a different declared type are rejected or copied
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: a ByRef Object parameter given a variable of a specific class is rejected (SEM026 ByRef argument type mismatch, as VBA reports at compile time); only ByRef Variant parameters take a copy
 ' EXPECT: inside-still-nothing=True
 ' EXPECT: after=1
 Dim c As Collection

@@ -249,14 +249,15 @@ fn byref_and_byval_arguments() {
         .collect();
     assert_eq!(calls.len(), 3);
     // P x, x, x: ByRef Long gets the variable itself, ByVal a value, the
-    // Variant parameter a Ref (same type is not required for Variant: a
-    // Long variable is passed as a converted copy).
+    // Variant parameter a copy-in/copy-out binding (a Long variable is not a
+    // Variant location).
     assert!(matches!(calls[0].args[0], BArg::Ref(BPlace::Local(_))));
     assert!(matches!(calls[0].args[1], BArg::Value(_)));
-    assert!(matches!(calls[0].args[2], BArg::Value(_)));
+    assert!(matches!(calls[0].args[2], BArg::RefCopy(_)));
     assert!(matches!(calls[0].args[3], BArg::Missing));
-    // Array element by reference; Integer to Variant ByRef is a copy.
+    // Array element by reference; Integer to Variant ByRef is copied in and out.
     assert!(matches!(calls[1].args[0], BArg::Ref(BPlace::Index { .. })));
+    assert!(matches!(calls[1].args[2], BArg::RefCopy(_)));
     // Parenthesised argument is by value.
     assert!(matches!(calls[2].args[0], BArg::Value(_)));
 }
