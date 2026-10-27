@@ -18,8 +18,7 @@ use crate::error::LowerError;
 use vba_pcode::ProcKind;
 
 use crate::model::{
-    CompareStored, DeclScope, ModuleModel, ProcModel, local_spelling, returns_value, scalar_type,
-    type_spelling,
+    CompareStored, DeclScope, ModuleModel, ProcModel, local_spelling, returns_value,
 };
 
 /// The analysed shell.
@@ -30,13 +29,22 @@ pub(crate) struct Shell {
     pub proc_ids: Vec<Vec<Option<ProcId>>>,
 }
 
+/// What a byte range of a stub text was generated from.
+#[derive(Debug, Clone, Copy)]
+enum Origin {
+    Proc(usize),
+    Decl(usize),
+    Type(usize),
+}
+
 struct Stub {
     text: String,
-    /// `(start, end, proc index)` byte ranges.
-    ranges: Vec<(usize, usize, usize)>,
+    /// `(start, end, origin)` byte ranges.
+    ranges: Vec<(usize, usize, Origin)>,
 }
 
 fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
+    let mut ranges = Vec::new();
     let mut text = String::new();
     if m.explicit {
         text.push_str("Option Explicit\n");
@@ -46,17 +54,46 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
         CompareStored::Text => text.push_str("Option Compare Text\n"),
         CompareStored::Database => text.push_str("Option Compare Database\n"),
     }
-    for d in &m.decls {
+    for (ti, t) in m.types.iter().enumerate() {
+        if t.problem.is_some() {
+            continue;
+        }
+        let tstart = text.len();
+        let scope = if t.public { "Public" } else { "Private" };
+        if t.is_enum {
+            let _ = writeln!(text, "{scope} Enum {}", t.name);
+            for (n, v) in &t.members {
+                match v {
+                    Some(v) => {
+                        let _ = writeln!(text, "    {n} = {v}");
+                    }
+                    None => {
+                        let _ = writeln!(text, "    {n}");
+                    }
+                }
+            }
+            text.push_str("End Enum\n");
+        } else {
+            let _ = writeln!(text, "{scope} Type {}", t.name);
+            for (n, ty) in &t.fields {
+                let _ = writeln!(text, "    {n} As {}", ty.spelling());
+            }
+            text.push_str("End Type\n");
+        }
+        ranges.push((tstart, text.len(), Origin::Type(ti)));
+    }
+    for (di, d) in m.decls.iter().enumerate() {
         if d.problem.is_some() {
             continue;
         }
+        let dstart = text.len();
         let scope = match d.scope {
             DeclScope::Public => "Public",
             DeclScope::Private => "Private",
         };
         let as_clause =
             d.ty.as_ref()
-                .map_or_else(String::new, |t| format!(" As {}", type_spelling(t)));
+                .map_or_else(String::new, |t| format!(" As {}", t.spelling()));
         if d.is_const {
             let _ = writeln!(
                 text,
@@ -67,8 +104,8 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
         } else {
             let _ = writeln!(text, "{scope} {}{as_clause}", d.name);
         }
+        ranges.push((dstart, text.len(), Origin::Decl(di)));
     }
-    let mut ranges = Vec::new();
     for (i, p) in m.procs.iter().enumerate() {
         if !include[i] {
             continue;
@@ -77,6 +114,7 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
         let (kw, end_kw) = match p.info.kind {
             ProcKind::PropertyGet => ("Property Get", "Property"),
             ProcKind::PropertyLet => ("Property Let", "Property"),
+            ProcKind::PropertySet => ("Property Set", "Property"),
             _ if p.info.is_function => ("Function", "Function"),
             _ => ("Sub", "Sub"),
         };
@@ -85,14 +123,17 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
             if k > 0 {
                 text.push_str(", ");
             }
-            let ty = scalar_type(&a.ty).unwrap_or(vba_sema::Type::Variant);
+            let ty = p
+                .arg_tys
+                .get(k)
+                .map_or_else(|| "Variant".to_owned(), |t| t.spelling());
             let _ = write!(
                 text,
                 "{}{} {} As {}",
                 if a.optional { "Optional " } else { "" },
                 if a.by_val { "ByVal" } else { "ByRef" },
                 local_spelling(&a.name).unwrap_or_else(|| "_".into()),
-                type_spelling(&ty)
+                ty
             );
             if let Some(Some(d)) = p.defaults.get(k) {
                 let _ = write!(text, " = {d}");
@@ -100,15 +141,18 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
         }
         text.push(')');
         if returns_value(&p.info) {
-            let ty = scalar_type(&p.info.return_type).unwrap_or(vba_sema::Type::Variant);
-            let _ = write!(text, " As {}", type_spelling(&ty));
+            let ty = p
+                .ret_ty
+                .as_ref()
+                .map_or_else(|| "Variant".to_owned(), |t| t.spelling());
+            let _ = write!(text, " As {ty}");
         }
         text.push('\n');
         for l in &p.locals {
-            let _ = writeln!(text, "Dim {} As {}", l.name, type_spelling(&l.ty));
+            let _ = writeln!(text, "Dim {} As {}", l.name, l.ty.spelling());
         }
         let _ = writeln!(text, "End {end_kw}");
-        ranges.push((start, text.len(), i));
+        ranges.push((start, text.len(), Origin::Proc(i)));
     }
     Stub { text, ranges }
 }
@@ -119,6 +163,7 @@ fn find_proc(program: &vba_sema::Program, module: &str, p: &ProcModel) -> Option
     let want = match p.info.kind {
         ProcKind::PropertyGet => vba_ast::ProcKind::PropertyGet,
         ProcKind::PropertyLet => vba_ast::ProcKind::PropertyLet,
+        ProcKind::PropertySet => vba_ast::ProcKind::PropertySet,
         _ if p.info.is_function => vba_ast::ProcKind::Function,
         _ => vba_ast::ProcKind::Sub,
     };
@@ -135,11 +180,11 @@ fn find_proc(program: &vba_sema::Program, module: &str, p: &ProcModel) -> Option
 /// dropping procedures whose stub the analysis rejects (they are reported by
 /// clearing their flag).
 pub(crate) fn build_shell(
-    models: &[ModuleModel],
+    models: &mut [ModuleModel],
     include: &mut [Vec<bool>],
 ) -> Result<Shell, LowerError> {
     let module_list: Vec<usize> = (0..models.len()).collect();
-    for _round in 0..16 {
+    for _round in 0..64 {
         let stubs: Vec<Stub> = module_list
             .iter()
             .map(|&i| stub_of(&models[i], &include[i]))
@@ -196,9 +241,25 @@ pub(crate) fn build_shell(
                 .find(|(s, e, _)| off >= *s && off < *e)
                 .map(|r| r.2);
             match hit {
-                Some(pi) => {
+                Some(Origin::Proc(pi)) => {
                     changed |= include[mi][pi];
                     include[mi][pi] = false;
+                }
+                Some(Origin::Decl(di)) => {
+                    let decl = &mut models[mi].decls[di];
+                    if decl.problem.is_none() {
+                        decl.problem =
+                            Some("rejected by the analysis of the generated declarations".into());
+                        changed = true;
+                    }
+                }
+                Some(Origin::Type(ti)) => {
+                    let t = &mut models[mi].types[ti];
+                    if t.problem.is_none() {
+                        t.problem =
+                            Some("rejected by the analysis of the generated declarations".into());
+                        changed = true;
+                    }
                 }
                 None => {
                     for f in &mut include[mi] {
@@ -209,9 +270,14 @@ pub(crate) fn build_shell(
             }
         }
         if !changed {
-            return Err(LowerError::Shell(
-                "the generated declarations do not analyse".into(),
-            ));
+            return Err(LowerError::Shell(format!(
+                "the generated declarations do not analyse: {}",
+                analysis
+                    .diagnostics
+                    .iter()
+                    .find(|d| d.severity == vba_diagnostics::Severity::Error)
+                    .map_or("", |d| d.message.as_str())
+            )));
         }
     }
     Err(LowerError::Shell(

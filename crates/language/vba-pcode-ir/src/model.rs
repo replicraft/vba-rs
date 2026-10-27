@@ -24,7 +24,129 @@ pub(crate) enum CompareStored {
 #[derive(Debug, Clone)]
 pub(crate) struct LocalDecl {
     pub name: String,
-    pub ty: vba_sema::Type,
+    pub ty: TyRef,
+}
+
+/// A type as the shell declares it: a plain scalar, the generic `Object`, or
+/// a named type of the project (a class module, an `Enum`, a `Type`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TyRef {
+    Scalar(vba_sema::Type),
+    Object,
+    Class(String),
+    Enum(String),
+    Udt(String),
+}
+
+impl TyRef {
+    /// The VBA spelling in a generated `As` clause.
+    pub fn spelling(&self) -> String {
+        match self {
+            TyRef::Scalar(t) => type_spelling(t).to_owned(),
+            TyRef::Object => "Object".to_owned(),
+            TyRef::Class(n) | TyRef::Enum(n) | TyRef::Udt(n) => n.clone(),
+        }
+    }
+}
+
+/// What a type name of the project stands for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TyKind {
+    Enum,
+    Udt,
+}
+
+/// A `Type` or `Enum` declared at module level.
+#[derive(Debug, Clone)]
+pub(crate) struct TypeDef {
+    pub name: String,
+    pub public: bool,
+    pub is_enum: bool,
+    pub start_line: usize,
+    pub end_line: usize,
+    /// Enum members, with the VBA text of an explicit value.
+    pub members: Vec<(String, Option<String>)>,
+    /// Fields of a `Type`, as stored.
+    pub raw_fields: Vec<(String, ResolvedType)>,
+    /// Fields of a `Type` once their types resolved.
+    pub fields: Vec<(String, TyRef)>,
+    /// Why the definition cannot be generated.
+    pub problem: Option<String>,
+}
+
+/// The type names of the project, for resolving `Named` types.
+#[derive(Debug, Default)]
+pub(crate) struct TypeEnv {
+    /// `[module]`: lower-case name to kind, for the types declared in the
+    /// module and for the module itself when it is class-like (kept apart in
+    /// `classes`).
+    pub own: Vec<std::collections::HashMap<String, (TyKind, String)>>,
+    /// Public types of all modules.
+    pub public: std::collections::HashMap<String, (TyKind, String)>,
+    /// Class-like modules by lower-case name.
+    pub classes: std::collections::HashMap<String, String>,
+}
+
+impl TypeEnv {
+    pub fn build(models: &[ModuleModel]) -> Self {
+        let mut env = TypeEnv::default();
+        for m in models {
+            let mut own = std::collections::HashMap::new();
+            for t in &m.types {
+                if t.problem.is_some() {
+                    continue;
+                }
+                let k = if t.is_enum { TyKind::Enum } else { TyKind::Udt };
+                let key = t.name.to_ascii_lowercase();
+                own.insert(key.clone(), (k, t.name.clone()));
+                if t.public {
+                    env.public.entry(key).or_insert((k, t.name.clone()));
+                }
+            }
+            env.own.push(own);
+            if m.class_like() {
+                env.classes
+                    .insert(m.name.to_ascii_lowercase(), m.name.clone());
+            }
+        }
+        env
+    }
+
+    /// Resolves a stored type of module `module`.
+    pub fn resolve(&self, t: &ResolvedType, module: usize) -> Result<TyRef, String> {
+        if let Some(s) = scalar_type(t) {
+            return Ok(TyRef::Scalar(s));
+        }
+        match t {
+            ResolvedType::Intrinsic(id) => {
+                if id.flags == 0 && id.intrinsic.name() == Some("Object") {
+                    Ok(TyRef::Object)
+                } else {
+                    Err("array, pointer or unlisted intrinsic type".to_owned())
+                }
+            }
+            ResolvedType::Named(n) => {
+                let Some(name) = n.spelling() else {
+                    return Err("type name does not resolve".to_owned());
+                };
+                let key = name.to_ascii_lowercase();
+                if let Some((k, canon)) =
+                    self.own[module].get(&key).or_else(|| self.public.get(&key))
+                {
+                    return Ok(match k {
+                        TyKind::Enum => TyRef::Enum(canon.clone()),
+                        TyKind::Udt => TyRef::Udt(canon.clone()),
+                    });
+                }
+                if let Some(canon) = self.classes.get(&key) {
+                    return Ok(TyRef::Class(canon.clone()));
+                }
+                Err(format!("library or unresolved type `{name}`"))
+            }
+            ResolvedType::Unknown(_) => Err("library-qualified type".to_owned()),
+            ResolvedType::None => Ok(TyRef::Scalar(vba_sema::Type::Variant)),
+        }
+    }
 }
 
 /// One decoded procedure.
@@ -41,6 +163,9 @@ pub(crate) struct ProcModel {
     /// Why the procedure cannot even get a signature in the shell.
     pub signature_problem: Option<Unsupported>,
     pub locals: Vec<LocalDecl>,
+    /// Types of the parameters and of the result, once resolved.
+    pub arg_tys: Vec<TyRef>,
+    pub ret_ty: Option<TyRef>,
     /// Default values of the arguments (VBA spelling), aligned with
     /// `info.args`; `None` for arguments without one.
     pub defaults: Vec<Option<String>>,
@@ -63,12 +188,14 @@ pub(crate) struct ModuleDecl {
     pub is_const: bool,
     /// Declared scalar type; `None` for a constant without an `As` clause
     /// (the type then follows from the value).
-    pub ty: Option<vba_sema::Type>,
+    pub ty: Option<TyRef>,
+    /// The stored type, resolved once the type names of the project are known.
+    pub raw_ty: ResolvedType,
     /// VBA text of the value of a constant.
     pub value: Option<String>,
     /// Why the declaration cannot be generated (it is then left out of the
     /// shell, and names that refer to it do not resolve).
-    pub problem: Option<&'static str>,
+    pub problem: Option<String>,
 }
 
 /// One decoded module.
@@ -81,6 +208,7 @@ pub(crate) struct ModuleModel {
     /// modules) members of the host.
     pub explicit: bool,
     pub decls: Vec<ModuleDecl>,
+    pub types: Vec<TypeDef>,
     pub procs: Vec<ProcModel>,
 }
 
@@ -204,6 +332,7 @@ pub(crate) fn extract_module(
         compare: CompareStored::Binary,
         explicit: false,
         decls: Vec::new(),
+        types: Vec::new(),
         procs: Vec::new(),
     };
     let mut cur: Option<ProcModel> = None;
@@ -218,7 +347,6 @@ pub(crate) fn extract_module(
             if cur.is_some() && is_end(ins.opcode) {
                 if let Some(mut done) = cur.take() {
                     done.end_line = line;
-                    finish_signature(&mut done);
                     model.procs.push(done);
                 }
                 continue;
@@ -279,6 +407,8 @@ pub(crate) fn extract_module(
                         body: Vec::new(),
                         signature_problem: None,
                         locals: Vec::new(),
+                        arg_tys: Vec::new(),
+                        ret_ty: None,
                         defaults: Vec::new(),
                     };
                     match default_values(&p.info, pending.take()) {
@@ -297,13 +427,12 @@ pub(crate) fn extract_module(
                     }
                     if p.info.is_declare {
                         // A `Declare` statement has no body and no end.
-                        finish_signature(&mut p);
                         model.procs.push(p);
                     } else {
                         cur = Some(p);
                     }
                 }
-                _ => decls.feed(line, &ins, &mut model.decls),
+                _ => decls.feed(line, &ins, &mut model.decls, &mut model.types),
             }
         }
         if decode_failed && let Some(p) = &mut cur {
@@ -335,7 +464,7 @@ pub(crate) fn extract_module(
         .collect();
     for d in &mut model.decls {
         if d.problem.is_none() && bad_lines.contains(&d.line) {
-            d.problem = Some("shares a line with a declaration that is not supported");
+            d.problem = Some("shares a line with a declaration that is not supported".into());
         }
     }
     model
@@ -349,25 +478,99 @@ struct DeclScan {
     scope_mod: u8,
     line: usize,
     expr: Vec<Listed>,
+    /// Line on which the open `Type` or `Enum` started.
+    type_start: usize,
 }
 
 impl DeclScan {
-    fn feed(&mut self, line: usize, ins: &Listed, out: &mut Vec<ModuleDecl>) {
+    fn feed(
+        &mut self,
+        line: usize,
+        ins: &Listed,
+        out: &mut Vec<ModuleDecl>,
+        types: &mut Vec<TypeDef>,
+    ) {
         if line != self.line {
             self.line = line;
             self.scope_mod = 0;
             self.expr.clear();
         }
         match ins.opcode {
-            Opcode::TypeDecl => self.in_type = true,
-            Opcode::TypeDeclEnd => self.in_type = false,
+            Opcode::TypeDecl => {
+                self.in_type = true;
+                self.type_start = line;
+                let (name, private) = match ins.operands.first() {
+                    Some(Operand::UserType { name, private }) => {
+                        (name.spelling().map(str::to_owned), *private)
+                    }
+                    _ => (None, true),
+                };
+                types.push(TypeDef {
+                    name: name.clone().unwrap_or_default(),
+                    public: !private,
+                    is_enum: ins.modifier & 2 != 0,
+                    members: Vec::new(),
+                    raw_fields: Vec::new(),
+                    fields: Vec::new(),
+                    problem: name.is_none().then(|| "type name does not resolve".into()),
+                    start_line: line,
+                    end_line: line,
+                });
+            }
+            Opcode::TypeDeclEnd | Opcode::EnumDeclEnd => {
+                self.in_type = false;
+                if let Some(t) = types.last_mut() {
+                    t.end_line = line;
+                    if t.is_enum != (ins.opcode == Opcode::EnumDeclEnd) {
+                        t.problem = Some("Type and Enum markers do not match".into());
+                    }
+                }
+            }
             Opcode::DimMarker | Opcode::DimMarkerImplicit => {
                 self.scope_mod = ins.modifier;
                 self.expr.clear();
             }
             Opcode::VarDecl => {
-                if !self.in_type {
+                if self.in_type {
+                    if let Some(t) = types.last_mut() {
+                        match ins.operands.first() {
+                            Some(Operand::Variable(v)) if !t.is_enum => match v.name.spelling() {
+                                Some(n) if ins.modifier & 0x23 == 1 && !v.is_new => {
+                                    t.raw_fields.push((n.to_owned(), v.ty.clone()));
+                                }
+                                _ => t.problem = Some("field other than a plain one".into()),
+                            },
+                            _ => t.problem = Some("unresolved field".into()),
+                        }
+                    }
+                } else {
                     out.push(self.declaration(line, ins));
+                }
+                self.expr.clear();
+            }
+            Opcode::InvokeSimple if self.in_type => {
+                // An enum member without a value.
+                if let (Some(t), Some(Operand::Name { name, .. })) =
+                    (types.last_mut(), ins.operands.first())
+                {
+                    match name.spelling() {
+                        Some(n) if t.is_enum => t.members.push((n.to_owned(), None)),
+                        _ => t.problem = Some("enum member does not resolve".into()),
+                    }
+                }
+                self.expr.clear();
+            }
+            Opcode::WriteSimple if self.in_type => {
+                // An enum member with a value: the expression, then the name.
+                if let (Some(t), Some(Operand::Name { name, .. })) =
+                    (types.last_mut(), ins.operands.first())
+                {
+                    match (name.spelling(), const_text(&self.expr)) {
+                        (Some(n), Some(v)) if t.is_enum => {
+                            t.members.push((n.to_owned(), Some(v)));
+                        }
+                        _ => t.problem = Some("enum member value is not a literal".into()),
+                    }
                 }
                 self.expr.clear();
             }
@@ -392,36 +595,34 @@ impl DeclScan {
             },
             is_const: ins.modifier & 3 == 2,
             ty: None,
+            raw_ty: ResolvedType::None,
             value: None,
             problem: None,
         };
         let Some(Operand::Variable(v)) = ins.operands.first() else {
-            d.problem = Some("unresolved variable");
+            d.problem = Some("unresolved variable".into());
             return d;
         };
         let Some(n) = v.name.spelling() else {
-            d.problem = Some("name does not resolve");
+            d.problem = Some("name does not resolve".into());
             return d;
         };
         d.name = n.to_owned();
         if ins.modifier & 0x20 != 0 {
-            d.problem = Some("WithEvents");
+            d.problem = Some("WithEvents".into());
         } else if !matches!(ins.modifier & 3, 1 | 2) || self.scope_mod & 0x20 != 0 {
-            d.problem = Some("declaration other than a plain variable or constant");
+            d.problem = Some("declaration other than a plain variable or constant".into());
         } else if v.is_new {
-            d.problem = Some("As New");
-        } else if d.is_const && !declares_type(&v.ty) {
-            // The type follows from the value.
+            d.problem = Some("As New".into());
         } else {
-            match scalar_type(&v.ty) {
-                Some(t) => d.ty = Some(t),
-                None => d.problem = Some("type is not a plain scalar"),
-            }
+            // The type is resolved once the type names of the project are
+            // known (`resolve_declarations`).
+            d.raw_ty = v.ty.clone();
         }
         if d.is_const && d.problem.is_none() {
             match const_text(&self.expr) {
                 Some(t) => d.value = Some(t),
-                None => d.problem = Some("constant value is not a literal"),
+                None => d.problem = Some("constant value is not a literal".into()),
             }
         }
         d
@@ -518,8 +719,73 @@ fn default_values(
         .collect())
 }
 
+/// Resolves the types of the declarations, types and procedures of module
+/// `mi` against the type names of the whole project.
+pub(crate) fn resolve_module(m: &mut ModuleModel, mi: usize, env: &TypeEnv) {
+    for t in &mut m.types {
+        if t.problem.is_some() {
+            continue;
+        }
+        if t.is_enum {
+            if t.members.is_empty() {
+                t.problem = Some("empty enum".into());
+            }
+            continue;
+        }
+        let mut fields = Vec::new();
+        for (n, raw) in &t.raw_fields {
+            match env.resolve(raw, mi) {
+                Ok(ty) => fields.push((n.clone(), ty)),
+                Err(e) => {
+                    t.problem = Some(format!("field of {e}"));
+                    break;
+                }
+            }
+        }
+        if t.problem.is_none() && fields.is_empty() {
+            t.problem = Some("empty type".into());
+        }
+        t.fields = fields;
+    }
+    // A type that refers to a type with a problem has one itself.
+    for _ in 0..4 {
+        let bad: Vec<String> = m
+            .types
+            .iter()
+            .filter(|t| t.problem.is_some())
+            .map(|t| t.name.to_ascii_lowercase())
+            .collect();
+        for t in &mut m.types {
+            if t.problem.is_none()
+                && t.fields
+                    .iter()
+                    .any(|(_, ty)| matches!(ty, TyRef::Udt(n) | TyRef::Enum(n) if bad.contains(&n.to_ascii_lowercase())))
+            {
+                t.problem = Some("field of a type that is not supported".into());
+            }
+        }
+    }
+    for d in &mut m.decls {
+        if d.problem.is_some() {
+            continue;
+        }
+        if d.is_const && !declares_type(&d.raw_ty) {
+            continue;
+        }
+        match env.resolve(&d.raw_ty, mi) {
+            Ok(TyRef::Scalar(t)) => d.ty = Some(TyRef::Scalar(t)),
+            Ok(t) if !d.is_const => d.ty = Some(t),
+            Ok(_) => d.problem = Some("constant of a type that is not a plain scalar".into()),
+            Err(e) => d.problem = Some(e),
+        }
+    }
+    for p in &mut m.procs {
+        finish_signature(p, mi, env);
+    }
+}
+
 /// Checks the signature and collects the declared locals.
-fn finish_signature(p: &mut ProcModel) {
+fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv) {
     let line = p.header_line;
     let name = p.name.clone();
     let fail = |reason: &str| unsup(Opcode::ProcHeader, &name, line, reason);
@@ -533,9 +799,12 @@ fn finish_signature(p: &mut ProcModel) {
     }
     if !matches!(
         info.kind,
-        ProcKind::SubOrFunction | ProcKind::PropertyGet | ProcKind::PropertyLet
+        ProcKind::SubOrFunction
+            | ProcKind::PropertyGet
+            | ProcKind::PropertyLet
+            | ProcKind::PropertySet
     ) {
-        p.signature_problem = Some(fail("Property Set or procedure of unknown kind"));
+        p.signature_problem = Some(fail("procedure of unknown kind"));
         return;
     }
     if info.is_static {
@@ -546,6 +815,7 @@ fn finish_signature(p: &mut ProcModel) {
         p.signature_problem = Some(fail("procedure name does not resolve"));
         return;
     }
+    let mut arg_tys = Vec::new();
     for a in &info.args {
         if a.param_array {
             p.signature_problem = Some(fail("ParamArray parameter"));
@@ -559,15 +829,24 @@ fn finish_signature(p: &mut ProcModel) {
             p.signature_problem = Some(fail("parameter whose name does not resolve"));
             return;
         }
-        if scalar_type(&a.ty).is_none() {
-            p.signature_problem = Some(fail("parameter of a type that is not a plain scalar"));
-            return;
+        match env.resolve(&a.ty, mi) {
+            Ok(t) => arg_tys.push(t),
+            Err(e) => {
+                p.signature_problem = Some(fail(&format!("parameter of {e}")));
+                return;
+            }
         }
     }
-    if returns_value(info) && scalar_type(&info.return_type).is_none() {
-        p.signature_problem = Some(fail("return type is not a plain scalar"));
-        return;
+    if returns_value(info) {
+        match env.resolve(&info.return_type, mi) {
+            Ok(t) => p.ret_ty = Some(t),
+            Err(e) => {
+                p.signature_problem = Some(fail(&format!("return of {e}")));
+                return;
+            }
+        }
     }
+    p.arg_tys = arg_tys;
     // Locals.
     let mut locals = Vec::new();
     for (l, ins) in &p.body {
@@ -610,14 +889,16 @@ fn finish_signature(p: &mut ProcModel) {
             ));
             return;
         }
-        let (Some(n), Some(ty)) = (local_spelling(&v.name), scalar_type(&v.ty)) else {
-            p.signature_problem = Some(unsup(
-                ins.opcode,
-                &name,
-                *l,
-                format!("local of unsupported type {}", v.ty),
-            ));
+        let Some(n) = local_spelling(&v.name) else {
+            p.signature_problem = Some(unsup(ins.opcode, &name, *l, "local name does not resolve"));
             return;
+        };
+        let ty = match env.resolve(&v.ty, mi) {
+            Ok(t) => t,
+            Err(e) => {
+                p.signature_problem = Some(unsup(ins.opcode, &name, *l, format!("local of {e}")));
+                return;
+            }
         };
         if v.is_new {
             p.signature_problem = Some(unsup(ins.opcode, &name, *l, "As New"));

@@ -11,7 +11,7 @@ use common::host::HostMock;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use vba_host::{HeadlessHost, ResourceLimits};
+use vba_host::{HeadlessHost, Host, ResourceLimits};
 use vba_ir::IrProgram;
 use vba_pcode_ir::{LowerOptions, LoweredProject, ModuleInput, lower_project_with_options};
 use vba_project::ModuleKind;
@@ -19,7 +19,34 @@ use vba_sema::{SourceModule, Type};
 use vba_value::Variant;
 use vba_vm::{Arg, BufferSink, NoServices, Vm, VmConfig};
 
-fn pool(t: &Type) -> Vec<Variant> {
+/// An argument as a recipe, so that every VM builds its own objects.
+#[derive(Debug, Clone, PartialEq)]
+enum Sym {
+    Val(Variant),
+    /// `Nothing`.
+    Nothing,
+    /// A new instance of a class-like module of the project.
+    Inst(String),
+    /// The host mock object.
+    Host,
+}
+
+fn pool(t: &Type, program: &vba_sema::Program) -> Vec<Sym> {
+    let v = |x: Vec<Variant>| x.into_iter().map(Sym::Val).collect::<Vec<_>>();
+    match t {
+        Type::Object => vec![Sym::Nothing, Sym::Host, Sym::Nothing, Sym::Host],
+        Type::Class(m) => vec![
+            Sym::Nothing,
+            Sym::Inst(program.module(*m).name.to_string()),
+            Sym::Nothing,
+        ],
+        Type::Enum(_) => v([0, 1, 2, 3, -1].map(Variant::Long).to_vec()),
+        Type::Udt(_) => vec![Sym::Nothing],
+        t => v(pool_scalar(t)),
+    }
+}
+
+fn pool_scalar(t: &Type) -> Vec<Variant> {
     match t {
         Type::Integer => [0, 1, 7, -3, 12].map(Variant::Integer).to_vec(),
         Type::Long => [0, 1, 42, -7, 100_000].map(Variant::Long).to_vec(),
@@ -43,11 +70,11 @@ fn pool(t: &Type) -> Vec<Variant> {
 
 /// Argument sets; `None` is an omitted argument. Sets with the trailing
 /// `Optional` parameters omitted (each cut point) are added.
-fn arg_sets(params: &[(Type, bool)]) -> Vec<Vec<Option<Variant>>> {
-    let pools: Vec<Vec<Variant>> = params.iter().map(|p| pool(&p.0)).collect();
-    let mut sets: Vec<Vec<Option<Variant>>> = Vec::new();
+fn arg_sets(params: &[(Type, bool)], program: &vba_sema::Program) -> Vec<Vec<Option<Sym>>> {
+    let pools: Vec<Vec<Sym>> = params.iter().map(|p| pool(&p.0, program)).collect();
+    let mut sets: Vec<Vec<Option<Sym>>> = Vec::new();
     for k in 0..6 {
-        let set: Vec<Option<Variant>> = pools
+        let set: Vec<Option<Sym>> = pools
             .iter()
             .enumerate()
             .map(|(i, p)| Some(p[(k + i) % p.len()].clone()))
@@ -84,6 +111,37 @@ fn find_proc(ir: &IrProgram, module: &str, sel: &ProcSel<'_>) -> Option<vba_sema
         .map(|p| p.id)
 }
 
+/// Builds the arguments of a call on `vm`.
+fn build_args(
+    vm: &mut Vm,
+    host: &HeadlessHost,
+    args: &[Option<Sym>],
+    journal: &Rc<RefCell<Vec<String>>>,
+) -> Result<Vec<Arg>, String> {
+    let mut out = Vec::new();
+    for a in args {
+        out.push(match a {
+            None => Arg::Missing,
+            Some(Sym::Val(v)) => Arg::Value(v.clone()),
+            Some(Sym::Nothing) => Arg::Value(Variant::Object(vba_value::ObjectRef::Nothing)),
+            Some(Sym::Host) => {
+                let h = host.objects().insert_obj(HostMock::new(journal.clone()));
+                Arg::Value(Variant::Object(vba_value::ObjectRef::Handle(h)))
+            }
+            Some(Sym::Inst(name)) => {
+                let Some(mid) = vm.find_module(name) else {
+                    return Err("no such module".into());
+                };
+                let o = vm
+                    .create_instance(mid, Some(Rc::new(HostMock::new(journal.clone()))))
+                    .map_err(|e| format!("create arg: {e:?}"))?;
+                Arg::Value(Variant::Object(o))
+            }
+        });
+    }
+    Ok(out)
+}
+
 /// Runs a procedure: a standard-module one directly, a member of a
 /// class-like module on a fresh instance whose host base is the mock.
 fn run_one(
@@ -91,14 +149,15 @@ fn run_one(
     module: &str,
     class_like: bool,
     sel: &ProcSel<'_>,
-    args: &[Option<Variant>],
+    args: &[Option<Sym>],
 ) -> String {
     let sink = BufferSink::new();
-    let host =
-        HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(300_000)));
+    let host = Rc::new(
+        HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(300_000))),
+    );
     let mut vm = match Vm::new(
         ir.clone(),
-        Rc::new(host),
+        host.clone(),
         Box::new(NoServices),
         Box::new(vba_stdlib::FixedHost::default()),
         Box::new(sink.clone()),
@@ -110,12 +169,11 @@ fn run_one(
     let Some(p) = find_proc(ir, module, sel) else {
         return "no such procedure".into();
     };
-    let args: Vec<Arg> = args
-        .iter()
-        .cloned()
-        .map(|a| a.map_or(Arg::Missing, Arg::Value))
-        .collect();
     let journal = Rc::new(RefCell::new(Vec::new()));
+    let args = match build_args(&mut vm, &host, args, &journal) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
     let r = if class_like {
         let Some(mid) = vm.find_module(module) else {
             return "no such module".into();
@@ -148,14 +206,15 @@ fn run_session(
     ir: &Rc<IrProgram>,
     module: &str,
     class_like: bool,
-    steps: &[(ProcSel<'_>, Vec<Option<Variant>>)],
+    steps: &[(ProcSel<'_>, Vec<Option<Sym>>)],
 ) -> String {
     let sink = BufferSink::new();
-    let host =
-        HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(300_000)));
+    let host = Rc::new(
+        HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(300_000))),
+    );
     let mut vm = match Vm::new(
         ir.clone(),
-        Rc::new(host),
+        host.clone(),
         Box::new(NoServices),
         Box::new(vba_stdlib::FixedHost::default()),
         Box::new(sink.clone()),
@@ -181,11 +240,10 @@ fn run_session(
         let Some(p) = find_proc(ir, module, sel) else {
             return "no such procedure".into();
         };
-        let args: Vec<Arg> = args
-            .iter()
-            .cloned()
-            .map(|a| a.map_or(Arg::Missing, Arg::Value))
-            .collect();
+        let args = match build_args(&mut vm, &host, args, &journal) {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
         let r = match obj {
             Some(o) => vm.run_method(o, p, args),
             None => vm.run_procedure(p, args),
@@ -225,7 +283,7 @@ fn source_program(
             .declarations
             .iter()
             .filter(|d| d.module == m.name && d.unsupported.is_none())
-            .map(|d| d.line)
+            .flat_map(|d| d.line..=d.last_line)
             .collect();
         decl_lines.sort_unstable();
         decl_lines.dedup();
@@ -420,7 +478,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
         };
         let full = format!("{}.{}", r.module, r.procedure);
         let mut any = false;
-        for args in arg_sets(&params) {
+        for args in arg_sets(&params, &cache_ir.program) {
             let a = run_one(&src, &r.module, cl == 1, &sel, &args);
             let b = run_one(&cache_ir, &r.module, cl == 1, &sel, &args);
             runs[cl] += 1;
@@ -468,7 +526,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
                     .iter()
                     .map(|q| (q.ty.clone(), q.optional))
                     .collect();
-                let sets = arg_sets(&params);
+                let sets = arg_sets(&params, &cache_ir.program);
                 let args = sets[(round + n) % sets.len()].clone();
                 steps.push((
                     ProcSel {

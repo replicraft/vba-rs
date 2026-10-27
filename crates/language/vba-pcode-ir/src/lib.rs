@@ -88,8 +88,10 @@ pub struct DeclarationReport {
     pub module: String,
     /// Name of the variable or constant.
     pub name: String,
-    /// Line index in the module cache.
+    /// First line index in the module cache.
     pub line: usize,
+    /// Last line index (a `Type` or `Enum` spans several lines).
+    pub last_line: usize,
     /// A constant (otherwise a variable).
     pub is_const: bool,
     /// Why it is not part of the program, `None` when it is.
@@ -208,9 +210,14 @@ pub fn lower_project_with_options(
                 compare: model::CompareStored::Binary,
                 explicit: false,
                 decls: Vec::new(),
+                types: Vec::new(),
                 procs: Vec::new(),
             }),
         }
+    }
+    let env = model::TypeEnv::build(&models);
+    for (mi, m) in models.iter_mut().enumerate() {
+        model::resolve_module(m, mi, &env);
     }
     for m in &models {
         reports.push(vec![None; m.procs.len()]);
@@ -230,7 +237,7 @@ pub fn lower_project_with_options(
         include.push(row);
     }
     let before = include.clone();
-    let shell = shell::build_shell(&models, &mut include)?;
+    let shell = shell::build_shell(&mut models, &mut include)?;
     for (mi, m) in models.iter().enumerate() {
         for (pi, p) in m.procs.iter().enumerate() {
             if before[mi][pi] && !include[mi][pi] {
@@ -444,15 +451,25 @@ pub fn lower_project_with_options(
     let declarations = models
         .iter()
         .flat_map(|m| {
-            m.decls.iter().map(|d| DeclarationReport {
+            let vars = m.decls.iter().map(|d| DeclarationReport {
                 module: m.name.clone(),
                 name: d.name.clone(),
                 line: d.line,
+                last_line: d.line,
                 is_const: d.is_const,
-                unsupported: d.problem.map(str::to_owned),
-            })
+                unsupported: d.problem.clone(),
+            });
+            let types = m.types.iter().map(|t| DeclarationReport {
+                module: m.name.clone(),
+                name: t.name.clone(),
+                line: t.start_line,
+                last_line: t.end_line,
+                is_const: false,
+                unsupported: t.problem.clone(),
+            });
+            vars.chain(types)
         })
-        .collect();
+        .collect::<Vec<_>>();
     Ok(LoweredProject {
         ir,
         procedures,
