@@ -106,6 +106,12 @@ four comments on continued lines) and 50 reverse misses (type names of module-lo
 types, library-qualified type names, and two comment forms), all listed by the local
 test.
 
+After the corrections of phase 3 (type references scaled by the pointer size, entry 0
+valid, `obj` operands scaled on x86, more built-in names) the same project gives 9,190
+of 9,226 statements consistent (99.61 %; strict 9,114, 98.79 %), 5 forward failures and
+35 reverse misses; the structure, record and differential numbers are unchanged
+(differential: 189 of 430 procedures lowered, 0 mismatches).
+
 ## Built-in names
 
 `names::CONFIRMED_BUILTINS` holds 29 index/spelling pairs (19 from the first project, 10 from the VBA6 and 64-bit material, pcode-format.md 5.3); every other built-in index is
