@@ -9,6 +9,7 @@ mod common;
 
 use common::host::HostMock;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use vba_host::{HeadlessHost, Host, ResourceLimits};
@@ -31,15 +32,33 @@ enum Sym {
     Host,
 }
 
-fn pool(t: &Type, program: &vba_sema::Program) -> Vec<Sym> {
+/// Whether the function is the body of a procedure that was not lowered.
+fn is_trap(ir: &IrProgram, p: vba_sema::ProcId) -> bool {
+    let f = ir.function_of(p);
+    f.blocks.len() == 1
+        && f.blocks[0].insts.is_empty()
+        && matches!(f.blocks[0].term, vba_ir::Terminator::Unreachable)
+}
+
+fn pool(t: &Type, ir: &IrProgram) -> Vec<Sym> {
+    let program = &ir.program;
     let v = |x: Vec<Variant>| x.into_iter().map(Sym::Val).collect::<Vec<_>>();
     match t {
         Type::Object => vec![Sym::Nothing, Sym::Host, Sym::Nothing, Sym::Host],
-        Type::Class(m) => vec![
-            Sym::Nothing,
-            Sym::Inst(program.module(*m).name.to_string()),
-            Sym::Nothing,
-        ],
+        Type::Class(m) => {
+            // An instance runs `Class_Initialize` (and `Class_Terminate`),
+            // which must be part of the lowered program.
+            let mi = program.module(*m);
+            let creatable = [mi.initialize, mi.terminate]
+                .into_iter()
+                .flatten()
+                .all(|p| !is_trap(ir, p));
+            if creatable {
+                vec![Sym::Nothing, Sym::Inst(mi.name.to_string()), Sym::Nothing]
+            } else {
+                vec![Sym::Nothing]
+            }
+        }
         Type::Enum(_) => v([0, 1, 2, 3, -1].map(Variant::Long).to_vec()),
         Type::Udt(_) => vec![Sym::Nothing],
         t => v(pool_scalar(t)),
@@ -70,8 +89,8 @@ fn pool_scalar(t: &Type) -> Vec<Variant> {
 
 /// Argument sets; `None` is an omitted argument. Sets with the trailing
 /// `Optional` parameters omitted (each cut point) are added.
-fn arg_sets(params: &[(Type, bool)], program: &vba_sema::Program) -> Vec<Vec<Option<Sym>>> {
-    let pools: Vec<Vec<Sym>> = params.iter().map(|p| pool(&p.0, program)).collect();
+fn arg_sets(params: &[(Type, bool)], ir: &IrProgram) -> Vec<Vec<Option<Sym>>> {
+    let pools: Vec<Vec<Sym>> = params.iter().map(|p| pool(&p.0, ir)).collect();
     let mut sets: Vec<Vec<Option<Sym>>> = Vec::new();
     for k in 0..6 {
         let set: Vec<Option<Sym>> = pools
@@ -334,15 +353,29 @@ fn strip_project_qualifier(text: &str, project: &str) -> String {
 
 /// Source program with only the lowered procedures of the project, and the
 /// module-level declarations that the cache side generated.
+/// Why the source side could not be built.
+enum SourceError {
+    /// A lowered procedure whose original text the source analysis rejects:
+    /// `(module, procedure)`. It cannot be compared.
+    Procedure(String, String, String),
+    Other(String),
+}
+
 fn source_program(
     p: &common::Project,
     lp: &LoweredProject,
     host_members: &[String],
-) -> Result<Rc<IrProgram>, String> {
+    excluded: &HashSet<(String, String)>,
+) -> Result<Rc<IrProgram>, SourceError> {
     let mut mods = Vec::new();
+    // `(start, end, procedure)` byte ranges of the lowered procedures in the
+    // text of each module.
+    let mut ranges: Vec<Vec<(usize, usize, String)>> = Vec::new();
     for m in &p.modules {
+        let mut mod_ranges = Vec::new();
         let lines = common::logical_lines(&m.source);
         let mut text = String::new();
+        let strip = |s: &str| strip_project_qualifier(s, &p.name);
         // Attribute lines have no line in the compiled code; the default
         // instance of a class is the one that matters to the lowering.
         for raw in String::from_utf8_lossy(&m.source).lines() {
@@ -355,7 +388,7 @@ fn source_program(
             let t = String::from_utf8_lossy(l);
             let low = t.trim_start().to_ascii_lowercase();
             if low.starts_with("option compare") || low.starts_with("option explicit") {
-                text.push_str(&t);
+                text.push_str(&strip(&t));
                 text.push('\n');
             }
         }
@@ -368,7 +401,7 @@ fn source_program(
         decl_lines.sort_unstable();
         decl_lines.dedup();
         for l in decl_lines {
-            text.push_str(&String::from_utf8_lossy(&lines[l]));
+            text.push_str(&strip(&String::from_utf8_lossy(&lines[l])));
             text.push('\n');
         }
         for r in lp
@@ -376,25 +409,29 @@ fn source_program(
             .iter()
             .filter(|r| r.module == m.name && r.id.is_some())
         {
-            if r.outcome.is_lowered() {
+            let comparable = !excluded.contains(&(r.module.clone(), r.procedure.clone()));
+            if r.outcome.is_lowered() && comparable {
+                let start = text.len();
                 for l in &lines[r.first_line..=r.last_line] {
-                    text.push_str(&String::from_utf8_lossy(l));
+                    text.push_str(&strip(&String::from_utf8_lossy(l)));
                     text.push('\n');
                 }
+                mod_ranges.push((start, text.len(), r.procedure.clone()));
             } else {
                 // In the shell but not lowered (so never run): header and
                 // end only, so that the module has the same members and
                 // `Implements` can be satisfied.
                 for l in [&lines[r.first_line], &lines[r.last_line]] {
-                    text.push_str(&String::from_utf8_lossy(l));
+                    text.push_str(&strip(&String::from_utf8_lossy(l)));
                     text.push('\n');
                 }
             }
         }
+        ranges.push(mod_ranges);
         mods.push(SourceModule {
             name: m.name.clone(),
             kind: common::role(m),
-            source: strip_project_qualifier(&text, &p.name).into_bytes(),
+            source: text.into_bytes(),
         });
     }
     let a = vba_sema::analyze_sources(
@@ -419,13 +456,33 @@ fn source_program(
         }
     }
     if !errs.is_empty() {
-        return Err(format!(
+        // An error inside a lowered procedure excludes that procedure.
+        for d in a
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == vba_diagnostics::Severity::Error)
+        {
+            let fi = d.file.0 as usize;
+            let off = d.span.start as usize;
+            if let Some(rs) = ranges.get(fi)
+                && let Some((_, _, name)) = rs.iter().find(|(s, e, _)| off >= *s && off < *e)
+            {
+                return Err(SourceError::Procedure(
+                    p.modules[fi].name.clone(),
+                    name.clone(),
+                    d.message.clone(),
+                ));
+            }
+        }
+        return Err(SourceError::Other(format!(
             "source side does not compile:\n{}",
             errs.join("\n")
-        ));
+        )));
     }
-    let ir = vba_ir::lower(&a).map_err(|e| format!("source lowering: {e:?}"))?;
-    vba_ir::verify(&ir).map_err(|e| format!("source IR does not verify: {e:?}"))?;
+    let ir =
+        vba_ir::lower(&a).map_err(|e| SourceError::Other(format!("source lowering: {e:?}")))?;
+    vba_ir::verify(&ir)
+        .map_err(|e| SourceError::Other(format!("source IR does not verify: {e:?}")))?;
     Ok(Rc::new(ir))
 }
 
@@ -440,6 +497,12 @@ struct Summary {
     errors_both: usize,
     sessions: usize,
     mismatches: usize,
+    /// Lowered procedures whose original text the source analysis rejects:
+    /// not compared.
+    uncompared: usize,
+    /// Compared procedures with at least one run that completed without an
+    /// error (on the source side, hence on both).
+    completed: usize,
 }
 
 #[test]
@@ -507,6 +570,8 @@ fn corpus_agrees_with_source() {
                     t.errors_both += s.errors_both;
                     t.sessions += s.sessions;
                     t.mismatches += s.mismatches;
+                    t.uncompared += s.uncompared;
+                    t.completed += s.completed;
                 }
             }
             Err(e) => {
@@ -544,8 +609,48 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
         .map_err(|e| format!("lowering: {e}"))?;
     let total = lp.procedures.len();
     let lowered = lp.lowered_count();
-    let src = source_program(p, &lp, &options.host_members)?;
+    let mut excluded: HashSet<(String, String)> = HashSet::new();
+    let src = loop {
+        match source_program(p, &lp, &options.host_members, &excluded) {
+            Ok(s) => break s,
+            Err(SourceError::Procedure(m, n, msg)) => {
+                if std::env::var_os("SHOW_UNCOMPARED").is_some() {
+                    println!("UNCOMPARED {m}.{n}: {msg}");
+                }
+                if !excluded.insert((m, n)) {
+                    return Err("source side keeps failing".into());
+                }
+            }
+            Err(SourceError::Other(e)) => return Err(e),
+        }
+    };
     let cache_ir = Rc::new(lp.ir.clone());
+    if let Ok(want) = std::env::var("DUMP_FUNC") {
+        // `Module.Procedure`: print both IR functions.
+        if let Some((m, n)) = want.split_once('.') {
+            for (label, ir) in [("source", &src), ("cache", &cache_ir)] {
+                for kind in [
+                    vba_ast::ProcKind::Sub,
+                    vba_ast::ProcKind::Function,
+                    vba_ast::ProcKind::PropertyGet,
+                    vba_ast::ProcKind::PropertyLet,
+                    vba_ast::ProcKind::PropertySet,
+                ] {
+                    let sel = ProcSel { name: n, kind };
+                    if let Some(pid) = find_proc(ir, m, &sel) {
+                        println!(
+                            "--- {label} IR {want} ({kind:?})\n{}",
+                            vba_ir::dump_function(
+                                ir,
+                                ir.function_of(pid),
+                                vba_ir::DumpOptions::default()
+                            )
+                        );
+                    }
+                }
+            }
+        }
+    }
     let class_like_of = |name: &str| {
         p.modules
             .iter()
@@ -553,8 +658,11 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
     };
     // `[std, class-like]`
     let (mut ran, mut runs, mut mismatches, mut errors_both) = ([0usize; 2], [0usize; 2], 0, 0);
+    let mut ok_procs = 0usize;
     let mut lowered_by = [0usize; 2];
-    for r in lp.procedures.iter().filter(|r| r.outcome.is_lowered()) {
+    for r in lp.procedures.iter().filter(|r| {
+        r.outcome.is_lowered() && !excluded.contains(&(r.module.clone(), r.procedure.clone()))
+    }) {
         let Some(id) = r.id else { continue };
         let cl = usize::from(class_like_of(&r.module));
         lowered_by[cl] += 1;
@@ -570,13 +678,16 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
         };
         let full = format!("{}.{}", r.module, r.procedure);
         let mut any = false;
-        for args in arg_sets(&params, &cache_ir.program) {
+        let mut completed = false;
+        for args in arg_sets(&params, &cache_ir) {
             let a = run_one(&src, &r.module, cl == 1, &sel, &args);
             let b = run_one(&cache_ir, &r.module, cl == 1, &sel, &args);
             runs[cl] += 1;
             any = true;
             if a.starts_with("Err") {
                 errors_both += 1;
+            } else {
+                completed = true;
             }
             if !same(&a, &b) {
                 mismatches += 1;
@@ -595,6 +706,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
             }
         }
         ran[cl] += usize::from(any);
+        ok_procs += usize::from(completed);
     }
     // Sessions: every lowered procedure of a module, one after the other on
     // one VM and instance, so that state written by one is read by the next.
@@ -604,7 +716,12 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
         let procs: Vec<_> = lp
             .procedures
             .iter()
-            .filter(|r| r.module == m.name && r.outcome.is_lowered() && r.id.is_some())
+            .filter(|r| {
+                r.module == m.name
+                    && r.outcome.is_lowered()
+                    && r.id.is_some()
+                    && !excluded.contains(&(r.module.clone(), r.procedure.clone()))
+            })
             .collect();
         if procs.is_empty() {
             continue;
@@ -618,7 +735,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
                     .iter()
                     .map(|q| (q.ty.clone(), q.optional))
                     .collect();
-                let sets = arg_sets(&params, &cache_ir.program);
+                let sets = arg_sets(&params, &cache_ir);
                 let args = sets[(round + n) % sets.len()].clone();
                 steps.push((
                     ProcSel {
@@ -651,5 +768,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
         errors_both,
         sessions,
         mismatches,
+        uncompared: excluded.len(),
+        completed: ok_procs,
     })
 }

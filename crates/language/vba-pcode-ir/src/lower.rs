@@ -152,6 +152,24 @@ enum Ex {
     },
 }
 
+/// The sub-libraries of the `VBA` library: `Strings.Left` names a function
+/// of the library like `Left` does.
+fn is_sublibrary(name: &str) -> bool {
+    [
+        "Strings",
+        "Conversion",
+        "Information",
+        "Interaction",
+        "DateTime",
+        "FileSystem",
+        "Math",
+        "Constants",
+        "Financial",
+    ]
+    .iter()
+    .any(|s| s.eq_ignore_ascii_case(name))
+}
+
 /// The class an object-table operand names.
 enum ObjClass {
     Module(ModuleId),
@@ -1818,7 +1836,14 @@ impl Lw<'_> {
             return Ok(1);
         }
         if op.evidence() != Evidence::Verified && !self.accepted_without_verification(ins) {
-            return Err(self.no(op, format!("opcode is not verified ({:?})", op.evidence())));
+            let shape = self
+                .stack
+                .last()
+                .map_or_else(String::new, |e| format!(", receiver of type {:?}", e.ty()));
+            return Err(self.no(
+                op,
+                format!("opcode is not verified ({:?}{shape})", op.evidence()),
+            ));
         }
         match op {
             // ---- literals ----
@@ -2557,7 +2582,7 @@ impl Lw<'_> {
         matches!(e, Ex::Ns(_))
             || matches!(
                 e.ty(),
-                Type::Class(_) | Type::Udt(_) | Type::Object | Type::Variant
+                Type::Class(_) | Type::Udt(_) | Type::Object | Type::Variant | Type::Library(_)
             )
     }
 
@@ -2745,6 +2770,12 @@ impl Lw<'_> {
         {
             return self.intrinsic_call(ins, name, false, args);
         }
+        if args.is_empty()
+            && let Some(LibGlobal::Function(m)) = BuiltinLibrary.global(name)
+            && m.params.iter().all(|p| p.optional)
+        {
+            return self.runtime_call(ins, &m, args);
+        }
         if self.is_host_name(name, !receiver && args.is_empty()) {
             return Ok(self.host_member(name, args));
         }
@@ -2760,7 +2791,7 @@ impl Lw<'_> {
                     return Ok(Ex::Ns(Ns::Module(id)));
                 }
             }
-            if receiver && name.eq_ignore_ascii_case("VBA") {
+            if receiver && (name.eq_ignore_ascii_case("VBA") || is_sublibrary(name)) {
                 return Ok(Ex::Ns(Ns::Vba));
             }
             if receiver {
@@ -2917,19 +2948,8 @@ impl Lw<'_> {
         let key = vba_ast::Name::new(name);
         match ns {
             Ns::Vba => {
-                const SUBLIBRARIES: [&str; 9] = [
-                    "Strings",
-                    "Conversion",
-                    "Information",
-                    "Interaction",
-                    "DateTime",
-                    "FileSystem",
-                    "Math",
-                    "Constants",
-                    "Financial",
-                ];
                 if args.is_empty()
-                    && (SUBLIBRARIES.iter().any(|s| s.eq_ignore_ascii_case(name))
+                    && (is_sublibrary(name)
                         || matches!(
                             vba_sema::TypeProvider::resolve_declared(&BuiltinLibrary, None, name),
                             Some(Type::Long)
@@ -2992,7 +3012,10 @@ impl Lw<'_> {
                         Ok(Ex::Const(Variant::Long(v), Type::Enum(e)))
                     }
                     Some(Symbol::Enum(e)) if args.is_empty() => Ok(Ex::Ns(Ns::Enum(e))),
-                    _ => Err(self.no(ins.opcode, "module has no such member")),
+                    _ => Err(self.no(
+                        ins.opcode,
+                        format!("module `{}` has no member `{name}`", mi.name),
+                    )),
                 }
             }
         }
@@ -3284,7 +3307,10 @@ impl Lw<'_> {
                     }
                 }
                 _ => {
-                    return Err(self.no(ins.opcode, "assignment to a name that is not a variable"));
+                    return Err(self.no(
+                        ins.opcode,
+                        format!("assignment to `{name}`, which is not a variable"),
+                    ));
                 }
             }
         };

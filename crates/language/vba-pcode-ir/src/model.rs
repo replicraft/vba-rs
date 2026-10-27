@@ -699,43 +699,106 @@ impl DeclScan {
     }
 }
 
-/// The VBA text of a constant's value: one literal, optionally negated.
-/// Integer literals keep their type (`&` marks the 32-bit forms).
+/// The VBA text of a constant's value: one expression of literals, names
+/// and operators.
 fn const_text(expr: &[Listed]) -> Option<String> {
-    let (lit, neg) = match expr {
-        [l] => (l, false),
-        [l, n] if n.opcode == Opcode::NumNegate => (l, true),
-        _ => return None,
-    };
-    let t = match (lit.opcode, lit.operands.first()) {
-        (Opcode::ConstInt16Decimal, Some(Operand::Int { value, .. })) => value.to_string(),
-        (Opcode::ConstInt32Decimal, Some(Operand::Int { value, .. })) => format!("{value}&"),
-        (Opcode::ConstInt16Hex, Some(Operand::Int { value, .. })) if *value >= 0 => {
-            format!("&H{value:X}")
+    let mut t = expr_texts(expr)?;
+    if t.len() == 1 { t.pop() } else { None }
+}
+
+/// The VBA text of the expressions in a postfix instruction sequence, one
+/// per tree left on the stack. Integer literals keep their type (`&` marks
+/// the 32-bit forms); every operator application is parenthesised.
+fn expr_texts(expr: &[Listed]) -> Option<Vec<String>> {
+    let mut st: Vec<String> = Vec::new();
+    for ins in expr {
+        let first = ins.operands.first();
+        match (ins.opcode, first) {
+            (Opcode::ConstInt16Decimal, Some(Operand::Int { value, .. })) => {
+                st.push(value.to_string());
+            }
+            (Opcode::ConstInt32Decimal, Some(Operand::Int { value, .. })) => {
+                st.push(format!("{value}&"));
+            }
+            (Opcode::ConstInt16Hex, Some(Operand::Int { value, .. })) if *value >= 0 => {
+                st.push(format!("&H{value:X}"));
+            }
+            (Opcode::ConstInt32Hex, Some(Operand::Int { value, .. })) if *value >= 0 => {
+                st.push(format!("&H{value:X}&"));
+            }
+            (Opcode::ConstFloat64, Some(Operand::Float64(v))) if v.is_finite() => {
+                st.push(format!("{v:?}"));
+            }
+            (Opcode::ConstText, Some(Operand::Text(t))) if t.is_ascii() => {
+                let body = String::from_utf8_lossy(t).replace('"', "\"\"");
+                st.push(format!("\"{body}\""));
+            }
+            (Opcode::ConstNullObject, _) => st.push("Nothing".to_owned()),
+            (Opcode::ConstKeywordValue, _) => match ins.modifier {
+                0 => st.push("False".to_owned()),
+                1 => st.push("True".to_owned()),
+                _ => return None,
+            },
+            (
+                Opcode::ReadSimple,
+                Some(Operand::Name {
+                    name,
+                    suffix: None,
+                    bracketed: false,
+                }),
+            ) if !matches!(name, Name::Me) => st.push(name.spelling()?.to_owned()),
+            (
+                Opcode::ReadDot,
+                Some(Operand::Name {
+                    name,
+                    suffix: None,
+                    bracketed: false,
+                }),
+            ) => {
+                let l = st.pop()?;
+                if !l
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                {
+                    return None;
+                }
+                st.push(format!("{l}.{}", name.spelling()?));
+            }
+            (Opcode::NumNegate, _) => {
+                let v = st.pop()?;
+                if v.starts_with('"') || v == "True" || v == "False" {
+                    return None;
+                }
+                st.push(format!("-{v}"));
+            }
+            (Opcode::BoolNegate, _) => {
+                let v = st.pop()?;
+                st.push(format!("(Not {v})"));
+            }
+            (Opcode::ExprParentheses, _) => {
+                let v = st.pop()?;
+                st.push(format!("({v})"));
+            }
+            (op, _) => {
+                let sym = match op {
+                    Opcode::NumAdd => "+",
+                    Opcode::NumSubtract => "-",
+                    Opcode::NumMultiply => "*",
+                    Opcode::NumDivide => "/",
+                    Opcode::NumIntDivide => "\\",
+                    Opcode::NumRemainder => "Mod",
+                    Opcode::TextJoin => "&",
+                    Opcode::BoolConjunction => "And",
+                    Opcode::BoolDisjunction => "Or",
+                    _ => return None,
+                };
+                let r = st.pop()?;
+                let l = st.pop()?;
+                st.push(format!("({l} {sym} {r})"));
+            }
         }
-        (Opcode::ConstInt32Hex, Some(Operand::Int { value, .. })) if *value >= 0 => {
-            format!("&H{value:X}&")
-        }
-        (Opcode::ConstFloat64, Some(Operand::Float64(v))) if v.is_finite() => format!("{v:?}"),
-        (Opcode::ConstText, Some(Operand::Text(t))) if t.is_ascii() => {
-            let body = String::from_utf8_lossy(t).replace('"', "\"\"");
-            format!("\"{body}\"")
-        }
-        (Opcode::ConstKeywordValue, _) => match lit.modifier {
-            0 => "False".to_owned(),
-            1 => "True".to_owned(),
-            _ => return None,
-        },
-        _ => return None,
-    };
-    if neg {
-        if t.starts_with('"') || t == "True" || t == "False" {
-            return None;
-        }
-        Some(format!("-{t}"))
-    } else {
-        Some(t)
     }
+    Some(st)
 }
 
 /// Renders the default-value expressions of a header line as VBA text, one
@@ -746,37 +809,8 @@ fn default_values(
     exprs: Option<Vec<Listed>>,
 ) -> Result<Vec<Option<String>>, &'static str> {
     let wanted = info.args.iter().filter(|a| a.has_default).count();
-    let mut texts: Vec<String> = Vec::new();
-    for ins in exprs.unwrap_or_default() {
-        let t = match (ins.opcode, ins.operands.first()) {
-            (
-                Opcode::ConstInt16Decimal | Opcode::ConstInt32Decimal,
-                Some(Operand::Int { value, .. }),
-            ) => value.to_string(),
-            (Opcode::ConstFloat64, Some(Operand::Float64(v))) if v.is_finite() => format!("{v:?}"),
-            (Opcode::ConstText, Some(Operand::Text(t))) if t.is_ascii() => {
-                let body = String::from_utf8_lossy(t).replace('\"', "\"\"");
-                format!("\"{body}\"")
-            }
-            (Opcode::ConstKeywordValue, _) => match ins.modifier {
-                0 => "False".to_owned(),
-                1 => "True".to_owned(),
-                _ => return Err("default value expression is not supported"),
-            },
-            (
-                Opcode::ReadSimple,
-                Some(Operand::Name {
-                    name,
-                    suffix: None,
-                    bracketed: false,
-                }),
-            ) if !matches!(name, Name::Me) && name.spelling().is_some() => {
-                name.spelling().unwrap_or_default().to_owned()
-            }
-            _ => return Err("default value expression is not supported"),
-        };
-        texts.push(t);
-    }
+    let list = exprs.unwrap_or_default();
+    let mut texts = expr_texts(&list).ok_or("default value expression is not supported")?;
     if texts.len() != wanted {
         return Err("default values do not match the arguments");
     }
