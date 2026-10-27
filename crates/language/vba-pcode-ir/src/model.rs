@@ -388,6 +388,26 @@ pub(crate) fn returns_value(info: &ProcedureInfo) -> bool {
     }
 }
 
+/// The text of a string literal: ASCII as it is, other bytes decoded with the
+/// code page of the project (the encodings `encoding_rs` knows). `None` when
+/// the bytes cannot be decoded without loss.
+pub(crate) fn decode_text(bytes: &[u8], code_page: Option<u16>) -> Option<String> {
+    if bytes.is_ascii() {
+        return Some(String::from_utf8_lossy(bytes).into_owned());
+    }
+    let enc = match code_page? {
+        932 => encoding_rs::SHIFT_JIS,
+        936 => encoding_rs::GBK,
+        949 => encoding_rs::EUC_KR,
+        950 => encoding_rs::BIG5,
+        10000 => encoding_rs::MACINTOSH,
+        n @ (874 | 1250..=1258) => encoding_rs::Encoding::for_label(format!("windows-{n}").as_bytes())?,
+        _ => return None,
+    };
+    let (text, _, bad) = enc.decode(bytes);
+    (!bad).then(|| text.into_owned())
+}
+
 /// Instructions that leave nothing on the expression stack and carry no
 /// meaning in front of a declaration.
 fn is_layout_marker(op: Opcode) -> bool {

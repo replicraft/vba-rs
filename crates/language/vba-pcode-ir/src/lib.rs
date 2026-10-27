@@ -220,6 +220,10 @@ pub struct LowerOptions {
     /// is a type of the project. The compiled code stores the qualifier but
     /// not what it stands for.
     pub project_name: Option<String>,
+    /// The code page of the project (`PROJECTCODEPAGE`): the compiled code
+    /// stores text as bytes of it. Without one, a string literal outside
+    /// ASCII is not lowered.
+    pub code_page: Option<u16>,
 }
 
 /// Like [`lower_project`], with the settings of the embedding application.
@@ -368,6 +372,9 @@ pub fn lower_project_with_options(
                 compare: m.compare,
                 name: &p.name,
                 project: options.project_name.as_deref(),
+                explicit: m.explicit,
+                has_deftype: m.has_deftype,
+                code_page: options.code_page,
             };
             match lower::lower_body(&cx, &p.body, p.header_line, ir.function_of(id)) {
                 Ok(l) => {

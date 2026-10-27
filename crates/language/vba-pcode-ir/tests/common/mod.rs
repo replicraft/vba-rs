@@ -24,6 +24,7 @@ pub struct Mod {
 pub struct Project {
     /// True for a stream set without a `dir` stream (compiled-only).
     pub compiled_only: bool,
+    pub code_page: u16,
     pub name: String,
     pub sys_kind: u32,
     pub project_stream: Vec<u8>,
@@ -164,6 +165,7 @@ fn project_of(p: &vba_project::VbaProject, project_stream: Vec<u8>) -> Project {
         .collect();
     Project {
         compiled_only: false,
+        code_page: p.code_page,
         name: p.name.clone(),
         sys_kind: p.sys_kind.value(),
         project_stream,

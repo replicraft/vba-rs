@@ -20,6 +20,7 @@ vba-sema.workspace = true
 vba-source.workspace = true
 vba-stdlib.workspace = true
 vba-value.workspace = true
+encoding_rs.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

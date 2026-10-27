@@ -38,6 +38,7 @@ fn lowering_over_the_corpus() {
         let options = LowerOptions {
             host_members: common::host_member_names(&p),
             project_name: Some(p.name.clone()),
+            code_page: Some(p.code_page),
         };
         let v = vba_pcode::version_word(&p.project_stream).unwrap_or(0);
         match lower_project_with_options(&p.project_stream, p.sys_kind, &inputs, &options) {

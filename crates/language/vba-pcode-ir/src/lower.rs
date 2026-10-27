@@ -354,6 +354,12 @@ pub(crate) struct ProcCtx<'a> {
     pub name: &'a str,
     /// The name of the project, for types qualified with it.
     pub project: Option<&'a str>,
+    /// The module has `Option Explicit`.
+    pub explicit: bool,
+    /// The module has a `DefType` statement.
+    pub has_deftype: bool,
+    /// The code page of the text literals.
+    pub code_page: Option<u16>,
 }
 
 /// The result of lowering one procedure.
@@ -404,6 +410,9 @@ struct Lw<'a> {
     /// declaration, which the shell has already declared, are dropped at
     /// its `VAR_DECL`.
     dim_depth: usize,
+    /// Implicitly declared variables (lower-case name): slots after the
+    /// template's, created at the first assignment.
+    implicit: HashMap<String, LocalId>,
 }
 
 type R<T> = Result<T, Unsupported>;
@@ -541,6 +550,7 @@ pub(crate) fn lower_body(
         n_base: kind_template.slots.len(),
         with_stack: Vec::new(),
         dim_depth: 0,
+        implicit: HashMap::new(),
     };
     lw.begin_stmt();
     lw.alloc_fixed_arrays();
@@ -859,11 +869,48 @@ impl Lw<'_> {
     // ---- name resolution -------------------------------------------------
 
     fn local_by_name(&self, name: &str) -> Option<(LocalId, Type)> {
-        self.sema.locals.iter().enumerate().find_map(|(i, l)| {
-            (matches!(l.kind, LocalKind::Param(_) | LocalKind::Var)
-                && l.name.to_string().eq_ignore_ascii_case(name))
-            .then(|| (LocalId(i as u32), l.ty.clone()))
-        })
+        self.sema
+            .locals
+            .iter()
+            .enumerate()
+            .find_map(|(i, l)| {
+                (matches!(l.kind, LocalKind::Param(_) | LocalKind::Var)
+                    && l.name.to_string().eq_ignore_ascii_case(name))
+                .then(|| (LocalId(i as u32), l.ty.clone()))
+            })
+            .or_else(|| {
+                self.implicit
+                    .get(&name.to_ascii_lowercase())
+                    .map(|id| (*id, Type::Variant))
+            })
+    }
+
+    /// Declares `name` as an implicit `Variant` variable of the procedure
+    /// when the source binding would: an assignment to a name that nothing
+    /// declares, in a module without `Option Explicit` and `DefType`
+    /// statements.
+    fn declare_implicit(&mut self, name: &str, suffix: Option<char>) -> Option<LocalId> {
+        let key = name.to_ascii_lowercase();
+        if self.cx.explicit
+            || self.cx.has_deftype
+            || suffix.is_some()
+            || name.starts_with(crate::model::PLACEHOLDER)
+            || self.declared_in_module(name)
+            || self.cx.index.known_std.contains(&key)
+            || self.cx.index.module_names.contains(&key)
+            || self.module_symbol(name).is_some()
+            || self.proc_target_visible(name).is_some()
+            || self.is_host_name(name, true)
+            || BuiltinLibrary.global(name).is_some()
+            || vba_stdlib::lookup(name).is_some()
+            || self.enum_by_name(name).is_some()
+            || self.is_result_name(name)
+        {
+            return None;
+        }
+        let id = self.new_temp(Type::Variant);
+        self.implicit.insert(key, id);
+        Some(id)
     }
 
     fn is_result_name(&self, name: &str) -> bool {
@@ -2068,12 +2115,14 @@ impl Lw<'_> {
                 _ => return Err(self.no(op, "bad literal")),
             },
             Opcode::ConstText => match ins.operands.first() {
-                Some(Operand::Text(t)) if t.is_ascii() => {
-                    let s = String::from_utf8_lossy(t).into_owned();
+                Some(Operand::Text(t)) => {
+                    let Some(s) = crate::model::decode_text(t, self.cx.code_page) else {
+                        return Err(self.no(op, "string literal outside ASCII"));
+                    };
                     self.stack
                         .push(Ex::Const(Variant::String(VbaString::from(s)), Type::String));
                 }
-                _ => return Err(self.no(op, "string literal outside ASCII")),
+                _ => return Err(self.no(op, "bad literal")),
             },
             Opcode::ConstKeywordValue => match ins.modifier {
                 0 => self
@@ -2263,12 +2312,20 @@ impl Lw<'_> {
                 self.close_stmt();
             }
             Opcode::ErrResume => {
-                let (name, _) = self.name_of(ins)?;
-                let b = self.label_block(&name);
+                // Modifier 0: `Resume label`; 8: `Resume`; 1: `Resume Next`.
+                let kind = match ins.modifier {
+                    0 => {
+                        let (name, _) = self.name_of(ins)?;
+                        ResumeKind::Block(self.label_block(&name))
+                    }
+                    8 => ResumeKind::Same,
+                    1 => ResumeKind::Next,
+                    _ => return Err(self.no(op, "Resume form not observed")),
+                };
                 // The code after the jump is reached only through
                 // `On Error Resume Next`, which skips error 20 (`Resume`
                 // without an error) and continues with the next statement.
-                self.terminate_and_continue(Terminator::Resume(ResumeKind::Block(b)));
+                self.terminate_and_continue(Terminator::Resume(kind));
                 self.close_stmt();
             }
             Opcode::LabelNamed => {
@@ -2742,7 +2799,7 @@ impl Lw<'_> {
             // (modifier 0 with a name).
             Opcode::ErrHandlerSet => matches!(ins.modifier, 0..=2),
             // `Resume label`.
-            Opcode::ErrResume => ins.modifier == 0,
+            Opcode::ErrResume => matches!(ins.modifier, 0 | 1 | 8),
             Opcode::LabelNamed => true,
             // An omitted positional argument.
             Opcode::ArgMissing => true,
@@ -3717,13 +3774,13 @@ impl Lw<'_> {
     }
 
     fn assign(&mut self, ins: &Listed, set: bool) -> R<()> {
-        let (name, _) = self.name_of(ins)?;
+        let (name, suffix) = self.name_of(ins)?;
         let v = self.pop(ins)?;
         self.expect_empty(ins)?;
         if set {
             self.check_set_source(ins, &v)?;
         }
-        self.store_name(ins, &name, v, set)
+        self.store_name(ins, &name, suffix, v, set)
     }
 
     /// The right-hand side of a `Set` must be an object reference known at
@@ -3765,7 +3822,14 @@ impl Lw<'_> {
     }
 
     /// Stores `v` into the variable or `Property Let` called `name`.
-    fn store_name(&mut self, ins: &Listed, name: &str, v: Ex, set: bool) -> R<()> {
+    fn store_name(
+        &mut self,
+        ins: &Listed,
+        name: &str,
+        suffix: Option<char>,
+        v: Ex,
+        set: bool,
+    ) -> R<()> {
         enum Target {
             Local(LocalId, Type),
             Global(GlobalId, Type),
@@ -3790,12 +3854,15 @@ impl Lw<'_> {
                         None => return Err(self.no(ins.opcode, "property without a Let or Set")),
                     }
                 }
-                _ => {
-                    return Err(self.no(
-                        ins.opcode,
-                        format!("assignment to `{name}`, which is not a variable"),
-                    ));
-                }
+                _ => match self.declare_implicit(name, suffix) {
+                    Some(id) => Target::Local(id, Type::Variant),
+                    None => {
+                        return Err(self.no(
+                            ins.opcode,
+                            format!("assignment to `{name}`, which is not a variable"),
+                        ));
+                    }
+                },
             }
         };
         let (ty, place) = match target {

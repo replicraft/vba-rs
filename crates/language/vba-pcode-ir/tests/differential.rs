@@ -367,6 +367,12 @@ fn source_program(
     host_members: &[String],
     excluded: &HashSet<(String, String)>,
 ) -> Result<Rc<IrProgram>, SourceError> {
+    // The module text is decoded with the code page of the project, as the
+    // source analysis takes text.
+    let dec = |b: &[u8]| {
+        vba_format::codepage::decode(p.code_page, b)
+            .unwrap_or_else(|_| String::from_utf8_lossy(b).into_owned())
+    };
     let mut mods = Vec::new();
     // `(start, end, procedure)` byte ranges of the lowered procedures in the
     // text of each module.
@@ -378,14 +384,14 @@ fn source_program(
         let strip = |s: &str| strip_project_qualifier(s, &p.name);
         // Attribute lines have no line in the compiled code; the default
         // instance of a class is the one that matters to the lowering.
-        for raw in String::from_utf8_lossy(&m.source).lines() {
+        for raw in dec(&m.source).lines() {
             let low = raw.trim().to_ascii_lowercase().replace(' ', "");
             if low.starts_with("attributevb_predeclaredid=true") {
                 text.push_str("Attribute VB_PredeclaredId = True\n");
             }
         }
         for l in &lines {
-            let t = String::from_utf8_lossy(l);
+            let t = dec(l);
             let low = t.trim_start().to_ascii_lowercase();
             if low.starts_with("option compare") || low.starts_with("option explicit") {
                 text.push_str(&strip(&t));
@@ -401,7 +407,7 @@ fn source_program(
         decl_lines.sort_unstable();
         decl_lines.dedup();
         for l in decl_lines {
-            text.push_str(&strip(&String::from_utf8_lossy(&lines[l])));
+            text.push_str(&strip(&dec(&lines[l])));
             text.push('\n');
         }
         for r in lp
@@ -413,7 +419,7 @@ fn source_program(
             if r.outcome.is_lowered() && comparable {
                 let start = text.len();
                 for l in &lines[r.first_line..=r.last_line] {
-                    text.push_str(&strip(&String::from_utf8_lossy(l)));
+                    text.push_str(&strip(&dec(l)));
                     text.push('\n');
                 }
                 mod_ranges.push((start, text.len(), r.procedure.clone()));
@@ -422,7 +428,7 @@ fn source_program(
                 // end only, so that the module has the same members and
                 // `Implements` can be satisfied.
                 for l in [&lines[r.first_line], &lines[r.last_line]] {
-                    text.push_str(&strip(&String::from_utf8_lossy(l)));
+                    text.push_str(&strip(&dec(l)));
                     text.push('\n');
                 }
             }
@@ -638,6 +644,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
     let options = LowerOptions {
         host_members: common::host_member_names(p),
         project_name: Some(p.name.clone()),
+        code_page: Some(p.code_page),
     };
     let lp = lower_project_with_options(&p.project_stream, p.sys_kind, &inputs, &options)
         .map_err(|e| format!("lowering: {e}"))?;

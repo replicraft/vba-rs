@@ -27,6 +27,7 @@ fn lower(t: &Tables, kind: ModuleKind, lines: &[Line], project: Option<&str>) ->
     let options = LowerOptions {
         host_members: Vec::new(),
         project_name: project.map(str::to_owned),
+        ..LowerOptions::default()
     };
     let lp = lower_project_with_options(
         &project_stream,
@@ -597,6 +598,7 @@ fn a_library_enum_qualifies_its_members_even_when_the_host_lists_the_name() {
     let options = LowerOptions {
         host_members: vec!["VbVarType".to_owned()],
         project_name: None,
+        ..LowerOptions::default()
     };
     let lp = lower_project_with_options(
         &project,

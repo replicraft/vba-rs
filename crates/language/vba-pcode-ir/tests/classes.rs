@@ -36,6 +36,7 @@ fn lower_kind(
     let options = LowerOptions {
         host_members: host_members.iter().map(|s| (*s).to_owned()).collect(),
         project_name: None,
+        ..LowerOptions::default()
     };
     let lp = lower_project_with_options(
         &project,

@@ -1439,6 +1439,7 @@ dependencies = [
 name = "vba-pcode-ir"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "proptest",
  "thiserror",
  "vba-ast",
