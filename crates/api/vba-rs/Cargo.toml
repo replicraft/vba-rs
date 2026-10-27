@@ -53,6 +53,11 @@ vba-winapi = { workspace = true, optional = true }
 vba-wine = { workspace = true, optional = true }
 thiserror.workspace = true
 
+# Run the skeleton's own tests with `cargo test --examples`.
+[[example]]
+name = "adapter_skeleton"
+test = true
+
 [dev-dependencies]
 serde_json.workspace = true
 tempfile.workspace = true

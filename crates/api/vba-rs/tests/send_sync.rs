@@ -3,8 +3,8 @@
 
 use vba::{
     Arg, CallLimits, CallResult, CallTarget, CancelToken, Capability, Diagnostic, Error,
-    EventOutcome, ModuleKind, Outcome, Policy, Profile, Project, Report, ResourceLimits,
-    RunStatus, Variant,
+    EventOutcome, ModuleKind, Outcome, Policy, Profile, Project, Report, ResourceLimits, RunStatus,
+    Variant,
 };
 
 fn send_sync<T: Send + Sync>() {}

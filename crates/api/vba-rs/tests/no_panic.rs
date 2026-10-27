@@ -172,7 +172,17 @@ fn absurd_procedure_names_and_arguments() {
     let mut inst = loaded();
     let long = "A".repeat(1 << 20);
     for name in [
-        "", ".", "..", "A.B.C", "Module1.", ".Hello", "\0", "Hello\0", "ü", &long, "Module1.Id",
+        "",
+        ".",
+        "..",
+        "A.B.C",
+        "Module1.",
+        ".Hello",
+        "\0",
+        "Hello\0",
+        "ü",
+        &long,
+        "Module1.Id",
     ] {
         let _ = inst.run(name, vec![]);
         let _ = inst.call(CallTarget::Project, name, vec![]);
@@ -249,8 +259,12 @@ fn forged_and_stale_object_references() {
 #[test]
 fn objects_after_destroy_and_reset() {
     let mut p = Project::new();
-    p.add_module("Class1", ModuleKind::Class, "Public X As Long\r\nPublic Sub M()\r\nEnd Sub\r\n")
-        .unwrap();
+    p.add_module(
+        "Class1",
+        ModuleKind::Class,
+        "Public X As Long\r\nPublic Sub M()\r\nEnd Sub\r\n",
+    )
+    .unwrap();
     let mut inst = Engine::new().load(&p).unwrap();
     inst.trust();
     let o = inst.create_object("Class1", None).unwrap();

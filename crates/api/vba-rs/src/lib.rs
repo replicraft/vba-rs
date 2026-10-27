@@ -226,6 +226,10 @@ pub mod prelude;
 pub mod raw;
 pub mod thread;
 
+/// The version of this crate, for an application that pins a revision and
+/// wants to log or assert which one it linked.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub use call::{Arg, CallLimits, CallResult, CallTarget};
 pub use context::HostContext;
 pub use engine::{Engine, Instance, Outcome};

@@ -247,18 +247,19 @@ impl InstanceThread {
     ) -> Result<Reply<R>, ThreadError> {
         let sender = self.commands.as_ref().ok_or(ThreadError::Stopped)?;
         let (reply_tx, reply_rx) = mpsc::channel();
-        let job: Job = Box::new(move |instance| {
-            match catch_unwind(AssertUnwindSafe(|| command(instance))) {
-                Ok(value) => {
-                    let _ = reply_tx.send(Ok(value));
-                    true
-                }
-                Err(p) => {
-                    let _ = reply_tx.send(Err(ThreadError::Panicked(panic_text(p))));
-                    false
-                }
-            }
-        });
+        let job: Job =
+            Box::new(
+                move |instance| match catch_unwind(AssertUnwindSafe(|| command(instance))) {
+                    Ok(value) => {
+                        let _ = reply_tx.send(Ok(value));
+                        true
+                    }
+                    Err(p) => {
+                        let _ = reply_tx.send(Err(ThreadError::Panicked(panic_text(p))));
+                        false
+                    }
+                },
+            );
         sender.send(job).map_err(|_| ThreadError::Stopped)?;
         Ok(Reply { receiver: reply_rx })
     }
@@ -287,9 +288,7 @@ impl InstanceThread {
         self.commands = None;
         let handle = self.join.lock().ok().and_then(|mut j| j.take());
         match handle {
-            Some(h) => h
-                .join()
-                .map_err(|p| ThreadError::Panicked(panic_text(p))),
+            Some(h) => h.join().map_err(|p| ThreadError::Panicked(panic_text(p))),
             None => Ok(()),
         }
     }
