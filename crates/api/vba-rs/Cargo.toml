@@ -60,6 +60,9 @@ name = "adapter_skeleton"
 test = true
 
 [dev-dependencies]
+# The corpus runner used by tests/conformance.rs (a dev-dependency cycle with
+# this crate, which cargo allows for tests).
+vba-conformance.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 

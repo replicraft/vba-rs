@@ -1,0 +1,18 @@
+[package]
+name = "vba-conformance"
+description = "Dev tool: the conformance corpus runner (tests/vba) with a pluggable engine, so an embedding application can run the corpus under its own configuration. Not part of the shipped libraries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+vba-rs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

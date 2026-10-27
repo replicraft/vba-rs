@@ -1290,6 +1290,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-conformance"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "vba-rs",
+]
+
+[[package]]
 name = "vba-core"
 version = "0.1.0"
 
@@ -1471,6 +1479,7 @@ dependencies = [
  "thiserror",
  "vba-ast",
  "vba-automation",
+ "vba-conformance",
  "vba-core",
  "vba-diagnostics",
  "vba-ffi",
