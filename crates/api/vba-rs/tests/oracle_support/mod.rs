@@ -1513,14 +1513,14 @@ pub fn fake_oracle(
             let mut output = text.replace('\n', "\r\n");
             let mut timeout = false;
             if mode == FakeMode::Perturbed {
-                if index % 13 == 0 {
+                if index.is_multiple_of(13) {
                     timeout = true;
-                } else if index % 11 == 0 {
+                } else if index.is_multiple_of(11) {
                     error = match error {
                         Some(_) => None,
                         None => Some("5".to_owned()),
                     };
-                } else if index % 7 == 0 {
+                } else if index.is_multiple_of(7) {
                     output.push_str("perturbed\r\n");
                 }
             }
