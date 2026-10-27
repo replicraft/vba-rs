@@ -10,9 +10,9 @@ use std::collections::HashMap;
 
 use vba_ast::{BinaryOp as AstBin, CompareMode as AstCompare};
 use vba_ir::{
-    BinOp, Block, BlockId, CallArg, Callee, ErrMode, Function, Inst, InstKind, InvokeKind, LateArg,
-    Member, Operand as IrOperand, OutItem, Point, RefPlace, Reg, ResumeKind, Slot, SlotRole,
-    StmtId, StmtInfo, StoreMode, Terminator, UnOp,
+    BinOp, Block, BlockId, CallArg, Callee, ErrMode, Function, Inst, InstKind, InvokeKind, IoOp,
+    LateArg, Member, Operand as IrOperand, OutItem, Point, RefPlace, Reg, ResumeKind, Slot,
+    SlotRole, StmtId, StmtInfo, StoreMode, Terminator, UnOp,
 };
 use vba_pcode::{Evidence, Listed, Opcode, Operand};
 use vba_sema::bound::Constant;
@@ -385,8 +385,10 @@ struct Lw<'a> {
     for_depth: Option<usize>,
     /// The counter captured at `FOR_VAR_EXPR_CLOSE`.
     for_var: Option<Ex>,
-    /// Pending `Debug.Print` list.
+    /// Pending `Debug.Print` or `Print #` list.
     print: Option<(Vec<Ex>, Vec<OutItem>)>,
+    /// The file number of a pending `Print #`.
+    print_file: Option<Ex>,
     line: usize,
     stmt_line: usize,
     /// The procedure contains `On Error`: statements need resume points.
@@ -539,6 +541,7 @@ pub(crate) fn lower_body(
         for_depth: None,
         for_var: None,
         print: None,
+        print_file: None,
         line: header_line,
         stmt_line: usize::MAX,
         has_on_error: body.iter().any(|(_, i)| i.opcode == Opcode::ErrHandlerSet),
@@ -2479,6 +2482,53 @@ impl Lw<'_> {
             Opcode::DimMarker => self.dim_depth = self.stack.len(),
             Opcode::VarDecl => self.stack.truncate(self.dim_depth),
             Opcode::OptionStmt => {}
+            Opcode::ExprFileNumberMark => {}
+            Opcode::ArgDefaultPlaceholder => self.stack.push(Ex::Missing),
+            Opcode::FileOpen => {
+                self.file_open(ins)?;
+                self.close_stmt();
+            }
+            Opcode::FileClose => {
+                let n = match ins.operands.first() {
+                    Some(Operand::Count(c)) => usize::from(*c),
+                    _ => return Err(self.no(op, "missing count")),
+                };
+                let files = self.pop_n(ins, n)?;
+                self.expect_empty(ins)?;
+                let mut ops = Vec::new();
+                for f in files {
+                    let f = self.file_number(ins, f)?;
+                    ops.push(self.emit_ex(&f));
+                }
+                self.emit(InstKind::Io(IoOp::Close(ops)));
+                self.close_stmt();
+            }
+            Opcode::FileReadLine => {
+                let target = self.pop(ins)?;
+                let file = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let file = self.file_number(ins, file)?;
+                if !matches!(target.ty(), Type::String | Type::Variant) {
+                    return Err(self.no(op, "Line Input into something other than a String or Variant"));
+                }
+                let Some(place) = place_of(&target) else {
+                    return Err(self.no(op, "Line Input target is not a variable"));
+                };
+                let fo = self.emit_ex(&file);
+                let t = self.emit_ref(&place);
+                self.emit(InstKind::Io(IoOp::LineInput { file: fo, target: t }));
+                self.close_stmt();
+            }
+            Opcode::OutChannel => {
+                if self.print.is_some() {
+                    return Err(self.no(op, "nested Print"));
+                }
+                let f = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let f = self.file_number(ins, f)?;
+                self.print = Some((Vec::new(), Vec::new()));
+                self.print_file = Some(f);
+            }
             Opcode::OptionBaseMarker => self.stack.push(Ex::BaseBound),
             Opcode::WriteSimpleParams => {
                 self.assign_indexed(ins)?;
@@ -2846,6 +2896,8 @@ impl Lw<'_> {
                     Opcode::OutItemThenSemicolon => seps.push(OutItem::Semicolon),
                     _ => {
                         let (vals, seps) = self.print.take().unwrap_or_default();
+                        let file = self.print_file.take();
+                        let file_op = file.as_ref().map(|f| self.emit_ex(f));
                         let mut items = Vec::new();
                         let mut seps = seps.into_iter();
                         for v in &vals {
@@ -2855,7 +2907,10 @@ impl Lw<'_> {
                                 items.push(s);
                             }
                         }
-                        self.emit(InstKind::DebugPrint { items });
+                        match file_op {
+                            Some(file) => self.emit(InstKind::Io(IoOp::Print { file, items })),
+                            None => self.emit(InstKind::DebugPrint { items }),
+                        }
                         self.close_stmt();
                     }
                 }
@@ -2903,11 +2958,18 @@ impl Lw<'_> {
             }
             // Array element assignment, `ReDim`, `Erase`, the `Option Base`
             // marker and `Array(...)`: pinned by the differential run.
-            Opcode::WriteSimpleParams
+            Opcode::ExprFileNumberMark
+            | Opcode::ArgDefaultPlaceholder
+            | Opcode::FileClose
+            | Opcode::FileReadLine
+            | Opcode::OutChannel
+            | Opcode::WriteSimpleParams
             | Opcode::EraseArrays
             | Opcode::OptionBaseMarker
             | Opcode::ArrayElementParams => true,
             Opcode::RedimSimple | Opcode::RedimSimpleTyped => matches!(ins.modifier, 0 | 16),
+            // `Open path For mode As #n`: the mode words 1, 2, 4, 8 and 32.
+            Opcode::FileOpen => matches!(ins.modifier, 1 | 2 | 4 | 8 | 32),
             // `Set` statements, `New`.
             Opcode::SetKeywordMarker
             | Opcode::WriteRefSimple
@@ -3259,6 +3321,82 @@ impl Lw<'_> {
             return Ok(self.host_member(name, args));
         }
         self.intrinsic_call(ins, name, dollar, args)
+    }
+
+    /// A file number as the source binding converts it: scalars that do not
+    /// convert to `Integer` stay (the statement raises error 52), the others
+    /// become `Integer`.
+    fn file_number(&self, ins: &Listed, e: Ex) -> R<Ex> {
+        let t = e.ty();
+        if t.is_object() {
+            return Err(self.no(ins.opcode, "file number that is an object"));
+        }
+        if matches!(
+            t,
+            Type::String
+                | Type::FixedString(_)
+                | Type::Variant
+                | Type::Boolean
+                | Type::Date
+                | Type::Single
+                | Type::Double
+                | Type::Currency
+                | Type::Decimal
+                | Type::LongLong
+        ) {
+            return Ok(e);
+        }
+        if matches!(t, Type::Udt(_) | Type::Array { .. } | Type::Nothing) {
+            return Err(self.no(ins.opcode, "file number of an unusable type"));
+        }
+        Ok(self.coerce(e, &Type::Integer))
+    }
+
+    /// `Open path For mode As #file [Len = n]` with no `Access` or `Lock`
+    /// clause.
+    fn file_open(&mut self, ins: &Listed) -> R<()> {
+        use vba_ast::OpenMode;
+        let mode = match ins.modifier {
+            1 => OpenMode::Input,
+            2 => OpenMode::Output,
+            4 => OpenMode::Random,
+            8 => OpenMode::Append,
+            32 => OpenMode::Binary,
+            _ => return Err(self.no(ins.opcode, "Open mode not observed")),
+        };
+        let mut v = self.pop_n(ins, 3)?;
+        self.expect_empty(ins)?;
+        let len = v.pop();
+        let file = v.pop();
+        let path = v.pop();
+        let (Some(len), Some(file), Some(path)) = (len, file, path) else {
+            return Err(self.no(ins.opcode, "malformed Open"));
+        };
+        if path.ty().is_object() || matches!(path, Ex::Missing) {
+            return Err(self.no(ins.opcode, "Open path that is not a value"));
+        }
+        let path = if path.ty() == Type::String {
+            path
+        } else {
+            self.coerce(path, &Type::String)
+        };
+        let file = self.file_number(ins, file)?;
+        let len = match len {
+            Ex::Missing => None,
+            other => Some(self.coerce_index(other)),
+        };
+        let po = self.emit_ex(&path);
+        let fo = self.emit_ex(&file);
+        let lo = len.map(|l| self.emit_ex(&l));
+        self.emit(InstKind::Io(IoOp::Open {
+            path: po,
+            mode,
+            access: None,
+            lock: None,
+            file: fo,
+            record_len: lo,
+        }));
+        Ok(())
     }
 
     /// `array(i, j)`: an element of an array value, with the subscripts
