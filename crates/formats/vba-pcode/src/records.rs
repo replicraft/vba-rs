@@ -303,7 +303,13 @@ impl FunctionRecord {
             option: slice(indirect, o + 54 + late, 1, "function option")?[0],
             arg_count: slice(indirect, o + 55 + late, 1, "function argument count")?[0],
             flags6: if layout.family == VersionFamily::Vba5 {
-                0
+                // `[obs]`: VBA 5 has no flag byte; the public bit is 0x0008
+                // of the flag word.
+                if u16_at(indirect, o, "function flags")? & 0x0008 != 0 {
+                    0x02
+                } else {
+                    0
+                }
             } else {
                 slice(indirect, o + 57 + late, 1, "function flags6")?[0]
             },
