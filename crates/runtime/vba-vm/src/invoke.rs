@@ -550,6 +550,20 @@ impl Vm {
             Some(v) if !matches!(v, Variant::Empty) => convert::to_long(v)?,
             _ => 0,
         };
+        // MS-VBAL 6.1.3.2.1.2: arguments left out take the values still held
+        // by an uncleared `Err`.
+        let held = self.err.number != 0;
+        let keep = |given: Option<String>, held_value: &str| {
+            given.or_else(|| (held && !held_value.is_empty()).then(|| held_value.to_string()))
+        };
+        let source = keep(source, &self.err.source);
+        let description = keep(description, &self.err.description);
+        let help_file = keep(help_file, &self.err.help_file);
+        let help_context = if help_context == 0 && held && slots[4].is_none() {
+            self.err.help_context
+        } else {
+            help_context
+        };
         Err(Fault::from(RtErr {
             number,
             description: description.unwrap_or_else(|| crate::error::describe(number)),

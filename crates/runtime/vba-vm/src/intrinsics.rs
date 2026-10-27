@@ -434,6 +434,19 @@ impl Vm {
                 _ if lname == "setcheckvariant" => return Err(VbaError::TYPE_MISMATCH.into()),
                 _ => return Err(VbaError::new(424).into()),
             },
+            // MS-VBAL 6.1.2.3.1.15: without an argument `Error` describes the
+            // most recent error held by `Err`.
+            "error" if matches!(a.first(), None | Some(None)) => {
+                let n = self.err.number;
+                let text = if !self.err.description.is_empty() {
+                    self.err.description.clone()
+                } else if n != 0 {
+                    VbaError::new(n).description().to_string()
+                } else {
+                    String::new()
+                };
+                Variant::from_text(&text)
+            }
             "typename" => match a.first() {
                 Some(Some(Variant::Object(vba_value::ObjectRef::Handle(h)))) => {
                     Variant::from_text(&self.object_type_name(*h))

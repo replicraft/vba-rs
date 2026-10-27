@@ -1,6 +1,5 @@
 ' INV: vbal.6.1.3.2.1.2
 ' SOURCE: spec ms-vbal 6.1.3.2.1.2 Raise without some arguments takes uncleared Err property values
-' XFAIL: wrong not implemented: Err.Raise reusing uncleared Err values
 ' EXPECT: first=MySrc|MyDesc
 ' EXPECT: second=MySrc|MyDesc|5
 Public Sub Main()
