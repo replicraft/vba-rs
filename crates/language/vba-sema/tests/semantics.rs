@@ -77,7 +77,7 @@ fn qualified_names_reach_other_modules() {
     let a = analyze(&[
         bas(
             "Cfg",
-            "Public Const K As Long = 7\nPublic Enum Mode\nFast = 1\nSlow\nEnd Enum\nPublic Function Twice(ByVal n As Long) As Long\nEnd Function\nPublic Type Pt\nx As Long\nEnd Type\n",
+            "Public Const K As Long = 7\nPublic Enum Mode\nFast = 1\nSlow\nEnd Enum\nPublic Type Pt\nx As Long\nEnd Type\nPublic Function Twice(ByVal n As Long) As Long\nEnd Function\n",
         ),
         bas(
             "M",

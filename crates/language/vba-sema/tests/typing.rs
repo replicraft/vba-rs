@@ -189,7 +189,7 @@ fn call_classification() {
     ];
     for (expr, want) in cases {
         let src = format!(
-            "Function Helper(Optional x As Long) As Long\nEnd Function\nPrivate Declare PtrSafe Function Ext Lib \"k\" (ByVal x As Long) As Long\nFunction T()\n{decls}\nT = {expr}\nEnd Function\n"
+            "Private Declare PtrSafe Function Ext Lib \"k\" (ByVal x As Long) As Long\nFunction Helper(Optional x As Long) As Long\nEnd Function\nFunction T()\n{decls}\nT = {expr}\nEnd Function\n"
         );
         let a = analyze(&[bas("M", &src)]);
         assert_clean(&a);

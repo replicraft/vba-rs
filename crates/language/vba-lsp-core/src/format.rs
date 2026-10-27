@@ -120,6 +120,16 @@ impl View<'_> {
                 continue;
             }
             let (lead, next) = if t0.kind() == TokenKind::Whitespace {
+                // Indentation made of anything but blanks and tabs (a Unicode
+                // space) is left as written.
+                let (s0, e0) = (t0.span().start as usize, t0.span().end as usize);
+                if bytes
+                    .get(s0..e0)
+                    .is_some_and(|w| w.iter().any(|b| !matches!(b, b' ' | b'\t')))
+                {
+                    lines.push(skip);
+                    continue;
+                }
                 ((ls, t0.span().end), tokens.get(k + 1))
             } else {
                 ((ls, ls), Some(t0))

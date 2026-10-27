@@ -106,7 +106,7 @@ fn class_basics() {
                 (
                     "Node",
                     true,
-                    "Public Function Self() As Node\nSet Self = Me\nEnd Function\nPublic Name As String\n",
+                    "Public Name As String\nPublic Function Self() As Node\nSet Self = Me\nEnd Function\n",
                 ),
                 (
                     "M",

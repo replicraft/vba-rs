@@ -241,10 +241,10 @@ const CASES: &[Case] = &[
             (
                 "Sink",
                 Class,
-                "Private WithEvents s As Src\nPrivate Sub s_Changed(ByVal n As Long)\nEnd Sub\nPrivate Sub s_Done(ByVal x As Long)\nEnd Sub\nPrivate Sub s_Missing()\nEnd Sub\nPrivate WithEvents bad As Long\n",
+                "Private WithEvents s As Src\nPrivate WithEvents bad As Long\nPrivate Sub s_Changed(ByVal n As Long)\nEnd Sub\nPrivate Sub s_Done(ByVal x As Long)\nEnd Sub\nPrivate Sub s_Missing()\nEnd Sub\n",
             ),
         ],
-        expect: &["SEM017@6", "SEM017@4", "SEM017@6", "SEM017@8"],
+        expect: &["SEM017@6", "SEM017@2", "SEM017@5", "SEM017@7"],
     },
     Case {
         name: "withevents and events only in classes",

@@ -127,7 +127,7 @@ fn default_instances_are_per_session_and_events_reach_document_modules() {
         module(
             "ThisWorkbook",
             ModuleKind::Document,
-            "Private Sub Workbook_Open()\nDebug.Print \"opened \" & Counter\nCounter = Counter + 1\nEnd Sub\nPublic Counter As Long\n",
+            "Public Counter As Long\nPrivate Sub Workbook_Open()\nDebug.Print \"opened \" & Counter\nCounter = Counter + 1\nEnd Sub\n",
         ),
         std_module("Public Sub Main()\nDebug.Print \"main\"\nEnd Sub\n"),
     ];

@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc b8765dc167cfbfb22d6ea210002e148298666ce6b08875da69ca32b81c06435a # shrinks to src = "Public Property Get P() As Long\n_"
+cc a1dbdb16a494c089e45d798243d98eeec1e3ca9e35f5d9ec0d71c1d984505d95 # shrinks to src = "\u{2000}ᾀ"
