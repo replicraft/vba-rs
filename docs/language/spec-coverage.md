@@ -115,11 +115,14 @@ program that checks the default behaviour (warn and run).
 | `#If`/`#ElseIf` condition in an excluded block that is not Boolean-coercible (3.4.2) | warning | An excluded block is not compiled by real VBA. The same condition in a live block is an error. |
 | Type character that differs from the declared type, `n$` for a `Long` (5.6.10) | warning | The declared type wins. |
 | Assignment to a parenthesized expression, `(x) = 5` (5.6.6) | warning | Assigns to the inner expression. |
+| Enum member value referring to a following member of the same enum or a member of a later enum of the module (5.2.3.4) | warning | The member is evaluated lazily and resolves; real VBA's behaviour is unconfirmed. |
+| `Global Enum` in a class module (5.2.3.4) | warning | Treated as `Public Enum`. |
+| `Declare` alias `#n` whose remainder is not an integer from 0 to 32767 (5.2.3.5) | warning | The alias is kept as written; nothing here calls the library. |
 
 These stay errors in every mode because real VBA rejects them (or the program has no
 meaning): syntax errors, undefined names under `Option Explicit`, type mismatches, duplicate
 declarations, missing `End` statements, assignments to constants, unresolved references or
-libraries, bad argument lists, misplaced `Option` statements, `Declare` in a public class
+libraries, bad argument lists, misplaced `Option` statements, declarations after a procedure, `Declare` in a public class
 member, `Friend` in a standard module, `Static` at module level, `Implements` with missing
 members, `Do` with a condition on both ends, invalid date literals, float and radix literals
 out of range, wrong `Exit` kinds, and property

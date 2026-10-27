@@ -405,6 +405,7 @@ spec-decl/5_2_3_5_declare_name_clash_with_procedure	engine-only	expects a compil
 spec-decl/5_2_3_5_declare_ordinal_alias_max_ok	safety	Declare calls native code
 spec-decl/5_2_3_5_declare_ordinal_alias_not_integer	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-decl/5_2_3_5_declare_ordinal_alias_out_of_range	engine-only	expects a compile error (needs a modal dialog in a real host)
+spec-decl/5_2_3_5_declare_ordinal_alias_warns	safety	Declare calls native code
 spec-decl/5_2_3_5_declare_uncalled_ok	safety	Declare calls native code
 spec-decl/5_2_3_6_circular_const_dependency	engine-only	expects a compile error (needs a modal dialog in a real host)
 spec-decl/5_2_3_6_circular_enum_dependency	engine-only	expects a compile error (needs a modal dialog in a real host)

@@ -99,7 +99,29 @@ impl<'a> Sema<'a> {
         let (mut seen_explicit, mut seen_base, mut seen_compare, mut seen_private) =
             (false, false, false, false);
 
+        let mut seen_proc = false;
         for item in &ast.items {
+            let decl_span = match item {
+                Item::Implements(x) => Some(x.span),
+                Item::Declare(x) => Some(x.span),
+                Item::Event(x) => Some(x.span),
+                Item::Const(x) => Some(x.span),
+                Item::Var(x) => Some(x.span),
+                Item::Type(x) => Some(x.span),
+                Item::Enum(x) => Some(x.span),
+                Item::DefType(x) => Some(x.span),
+                _ => None,
+            };
+            if let Some(span) = decl_span
+                && seen_proc
+            {
+                self.error(
+                    m,
+                    codes::OPTION_PLACEMENT,
+                    span,
+                    "declarations must precede all procedures (MS-VBAL 5.1)",
+                );
+            }
             match item {
                 Item::Option(o) => {
                     if declared_any {
@@ -418,6 +440,14 @@ impl<'a> Sema<'a> {
                 }
                 Item::Enum(e) => {
                     declared_any = true;
+                    if class_like && e.visibility == Some(Visibility::Global) {
+                        self.spec_strict(
+                            m,
+                            codes::TYPE_DECLARATION,
+                            e.name.span,
+                            "`Global Enum` is not allowed in a class module",
+                        );
+                    }
                     if e.members.is_empty() {
                         self.spec_strict(
                             m,
@@ -452,6 +482,7 @@ impl<'a> Sema<'a> {
                 }
                 Item::Proc(p) => {
                     declared_any = true;
+                    seen_proc = true;
                     let id = ProcId(self.program.procs.len() as u32);
                     let vis = match p.visibility {
                         Some(Visibility::Global) | None => Visibility::Public,

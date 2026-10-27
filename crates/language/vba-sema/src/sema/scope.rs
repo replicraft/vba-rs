@@ -150,7 +150,10 @@ impl ModuleScope<'_, '_> {
                 Some((v, t)) => ConstLookup::Found(v, t),
                 None => ConstLookup::Failed,
             },
-            Symbol::EnumMember(e, i) => match self.sema.eval_enum_member(e, i as usize) {
+            Symbol::EnumMember(e, i) => match {
+                self.sema.check_enum_forward_reference(e, i as usize);
+                self.sema.eval_enum_member(e, i as usize)
+            } {
                 Some(v) => {
                     ConstLookup::Found(Constant::Value(vba_value::Variant::Long(v)), Type::Enum(e))
                 }

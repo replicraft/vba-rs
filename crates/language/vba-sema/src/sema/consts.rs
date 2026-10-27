@@ -38,7 +38,9 @@ impl Sema<'_> {
             (s.module, s.item)
         };
         let scope = ModuleScope { sema: self, module };
+        self.eval_ctx.borrow_mut().push(None);
         let result = fold(&scope, &item.value).map_err(|e| (e.span, e.message));
+        self.eval_ctx.borrow_mut().pop();
         let out = match result {
             Err((span, msg)) => {
                 self.error(module, codes::CONSTANT_EXPRESSION, span, msg);
@@ -101,6 +103,33 @@ impl Sema<'_> {
         Some(t)
     }
 
+    /// MS-VBAL 5.2.3.4: the value of an enum member may not refer to a
+    /// member that follows it, in the same enum or in a later enum of the
+    /// same module.
+    pub(crate) fn check_enum_forward_reference(&self, target: EnumId, idx: usize) {
+        let Some(&Some((cur, cidx))) = self.eval_ctx.borrow().last() else {
+            return;
+        };
+        let module = self.program.enums[cur.index()].module;
+        let forward = if target == cur {
+            idx > cidx
+        } else {
+            self.program.enums[target.index()].module == module && target.index() > cur.index()
+        };
+        if forward {
+            let decl = self.enum_src[cur.index()];
+            self.spec_strict(
+                module,
+                codes::CONSTANT_EXPRESSION,
+                decl.members[cidx].span,
+                format!(
+                    "enum member `{}` refers to a member declared after it",
+                    decl.members[cidx].name.name
+                ),
+            );
+        }
+    }
+
     /// Evaluates the value of an enum member.
     pub(crate) fn eval_enum_member(&self, e: EnumId, idx: usize) -> Option<i32> {
         let state = self.enum_state.borrow()[e.index()][idx].clone();
@@ -129,7 +158,10 @@ impl Sema<'_> {
         let out: Option<i32> = match &member.value {
             Some(expr) => {
                 let scope = ModuleScope { sema: self, module };
-                match fold(&scope, expr) {
+                self.eval_ctx.borrow_mut().push(Some((e, idx)));
+                let folded = fold(&scope, expr);
+                self.eval_ctx.borrow_mut().pop();
+                match folded {
                     Err(er) => {
                         self.error(module, codes::CONSTANT_EXPRESSION, er.span, er.message);
                         None

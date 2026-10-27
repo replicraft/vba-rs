@@ -59,6 +59,9 @@ pub(crate) struct Sema<'a> {
     pub const_state: RefCell<Vec<CState>>,
     pub enum_src: Vec<&'a EnumDecl>,
     pub enum_state: RefCell<Vec<Vec<CState>>>,
+    /// The enum member (or `None` for a constant) whose value is being
+    /// evaluated, innermost last.
+    pub eval_ctx: RefCell<Vec<Option<(crate::types::EnumId, usize)>>>,
     pub udt_src: Vec<&'a TypeDecl>,
     pub declare_src: Vec<&'a DeclareDecl>,
     pub event_src: Vec<&'a EventDecl>,
@@ -96,6 +99,7 @@ impl<'a> Sema<'a> {
             const_state: RefCell::new(Vec::new()),
             enum_src: Vec::new(),
             enum_state: RefCell::new(Vec::new()),
+            eval_ctx: RefCell::new(Vec::new()),
             udt_src: Vec::new(),
             declare_src: Vec::new(),
             event_src: Vec::new(),

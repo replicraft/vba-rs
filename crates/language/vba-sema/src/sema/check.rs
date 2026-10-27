@@ -656,6 +656,24 @@ impl Sema<'_> {
                     "`Declare` needs a non-empty `Lib` name",
                 );
             }
+            // MS-VBAL 5.2.3.5: an alias `#n` names an ordinal, an integer
+            // literal from 0 to 32,767.
+            if let Some(rest) = d.alias.as_ref().and_then(|a| a.strip_prefix(b"#")) {
+                let ok = !rest.is_empty()
+                    && rest.iter().all(u8::is_ascii_digit)
+                    && std::str::from_utf8(rest)
+                        .ok()
+                        .and_then(|t| t.parse::<u32>().ok())
+                        .is_some_and(|n| n <= 32767);
+                if !ok {
+                    self.spec_strict(
+                        d.module,
+                        codes::DECLARE,
+                        d.span,
+                        "an ordinal alias must be `#` followed by an integer from 0 to 32767",
+                    );
+                }
+            }
         }
     }
 }
