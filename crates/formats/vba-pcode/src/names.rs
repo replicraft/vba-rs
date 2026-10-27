@@ -1,6 +1,6 @@
 //! Identifier-reference resolution (`pcode-format.md` section 5).
 
-use crate::layout::{Bitness, Layout, VersionFamily};
+use crate::layout::Layout;
 use crate::project_stream::IdentTable;
 
 /// Built-in names confirmed by observation.
@@ -17,6 +17,8 @@ use crate::project_stream::IdentTable;
 /// The table is sorted by index. All other built-in indices are unknown and
 /// are reported as such, never guessed.
 pub const CONFIRMED_BUILTINS: &[(u16, &str)] = &[
+    (2, "Abs"),
+    (3, "Access"),
     (8, "Append"),
     (9, "Array"),
     (11, "Assert"),
@@ -24,6 +26,8 @@ pub const CONFIRMED_BUILTINS: &[(u16, &str)] = &[
     (13, "Base"),
     (33, "Close"),
     (34, "Compare"),
+    (37, "CStr"),
+    (38, "CurDir"),
     (41, "CVDate"),
     (44, "Database"),
     (45, "Date"),
@@ -31,17 +35,27 @@ pub const CONFIRMED_BUILTINS: &[(u16, &str)] = &[
     (66, "DoEvents"),
     (72, "End"),
     (77, "Error"),
+    (81, "Explicit"),
     (82, "f"),
     (86, "Format"),
     (88, "FreeFile"),
+    (95, "GoTo"),
+    (104, "InStr"),
     (110, "Left"),
     (116, "Line"),
+    (118, "Load"),
+    (119, "Local"),
     (125, "Mid"),
     (131, "Name"),
+    (135, "Nothing"),
+    (136, "Null"),
     (137, "Object"),
     (139, "Open"),
     (154, "Randomize"),
+    (160, "Rgb"),
     (164, "Select"),
+    (172, "Stop"),
+    (173, "StrComp"),
     (174, "String"),
     (178, "Text"),
     (182, "Type"),
@@ -106,21 +120,9 @@ impl<'a> Resolver<'a> {
     }
 
     /// Maps the user-identifier part `j = k - 0x100` to a table index, or
-    /// `None` when the adjustment underflows.
-    ///
-    /// `[obs]` (section 5.2 of the format document): for VBA7 subtract 4,
-    /// and 3 more on x64, at every index. The extra step above 0xBE that
-    /// older text described does not occur: in VBA 7 projects of 32-bit
-    /// and 64-bit builds with up to 1,100 identifiers the delta is constant.
+    /// `None` when the adjustment underflows (`Layout::ident_index_adjust`).
     fn user_index(&self, j: usize) -> Option<usize> {
-        if self.layout.family != VersionFamily::Vba7 {
-            return Some(j);
-        }
-        let mut i = j.checked_sub(4)?;
-        if self.layout.bitness == Bitness::X64 {
-            i = i.checked_sub(3)?;
-        }
-        Some(i)
+        j.checked_sub(self.layout.ident_index_adjust())
     }
 
     /// Resolves a name word stored in a record (procedure, argument,
@@ -151,7 +153,7 @@ impl<'a> Resolver<'a> {
         if word == 0 {
             return Name::None;
         }
-        if self.layout.family == VersionFamily::Vba7 && k >= 0xC3 {
+        if self.layout.has_vba7_names() && k >= 0xC3 {
             k -= 1;
         }
         match builtin_name(k) {

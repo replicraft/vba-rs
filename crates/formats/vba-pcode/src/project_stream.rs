@@ -213,9 +213,8 @@ pub fn parse_identifiers(project_stream: &[u8], layout: &Layout) -> Result<Ident
         if typ & 0x80 != 0 {
             c.skip(6, "identifier extra")?;
         }
-        if len > 0 {
-            names.push(c.bytes(len, "identifier text")?.to_vec());
-        }
+        // An entry with an empty name still takes an index.
+        names.push(c.bytes(len, "identifier text")?.to_vec());
         if !reserved {
             c.skip(4, "identifier trailer")?;
         }

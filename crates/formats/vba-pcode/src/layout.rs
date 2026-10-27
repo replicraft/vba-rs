@@ -50,6 +50,10 @@ pub struct Layout {
 /// 32-bit).
 pub const VERIFIED_VERSION: u16 = 0x0097;
 
+/// Lowest version word seen with the later identifier numbering
+/// ([`Layout::ident_index_adjust`]); 0x88 and below use none.
+pub const IDENT_ADJUST_FROM: u16 = 0x8E;
+
 /// The (family, bitness, version word) combinations that were observed in
 /// real projects and verified against their source. The bitness is the
 /// `PROJECTSYSKIND` of the project, not a function of the version word: the
@@ -115,6 +119,23 @@ impl Layout {
             Verification::Verified
         } else {
             Verification::SpecUnverified
+        }
+    }
+
+    /// Whether identifier references use the numbering of the later
+    /// compilers: the user-identifier index is `j - 4` (x86) or `j - 7`
+    /// (x64) instead of `j`. `[obs]`: offset 0 for 0x5E, 0x6D, 0x79 and 0x88,
+    /// offset 4 from 0x8E on; the boundary lies between 0x89 and 0x8E.
+    pub(crate) fn has_vba7_names(&self) -> bool {
+        self.version >= IDENT_ADJUST_FROM
+    }
+
+    /// Amount subtracted from `k - 0x100` to get the identifier-table index.
+    pub(crate) fn ident_index_adjust(&self) -> usize {
+        match (self.has_vba7_names(), self.bitness) {
+            (false, _) => 0,
+            (true, Bitness::X86) => 4,
+            (true, Bitness::X64) => 7,
         }
     }
 
