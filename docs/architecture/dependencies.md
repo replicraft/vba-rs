@@ -28,7 +28,7 @@ listings) must never depend on hash order or on thread scheduling.
 | `clap` | Command-line parsing | vba-cli |
 | `clap_complete`, `clap_mangen` | `vbars completions` (shell completion scripts) and `vbars man` (manual page), generated from the same definition as `--help` | vba-cli |
 | `lsp-server`, `lsp-types` | Language server protocol transport and types | vba-lsp |
-| `serde`, `serde_json` | LSP message payloads | vba-lsp |
+| `serde`, `serde_json` | LSP message payloads (vba-lsp); the JSON form of a host library, through `serde_json::Value` only (vba-host-model) | vba-lsp, vba-host-model |
 
 ### Test-only
 

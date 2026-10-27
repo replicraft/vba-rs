@@ -14,7 +14,7 @@ user interface, clocks) comes in through the host contract.
 | `crates/runtime/` | `vba-value`, `vba-stdlib`, `vba-vm`, `vba-runtime`, `vba-scripting` | Values, the built-in library, the interpreter, the session that wires a project to a host, and the `Scripting` library objects. |
 | `crates/model/`, `crates/formats/` | `vba-project`, `vba-format`, `vba-pcode` | The project model, the `vbaProject.bin` / MS-OVBA reader and writer, and the compiled-code (p-code) decoder. |
 | `crates/hosts/` | `vba-host` | The contract an embedder implements, with the permission policy and resource limits. |
-| `crates/interoperability/` | `vba-automation`, `vba-ffi`, `vba-typelib` | Late-bound object traits, native-call layout rules, type-library reading. |
+| `crates/interoperability/` | `vba-automation`, `vba-ffi`, `vba-typelib`, `vba-host-model` | Late-bound object traits, native-call layout rules, type-library reading, and the declarative description of an embedding application's object model ([host-model](host-model.md)). |
 | `crates/windows/` | `vba-winapi`, `vba-wine` | Win32 `Declare` shims and the optional Wine bridge. Behind cargo features. |
 | `crates/api/` | `vba-rs` | The facade (`vba`) embedders depend on. See [public API](public-api.md). |
 | `apps/` | `vba-cli` (`vbars`), `vba-lsp`, `vba-wine-host` | Binaries; they use the libraries and nothing else uses them. |

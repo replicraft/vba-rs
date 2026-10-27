@@ -184,6 +184,91 @@ Registered global names are made known to the analysis, so `Option Explicit`
 code that mentions `DoCmd` compiles. `CreateObject` additionally needs
 `Capability::ComCreate`.
 
+## 3a. Describe the object model once
+
+Section 3 binds objects by hand: the `Dispatch` parameter lists, the type
+information for the analysis and the language server's data would each be
+written separately. For an object model of any size (a database with
+`Database`, `Recordset`, `Fields`, `Forms`, enumerations and functions like
+`Nz` and `DLookup`) describe it once with `vba::host_model` and derive the
+rest. The full reference is [host-model](host-model.md); the steps are:
+
+1. **Describe** with `HostLibrary`, `HostClass`, `HostMember`, `HostParam`,
+   `HostEnum`, `HostConst`, `HostGlobal`, and **validate** with `check()`
+   (duplicate names ignoring case, dangling types, bad parameter lists and
+   `DISPID`s are typed errors, all reported together).
+2. **Bind behavior** to the described members with `Handlers` (closures per
+   member, checked against the description) or your own `HostImpl`, and
+   collect the factories in a `HostRuntime`.
+3. **Register** with `Engine::host_library(..)`. `analyze`, `load` and `run` then
+   type and run the program from the same description.
+4. **Give the editor the same description**: `HostLibrary::to_json_string()`
+   is the file `vba-lsp` reads through `vba.hostLibraries` (or pass the object
+   inline in the initialization options), or install the `CheckedLibrary`
+   with `Workspace::set_type_provider`.
+
+```rust
+use vba::host_model::{
+    Handlers, HostClass, HostLibrary, HostMember, HostObject, HostParam, HostRuntime,
+};
+use vba::{Engine, Project, Variant};
+
+// 1. The description: what the object model looks like.
+let lib = HostLibrary::new("Shop")
+    .class(
+        HostClass::new("Counter")
+            .member(HostMember::property("Count", "Long").read_only())
+            .member(HostMember::function("Bump", "Long").param(
+                HostParam::new("By", "Long").default_value(1),
+            )),
+    )
+    .global(vba::host_model::HostGlobal::new("Counter", "Counter"))
+    .check()
+    .expect("a valid description");
+
+// 2. The behavior: closures bound to the described members.
+let l = lib.clone();
+let runtime = HostRuntime::new(&lib)
+    .global("Counter", move |_table| {
+        let handlers = Handlers::new(std::cell::Cell::new(0))
+            .get("Count", |n, _| Ok(Variant::Long(n.get())))
+            .method("Bump", |n, cx| {
+                n.set(n.get() + cx.args.long(0)?);
+                Ok(Variant::Long(n.get()))
+            });
+        Ok(HostObject::new(&l, "Counter", handlers)?)
+    })
+    .build()
+    .expect("everything described is implemented");
+
+// 3. The engine takes the description for analysis and execution.
+let engine = Engine::new().host_library(runtime);
+let ok = Project::from_source(
+    "Module1",
+    "Public Function Go() As Long\n  Counter.Bump\n  Go = Counter.Bump(By:=5) + Counter.Count\nEnd Function\n",
+);
+assert!(!engine.analyze(&ok).has_errors());
+let mut inst = engine.load(&ok).unwrap();
+inst.trust();
+assert_eq!(inst.run("Go", vec![]).unwrap().value, Variant::Long(6 + 6));
+
+// The same description rules out what it does not contain.
+let bad = Project::from_source("Module1", "Public Sub Go()\n  Counter.Reset\n  Counter.Count = 3\nEnd Sub\n");
+assert_eq!(engine.analyze(&bad).codes(), ["SEM019", "SEM029"]);
+```
+
+What this buys over section 3: a call by name (`CreateObject`, an `Object`
+variable) and a call by id (a typed variable) share one argument binder; the
+analysis reports a wrong argument count, a wrong type, an unknown member and a
+wrong `ByRef` type with precise codes; and the language server completes,
+hovers and gives signature help (with the `doc` texts) from the file the
+application generates. Metadata cannot drift from behavior because a
+`Handlers` table that misses a described member, or handles one that is not
+described, is refused when the object is created.
+
+`worked example`: `cargo run -p vba-rs --example host_library`;
+`crates/api/vba-rs/tests/host_library.rs` pins the behavior.
+
 ## 4. Form-like instances with a host `Me`
 
 A form is a document or designer module. `create_object` makes a **new**
@@ -738,7 +823,9 @@ host methods, in whatever order the program calls them. Therefore:
 
 * Real COM: host objects are `Dispatch` values in an in-process table, no
   `IUnknown`/`ITypeInfo`/apartments. Host members are bound late unless a
-  `TypeProvider` describes the type (`Engine::load_with(.., |b| b.extra_provider(..))`).
+  `TypeProvider` describes the type: the declarative way is a `HostLibrary`
+  (section 3a, `Engine::host_library`), the manual one
+  `Engine::load_with(.., |b| b.extra_provider(..))`.
 * Host-defined members of document modules are known to the analysis only by name
   (`host_members`), not by type; there is no form description import.
 * Subscribing the host to events that **VBA** classes raise (`RaiseEvent`); the
@@ -895,3 +982,4 @@ Guidance for the adapter:
 | Limits | `Engine::limits/max_steps/vm_config/cancel_token`, `Instance::is_usable/reset_step_counter/reset/with_call_limits/cancel_token`, `CallLimits` |
 | Source text | `Project::from_modules`, `add_module`, `set_module_source` |
 | Values | `Variant` constructors, `From`/`TryFrom`, `Display` |
+| Describe the object model once | `vba::host_model::{HostLibrary, HostClass, HostMember, HostParam, HostEnum, HostConst, HostGlobal}`, `check()`, `Handlers`, `HostObject`, `HostRuntime`, `Engine::host_library`, `to_json_string` (see [host-model](host-model.md)) |

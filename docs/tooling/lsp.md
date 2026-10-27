@@ -126,7 +126,8 @@ Rename:
 | --- | --- | --- | --- | --- |
 | Completion: keywords, in-scope symbols | `View::completions` | `textDocument/completion` | done | `tests/completion.rs` |
 | Completion: members of project types | `View::completions` | same, trigger `.` | done | `tests/project.rs` |
-| Completion: members of library and host types | `View::completions` + `Workspace::set_type_provider` | same | done; `vba-lsp` loads `vba.typeLibraries` (see below), embedders install a provider | `tests/library.rs` |
+| Completion: members of library and host types | `View::completions` + `Workspace::set_type_provider` | same | done; `vba-lsp` loads `vba.typeLibraries` and `vba.hostLibraries` (see below), embedders install a provider; items carry `documentation` when the provider has some | `tests/library.rs`, `tests/host_library.rs` |
+| Completion: names of described libraries | same | same | done: global functions, constants, objects, types after `As`, `Library.` qualifier | `tests/host_library.rs` |
 | Hover: type and signature | `View::hover` | `textDocument/hover` | done; library members with a provider | `tests/navigation.rs`, `tests/project.rs`, `tests/library.rs` |
 | Signature help | `View::signature_help` | `textDocument/signatureHelp` | done for procedures, library functions and provider-described members | `tests/completion.rs`, `tests/library.rs` |
 | Go to definition | `Workspace::definition` | `textDocument/definition` | done, cross-module | `tests/project.rs`, `tests/navigation.rs` |
@@ -220,7 +221,8 @@ Configuration, from `initializationOptions` or `workspace/configuration`
            "constants": { "DEBUGGING": 1 },
            "semantic": true, "projectName": "VBAProject",
            "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" },
-           "typeLibraries": ["C:/libs/scrrun.dll", "libs/Shapes.tlb"] } }
+           "typeLibraries": ["C:/libs/scrrun.dll", "libs/Shapes.tlb"],
+           "hostLibraries": ["libs/app-objects.json"] } }
 ```
 
 `profile` is one of the `vba-profile` identifiers, `encoding` is `utf-8` or a
@@ -229,7 +231,8 @@ code page (`cp1252`, `932`), `constants` are project `#Const` values,
 is the project name for `Project.Module.Name`, and `moduleKinds` maps a URI,
 file name or `*.ext` pattern to `standard`, `class`, `document` or
 `designer`. `typeLibraries` is a list of
-file paths (see below). Absent
+file paths and `hostLibraries` a list of file paths or inline description
+objects (see below). Absent
 settings take defaults; invalid entries are reported with `window/logMessage`
 and ignored. A change of `encoding` applies to documents opened afterwards.
 
@@ -239,6 +242,32 @@ or with malformed parameters get `InvalidParams` (-32602); refused renames
 and unsupported semantic requests get `RequestFailed` (-32803) with the
 reason; requests after `shutdown` get `InvalidRequest` (-32600). `exit`
 returns code 0 after `shutdown`, 1 otherwise.
+
+### Host libraries (`vba.hostLibraries`)
+
+The object model of the embedding application, described once with
+`vba-host-model` ([host-model](../architecture/host-model.md)) and generated
+as JSON by the application (`HostLibrary::to_json_string()`), is the second
+source of types. Each entry of `vba.hostLibraries` is a path to such a file or
+the description object itself (convenient in `initializationOptions` when the
+application starts the server). Each one is parsed, validated and installed
+as one provider that is consulted before the type libraries. A file that
+cannot be read, is not the format, has another `version`, or describes an
+invalid library (duplicate names, dangling types...) is reported with
+`window/logMessage` naming the problem and skipped; the others still load,
+files are read through the 64 MiB cap, at most 64 entries are used, and
+changing the setting reloads everything.
+
+With a host library the server offers, from the description alone: member
+completion with signatures and documentation (`CompletionItem.documentation`,
+hidden members left out), completion of global functions, constants,
+enumeration members and predeclared objects in expressions and of classes and
+enumerations after `As`/`New`, completion after `Library.`, hover (signature
+and doc text) for members, global names and types, signature help for members
+and global functions, typing of predeclared objects (`Application.` completes
+through return types), and the `SEM###` diagnostics (unknown member, argument
+count, argument and `ByRef` type, read-only assignment, unknown type).
+`vba-lsp/tests/host_libraries.rs` runs this over the real protocol.
 
 ### Type libraries (`vba.typeLibraries`)
 
@@ -268,8 +297,8 @@ source locations); it is not an error.
 
 ## Not implemented
 
-- Host object models: without `vba.typeLibraries` (or an embedder's provider)
-  the analysis knows no library types (`SEM004`/`SEM005` appear for them) and
+- Host object models: without `vba.hostLibraries`, `vba.typeLibraries` (or an
+  embedder's provider) the analysis knows no library types (`SEM004`/`SEM005` appear for them) and
   members are not completed. The server does not discover libraries by itself
   (no registry, no `Reference` lines of a project): they are listed in the
   setting, and the host's own object model must be supplied as a type library

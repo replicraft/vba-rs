@@ -70,6 +70,17 @@ objects). `ObjectTable::add_ref` / `release` on such a handle cannot count it; t
 into a host object, so a host object that stores or returns a VM-owned class instance (for example
 `Scripting.Dictionary`) keeps it alive with the ordinary reference-counting discipline.
 
+## Describing objects declaratively
+
+Implementing `Dispatch` by hand means writing the member table, the
+`ParamInfo` lists and the argument conversions for every class.
+`vba-host-model` ([host-model](../architecture/host-model.md)) derives a
+`Dispatch` object from a description of the class: `member_id`, `member_info`,
+`get_ids_of_names` and `accepts_dispid` answer from it, and `invoke` binds with
+`bind`, converts each argument to its declared type, writes `ByRef` results
+back and converts the result. The same description is also the sema
+`TypeProvider`, so the early-bound and the late-bound call cannot disagree.
+
 ## Not implemented / unverified
 
 * `vbObjectError + 0x154` and `+ 0x1F3` coincide with the COM class-registration HRESULTs and map to 429.

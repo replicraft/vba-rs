@@ -83,8 +83,9 @@ fn global_functions_run_through_the_description() {
          Debug.Print Nz(5)\n\
          v = DLookup(\"Qty\", \"fruit\")\n\
          Debug.Print v\n\
-         Debug.Print DLookup(\"x\", \"y\", \"z\")\n");
-    assert_eq!(out, "none\n 5 \nQty!\nx!\n");
+         Debug.Print DLookup(\"x\", \"y\", \"z\")\n\
+         Debug.Print Nz(ValueIfNull:=\"named\", Value:=Null)\n");
+    assert_eq!(out, "none\n 5 \nQty!\nx!\nnamed\n");
 }
 
 #[test]

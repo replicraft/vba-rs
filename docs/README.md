@@ -25,6 +25,7 @@ are. Statements about behavior carry a confidence marker (`spec`, `doc`, `derive
 * [public-api](architecture/public-api.md): the stable `vba` facade for embedders.
 * [adapter-checklist](architecture/adapter-checklist.md): the ordered checklist for an embedding application's adapter, with a tested skeleton.
 * [host](architecture/host.md): the `vba-host` contract, capabilities, policy and limits.
+* [host-model](architecture/host-model.md): describe an embedding application's object model once (classes, enumerations, functions) and derive the `Dispatch` binding, the sema types, the language-server data and the documentation from it.
 * [security-model](architecture/security-model.md): what is guaranteed (with the tests) and what is not.
 * [dependencies](architecture/dependencies.md): every third-party dependency and why it is used.
 

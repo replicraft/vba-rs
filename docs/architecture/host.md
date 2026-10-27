@@ -12,6 +12,7 @@ embedding-application types).
 | Metadata | `HostMetadata` | Name, version, and a `vba_profile::Profile` (language generation, host application seen by `#If`, OS, bitness). |
 | Contract | `Host` trait | Accessors (`metadata`, `policy`, `budget`/`limits`, `objects`, `ui`, `events`, `references`) and hooks (`lookup_global`, `create_object_hook`, `get_object_hook`, `declare_hook`, `idle`). |
 | Entry points | provided `Host` methods | `resolve_global`, `create_object`, `get_object`, `call_declare`, `do_events`, `check`. They enforce the policy before any hook, so a hook cannot be reached without a grant. |
+| Functions | `call_function` | A global function the embedding application provides (`Nz`, `DLookup`): called for a name that is neither a project procedure, a built-in function nor a service; `args` has one entry per declared parameter, `None` for an omitted one; `Ok(None)` means "not mine". The default provides none. Implemented by the facade engine for described libraries ([host-model](host-model.md)). |
 | Globals | `lookup_global` | `Application`, intrinsic host globals and objects exported by project references are all resolved by the embedder; names are case-insensitive in the provided hosts. Object results carry a caller-owned reference. |
 | References | `ProjectReference` | Name, GUID, version; metadata only. |
 | `CreateObject` / `GetObject` | `create_object`, `get_object` | ComCreate for the ProgID/class, Network additionally for a remote server, FileRead for a path; neither argument is error 5. |

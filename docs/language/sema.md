@@ -30,8 +30,14 @@ the provider, and the `vba-stdlib` registry resolves intrinsic functions
 
 `TypeProvider` has a "does not know" default for every method:
 `resolve_type`, `member`, `default_member`, `describes_members`,
-`interface_members`, `events`, `global`. `StaticLibrary` is a table-driven
-implementation for tests and small hosts.
+`interface_members`, `events`, `global`, and for tools `catalog` (every
+top-level name with its kind) and `documentation` (the doc text of a type, a
+member or a global name). `StaticLibrary` is a table-driven implementation for
+tests and small hosts; `Layers` consults any number of providers in order;
+`vba-host-model`'s `CheckedLibrary` is a provider derived from a declarative
+description of an embedding application's object model
+([host-model](../architecture/host-model.md)), and `vba-typelib`'s
+`TypelibProvider` one over Windows type libraries.
 
 ## The model
 
@@ -88,7 +94,10 @@ while the callee runs, nor when the callee ends with an error. `SEM026` is the
 `ByRef argument type mismatch` error.
 
 Assignment: `Let` of an object variable needs `Set` (`SEM007`); an object on
-the right of `Let` yields its default member (`rvalue`); `Set` needs object
+the right of `Let` yields its default member (`rvalue`); `Let` to an object
+whose class (project class, or library type whose provider names a default
+member that needs no arguments) has a default member assigns to that member
+(`rs.Fields("a") = 5`); `Set` needs object
 targets and values; `Property Let/Set/Get` are chosen from the group
 (including write-only properties and indexed properties); the function name
 inside its own function is the result slot (reading it is a recursive call).
