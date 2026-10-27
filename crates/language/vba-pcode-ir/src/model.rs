@@ -187,6 +187,7 @@ impl TypeEnv {
                 }
                 Err(format!("library or unresolved type `{name}`"))
             }
+            ResolvedType::Array(_) => Err("array type".to_owned()),
             ResolvedType::Unknown(_) => Err("unresolved type reference".to_owned()),
             ResolvedType::None => Ok(TyRef::Scalar(vba_sema::Type::Variant)),
         }

@@ -129,6 +129,11 @@ pub enum TypeRef {
     /// A class or user type named through the object table; the value is the
     /// identifier reference word of the type name.
     Named(u16),
+    /// An array type (`Dim a() As T`, `a(1 To 3) As T`): a descriptor whose
+    /// kind byte is 0x1B; the element type is the type id at +6. The bounds
+    /// are not in the descriptor (a declaration with bounds has them as
+    /// expressions in front of its `VAR_DECL`).
+    Array(TypeId),
     /// A library-qualified type (`Lib.Type`): the slot of its record in the
     /// type-reference list that follows the object table
     /// ([`type_ref_record`]).
@@ -652,6 +657,12 @@ pub fn type_descriptor(
 ) -> Result<TypeRef> {
     let o = offset as usize;
     let flags = u16_at(indirect, o, "type descriptor flags")?;
+    if flags & 0x1F == 0x1B {
+        // `[obs]`: kind byte 0x1B is an array; 0x1D is an object type. The
+        // element type id is the byte at +6, as for a simple type.
+        let id = slice(indirect, o + 6, 1, "array descriptor element")?[0];
+        return Ok(TypeRef::Array(TypeId::parse(id)));
+    }
     if flags & 0x02 != 0 {
         let id = slice(indirect, o + 6, 1, "type descriptor id")?[0];
         return Ok(TypeRef::Intrinsic(TypeId::parse(id)));
@@ -774,6 +785,26 @@ mod tests {
         assert_eq!(
             type_descriptor(&ind, &obj, 0, &l()).unwrap(),
             TypeRef::Named(0x0456)
+        );
+    }
+
+    #[test]
+    fn array_descriptors_are_not_simple_types() {
+        // Kind byte 0x1B (flags 0x081B for `a() As Variant`): the element
+        // type is at +6; it must not be read as the type of the variable.
+        let mut ind = vec![0u8; 16];
+        ind[0..2].copy_from_slice(&0x081Bu16.to_le_bytes());
+        ind[6] = 12;
+        let l64 = Layout::select(0xB5, 3).unwrap();
+        assert_eq!(
+            type_descriptor(&ind, &[0u8; 20], 0, &l64).unwrap(),
+            TypeRef::Array(TypeId::parse(12))
+        );
+        // A simple descriptor (flag 0x02, kind not 0x1B) still is simple.
+        ind[0..2].copy_from_slice(&0x0002u16.to_le_bytes());
+        assert_eq!(
+            type_descriptor(&ind, &[0u8; 20], 0, &l64).unwrap(),
+            TypeRef::Intrinsic(TypeId::parse(12))
         );
     }
 

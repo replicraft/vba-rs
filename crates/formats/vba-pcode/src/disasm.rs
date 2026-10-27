@@ -79,6 +79,8 @@ pub enum ResolvedType {
     Intrinsic(TypeId),
     /// A class or user type.
     Named(Name),
+    /// An array type; the element type.
+    Array(TypeId),
     /// A library-qualified type (`Lib.Type`): the qualifier and the type name.
     Qualified(QualifiedType),
     /// Unresolved reference (raw value).
@@ -530,6 +532,7 @@ impl<'a> Disassembler<'a> {
             TypeRef::None => ResolvedType::None,
             TypeRef::Intrinsic(i) => ResolvedType::Intrinsic(i),
             TypeRef::Named(w) => ResolvedType::Named(self.resolver.resolve_symbol(w)),
+            TypeRef::Array(t) => ResolvedType::Array(t),
             TypeRef::Qualified(slot) => match self.qualified(slot) {
                 Some(q) => ResolvedType::Qualified(q),
                 None => ResolvedType::Unknown(u32::from(slot)),
@@ -707,6 +710,10 @@ impl fmt::Display for ResolvedType {
                 None => write!(f, "?type({:?})", t.intrinsic),
             },
             ResolvedType::Named(n) => write!(f, "{n}"),
+            ResolvedType::Array(t) => match t.intrinsic.name() {
+                Some(n) => write!(f, "{n}()"),
+                None => write!(f, "?type({:?})()", t.intrinsic),
+            },
             ResolvedType::Qualified(q) => write!(f, "{}.{}", q.qualifier, q.name),
             ResolvedType::Unknown(u) => write!(f, "?type({u:#x})"),
         }
