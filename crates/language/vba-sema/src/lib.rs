@@ -284,6 +284,19 @@ pub fn analyze_project_with_options(
     host_members: &[String],
     strict_spec: bool,
 ) -> Analysis {
+    analyze_project_with_hosts(project, profile, provider, host_members, &[], strict_spec)
+}
+
+/// Like [`analyze_project_with_options`], with the described host classes of
+/// individual modules (see [`Options::module_hosts`]).
+pub fn analyze_project_with_hosts(
+    project: &VbaProject,
+    profile: &Profile,
+    provider: &dyn TypeProvider,
+    host_members: &[String],
+    module_hosts: &[ModuleHost],
+    strict_spec: bool,
+) -> Analysis {
     let modules: Vec<SourceModule> = project
         .modules
         .iter()
@@ -297,6 +310,7 @@ pub fn analyze_project_with_options(
         project_name: project.name.clone(),
         constants: parse_project_constants(&project.constants),
         host_members: host_members.to_vec(),
+        module_hosts: module_hosts.to_vec(),
         strict_spec,
         ..Options::default()
     };

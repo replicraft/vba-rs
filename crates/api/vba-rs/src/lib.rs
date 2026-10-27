@@ -258,7 +258,7 @@ pub use vba_project::{
 pub use vba_diagnostics::{Diagnostic, Severity};
 
 // Sessions and runtime.
-pub use vba_runtime::{CallableProcedure, EditReport, ModuleEdit};
+pub use vba_runtime::{CallableProcedure, EditReport, ModuleEdit, ModuleScope};
 pub use vba_runtime::{
     Error as RunError, ErrorReport, MemFs, ModuleSummary, NoShell, ParamSummary, ProcedureSummary,
     RealFs, Session, SessionBuilder, ShellHook, StackFrame, StdShell, SystemHost, VariableSummary,

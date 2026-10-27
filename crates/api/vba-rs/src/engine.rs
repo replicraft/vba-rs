@@ -9,7 +9,7 @@ use vba_host::{
 };
 use vba_host_model::HostRuntime;
 use vba_profile::{Profile, default_profile};
-use vba_runtime::{MemFs, RealFs, Session, SessionBuilder, SystemHost};
+use vba_runtime::{MemFs, ModuleScope, RealFs, Session, SessionBuilder, SystemHost};
 use vba_value::Date;
 use vba_value::{ObjectRef, Variant};
 use vba_vm::{BufferSink, DebugSink, RunStatus, VmConfig};
@@ -116,6 +116,7 @@ pub struct Engine {
     system_environment: bool,
     command: String,
     host_members: Vec<String>,
+    scopes: Vec<ModuleScope>,
     strict_spec: bool,
     fixed_clock: Option<Date>,
     ui: Option<Rc<dyn UiHooks>>,
@@ -173,6 +174,7 @@ impl Engine {
             system_environment: false,
             command: String::new(),
             host_members: Vec::new(),
+            scopes: Vec::new(),
             strict_spec: false,
             fixed_clock: None,
             ui: None,
@@ -449,6 +451,55 @@ impl Engine {
         self
     }
 
+    /// Declares the described class that is the `Me` of one document,
+    /// designer or class module: its controls, properties, methods and
+    /// events. In that module bare names, `Me.X`, `Me!X` and the handlers
+    /// (`Ctl_Click`, `Form_Load`) resolve against that class only, early
+    /// bound and checked; a control the form does not have is a diagnostic.
+    /// Modules without a scope keep the engine-wide
+    /// [`host_members`](Engine::host_members) list. Replaces the scope the
+    /// module already has. See
+    /// [`set_module_scope`](Engine::set_module_scope) for design changes.
+    #[must_use]
+    pub fn module_scope(mut self, scope: ModuleScope) -> Engine {
+        self.set_module_scope(scope);
+        self
+    }
+
+    /// [`module_scope`](Engine::module_scope) on an engine you keep: the way
+    /// to follow a form whose design changed (a control was added or
+    /// removed). Replace the scope with a description of the new design,
+    /// then [`analyze`](Engine::analyze) and [`load`](Engine::load) again;
+    /// nothing else of the engine is rebuilt. A running
+    /// [`Instance`] follows with
+    /// [`Instance::set_module_scope`].
+    pub fn set_module_scope(&mut self, scope: ModuleScope) {
+        match self
+            .scopes
+            .iter_mut()
+            .find(|s| s.host.module.eq_ignore_ascii_case(&scope.host.module))
+        {
+            Some(old) => *old = scope,
+            None => self.scopes.push(scope),
+        }
+    }
+
+    /// Removes the scope of a module, so that the engine-wide
+    /// [`host_members`](Engine::host_members) apply to it again. Returns
+    /// whether the module had one.
+    pub fn remove_module_scope(&mut self, module: &str) -> bool {
+        let before = self.scopes.len();
+        self.scopes
+            .retain(|s| !s.host.module.eq_ignore_ascii_case(module));
+        self.scopes.len() != before
+    }
+
+    /// The modules that have a described host class.
+    #[must_use]
+    pub fn module_scopes(&self) -> &[ModuleScope] {
+        &self.scopes
+    }
+
     /// Installs the `MsgBox` / `InputBox` implementation of the embedding
     /// application. Without it both fail with error 70, as in a headless
     /// host; the engine never invents an answer.
@@ -481,15 +532,25 @@ impl Engine {
     pub fn analyze(&self, project: &Project) -> Report {
         let globals = self.provider();
         let mut layers: Vec<&dyn vba_sema::TypeProvider> = self
-            .libraries
+            .scopes
             .iter()
-            .map(|l| l.library() as &dyn vba_sema::TypeProvider)
+            .map(|s| &*s.provider)
+            .chain(
+                self.libraries
+                    .iter()
+                    .map(|l| l.library() as &dyn vba_sema::TypeProvider),
+            )
             .collect();
         layers.push(&globals);
         project.analyze_with(
             &self.profile,
             &vba_sema::Layers(layers),
             &self.host_members,
+            &self
+                .scopes
+                .iter()
+                .map(|s| s.host.clone())
+                .collect::<Vec<_>>(),
             self.strict_spec,
         )
     }
@@ -570,6 +631,9 @@ impl Engine {
             .vm_config(self.vm.clone());
         for l in &self.libraries {
             b = b.extra_provider(l.library().clone());
+        }
+        for s in &self.scopes {
+            b = b.module_scope(s.clone());
         }
         b = match &self.files {
             Files::Memory(files) => {

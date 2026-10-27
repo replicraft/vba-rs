@@ -52,7 +52,7 @@ mod shell;
 mod system;
 mod vfs;
 
-pub use devtools::{CallableProcedure, EditReport, ModuleEdit};
+pub use devtools::{CallableProcedure, EditReport, ModuleEdit, ModuleScope};
 pub use error::{Error, ErrorReport, FsError, LoadError, StackFrame, VbaErrorInfo};
 pub use files::{DEFAULT_MAX_FILE_BYTES, FileSystem, FsServices, ScriptFsAdapter, write_value};
 pub use host_context::HostContext;

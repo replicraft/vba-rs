@@ -24,11 +24,49 @@ use crate::error::{Error, LoadError};
 use crate::members::ParamSummary;
 use crate::session::Session;
 
+/// The described host class that is the `Me` of one module, with the
+/// provider that describes it (see [`vba_sema::Options::module_hosts`]).
+#[derive(Clone)]
+pub struct ModuleScope {
+    /// The module and the class.
+    pub host: vba_sema::ModuleHost,
+    /// Describes the class; consulted before the session's other providers.
+    pub provider: Rc<dyn TypeProvider>,
+}
+
+impl ModuleScope {
+    /// `module`'s `Me` is the class `class` that `provider` describes.
+    pub fn new(module: &str, class: &str, provider: impl TypeProvider + 'static) -> ModuleScope {
+        ModuleScope {
+            host: vba_sema::ModuleHost::new(module, class),
+            provider: Rc::new(provider),
+        }
+    }
+
+    /// Sets the prefix of the handlers of the class's own events
+    /// (`Form` for `Form_Load`).
+    #[must_use]
+    pub fn event_source(mut self, prefix: &str) -> ModuleScope {
+        self.host = self.host.event_source(prefix);
+        self
+    }
+}
+
+impl std::fmt::Debug for ModuleScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModuleScope")
+            .field("host", &self.host)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Turns sources into a verified program; kept by the session so it can
 /// compile again.
 pub(crate) struct Compiler {
     pub(crate) profile: Profile,
     pub(crate) provider: Rc<dyn TypeProvider>,
+    /// The described host classes of modules; their providers come first.
+    pub(crate) scopes: RefCell<Vec<ModuleScope>>,
     pub(crate) options: Options,
     pub(crate) limits: ResourceLimits,
     /// The sources the running program was compiled from.
@@ -60,9 +98,19 @@ impl Compiler {
                 .with_max_modules(limits.max_modules)
                 .with_max_nodes(limits.max_analysis_nodes),
             friend,
+            module_hosts: self
+                .scopes
+                .borrow()
+                .iter()
+                .map(|s| s.host.clone())
+                .collect(),
             ..self.options.clone()
         };
-        let analysis = vba_sema::analyze_sources(modules, &self.profile, &*self.provider, &options);
+        let scopes = self.scopes.borrow();
+        let mut layers: Vec<&dyn TypeProvider> = scopes.iter().map(|s| &*s.provider).collect();
+        layers.push(&*self.provider);
+        let analysis =
+            vba_sema::analyze_sources(modules, &self.profile, &vba_sema::Layers(layers), &options);
         if let Some(limit) = analysis.limit_exceeded {
             use vba_sema::AnalysisLimit as L;
             return Err(Error::Limit(match limit {
@@ -334,6 +382,60 @@ impl Session {
             report.unchanged = true;
             return Ok(report);
         }
+        self.install(modules, report)
+    }
+
+    /// Declares (or replaces) the described host class of a module and
+    /// analyses the whole program again, as a form's design change needs:
+    /// controls that were added are known afterwards, removed ones are
+    /// errors. The state policy is that of [`apply_edits`](Session::apply_edits);
+    /// on any failure (diagnostics, a running procedure) nothing changes.
+    pub fn set_module_scope(&mut self, scope: ModuleScope) -> Result<EditReport, Error> {
+        self.reanalyze(|scopes| {
+            match scopes
+                .iter_mut()
+                .find(|s| s.host.module.eq_ignore_ascii_case(&scope.host.module))
+            {
+                Some(old) => *old = scope,
+                None => scopes.push(scope),
+            }
+        })
+    }
+
+    /// Removes the described host class of `module` (the engine-wide host
+    /// names apply again) and analyses the program again.
+    pub fn remove_module_scope(&mut self, module: &str) -> Result<EditReport, Error> {
+        self.reanalyze(|scopes| scopes.retain(|s| !s.host.module.eq_ignore_ascii_case(module)))
+    }
+
+    /// The modules that have a described host class.
+    pub fn module_scopes(&self) -> Vec<ModuleScope> {
+        self.compiler.scopes.borrow().clone()
+    }
+
+    fn reanalyze(
+        &mut self,
+        change: impl FnOnce(&mut Vec<ModuleScope>),
+    ) -> Result<EditReport, Error> {
+        if !self.vm.is_idle() {
+            return Err(Error::Busy);
+        }
+        let old = self.compiler.scopes.borrow().clone();
+        change(&mut self.compiler.scopes.borrow_mut());
+        let modules = self.compiler.modules.borrow().clone();
+        let result = self.install(modules, EditReport::default());
+        if result.is_err() {
+            *self.compiler.scopes.borrow_mut() = old;
+        }
+        result
+    }
+
+    /// Compiles `modules` and swaps the program of the idle session.
+    fn install(
+        &mut self,
+        modules: Vec<SourceModule>,
+        mut report: EditReport,
+    ) -> Result<EditReport, Error> {
         let compiled = self.compiler.compile(&modules, None)?;
         let swap = self
             .vm

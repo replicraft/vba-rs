@@ -5,7 +5,7 @@
 //! runs exactly as before (same results, same step counts); see
 //! `docs/architecture/embedding-guide.md`, "Editor services".
 
-use vba_runtime::{CallableProcedure, EditReport, ModuleEdit};
+use vba_runtime::{CallableProcedure, EditReport, ModuleEdit, ModuleScope};
 use vba_vm::{BreakpointInfo, DebugHook};
 
 use crate::{Error, Instance, Variant};
@@ -187,6 +187,31 @@ impl Instance {
     pub fn apply_edits(&mut self, edits: &[ModuleEdit]) -> Result<EditReport, Error> {
         self.guard()?;
         let r = self.session.apply_edits(edits);
+        self.conv(r)
+    }
+
+    /// Declares or replaces the described class that is the `Me` of a
+    /// module (see [`Engine::module_scope`](crate::Engine::module_scope)) and
+    /// analyses the whole program again: the way a form that gained or lost
+    /// controls reaches an instance that is already running. Controls that
+    /// were added are known afterwards; code that still uses a removed one
+    /// is refused with the diagnostics, and nothing changes. The state
+    /// policy is that of [`apply_edits`](Instance::apply_edits), and
+    /// [`Busy`] is returned while a procedure runs.
+    ///
+    /// [`Busy`]: vba_runtime::Error::Busy
+    pub fn set_module_scope(&mut self, scope: ModuleScope) -> Result<EditReport, Error> {
+        self.guard()?;
+        let r = self.session.set_module_scope(scope);
+        self.conv(r)
+    }
+
+    /// Removes the described class of `module`; the engine-wide host names
+    /// apply to it again. Re-analyses like
+    /// [`set_module_scope`](Instance::set_module_scope).
+    pub fn remove_module_scope(&mut self, module: &str) -> Result<EditReport, Error> {
+        self.guard()?;
+        let r = self.session.remove_module_scope(module);
         self.conv(r)
     }
 

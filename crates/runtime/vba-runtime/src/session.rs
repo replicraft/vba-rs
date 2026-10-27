@@ -13,7 +13,7 @@ use vba_sema::{NoLibraries, Options, SourceModule, TypeProvider};
 use vba_value::{ObjectRef, Variant};
 use vba_vm::{Arg, DebugSink, NullSink, RunOutput, Vm, VmConfig, VmError};
 
-use crate::devtools::{Compiled, Compiler};
+use crate::devtools::{Compiled, Compiler, ModuleScope};
 use crate::error::{Error, ErrorReport};
 use crate::files::{FileSystem, FsServices, ScriptFsAdapter};
 use crate::memfs::MemFs;
@@ -124,6 +124,7 @@ pub struct SessionBuilder {
     config: VmConfig,
     allow_partial: bool,
     host_members: Vec<String>,
+    scopes: Vec<ModuleScope>,
     strict_spec: bool,
 }
 
@@ -149,6 +150,7 @@ impl SessionBuilder {
             config: VmConfig::default(),
             allow_partial: false,
             host_members: Vec::new(),
+            scopes: Vec::new(),
             strict_spec: false,
         }
     }
@@ -233,6 +235,27 @@ impl SessionBuilder {
         S: Into<String>,
     {
         self.host_members = names.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Declares the described class that is the `Me` of one document,
+    /// designer or class module. Bare names, `Me.X`, `Me!X` and the event
+    /// handlers of that module resolve against the class only, early bound
+    /// and checked. The `Me` object given to `create_object` is not
+    /// compared with the class; it is the embedding application's to get
+    /// right. Replaces an earlier scope of the same module;
+    /// modules without one keep [`host_members`](SessionBuilder::host_members).
+    /// A scope can be replaced later with [`Session::set_module_scope`].
+    #[must_use]
+    pub fn module_scope(mut self, scope: ModuleScope) -> Self {
+        match self
+            .scopes
+            .iter_mut()
+            .find(|s| s.host.module.eq_ignore_ascii_case(&scope.host.module))
+        {
+            Some(old) => *old = scope,
+            None => self.scopes.push(scope),
+        }
         self
     }
 
@@ -321,6 +344,7 @@ impl SessionBuilder {
         let compiler = Rc::new(Compiler {
             profile,
             provider: self.provider.clone(),
+            scopes: RefCell::new(self.scopes.clone()),
             options: options.clone(),
             limits: *self.host.limits(),
             modules: RefCell::new(modules.to_vec()),

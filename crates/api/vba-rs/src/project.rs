@@ -217,7 +217,7 @@ impl Project {
     /// Parses and analyses the project without running anything.
     #[must_use]
     pub fn analyze(&self, profile: &Profile) -> Report {
-        self.analyze_with(profile, &vba_sema::NoLibraries, &[], false)
+        self.analyze_with(profile, &vba_sema::NoLibraries, &[], &[], false)
     }
 
     /// [`analyze`](Project::analyze) with a type provider and the host
@@ -227,13 +227,15 @@ impl Project {
         profile: &Profile,
         provider: &dyn vba_sema::TypeProvider,
         host_members: &[String],
+        module_hosts: &[vba_sema::ModuleHost],
         strict_spec: bool,
     ) -> Report {
-        let analysis = vba_sema::analyze_project_with_options(
+        let analysis = vba_sema::analyze_project_with_hosts(
             &self.model,
             profile,
             provider,
             host_members,
+            module_hosts,
             strict_spec,
         );
         let rendered = analysis
