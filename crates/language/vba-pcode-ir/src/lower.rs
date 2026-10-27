@@ -419,6 +419,9 @@ fn is_layout_only(op: Opcode) -> bool {
             | Opcode::LineContinuation
             | Opcode::StmtBegin
             | Opcode::StmtBeginImplicit
+            // The lines of the branch that conditional compilation did not
+            // take are kept as text.
+            | Opcode::TextUnparsed
     )
 }
 
@@ -1827,6 +1830,27 @@ impl Lw<'_> {
             None => &body[i].1,
         };
         let op = ins.opcode;
+        // A conditional-compilation directive (`#If cond Then`, `#Else`,
+        // `#End If`, `#Const`) has no effect on the code that was compiled:
+        // the compiler took one branch. The directive is the marker, its
+        // condition or value, and the instruction that closes it.
+        if op == Opcode::PpMarker {
+            let mut k = 1;
+            while let Some((_, n)) = body.get(i + k) {
+                k += 1;
+                if matches!(
+                    n.opcode,
+                    Opcode::PpIf
+                        | Opcode::PpElseif
+                        | Opcode::PpElse
+                        | Opcode::PpEndif
+                        | Opcode::PpDefine
+                ) {
+                    return Ok(k);
+                }
+            }
+            return Err(self.no(op, "conditional-compilation directive without its end"));
+        }
         if is_layout_only(op) {
             // A statement marker starts a new statement of its own (needed
             // for `Resume Next` after the statement).

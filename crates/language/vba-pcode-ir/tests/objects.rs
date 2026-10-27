@@ -614,3 +614,33 @@ fn a_library_enum_qualifies_its_members_even_when_the_host_lists_the_name() {
     // `vbString` is 8: a constant of the library, not a member of the host.
     assert_eq!(run_method(&lp, "F", vec![]), Variant::Long(8));
 }
+
+#[test]
+fn conditional_compilation_directives_leave_the_compiled_branch_alone() {
+    let mut t = Tables::default();
+    let (flag, f) = (t.name("VBA7"), t.name("F"));
+    let g = t.function("F", Some(T_LONG), &[]);
+    let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
+    // Function F() As Long
+    //   #If VBA7 Then
+    //     F = 5
+    //   #End If
+    lines.extend(block(
+        g,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new().op(Opcode::PpMarker).read(flag).op(Opcode::PpIf),
+            Line::new().i16(5).write(f),
+            Line::new().op(Opcode::PpMarker).op(Opcode::PpEndif),
+        ],
+    ));
+    let lp = lower(&t, ModuleKind::Standard, &lines, None);
+    assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
+    let mut vm = new_vm(&lp);
+    let p = vm.find_procedure("Cls.F").expect("entry");
+    assert_eq!(
+        vm.run_procedure(p, vec![]).expect("runs").value,
+        Variant::Long(5)
+    );
+}
