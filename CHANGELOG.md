@@ -126,8 +126,11 @@ entry that made it:
   year, `DDB` with a fractional period, `Like` ranges in text mode with accented letters.
 - Compiled code (p-code): the verified layouts of VBA 6 and 7, 32 and 64 bits are lowered and checked
   against the platform kind, and more statements lower to IR (`On Error`, `Resume`, `GoTo`, optional
-  parameters, `End`, Date and hexadecimal literals, class-like modules). The compiled cache is read for
-  analysis only; it is never executed.
+  parameters, `End`, Date and hexadecimal literals, class-like modules, then enums, user-defined
+  types, class instances, `Set`/`New`/`Nothing`, member access, named arguments, `With`, `For Each`
+  over collections and conditional-compilation directives). Library-qualified type names and the
+  interface of `Implements` are read from the cache, and array type descriptors are no longer read as
+  scalars. The compiled cache is read for analysis only; it is never executed.
 - `vba`: `Engine::constant`/`constants` (host constants usable in `Const`, `Case` and array
   bounds), `Engine::ui` (`MsgBox`/`InputBox` hooks) and the re-exports `UiHooks`,
   `MsgBoxRequest`, `InputBoxRequest`; `MemObject::reentrant`.

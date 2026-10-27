@@ -115,7 +115,9 @@ fn lowering_over_the_corpus() {
                     if u.reason.starts_with("name `")
                         && let Some(var) = u.reason.split('`').nth(1)
                         && let Some(d) = lp.declarations.iter().find(|d| {
-                            d.module.to_lowercase() == module && d.name == var && d.unsupported.is_some()
+                            d.module.to_lowercase() == module
+                                && d.name == var
+                                && d.unsupported.is_some()
                         })
                     {
                         let ty = d
@@ -124,7 +126,9 @@ fn lowering_over_the_corpus() {
                             .and_then(|r| r.split('`').nth(1))
                             .and_then(|t| {
                                 lp.declarations.iter().find(|x| {
-                                    x.module.to_lowercase() == module && x.name == t && x.unsupported.is_some()
+                                    x.module.to_lowercase() == module
+                                        && x.name == t
+                                        && x.unsupported.is_some()
                                 })
                             });
                         if let Some(t) = ty {

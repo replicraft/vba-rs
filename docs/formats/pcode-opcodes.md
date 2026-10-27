@@ -353,7 +353,7 @@ Multi-word literals are stored low word first (plain little-endian bytes of the 
 | 208 | OPTION_STMT | - | MOD selects option (3.2) |
 | 209 | OPTION_BASE_MARKER | - | `Option Base` marker (relation to OPTION_STMT base values unknown) |
 | 92 | DEFTYPE_RANGE | W, W | `DefInt A-Z` family: MOD = type; the two W are the first and last letters (inferred) |
-| 159 | IMPLEMENTS_STMT | W,W | `Implements Interface`: two words (226 uses, all on x64, each line decodes to its exact length); the first is a multiple of 8 and differs for each interface (it references the interface through a table that is not identified; it is not an object-table reference), the second was 0 in every use. The 32-bit form was not seen |
+| 159 | IMPLEMENTS_STMT | W,W | `Implements Interface`: two words (226 uses, all on x64, each line decodes to its exact length); the first is the position of the interface record in the indirect table plus 8 and differs for each interface, the record starts with the type descriptor of the interface (pcode-format.md 6.2a: 226 of 226 resolved), the second was 0 in every use. The 32-bit form was not seen |
 | 194 | REDIM_DOT | name, W, rec | `ReDim obj.name(...)`; W = dimension count (inferred), rec type record |
 | 195 | REDIM_DOT_WITH | name, W, rec | same inside With |
 | 196 | REDIM_DOT_TYPED | name, W, rec | with `As Type` |
@@ -431,8 +431,14 @@ Multi-word literals are stored low word first (plain little-endian bytes of the 
 and the report names the opcode. A form is accepted when hand-assembled caches
 pin it (`tests/synthetic.rs`, `tests/classes.rs`) and, where the local project
 uses it, when the differential run (the lowered cache program against the
-program compiled from the original text, both on `vba-vm`; 868 runs and 112
-whole-module sessions, 0 mismatches) agrees. "Procedures / instructions"
+program compiled from the original text, both on `vba-vm`; 871 runs and 112
+whole-module sessions on the local project, 1,988 runs and 880 sessions on the
+46 other projects, 0 mismatches) agrees. Receivers of the member forms are
+described by their static type: a class of the project, a user-defined type, `Object`
+or `Variant` (late bound), a built-in library object (`Err`, `Debug`, `Collection`;
+early bound with the member id), and the names that qualify (a standard module, an
+enum, the project, the class name of a class with a default instance, `VBA` and its
+sub-libraries). "Procedures / instructions"
 counts the lowered procedures of the local project that contain the opcode and
 its occurrences in them.
 
@@ -444,10 +450,21 @@ its occurrences in them.
 | CONST_INT16_HEX | an `Integer` hexadecimal literal | 0 / 0 in bodies; used by module-level constants | synthetic; constants: differential |
 | CONST_DATE | a `Date` literal | 1 / 1 | differential |
 | CONVERT_TO_TYPE | MOD 3 (`CLng`), MOD 8 (`CStr`) | 3 / 3 | differential |
-| READ_DOT | receiver `Err` (properties without arguments); `Me` (a variable, procedure or property of the module itself, and in a document or designer module any other name, bound late on the host base); a late-bound value (`Me.ctl.Prop`). The receiver is on top of the stack and the result replaces it | 71 / 325 | differential, with a host base object that journals every access |
-| READ_DOT_PARAMS | same receivers; the W arguments are pushed first, the receiver last | 6 / 14 | differential |
-| INVOKE_DOT | same receivers, as a statement; MOD >= 16 is the form without `Call` | 41 / 51 | differential |
-| WRITE_DOT | same receivers; the value is pushed first, the receiver last. The value is evaluated before the receiver | 15 / 56 | differential; swapping the two evaluations produces 5 mismatches |
+| READ_DOT | the receivers listed above: `Me` (a variable, procedure or property of the module itself, and in a document or designer module any other name, bound late on the host base); a value of a class (a public field, a procedure or a property of the class); a value of a user-defined type (a field); a late-bound value; a built-in library object; a qualifying name. The receiver is on top of the stack and the result replaces it | 354 / 209 | differential, with a host base object that journals every access |
+| READ_DOT_PARAMS | same receivers; the W arguments are pushed first, the receiver last | 47 / 30 | differential |
+| INVOKE_DOT | same receivers, as a statement; MOD >= 16 is the form without `Call` | 69 / 50 | differential |
+| WRITE_DOT | same receivers; the value is pushed first, the receiver last. The value is evaluated before the receiver | 115 / 70 | differential; swapping the two evaluations produces 5 mismatches |
+| WRITE_DOT_PARAMS | a property with parameters of a class (`Property Let`), a late-bound member: the value is pushed first, then the arguments, then the receiver; the value is the last argument of the call | 7 / 1 | differential for the one procedure; synthetic |
+| WRITE_REF_DOT | as WRITE_DOT, for `Set` (`Property Set`, a field of object type, `PutRef` on a late-bound member) | 103 / 64 | differential |
+| WRITE_REF_SIMPLE | `Set v = x` on a local, a module variable, the function result or a `Property Set`; the source must be an object known at lowering time (a `Variant` source is checked at run time by a call that is not lowered) | 170 / 136 | differential |
+| SET_KEYWORD_MARKER | marks a reference assignment; the next WRITE_REF_* consumes it | 273 / 192 | differential |
+| NEW_OBJECT | the operand names a class module of the project (plain, or qualified with the project name) or the built-in `Collection`; the initializer and terminator of the class must be lowered | 61 / 60 | differential |
+| TYPE_TEST | `TypeOf x Is T`, followed by `IF_BLOCK_OPEN` or `BLOCK_ELSEIF_BRANCH` | 1 / 1 | differential |
+| ARG_NAMED | follows the value it names; the count of the call includes it | 7 / 6 | differential |
+| DEBUG_ASSERT | `Debug.Assert cond` (the condition on the stack) | 4 / 4 | differential |
+| FOR_COLLECTION | `For Each`, between FOR_VAR_EXPR_OPEN/CLOSE of the variable and the collection expression; `NEXT` is FOR_VAR_EXPR_OPEN, FOR_ADVANCE. Collections, `Object` and `Variant` only (a class may enumerate through an attribute that has no line in the cache) | 6 / 6 | differential |
+| WITH_EXPR_OPEN, WITH_OPEN, WITH_CLOSE, READ_WITH_DOT, INVOKE_WITH_DOT (and the other `*_WITH_DOT` forms, which stand for the member form with the object of the block as receiver) | `With` on an object | 1 / 1 (READ_WITH_DOT 4 / 1) | differential for those; the other with-forms synthetic or not exercised |
+| PP_MARKER (with PP_IF, PP_ELSE, PP_ENDIF, PP_DEFINE) | a conditional-compilation directive: the marker, the condition or value, and the closing instruction; no effect on the compiled branch. The lines of the branch not taken are TEXT_UNPARSED | 4 / 1 | differential; synthetic |
 | ARG_MISSING | an omitted positional argument; it must meet an `Optional` parameter (project procedure, library or run-time function) or be passed on late bound | 14 / 22 | differential |
 
 Opcodes that were `Verified` and are lowered for the first time: BRANCH_GOTO
@@ -500,4 +517,4 @@ Canonical numbers; everything not listed has no operands.
 * Numbers of operands and their widths: high confidence for all tabulated shapes (VBA6/7 x86 and x64), medium for VBA5 (opcode existence differs; operand shapes assumed shared), low for VBA3.
 * Which canonical opcodes exist in which build: high confidence for the translation tables as they are algebraic.
 * Semantics/stack effects: inferred, medium at best; entries marked "inferred", "unknown" or "unverified" are guesses.
-* Unknown: purpose of RESERVED_A and RESERVED_B, CONST_SMALL_INT value location, the extra W of VAR_DECL with MOD 0x10, the meaning of the two words of IMPLEMENTS_STMT, the second D of PROC_CONTEXT on x64, difference between PROC_HEADER and PROC_HEADER_ALT, between CONVERT_TO_TYPE and CONVERT_TO_TYPE_VARIANT, OPTION_STMT vs OPTION_BASE_MARKER, PP_MARKER.
+* Unknown: purpose of RESERVED_A and RESERVED_B, CONST_SMALL_INT value location, the extra W of VAR_DECL with MOD 0x10, the second word of IMPLEMENTS_STMT, the second D of PROC_CONTEXT on x64, difference between PROC_HEADER and PROC_HEADER_ALT, between CONVERT_TO_TYPE and CONVERT_TO_TYPE_VARIANT, OPTION_STMT vs OPTION_BASE_MARKER, PP_MARKER.

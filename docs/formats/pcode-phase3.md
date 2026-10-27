@@ -102,7 +102,8 @@ declaration-only text generated from the cache records (headers, parameters, loc
 declarations; empty bodies); no source text is read. The bodies are then replaced by the
 lowered ones. `vba-sema` is therefore a dependency (the IR types need it).
 
-Subset (class-like modules and module-level names: section 8): standard modules; `Sub`/`Function` with plain scalar parameters (including
+Subset (class-like modules and module-level names: section 8; types, objects and members:
+section 10): standard modules; `Sub`/`Function` with plain scalar parameters (including
 `Optional` ones, with or without a default value) and locals (`ByVal`/`ByRef`); every
 opcode verified; literals (Integer, Long, Double, String, Boolean/Null/Empty, Date,
 hexadecimal Integer and Long), arithmetic, comparison, logic, concatenation, `Like`,
@@ -197,6 +198,8 @@ literals, `CLng`/`CStr`, unsupported reporting, and a property test that mutated
 truncated caches never panic.
 
 ## 6. What blocks the rest
+
+(Round 2. The state after the object, type and member round is in section 10.)
 
 Counts are procedures of standard modules (the 229 class-like ones and the 62 `Declare`s
 are separate, structural reasons).
@@ -432,6 +435,9 @@ the name of another module of the project (a form, `frmConsole.Show`) was lowere
 member of the host base object while the source side binds it to the module. A name that is
 the name of a module is now never a host member, and the procedure is not lowered.
 
+(Round 3, section 10, raises the 46-project figures above from 279 to 842 lowered
+procedures and the first project from 189 to 192 of 430, still with 0 mismatches.)
+
 ### 9.3 What is verified now, and what is not
 
 Verified (the numbers above): the module header and the tables for VBA 6 and VBA 7, 32-bit
@@ -443,9 +449,10 @@ differential checks on all of the above.
 
 Not verified: VBA5 and VBA3 (no material), big-endian caches, version words not in
 `VERIFIED_LAYOUTS`, `PROC_CONTEXT` and its second operand on x64, the 8-byte integer
-literals, the built-in adjustment above 0xC3, 97 opcodes never seen, the meaning of the
-first word of `Implements`, library-qualified type names, and the `Static`, `ParamArray`
-and `Optional` forms on x64 beyond what the differential run covers.
+literals, the built-in adjustment above 0xC3, 97 opcodes never seen, and the `Static`,
+`ParamArray` and `Optional` forms on x64 beyond what the differential run covers. (The
+first word of `Implements` and the library-qualified type names were resolved in
+round 3, section 10.1.)
 
 ### 9.4 Corrections made to the earlier text and code
 
@@ -464,3 +471,186 @@ and `Optional` forms on x64 beyond what the differential run covers.
 * `Attribute` lines have no cache line wherever they stand.
 * The module platform word at offset 2 equals PROJECTSYSKIND.
 * `LongLong` has type id 20; `LongPtr` on x64 is id 20 with the pointer flag.
+
+## 10. Types, objects and members (round 3)
+
+Goal of this step: raise the share of compiled procedures that lower to IR and agree
+with the source-derived program on `vba-vm`. Starting point on the 46 files: 2,693
+procedures decode, 279 lower (10.4 %). The first measurement ranked the reasons
+(procedures counted once, by the first reason found, `tests/corpus.rs`): types of
+parameters, locals and results that are not plain scalars (about 1,100), a module-level
+variable of a user-defined type (346), `Set` (99), host objects that are used without
+being declared, `Declare` (20), and a long tail. This section records what changed,
+what the differential run confirms, and what is left.
+
+### 10.1 What the cache gave
+
+**Library-qualified type names.** An object-table entry with bit 0 of the word at +2 set
+does not hold a name; its word at +6 is the slot of a record in a list that follows the
+object table (pcode-format.md 6.1a). The record holds two identifier references: the
+qualifier and the type name. For 176 qualified variable types the two agree with the
+source tokens in 176 of 176 cases; 101 `New`/`TypeOf` operands and 358 argument and
+return types resolve the same way. The qualifier is a name, not a library: a type
+qualified with the name of the project itself is a type of the project (the lowering takes
+the project name as a setting of the embedding application,
+`LowerOptions::project_name`); every other qualifier is a library the cache does not
+describe, and the type stays unresolved. This is the only place where the cache says
+which library, and it does not say what the library contains.
+
+**`Implements`.** The first word of the statement leads to a record that starts with a
+type descriptor of the interface (pcode-format.md 6.2a): 226 of 226 statements resolve
+(206 to a class of the project, 20 to a library-qualified type). The shell declares
+`Implements` for the interfaces that are classes of the project.
+
+**Arrays.** An array type descriptor has kind byte 0x1B and the element type at +6
+(pcode-format.md 6.7). The decoder used to read it as a simple type and so returned the
+element type as the type of the variable (118 variable descriptors of the `0xB5` files).
+That was a defect of the decoder; arrays are now `TypeRef::Array` and the lowering
+refuses them. The bounds of a declared array are the constant expressions in front of the
+declaration; the descriptor does not hold them.
+
+**Enums and user-defined types.** `TYPE_DECL` with MOD 1 is a `Type`, MOD 3 an `Enum`;
+the scope is in the record. A `Type` field is a `VAR_DECL` between `TYPE_DECL` and
+`TYPE_DECL_END`; an enum member is `INVOKE_SIMPLE name` (no value) or its value
+expression followed by `WRITE_SIMPLE name`, and the block ends with `ENUM_DECL_END`
+(an enum used to swallow the declarations after it). Values and constants are rendered
+from the expression instructions (literals, names, the arithmetic and logic operators,
+`Nothing`) instead of single literals.
+
+**Class default instances.** A class module whose name is used as the receiver of a
+member form (`Name.Member`) has a default instance; the attribute that says so
+(`VB_PredeclaredId`) has no line in the cache, so the shell declares it for every class
+that is used that way. The same holds for the enumerator attribute of a class (the
+lowering does not enumerate classes) and for the default member (the lowering refuses a
+value assignment of an object).
+
+### 10.2 What the lowering covers now
+
+The shell (the declaration-only program the IR refers to) declares, from the cache
+records: enums with their values, user-defined types with fields of any supported type,
+classes (`Implements` included), and the types `Object`, `Collection`, and the enums of
+the VBA library (`VbVarType`, ...). Parameters, results, locals and module-level
+variables may have any of these types. A type that does not resolve (a library type, a
+qualifier that is not the project, an array) leaves the declaration out, and with it every
+procedure that needs it.
+
+Bodies. `Set` (`SET_KEYWORD_MARKER`, `WRITE_REF_*`), `New`, `Nothing`, `Is`, `TypeOf ... Is`,
+the member forms on every receiver of section 10.3, named arguments (also for late-bound
+calls, which keep the names), properties with parameters, `Property Set`,
+`With`, `For Each` over collections, `Debug.Assert`, conditional-compilation
+directives, the temporaries a `ByRef Variant` parameter needs, `Err.Raise` and the other
+members of the built-in objects (early bound with the member id), `VBA.`-qualified
+and sub-library-qualified names, and the enum, module, project and class-name
+qualifiers.
+
+A variable of another type passed to a `ByRef Variant` parameter is passed as a copy in
+a temporary that is converted back when the call returns (MS-VBAL 5.3.1.11). The
+lowering had passed it by value; the differential run on the first project showed that
+as mismatches in one procedure (the run was already failing when this step started, the
+source lowering having changed since the previous measurement). The temporaries are
+added to the locals of the procedure.
+
+### 10.3 Evidence
+
+Differential run (`tests/differential.rs`, as in section 5), now also with objects:
+parameters of class type receive `Nothing` or a new instance (only of a class whose
+initializer and terminator are lowered), `Object` parameters `Nothing` or the host
+object, enums the values 0 to 3 and -1. A run that stops at the step limit on both
+sides counts as agreeing up to that point (the number of steps per iteration depends on
+the shape of the blocks, which the two lowerings do not share). Procedures the source
+analysis rejects are not compared and are counted; none is left.
+
+| Version word, platform kind | Files | Procedures | Lowered before | Lowered after | Executed (std + class) | Runs (std + class) | Sessions | Mismatches |
+|---|---|---|---|---|---|---|---|---|
+| 0x79, 1 | 3 | 6 | 1 | 1 | 0 + 1 | 0 + 1 | 4 | 0 |
+| 0x88, 1 | 3 | 7 | 2 | 2 | 1 + 1 | 1 + 1 | 8 | 0 |
+| 0x97, 1 | 4 | 77 | 12 | 14 | 2 + 12 | 6 + 24 | 32 | 0 |
+| 0xAF, 1 | 5 | 12 | 3 | 3 | 0 + 3 | 0 + 3 | 12 | 0 |
+| 0xB2, 1 | 2 | 3 | 3 | 3 | 3 + 0 | 3 + 0 | 8 | 0 |
+| 0x9A, 3 | 2 | 2 | 2 | 2 | 0 + 2 | 0 + 2 | 8 | 0 |
+| 0xA6, 3 | 7 | 7 | 7 | 7 | 0 + 7 | 0 + 7 | 28 | 0 |
+| 0xB2, 3 | 5 | 15 | 7 | 7 | 3 + 4 | 9 + 4 | 28 | 0 |
+| 0xB5, 3 | 15 | 2,564 | 242 | 803 | 45 + 758 | 203 + 1,724 | 752 | 0 |
+| total | 46 | 2,693 | 279 (10.4 %) | **842 (31.3 %)** | 54 + 788 | 222 + 1,766 | 880 | 0 |
+
+Before this step: 33 + 246 procedures executed, 103 + 351 runs, 488 sessions. The gain
+is almost all in the `0xB5` x64 files, which hold the large projects; the small files
+were already lowered as far as their content allows, and the 32-bit and VBA 6 files
+contain little object code. Of the 842 compared procedures, 725 completed at least one
+run without a run-time error on the source side (and so on both); the 439 of 1,988 runs
+that end in an error end in the same error on both sides (typically `Nothing` or an empty
+host object used as a receiver). The first project: 192 of 430 procedures lowered (189
+before), 526 + 345 runs, 112 sessions, 0 mismatches.
+
+Opcode forms, counted in the compared procedures that completed a run (instructions /
+procedures): `SET_KEYWORD_MARKER` 273 / 192, `WRITE_REF_SIMPLE` 170 / 136, `WRITE_REF_DOT`
+103 / 64, `NEW_OBJECT` 61 / 60, `READ_DOT` 354 / 209, `READ_DOT_PARAMS` 47 / 30,
+`INVOKE_DOT` 69 / 50, `WRITE_DOT` 115 / 70, `COMPARE_OBJECT_IDENTITY` 37 / 31,
+`CONST_NULL_OBJECT` 86 / 40, `ARG_NAMED` 7 / 6, `FOR_COLLECTION` 6 / 6, `DEBUG_ASSERT`
+4 / 4, `WRITE_DOT_PARAMS` 7 / 1, `TYPE_TEST` 1 / 1, the `With` forms 1 / 1,
+`PP_MARKER` 4 / 1. The table of pcode-opcodes.md 4.18 lists each accepted form. Forms
+without a run in the 46 files rely on the assembled caches of `tests/objects.rs` alone:
+the other `*_WITH_DOT` forms, `WRITE_REF_DOT_PARAMS`, and `Property Set` with arguments.
+The opcode table is unchanged (86 Verified, 81 Inferred, 97 Unseen): an opcode becomes
+Verified when its operand shape, order and stack effect are confirmed, and what the
+differential run confirms here is the lowering of a form, not every use of the opcode.
+
+What the differential run cannot check: it compares behaviour on the inputs it
+tries. A procedure whose runs all end in the same error is only checked up to that
+error, and the argument pools are small (up to six sets per procedure). Early- versus
+late-bound dispatch of library members is not in the cache, so a library type is
+lowered only when a provider describes it (the built-in `Collection`, `Err`, `Debug`);
+the argument conversions of those calls follow the source binding and are checked only by
+the runs that use them.
+
+### 10.4 What is left
+
+Refused procedures by the reason found after following calls and instance blocks to the
+procedure that is refused for its own reason (1,851 procedures):
+
+| Procedures | Reason |
+|---|---|
+| 1,464 (79 %) | a library type, library object or host member that the cache names but does not describe: parameters, locals and results of such types (about 320), `New` and `TypeOf` of a library class (about 110), a module-level variable of a user-defined type that has a library field (453), host objects and members (`Application`, sheet collections, the base class of a document module: about 260), names of other projects. These need a provider for the libraries (their classes, members and dispatch ids); with one, the same cache would lower as early-bound calls |
+| 180 (10 %) | arrays, the largest items being `ReDim` of a field (45), locals and parameters of array type (about 50), `UBound`/`LBound` (21), `Array(...)` (20) and `ParamArray` (9); the descriptor is decoded (10.1), the element access, the bounds and the `ReDim` forms are not lowered |
+| 53 (3 %) | an assignment to a name that is not declared (implicit variables) |
+| 154 (8 %) | `Declare` (20), strings outside ASCII (31; the code page of the project is not an input of the lowering), `Resume` forms (20), file numbers (12), `Set` with a source that is not a known object or object types that do not convert (21), `CONVERT_TO_TYPE` targets not seen (9), `As New` (4), and a long tail of one to seven procedures |
+
+The share of reasons that no lowering can remove without library descriptions is the
+measure of how far a cache-only lowering can go: about four fifths of what is left.
+Two items were left on purpose even though the cache has the data: fields and
+variables of an unresolved library type are not declared as `Object` (it would change
+early-bound calls into late-bound ones), and a class is not enumerated by `For Each`
+(its enumerator attribute has no line in the cache).
+
+### 10.5 Opcodes never seen, and what they need
+
+Of the 264 canonical opcodes, 167 occur in the 46 files and 97 do not (86 Verified, 81
+Inferred). From their names and the opcode document, the 97 are reachable only from
+constructs that do not occur in the material (the right-hand column is the probable
+construct, not an observation, and none of the 97 has been seen to decode):
+
+| Opcodes (canonical numbers) | Construct that would produce them |
+|---|---|
+| `BOOL_IMPLICATION` (0), `BOOL_EQUIVALENCE` (1) | the `Imp` and `Eqv` operators |
+| `INTRINSIC_TRUNCATE` (24), `INTRINSIC_LENGTH_BYTES` (28), `INTRINSIC_CURRENT_DIR` (125), `INTRINSIC_DIR_LISTING` (126), `INTRINSIC_ERROR_TEXT` (129), `INTRINSIC_FORMAT_VALUE` (130), `INTRINSIC_NEXT_FILE_NUMBER` (131), `INTRINSIC_SEARCH_BYTES_A/B/C` (135-137), `INTRINSIC_SUBSTRING` (139), `INTRINSIC_SUBSTRING_BYTES` (140), `INTRINSIC_REPEAT_FROM_CODE/TEXT` (143, 144) | calls of the library functions that have dedicated opcodes (`Fix`, `LenB`, `CurDir`, `Dir`, `Error$`, `Format`, `FreeFile`, `InStrB`, `Mid`, `MidB`, `String$`/`Space$`); each has a plain call form in the material, the dedicated opcode did not occur |
+| `READ_BANG_PARAMS` (38), `WRITE_BANG_PARAMS` (45), `WRITE_REF_BANG_PARAMS` (52), `READ_WITH_BANG` (54), `READ_WITH_BANG_PARAMS` (56), `WRITE_WITH_BANG` (58), `WRITE_WITH_BANG_PARAMS` (60), `WRITE_REF_WITH_BANG` (62), `WRITE_REF_WITH_BANG_PARAMS` (64) | the dictionary-style `!` access with arguments, and inside `With` |
+| `WRITE_DEFAULT_INDEXED` (42), `WRITE_REF_DEFAULT_INDEXED` (49), `WRITE_REF_WITH_DOT_PARAMS` (63) | assignment through the default member of an object (`obj(i) = v`), `Set` of an indexed member inside `With` |
+| `READ_TARGET_NAME` (31), `LINE_BEGIN` (72), `FRAME_RESERVE` (241), `PROC_CONTEXT` (90), `PROC_CONTEXT_END` (104), `PROC_HEADER_ALT` (151), `SELF_REF` (192), `SELF_REF_IMPLICIT` (193), `WRITE_SIMPLE_AMBIGUOUS` (261), `RESERVED_A/B` (127, 128), `INVALID_SENTINEL` (263), `IMMEDIATE_END` (108) | structures the compiler emits only for particular procedures (frame setup, procedures with a context), for lines that were not compiled, or never in a project file; the document says they exist, no sample shows when |
+| `ADDRESS_OF_DOT` (74) | `AddressOf` applied to a member |
+| `CASE_IS_LESS` (78), `CASE_IS_GREATER_EQUAL` (79), `CASE_IS_LESS_EQUAL` (80) | `Case Is <`, `Is >=`, `Is <=` (the other three `Case Is` forms occur) |
+| `BLOCK_ELSEIF_BRANCH_TYPE_TEST` (102), `IF_BLOCK_OPEN_TYPE_TEST` (158), `SWITCH_CASE_CLASS` (238), `SWITCH_BEGIN_TYPE` (239), `FOR_COLLECTION_TYPED` (148) | combined `TypeOf` conditions, `Select Case TypeOf`, a typed `For Each`; the material has the two-instruction forms |
+| `DRAW_CIRCLE` (85), `DRAW_POINT` (225), `DRAW_SCALE` (235) | the legacy graphics statements |
+| `FILE_CLOSE_ALL` (87), `FILE_LOCK` (187), `FILE_UNLOCK` (244), `FILE_SEEK` (236), `FILE_WRITE_RECORD` (226), `FILE_WRITE_CHANNEL` (249), `RENAME_FILE` (200) | file statements (`Reset`, `Lock`, `Unlock`, `Seek`, `Write #`, `Name ... As`) |
+| `OUT_COMMA` (214), `OUT_STATEMENT_END` (215), `OUT_NEWLINE` (219), `OUT_SEMICOLON` (221), `OUT_SPACES` (222), `OUT_TAB` (223), `OUT_TAB_THEN_COMMA` (224), `READ_LIST_OPEN/CLOSE/ITEM` (160-162) | `Print`/`Write` list parts (`Spc`, `Tab`, a trailing separator) and `Input` lists |
+| `CONVERT_TO_TYPE_VARIANT` (89), `CONST_CURRENCY` (169), `CONST_INT64_DECIMAL/HEX/OCTAL` (174, 177, 181), `CONST_INT16/INT32_OCTAL` (179, 180), `CONST_FLOAT32` (182), `CONST_SMALL_INT` (184) | `CVar`; `Currency`, 64-bit, octal and `Single` literals |
+| `DEFTYPE_RANGE` (92), `YIELD_EVENTS` (96), `ERR_RAISE_STMT` (115), `HALT_STOP` (242), `COMMENT_REM_KEYWORD` (231), `LET_KEYWORD_MARKER` (164), `RIGHT_ALIGN_ASSIGN` (234), `SUBSTR_BYTES_ASSIGN` (199), `PP_ELSEIF` (254) | `DefInt` and the other `Def` statements, `DoEvents`, the `Error n` statement, `Stop`, `Rem`, `Let`, `RSet`, `MidB` as a statement, `#ElseIf` |
+| `BRANCH_SUBROUTINE` (153), `BRANCH_RETURN` (233), `BRANCH_COMPUTED_SUBROUTINE` (205), `BRANCH_COMPUTED_GOTO` (206) | `GoSub`, `Return`, `On ... GoSub`, `On ... GoTo` |
+| `EVENT_FIRE_DOT` (118), `EVENT_FIRE_WITH_DOT` (119) | `RaiseEvent` on another object |
+| `REDIM_DOT_TYPED` (196), `REDIM_DOT_TYPED_WITH` (197), `REDIM_NEW_MARKER` (259) | `ReDim` of a member of a typed object, `ReDim ... As New` |
+
+Sample material that would turn these into evidence: modules that use each construct once,
+with their source (the list in section 7 stays, with `Imp`/`Eqv`, `GoSub`, the legacy
+graphics and file statements, `Print` lists, `Def` statements and `Currency`/`Single`/
+64-bit literals added), compiled with each of the verified layouts. Nothing in this
+list is needed to read the procedures of the 46 files: every instruction of every line
+with code decoded to its exact length.

@@ -6,10 +6,11 @@ phase 1 (structure) and phase 2 (opcode decoder and disassembler) of the gates i
 (verified on 46 further projects, [pcode-phase3.md](pcode-phase3.md) section 9; VBA 5
 and VBA 3 have no material and stay unverified). A lowering of the
 verified subset to `vba-ir` exists in `crates/language/vba-pcode-ir`; its coverage on
-the first local project (99 of the 139 standard-module procedures with a body, 71 %, and 90
-of the 205 procedures with a body of class, document and designer modules, 44 %) is
-measured in [pcode-phase3.md](pcode-phase3.md) sections 4 and 8, and on the 46 other
-projects in section 9.
+the first local project (192 of 430 procedures, 101 of the 139 standard-module procedures
+with a body and 91 of the 205 of class, document and designer modules) is measured in
+[pcode-phase3.md](pcode-phase3.md) sections 4, 8 and 10, and on the 46 other
+projects (842 of 2,693 procedures, 0 mismatches in the differential run) in sections 9
+and 10.
 
 Specifications: [pcode-format.md](pcode-format.md), [pcode-opcodes.md](pcode-opcodes.md),
 [pcode.md](pcode.md) and the public MS-OVBA text. Tags as in those documents: `[spec]`
@@ -31,6 +32,7 @@ recorded in the specifications themselves, not here.
 | Region map (`ModuleCache`): gap-free tiling of the whole cache with a named kind per region | `cache.rs` | verified (gap-free tiling of 492 of 492 further modules, all layouts) |
 | Reference list and member table sections | `sections.rs` | verified (layouts in pcode-format.md 4.4) |
 | Records: function, argument, variable, user-defined type, type descriptor, declaration, object entry | `records.rs` | VBA6/7, x86 and x64 verified |
+| Type-reference list after the object table (library-qualified types), interface of `Implements`, array descriptors | `records.rs`, `disasm.rs` | verified on the 46 further projects (pcode-format.md 6.1a, 6.2a, 6.7) |
 | Reachable-record map of the indirect table (`RecordMap`) | `recordmap.rs` | verified (record sizes for VBA6/7, x86 and x64; the shape classifier `IndirectMap` still covers VBA7 x86 only) |
 | Identifier resolution (`Resolver`, `Name`) and the confirmed built-in table | `names.rs` | user identifiers verified for VBA6 (offset 0), VBA7 x86 (4) and x64 (7); built-ins: see below |
 | Canonical opcode table (264 entries) with operand shapes | `opcode.rs` | generated from the opcode document |
@@ -144,7 +146,8 @@ After the corrections of phase 3 (type references scaled by the pointer size, en
 valid, `obj` operands scaled on x86, more built-in names) the same project gives 9,190
 of 9,226 statements consistent (99.61 %; strict 9,114, 98.79 %), 5 forward failures and
 35 reverse misses; the structure, record and differential numbers are unchanged
-(differential: 189 of 430 procedures lowered, 0 mismatches).
+(differential, at that point: 189 of 430 procedures lowered, 0 mismatches; now 192 of 430,
+0 mismatches).
 
 ## Built-in names
 
@@ -162,8 +165,9 @@ unverified (pcode-format.md 5.2): the only operand seen at or above it in all th
 
 ## Unknowns
 
-* The built-in name table beyond the 29 entries; library-qualified type names (the object
-  entry has bit 0 of the word at +2 set and no names that were found).
+* The built-in name table beyond the 29 entries. (Library-qualified type names are
+  resolved since phase 3 round 3: pcode-format.md 6.1a. What a library qualifier stands for
+  is still not stored.)
 * Contents of the opaque blocks: the header between the offset fields and the
   declaration table (30 bytes), the block after the declaration table (module info,
   173 or 189 bytes plus module-dependent extras), the object-table header (138 bytes),
