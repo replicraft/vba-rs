@@ -61,6 +61,9 @@ pub(crate) struct Sema<'a> {
     pub enum_state: RefCell<Vec<Vec<CState>>>,
     /// The enum member (or `None` for a constant) whose value is being
     /// evaluated, innermost last.
+    /// Module pairs (user, provider) linked by a constant or enum member
+    /// expression that names a member of another module.
+    pub module_deps: RefCell<std::collections::BTreeSet<(u32, u32)>>,
     pub eval_ctx: RefCell<Vec<Option<(crate::types::EnumId, usize)>>>,
     pub udt_src: Vec<&'a TypeDecl>,
     pub declare_src: Vec<&'a DeclareDecl>,
@@ -99,6 +102,7 @@ impl<'a> Sema<'a> {
             const_state: RefCell::new(Vec::new()),
             enum_src: Vec::new(),
             enum_state: RefCell::new(Vec::new()),
+            module_deps: RefCell::new(std::collections::BTreeSet::new()),
             eval_ctx: RefCell::new(Vec::new()),
             udt_src: Vec::new(),
             declare_src: Vec::new(),

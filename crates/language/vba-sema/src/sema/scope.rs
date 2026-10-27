@@ -145,6 +145,12 @@ pub(crate) struct ModuleScope<'s, 'a> {
 
 impl ModuleScope<'_, '_> {
     fn symbol_const(&self, owner: ModuleId, sym: Symbol) -> ConstLookup {
+        if owner != self.module && matches!(sym, Symbol::Const(_) | Symbol::EnumMember(..)) {
+            self.sema
+                .module_deps
+                .borrow_mut()
+                .insert((self.module.0, owner.0));
+        }
         match sym {
             Symbol::Const(c) => match self.sema.eval_const(c) {
                 Some((v, t)) => ConstLookup::Found(v, t),

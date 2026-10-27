@@ -774,7 +774,6 @@ impl Sema<'_> {
         // the chains can be as long as the source is big) find every such
         // type in time linear in the number of types and fields.
         let udts = &self.program.udts;
-        let n = udts.len();
         let succ: Vec<Vec<usize>> = udts
             .iter()
             .map(|u| {
@@ -787,63 +786,7 @@ impl Sema<'_> {
                     .collect()
             })
             .collect();
-        let mut index = vec![usize::MAX; n];
-        let mut low = vec![0usize; n];
-        let mut on_stack = vec![false; n];
-        let mut stack: Vec<usize> = Vec::new();
-        let mut cyclic = vec![false; n];
-        let mut next = 0usize;
-        for root in 0..n {
-            if index[root] != usize::MAX {
-                continue;
-            }
-            // Frames: (node, next successor to look at).
-            let mut call: Vec<(usize, usize)> = vec![(root, 0)];
-            index[root] = next;
-            low[root] = next;
-            next += 1;
-            stack.push(root);
-            on_stack[root] = true;
-            while let Some(&mut (v, ref mut i)) = call.last_mut() {
-                if *i < succ[v].len() {
-                    let w = succ[v][*i];
-                    *i += 1;
-                    if w == v {
-                        cyclic[v] = true;
-                    }
-                    if index[w] == usize::MAX {
-                        index[w] = next;
-                        low[w] = next;
-                        next += 1;
-                        stack.push(w);
-                        on_stack[w] = true;
-                        call.push((w, 0));
-                    } else if on_stack[w] {
-                        low[v] = low[v].min(index[w]);
-                    }
-                } else {
-                    call.pop();
-                    if let Some(&(parent, _)) = call.last() {
-                        low[parent] = low[parent].min(low[v]);
-                    }
-                    if low[v] == index[v] {
-                        let mut members = Vec::new();
-                        while let Some(w) = stack.pop() {
-                            on_stack[w] = false;
-                            members.push(w);
-                            if w == v {
-                                break;
-                            }
-                        }
-                        if members.len() > 1 {
-                            for m in members {
-                                cyclic[m] = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let cyclic = cyclic_nodes(&succ);
         for u in udts {
             if cyclic[u.id.index()] {
                 self.error(
@@ -898,4 +841,69 @@ impl Sema<'_> {
             self.statics.entry((ProcId(pi as u32), name)).or_insert(id);
         }
     }
+}
+
+/// The nodes of a directed graph that lie on a cycle (including self loops):
+/// strongly connected components by an iterative Tarjan search, linear in
+/// the size of the graph.
+pub(crate) fn cyclic_nodes(succ: &[Vec<usize>]) -> Vec<bool> {
+    let n = succ.len();
+    let mut index = vec![usize::MAX; n];
+    let mut low = vec![0usize; n];
+    let mut on_stack = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut cyclic = vec![false; n];
+    let mut next = 0usize;
+    for root in 0..n {
+        if index[root] != usize::MAX {
+            continue;
+        }
+        // Frames: (node, next successor to look at).
+        let mut call: Vec<(usize, usize)> = vec![(root, 0)];
+        index[root] = next;
+        low[root] = next;
+        next += 1;
+        stack.push(root);
+        on_stack[root] = true;
+        while let Some(&mut (v, ref mut i)) = call.last_mut() {
+            if *i < succ[v].len() {
+                let w = succ[v][*i];
+                *i += 1;
+                if w == v {
+                    cyclic[v] = true;
+                }
+                if index[w] == usize::MAX {
+                    index[w] = next;
+                    low[w] = next;
+                    next += 1;
+                    stack.push(w);
+                    on_stack[w] = true;
+                    call.push((w, 0));
+                } else if on_stack[w] {
+                    low[v] = low[v].min(index[w]);
+                }
+            } else {
+                call.pop();
+                if let Some(&(parent, _)) = call.last() {
+                    low[parent] = low[parent].min(low[v]);
+                }
+                if low[v] == index[v] {
+                    let mut members = Vec::new();
+                    while let Some(w) = stack.pop() {
+                        on_stack[w] = false;
+                        members.push(w);
+                        if w == v {
+                            break;
+                        }
+                    }
+                    if members.len() > 1 {
+                        for m in members {
+                            cyclic[m] = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    cyclic
 }

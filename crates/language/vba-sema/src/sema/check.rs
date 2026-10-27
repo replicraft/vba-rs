@@ -35,6 +35,82 @@ impl Sema<'_> {
             self.check_implements(ModuleId(i as u32));
         }
         self.check_declares();
+        self.check_module_cycles();
+        self.check_public_type_names();
+    }
+
+    /// MS-VBAL 5.2.3.3 and 5.2.3.4: the name of a public user-defined type
+    /// or enum differs from the name of every module and of every other
+    /// public type or enum of the project.
+    fn check_public_type_names(&self) {
+        let mut seen: std::collections::HashMap<Name, ()> = std::collections::HashMap::new();
+        let decls = self
+            .program
+            .udts
+            .iter()
+            .map(|u| (u.module, &u.name, u.visibility, u.span, "type"))
+            .chain(
+                self.program
+                    .enums
+                    .iter()
+                    .map(|e| (e.module, &e.name, e.visibility, e.span, "enum")),
+            );
+        for (module, name, vis, span, what) in decls {
+            if vis == Visibility::Private {
+                continue;
+            }
+            if self.module_ids.contains_key(name) {
+                self.spec_strict(
+                    module,
+                    codes::TYPE_DECLARATION,
+                    span,
+                    format!("the public {what} `{name}` has the name of a module of the project"),
+                );
+            } else if seen.insert(name.clone(), ()).is_some() {
+                self.spec_strict(
+                    module,
+                    codes::TYPE_DECLARATION,
+                    span,
+                    format!("a public type or enum named `{name}` is declared more than once in the project"),
+                );
+            }
+        }
+    }
+
+    /// MS-VBAL 5.2.3.6: modules may not depend on each other circularly
+    /// through constant and enum member expressions or `Implements`.
+    fn check_module_cycles(&self) {
+        let n = self.program.modules.len();
+        let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for &(a, b) in self.module_deps.borrow().iter() {
+            succ[a as usize].push(b as usize);
+        }
+        for (i, m) in self.program.modules.iter().enumerate() {
+            for imp in &m.implements {
+                if let Type::Class(c) = &imp.interface {
+                    succ[i].push(c.index());
+                }
+            }
+        }
+        let cyclic = crate::sema::typeres::cyclic_nodes(&succ);
+        for (i, m) in self.program.modules.iter().enumerate() {
+            if cyclic[i] {
+                let span = m
+                    .implements
+                    .first()
+                    .map(|imp| imp.span)
+                    .unwrap_or(vba_source::Span::empty(0));
+                self.spec_strict(
+                    ModuleId(i as u32),
+                    codes::CIRCULAR_DEPENDENCY,
+                    span,
+                    format!(
+                        "module `{}` is part of a circular module dependency",
+                        m.name
+                    ),
+                );
+            }
+        }
     }
 
     fn check_class_hooks(&mut self, m: ModuleId) {

@@ -66,6 +66,8 @@ pub const WRITE_ONLY_PROPERTY: Code = Code("SEM030");
 pub const NOT_CREATABLE: Code = Code("SEM031");
 /// Procedure declaration rules (`Global` in a class, `ByVal` arrays, parameter names).
 pub const PROCEDURE_RULE: Code = Code("SEM032");
+/// Modules depend on each other circularly.
+pub const CIRCULAR_DEPENDENCY: Code = Code("SEM033");
 /// A construct that this implementation does not analyse yet.
 pub const UNSUPPORTED: Code = Code("SEM099");
 /// A size budget of the analysis was exceeded (see `AnalysisLimits`).

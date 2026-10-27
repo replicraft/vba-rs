@@ -123,6 +123,8 @@ program that checks the default behaviour (warn and run).
 | Non-private function whose type is a private enum, or a private user-defined type in a class module (5.3.1) | warning | Callers in other modules cannot name the type; nothing else depends on it. |
 | Function name with a type character and an `As` clause (5.3.1) | warning | The `As` clause wins. |
 | `Optional` parameter typed only by a Def directive without a default value (5.3.1.5) | warning | The parameter is optional and takes the type's default when omitted. |
+| Public `Type` or `Enum` named like a module or like another public type or enum of the project (5.2.3.3, 5.2.3.4) | warning | Resolution of an unqualified use reports the ambiguity (`SEM015`); qualified uses work. |
+| Circular module dependency through `Const` or enum member expressions or `Implements` (5.2.3.6) | warning | Constants are evaluated lazily and resolve; a value that depends on itself is an error in every mode. |
 
 These stay errors in every mode because real VBA rejects them (or the program has no
 meaning): syntax errors, undefined names under `Option Explicit`, type mismatches, duplicate

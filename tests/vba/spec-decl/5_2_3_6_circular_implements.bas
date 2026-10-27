@@ -1,6 +1,6 @@
 ' INV: vbal.5.2.3.6
 ' SOURCE: spec ms-vbal 5.2.3.6 circular dependency through Implements directives is illegal
-' XFAIL: wrong not implemented: detection of circular module dependencies
+' STRICT_SPEC: true
 ' ERROR: load
 Public Sub Main()
 End Sub
