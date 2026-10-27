@@ -247,7 +247,9 @@ impl CfbView {
             for k in 0..self.sector_size() / 128 {
                 out.push(self.sector_off(s) + 128 * k);
             }
-            let Some(e) = self.fat_entry_at(s as usize) else { break };
+            let Some(e) = self.fat_entry_at(s as usize) else {
+                break;
+            };
             s = self.u32(e);
             guard += 1;
         }
@@ -290,7 +292,9 @@ fn cfb_field_inflation_never_panics() {
                 continue;
             }
             for v in [0, 1, 0xFFFF_FFFF, 0xFFFF_FFFE, len + 1, len / 512] {
-                let mut m = CfbView { bytes: view.bytes.clone() };
+                let mut m = CfbView {
+                    bytes: view.bytes.clone(),
+                };
                 m.set_u32(at, v);
                 within(Duration::from_secs(5), "inflated CFB field", || {
                     let r = read_project(&m.bytes, &limits);
@@ -313,7 +317,9 @@ fn cfb_cyclic_chains_never_hang() {
         let view = CfbView { bytes: base };
         let n = view.fat_len().min(256);
         for i in 0..n {
-            let Some(at) = view.fat_entry_at(i) else { continue };
+            let Some(at) = view.fat_entry_at(i) else {
+                continue;
+            };
             let targets = [
                 i as u32,
                 (i as u32).wrapping_sub(1),
@@ -324,7 +330,9 @@ fn cfb_cyclic_chains_never_hang() {
                 view.u32(0x3C),
             ];
             for t in targets {
-                let mut m = CfbView { bytes: view.bytes.clone() };
+                let mut m = CfbView {
+                    bytes: view.bytes.clone(),
+                };
                 m.set_u32(at, t);
                 within(Duration::from_secs(5), "cyclic CFB chain", || {
                     let _ = read_project(&m.bytes, &limits);
@@ -337,7 +345,9 @@ fn cfb_cyclic_chains_never_hang() {
         for (ei, &e) in entries.iter().enumerate() {
             for rel in [68, 72, 76] {
                 for t in [ei as u32, 0, 1, (ei as u32 + 1) % entries.len() as u32] {
-                    let mut m = CfbView { bytes: view.bytes.clone() };
+                    let mut m = CfbView {
+                        bytes: view.bytes.clone(),
+                    };
                     m.set_u32(e + rel, t);
                     within(Duration::from_secs(5), "cyclic directory", || {
                         let _ = read_project(&m.bytes, &limits);
@@ -355,7 +365,12 @@ fn cfb_cyclic_chains_never_hang() {
 fn streams_sharing_one_chain_are_bounded() {
     let big = filler(300_000, 5);
     let streams: Vec<(String, Vec<u8>)> = (0..24)
-        .map(|i| (format!("S{i:02}"), if i == 0 { big.clone() } else { vec![0; 5000] }))
+        .map(|i| {
+            (
+                format!("S{i:02}"),
+                if i == 0 { big.clone() } else { vec![0; 5000] },
+            )
+        })
         .collect();
     let vba = StorageSpec {
         path: "VBA",
@@ -363,7 +378,9 @@ fn streams_sharing_one_chain_are_bounded() {
         state_bits: 0,
     };
     let base = build_cfb(&streams, &[vba]);
-    let view = CfbView { bytes: base.clone() };
+    let view = CfbView {
+        bytes: base.clone(),
+    };
     let entries = view.dir_entries();
     // Entry 0 is the root; entries 1.. are the streams in creation order of
     // the red-black tree, so find S00 by its start sector and size.
@@ -407,7 +424,10 @@ fn mutated_containers_never_panic() {
     let mut corpus = cfb_corpus();
     corpus.push(docm());
     corpus.push(presentation(true, 1, 0xE391_C05F));
-    corpus.push(legacy_document("_VBA_PROJECT_CUR", &[("Workbook", vec![2; 20])]));
+    corpus.push(legacy_document(
+        "_VBA_PROJECT_CUR",
+        &[("Workbook", vec![2; 20])],
+    ));
     corpus.push(presentation(false, 1, 0xE391_C05F));
     let mut rng = Rng::new(0x5EED_0001);
     for round in 0..1500 {
@@ -508,7 +528,11 @@ fn mutated_streams_never_panic() {
                 set.insert(pick.clone(), mutate(&mut rng, &cur));
             }
         }
-        let mode = if rng.below(2) == 0 { ReadMode::Strict } else { ReadMode::Tolerant };
+        let mode = if rng.below(2) == 0 {
+            ReadMode::Strict
+        } else {
+            ReadMode::Tolerant
+        };
         within(Duration::from_secs(5), "mutated streams", || {
             let r = read_project_from_streams(&set, mode, &limits);
             assert_bounded(r, &limits, "mutated streams");
@@ -549,7 +573,8 @@ fn decompress_random_chunks_never_panics() {
         let mut remaining = n;
         while remaining > 0 {
             let len = (1 + rng.below(remaining.min(200))).min(remaining);
-            let hdr = 0x3000u16 | if rng.below(4) != 0 { 0x8000 } else { 0 } | (len as u16 + 1) % 0x1000;
+            let hdr =
+                0x3000u16 | if rng.below(4) != 0 { 0x8000 } else { 0 } | (len as u16 + 1) % 0x1000;
             v.extend(hdr.to_le_bytes());
             v.extend((0..len).map(|_| rng.next() as u8));
             remaining -= len;
@@ -577,7 +602,11 @@ fn compress_round_trips_pathological_inputs() {
     for _ in 0..40 {
         let n = rng.below(10_000);
         let alphabet = 1 + rng.below(6);
-        inputs.push((0..n).map(|_| (rng.next() % alphabet as u64) as u8).collect());
+        inputs.push(
+            (0..n)
+                .map(|_| (rng.next() % alphabet as u64) as u8)
+                .collect(),
+        );
     }
     for input in inputs {
         let packed = within(Duration::from_secs(10), "compress", || compress(&input));
@@ -660,7 +689,10 @@ fn nested_storages(depth: usize) -> Vec<u8> {
 fn deeply_nested_storages_cost_bounded_time() {
     let limits = Limits::default();
     let bytes = nested_storages(3000);
-    assert!(matches!(read_project(&bytes, &limits), Err(Error::Container(_))));
+    assert!(matches!(
+        read_project(&bytes, &limits),
+        Err(Error::Container(_))
+    ));
     let started = std::time::Instant::now();
     within(Duration::from_secs(20), "3000 nested storages", || {
         let _ = extract_project(&bytes, &limits);

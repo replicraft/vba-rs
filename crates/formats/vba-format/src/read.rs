@@ -133,13 +133,11 @@ pub(crate) fn decompress_stream(
 /// Determines each module's kind from the PROJECT stream, falling back to the
 /// `dir` stream's MODULETYPE (which cannot tell class from document/designer).
 pub(crate) fn module_kind(props: &ProjectProps, m: &DirModule) -> ModuleKind {
-    props
-        .kind_of(&m.name)
-        .unwrap_or(if m.procedural {
-            ModuleKind::Standard
-        } else {
-            ModuleKind::Class
-        })
+    props.kind_of(&m.name).unwrap_or(if m.procedural {
+        ModuleKind::Standard
+    } else {
+        ModuleKind::Class
+    })
 }
 
 /// Reads a `vbaProject.bin` compound file into a [`VbaProject`].

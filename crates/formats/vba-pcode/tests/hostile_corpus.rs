@@ -128,5 +128,8 @@ fn mutated_real_caches_never_panic() {
             );
         }
     }
-    println!("{} projects, {modules} modules, {runs} mutations", projects.len());
+    println!(
+        "{} projects, {modules} modules, {runs} mutations",
+        projects.len()
+    );
 }

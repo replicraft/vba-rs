@@ -135,7 +135,11 @@ fn cyclic_argument_chains_are_walked_once() {
     assert!(map.records.len() <= 2);
     let d = Disassembly::of_module(&cache, &pc.idents);
     assert!(listed_args(&d) <= 1 << 18);
-    assert!(started.elapsed() < Duration::from_secs(20), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 fn valid_spec(rng: &mut Rng) -> CacheSpec {
@@ -196,7 +200,14 @@ fn mutated_synthetic_caches_never_panic() {
         // a sample of the rest.
         let step = 2 + 2 * rng.below(8);
         for at in (0..base.len().saturating_sub(4)).step_by(step) {
-            for v in [0u32, 1, 0xFFFF, 0xFFFF_FFFF, 0x8000_0000, base.len() as u32 + 1] {
+            for v in [
+                0u32,
+                1,
+                0xFFFF,
+                0xFFFF_FFFF,
+                0x8000_0000,
+                base.len() as u32 + 1,
+            ] {
                 let mut m = base.clone();
                 m[at..at + 4].copy_from_slice(&v.to_le_bytes());
                 exercise(&m, &layouts[0]);
@@ -216,7 +227,11 @@ fn mutated_synthetic_caches_never_panic() {
             exercise(&m, &layouts[rng.below(layouts.len())]);
         }
     }
-    assert!(started.elapsed() < Duration::from_secs(120), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(120),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 /// Project-stream walks over mutated valid streams and random bytes.

@@ -137,7 +137,9 @@ fn fuzz_entry_accepts_arbitrary_bytes() {
     let mut rng = Rng(0x5EED_0011);
     for _ in 0..3000 {
         let n = rng.below(300);
-        let b: Vec<u8> = (0..n).map(|_| b"{}[]\":,01 aeE-\\()Lng"[rng.below(20)]).collect();
+        let b: Vec<u8> = (0..n)
+            .map(|_| b"{}[]\":,01 aeE-\\()Lng"[rng.below(20)])
+            .collect();
         fuzz_entry(&b);
     }
 }

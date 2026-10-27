@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, HashSet};
 
 use crate::cache::ModuleCache;
 use crate::decode::{Operands, decode_line};
+use crate::layout::Layout;
 use crate::layout::{Bitness, VersionFamily};
 use crate::opcode::Opcode;
-use crate::layout::Layout;
 use crate::records::{ArgumentRecord, FunctionRecord, VariableRecord};
 
 /// Kinds of indirect-table records that code can reach.

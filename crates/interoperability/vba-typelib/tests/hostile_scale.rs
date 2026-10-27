@@ -57,7 +57,8 @@ fn aliased_type_records_do_not_multiply_the_library() {
     let mut spec = many_functions(500);
     for i in 1..200 {
         let mut t = TypeSpec::new(&format!("T{i}"), TypeKind::Dispatch);
-        t.funcs.push(FuncSpec::new("F", 1, InvokeKind::Func, Dt::Prim(3)));
+        t.funcs
+            .push(FuncSpec::new("F", 1, InvokeKind::Func, Dt::Prim(3)));
         spec.types.push(t);
     }
     let mut data = build(&spec);

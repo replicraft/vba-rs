@@ -18,7 +18,11 @@ impl Rng {
         x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
     pub fn below(&mut self, n: usize) -> usize {
-        if n == 0 { 0 } else { (self.next() % n as u64) as usize }
+        if n == 0 {
+            0
+        } else {
+            (self.next() % n as u64) as usize
+        }
     }
 }
 
@@ -111,4 +115,3 @@ pub fn mutate(rng: &mut Rng, base: &[u8]) -> Vec<u8> {
     }
     b
 }
-

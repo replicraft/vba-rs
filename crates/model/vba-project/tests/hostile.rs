@@ -54,7 +54,16 @@ fn random_export_text_never_panics() {
     for _ in 0..30_000 {
         let n = rng.below(30);
         let body = text(&mut rng, n);
-        for name in ["a.bas", "a.cls", "a.frm", ".cls", "dir/b.FRM", "x", "é.cls", ""] {
+        for name in [
+            "a.bas",
+            "a.cls",
+            "a.frm",
+            ".cls",
+            "dir/b.FRM",
+            "x",
+            "é.cls",
+            "",
+        ] {
             if let Ok(m) = Module::from_source_file(name, &body) {
                 // Writing it back out never panics either (a byte-order
                 // mark repeated at the start is not normalized, so the
