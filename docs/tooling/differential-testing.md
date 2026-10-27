@@ -61,6 +61,109 @@ tests/vba/*.bas --prepare--> bundle/ --(lab VM)--> results-<env>.jsonl + environ
    reason, or a note in the relevant docs page). Then run
    `VBA_BLESS=1 cargo test -p vba-rs --test conformance` to refresh [conformance](conformance.md).
 
+## The lab run in one command
+
+`prepare` writes a self-contained folder: the programs, `manifest.json`, `OracleHarness.bas`,
+`oracle-skip.txt`, `run-oracle.ps1` and `LAB-README.txt` (the instructions for the person at the
+Windows machine, with the checklist below). That folder is zipped and handed over; the person
+needs no Rust, no repository and no network. They need:
+
+* a throwaway Windows 10/11 VM (snapshot, network disconnected) with desktop Excel or Access;
+* Region English (United States) with default formats, system locale for non-Unicode programs
+  English (United States), Office display language English (the script checks and refuses
+  otherwise);
+* "Trust access to the VBA project object model" ticked in the Trust Center;
+* Windows PowerShell 5.1 (already installed).
+
+Then, in PowerShell opened in the folder, with Excel closed:
+
+```text
+powershell -ExecutionPolicy Bypass -File .\run-oracle.ps1 -ConfirmThrowawayVm
+```
+
+(`-HostApp access` for Access, `-Filter 'strings/*'` for a first small run, `-Resume` after an
+interruption.) It prints one line per program and a count per status, and leaves in `.\out`:
+
+* `results-<env id>.jsonl`: what each program printed in real VBA, machine-readable, one JSON
+  object per line (fields in `tests/oracle/README.md`, "Result format");
+* `environment-<env id>.json`: host, version, build, bitness, OS and locale;
+* `return-<env id>.zip`: both files, the one file to send back.
+
+### Feeding the results back
+
+On the development machine, unzip the returned archive into a folder (one folder per environment is
+simplest; a folder may also hold several pairs) and run
+
+```text
+cargo run -p vba-rs --example oracle -- report  <folder>    # read-only: verdict per program
+cargo run -p vba-rs --example oracle -- apply   <folder>    # promote and record
+VBA_BLESS=1 cargo test -p vba-rs --test conformance          # refresh docs/tooling/conformance.md
+```
+
+`apply` handles every `results-*.jsonl` / `environment-*.json` pair in the folder in environment-id
+order (the explicit two-file form still works). For each pair:
+
+* a program whose output and unhandled-error outcome equal ours (`MATCH`) and that is not a recorded
+  deviation (`XFAIL`) gets `' SOURCE: oracle <env id> was: <old source>`; its expectation is never
+  edited;
+* every other verdict is written to `tests/oracle/mismatches/<env id>.md` with the diff, and the
+  program is left as it was;
+* one row is added to `tests/oracle/ENVIRONMENTS.md` (never rewriting a row).
+
+**How several results merge.** Each environment is applied on top of the corpus as the earlier ones
+left it. A program keeps the first environment that confirmed it (one `SOURCE` line holds one
+environment); a later environment can promote only programs that are not `oracle` yet, and its
+disagreements about already-promoted programs appear only in its own mismatch report. Run Excel and
+Access as two environments, and different builds as further ones; nothing is overwritten.
+
+### What to send back
+
+- [ ] `return-<env id>.zip` (or the two files inside), unchanged.
+- [ ] Host and edition (Excel or Access, 32- or 64-bit, Microsoft 365 or perpetual).
+- [ ] Whether the run was complete (no `-Filter`) or partial.
+- [ ] Any program that showed a dialog or needed a restart.
+- [ ] Any change made to `run-oracle.ps1` (the diff).
+- [ ] The one-time calibration result, if done (`tests/oracle/README.md`, step 4).
+
+### Rehearsal without Windows: the fake backend
+
+`oracle_tooling` and the command line can stand in for the lab with a test double:
+
+```text
+cargo run -p vba-rs --example oracle -- fake-run out/fake            # answers = our own engine's
+cargo run -p vba-rs --example oracle -- fake-run out/fake --perturb  # some outputs, errors and timeouts altered
+cargo run -p vba-rs --example oracle -- report out/fake
+```
+
+The double walks the same corpus and skip list, writes the same file formats, and marks its
+environment `fake_backend`; `apply` refuses such an environment, so it can never promote the
+committed corpus. The tests run the whole flow on a temporary copy of the corpus: the echo run must
+match everywhere except the recorded deviations our engine cannot load; the perturbed run must
+produce the matching verdicts, promote only matching programs, leave every other program's text
+untouched and list every difference in the mismatch report; a second environment must not overwrite
+the first; a program edited after the run is `STALE` and not promoted.
+
+### What is still untested (needs real Office)
+
+* `run-oracle.ps1`, `OracleHarness.bas` and `OracleCalibrate.bas` have never been run or compiled:
+  COM start-up, the project-trust probe, module import, `Application.Run`, the watchdog, the
+  locale/bitness/OS probes and the zip step. The list of 25 assumptions in `tests/oracle/README.md`
+  is the first-run checklist.
+* That `Print #255` formats exactly like `Debug.Print` (the calibration module checks it) and that
+  the log is faithful for every item the corpus prints.
+* Whether the rewrite changes behavior in any program the self-check cannot see (it only proves our
+  engine agrees with itself).
+* Excel versus Access differences (default `Option Compare`), error descriptions, and anything that
+  depends on the real build.
+* `report` and `apply` on real data: no real result has ever been applied and
+  `tests/oracle/ENVIRONMENTS.md` has no rows.
+* The answers to the open questions. `procedures/named_argument_evaluation_order` is capturable
+  and is in the next run (see `docs/language/spec-coverage.md`, "Open questions"). The 429 of a
+  class-only `GetObject` (`host/getobject_class_without_a_running_instance_is_an_error`) needs a
+  grant, so the scanner excludes it; it stays `derived` until someone runs it by hand in Excel.
+  `ObjPtr`/`StrPtr`/`VarPtr` are covered by identity-relation programs only; the values real VBA
+  returns are addresses and are never compared.
+
 ## What `oracle` provenance means
 
 `' SOURCE: oracle <env id> was: <previous kind> <previous reference>` states: **in that exact
@@ -89,15 +192,16 @@ that is not in the table or drops the `was:` part. Pins:
 
 ## What is and is not capturable
 
-Of the 679 programs in the corpus at the time of writing, **581 are capturable** and **98 are not**:
+Of the 2243 programs in the corpus at the time of writing (`... -- stats` prints the current
+numbers), **1546 are capturable** and **697 are not**:
 
 | Reason | Programs | Examples |
 | --- | ---: | --- |
-| safety (needs a grant, touches files, registry, processes, COM, native code) | 71 | `GRANT: file-write`, `Shell`, `SaveSetting`, `Open`, `CreateObject`, `Environ` |
-| engine-only (an engine-specific outcome or compile-error expectation) | 14 | `ERROR: load` (a real host shows a modal dialog), `limit`, `MAX_STEPS` |
-| ui (a dialog or the debugger would open) | 6 | `MsgBox`, `InputBox`, `Stop`, `Beep`, `Load`/`Unload` |
-| untranslatable (the rewriter refuses) | 6 | `Debug.Assert`, entry with parameters, entry under `#If`, output from `Class_Terminate` after the entry procedure returned (twice) |
-| host (needs a document module or host event) | 1 | `RAISE:` events |
+| safety (needs a grant, touches files, registry, processes, COM, native code) | 311 | `GRANT: file-write`, `Shell`, `SaveSetting`, `Open`, `CreateObject`, `Environ` |
+| engine-only (an engine-specific outcome or compile-error expectation) | 357 | `ERROR: load` (a real host shows a modal dialog), `limit`, `MAX_STEPS` |
+| ui (a dialog or the debugger would open) | 13 | `MsgBox`, `InputBox`, `Stop`, `Beep`, `Load`/`Unload` |
+| untranslatable (the rewriter refuses) | 14 | `Debug.Assert`, entry with parameters, entry under `#If`, output from `Class_Terminate` after the entry procedure returned |
+| host (needs a document module or host event) | 2 | `RAISE:` events |
 
 The list with a reason per program is `tests/oracle/oracle-skip.txt`. It is **default deny**: it is
 generated from the scanner (`... -- skiplist`), may be extended by hand with category `manual`, and
@@ -167,7 +271,7 @@ is worth a look.)
 
 ## Sending results back
 
-Send, from the lab: `results-<env id>.jsonl` and `environment-<env id>.json` (both small text
+(The short form is "What to send back" above.) Send, from the lab: `results-<env id>.jsonl` and `environment-<env id>.json` (both small text
 files), together with the output of the calibration comparison (empty means identical, otherwise
 the differing lines), a note of anything unusual (dialogs seen, programs that needed `-Filter`
 re-runs), and, if the driver needed edits, the diff. On the development machine run `report`, then
@@ -181,6 +285,6 @@ change that applies them.
 * Tooling code: `crates/api/vba-rs/tests/oracle_support/mod.rs` (library),
   `crates/api/vba-rs/examples/oracle.rs` (command line), `crates/api/vba-rs/tests/oracle_tooling.rs`
   (tests with synthetic results; no test writes into the committed corpus).
-* Commands: `stats`, `skiplist`, `prepare <dir>`, `report <results> [<env>]`,
-  `apply <results> <env> [--allow-locale]`.
+* Commands: `stats`, `skiplist`, `prepare <dir>`, `report <dir | results [<env>]>`,
+  `apply <dir | results env> [--allow-locale]`, `fake-run <dir> [--perturb]`.
 * Windows side: `tests/oracle/README.md` (procedure, "Assumptions to check on first run").

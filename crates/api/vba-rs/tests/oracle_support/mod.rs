@@ -59,8 +59,18 @@ impl Program {
     pub fn area(&self) -> &str {
         self.id.split('/').next().unwrap_or("")
     }
+    /// A hash of the program text without its `' SOURCE:` line. That line is
+    /// provenance metadata, which `apply` rewrites; the code the oracle ran
+    /// and the expectation it is compared with are what the digest pins.
+    /// (With the line included, applying one environment would make every
+    /// other environment's results of the same bundle STALE.)
     pub fn digest(&self) -> String {
-        fnv1a(self.text.as_bytes())
+        let body: String = self
+            .text
+            .split_inclusive('\n')
+            .filter(|l| !l.starts_with("' SOURCE:"))
+            .collect();
+        fnv1a(body.as_bytes())
     }
 }
 
@@ -914,6 +924,8 @@ pub struct Environment {
     pub lcid: String,
     pub locale_override: bool,
     pub captured_at: String,
+    /// Produced by the fake backend (`fake_oracle`), not by real VBA.
+    pub fake: bool,
 }
 
 pub fn parse_environment(text: &str) -> Result<Environment, String> {
@@ -950,6 +962,10 @@ pub fn parse_environment(text: &str) -> Result<Environment, String> {
             .and_then(Value::as_bool)
             .unwrap_or(false),
         captured_at: g("captured_at")?,
+        fake: v
+            .get("fake_backend")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -1300,6 +1316,27 @@ pub fn apply(
     oracle_dir: &Path,
     allow_locale: bool,
 ) -> Result<ApplyOutcome, String> {
+    apply_opts(progs, rows, env, oracle_dir, allow_locale, false)
+}
+
+/// [`apply`] with the choice to accept the output of the fake backend. Only
+/// tests that work on a temporary copy of the corpus may pass `allow_fake`:
+/// a fake environment says nothing about real VBA.
+pub fn apply_opts(
+    progs: &[Program],
+    rows: &[Row],
+    env: &Environment,
+    oracle_dir: &Path,
+    allow_locale: bool,
+    allow_fake: bool,
+) -> Result<ApplyOutcome, String> {
+    if env.fake && !allow_fake {
+        return Err(format!(
+            "environment `{}` comes from the fake backend, not from real VBA; it must never be applied \
+             to the committed corpus",
+            env.env_id
+        ));
+    }
     if (env.locale_name != "en-US" || env.locale_override) && !allow_locale {
         return Err(format!(
             "environment `{}` ran with locale {} (override: {}); the documented locale is en-US. \
@@ -1403,4 +1440,150 @@ pub fn apply(
         out.mismatch_report = Some(path);
     }
     Ok(out)
+}
+
+// ------------------------------------------------------- fake backend
+
+/// How the fake oracle answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FakeMode {
+    /// Every answer is our own engine's: every capturable program must MATCH.
+    Echo,
+    /// Deterministically perturbed: some outputs get an extra line, some
+    /// error outcomes flip, some runs time out.
+    Perturbed,
+}
+
+/// The id of the environment the fake backend reports. The `fake-` prefix and
+/// the `fake_backend` flag keep it apart from real data.
+pub const FAKE_ENV_ID: &str = "fake-excel-0.0.0-en-US-x64";
+
+/// A test double for the Windows driver (`tests/oracle/run-oracle.ps1`): it
+/// walks the same corpus, honors the same skip list and answers in the
+/// results-file format the driver writes, but the answers come from our own
+/// engine (optionally perturbed). It exercises everything downstream of the
+/// driver (parsing, report, promotion, the environment table, mismatch
+/// reports) and says nothing about real VBA or about the driver itself.
+///
+/// Returns `(results.jsonl, environment.json)`.
+pub fn fake_oracle(
+    progs: &[Program],
+    skip: &BTreeMap<String, (String, String)>,
+    mode: FakeMode,
+) -> Result<(String, String), String> {
+    let mut lines = String::new();
+    let mut index = 0usize;
+    for p in progs {
+        let mut base = json!({
+            "id": p.id, "env": FAKE_ENV_ID, "host": "excel", "version": "0.0",
+            "build": "0", "bitness": "x64", "digest": p.digest(),
+        });
+        let refusal = skip
+            .get(&p.id)
+            .map(|(_, r)| format!("listed in oracle-skip.txt: {r}"))
+            .or_else(|| {
+                classify(p).err().map(|r| {
+                    r.iter()
+                        .map(|x| x.reason.clone())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+            });
+        if let Some(r) = refusal {
+            base["status"] = "not-capturable".into();
+            base["reason"] = r.into();
+        } else {
+            index += 1;
+            // A program our engine cannot answer in a way a real host could (it
+            // cannot load it, or it ends with a limit) is
+            // answered with its own declared expectation, which the comparison
+            // then reports as a difference, as it would for a real oracle.
+            let (text, mut error) = match run_engine(p) {
+                // Only a run-time error number is something a real host can
+                // report.
+                Ok(o) if o.error.as_ref().is_none_or(|e| e.parse::<i64>().is_ok()) => {
+                    (o.output, o.error)
+                }
+                _ => (
+                    p.expect.iter().map(|l| format!("{l}\n")).collect(),
+                    p.error.clone(),
+                ),
+            };
+            // The driver stores the log with CR LF line ends.
+            let mut output = text.replace('\n', "\r\n");
+            let mut timeout = false;
+            if mode == FakeMode::Perturbed {
+                if index % 13 == 0 {
+                    timeout = true;
+                } else if index % 11 == 0 {
+                    error = match error {
+                        Some(_) => None,
+                        None => Some("5".to_owned()),
+                    };
+                } else if index % 7 == 0 {
+                    output.push_str("perturbed\r\n");
+                }
+            }
+            if timeout {
+                base["status"] = "timeout".into();
+                base["error_description"] = "fake backend: simulated timeout".into();
+            } else if let Some(e) = error {
+                base["status"] = "error".into();
+                base["output"] = output.into();
+                base["error_number"] = e.parse::<i64>().unwrap_or(0).into();
+                base["error_description"] = "fake backend".into();
+            } else {
+                base["status"] = "ok".into();
+                base["output"] = output.into();
+            }
+        }
+        let _ = writeln!(lines, "{base}");
+    }
+    let env = json!({
+        "schema": 1, "env_id": FAKE_ENV_ID, "host": "excel", "version": "0.0",
+        "build": "0", "vba_version": "0", "bitness": "x64",
+        "os_version": "fake backend", "locale_name": "en-US", "lcid": "1033",
+        "locale_override": false, "captured_at": "2000-01-01T00:00:00Z",
+        "fake_backend": true,
+    });
+    let env = serde_json::to_string_pretty(&env).map_err(|e| e.to_string())? + "\n";
+    Ok((lines, env))
+}
+
+/// Finds the `results-<id>.jsonl` / `environment-<id>.json` pairs in `dir`
+/// (the folder the driver writes, or an unpacked return archive), sorted by
+/// environment id. A results file without its environment file is an error.
+pub fn find_result_pairs(dir: &Path) -> Result<Vec<(PathBuf, PathBuf)>, String> {
+    let mut pairs = Vec::new();
+    let rd = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut names: Vec<String> = rd
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    for n in &names {
+        if let Some(id) = n
+            .strip_prefix("results-")
+            .and_then(|r| r.strip_suffix(".jsonl"))
+        {
+            let env = format!("environment-{id}.json");
+            if !names.contains(&env) {
+                return Err(format!("{n} has no matching {env}"));
+            }
+            pairs.push((dir.join(n), dir.join(env)));
+        }
+    }
+    if pairs.is_empty() {
+        return Err(format!("no results-*.jsonl in {}", dir.display()));
+    }
+    Ok(pairs)
+}
+
+/// Copies what a lab machine needs next to the bundle: the driver and the
+/// lab instructions. The bundle folder is then self-contained.
+pub fn write_lab_files(oracle_dir: &Path, out: &Path) -> Result<(), String> {
+    for f in ["run-oracle.ps1", "LAB-README.txt"] {
+        std::fs::copy(oracle_dir.join(f), out.join(f)).map_err(|e| format!("{f}: {e}"))?;
+    }
+    Ok(())
 }

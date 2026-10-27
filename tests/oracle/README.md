@@ -4,7 +4,8 @@
 `OracleCalibrate.bas` and `run-oracle.ps1` were written and reviewed by reading only, on a machine
 without Windows or Office. They have never been compiled or run. Expect to fix small things on the
 first run, and read "Assumptions to check on first run" below before trusting any result. The Rust
-side (bundle preparation, comparison, provenance upgrade) is tested; see
+side (bundle preparation, comparison, provenance upgrade, and the whole flow against a fake
+backend that stands in for the lab) is tested; see
 `docs/tooling/differential-testing.md` for the whole workflow.
 
 Purpose: run the conformance programs in `tests/vba/` in real VBA (Excel or Access) and record what
@@ -18,6 +19,7 @@ they print, so that expectations can be upgraded to `oracle` provenance and real
 | `OracleCalibrate.bas` | VBA module: one-time check that `Print #255` formats like `Debug.Print`. |
 | `run-oracle.ps1` | PowerShell driver: automates Excel or Access through COM. |
 | `oracle-skip.txt` | Default-deny list: program ids excluded from automatic runs, with reasons. |
+| `LAB-README.txt` | Short instructions and the send-back checklist; `prepare` copies it into the bundle. |
 | `ENVIRONMENTS.md` | Append-only table of environments whose results were applied. |
 | `mismatches/<env>.md` | Reports of programs whose real behavior differs from ours. |
 
@@ -81,25 +83,28 @@ In the lab VM:
    (Alt+F11, File > Import), and follow the steps in its header comment. The Immediate window text
    and the log file must be identical. If they differ, stop and report which items differ; the shim
    is then not faithful for them.
-5. Run the driver:
+5. Run the driver from inside the bundle folder (it holds a copy of the script and of
+   `LAB-README.txt`, the short instructions for the lab person):
 
    ```powershell
-   .\run-oracle.ps1 -HostApp excel -Bundle C:\oracle\bundle -OutDir C:\oracle\out -ConfirmThrowawayVm
+   powershell -ExecutionPolicy Bypass -File .\run-oracle.ps1 -ConfirmThrowawayVm
    ```
 
-   Use `-HostApp access` for Access. Useful switches: `-Filter 'strings/*'` (a subset first is
+   The defaults are Excel, the script's own folder as the bundle and `.\out` for the output. Use
+   `-HostApp access` for Access, or `-Bundle`/`-OutDir` to put them elsewhere. Useful switches: `-Filter 'strings/*'` (a subset first is
    wise), `-TimeoutSeconds 60`, `-Resume` (continue an interrupted run), `-WorkDir C:\oracle\work`.
    It prints one line per program. A full run takes a while; each program gets a fresh scratch
    workbook/database, and the host is restarted every 100 programs and after each timeout.
-6. Collect `C:\oracle\out\results-<envid>.jsonl` and `environment-<envid>.json`. Run once for Excel
+6. Collect `out\return-<envid>.zip` (it holds `results-<envid>.jsonl` and `environment-<envid>.json`). Run once for Excel
    and once for Access if both are available; they are separate environments.
 7. Restore the snapshot.
 
 Back on the development machine:
 
-8. Put the two files somewhere (not in `tests/`) and look at the report:
-   `cargo run -p vba-rs --example oracle -- report results-<envid>.jsonl environment-<envid>.json`
-9. If the report is sensible, `cargo run -p vba-rs --example oracle -- apply results-<envid>.jsonl environment-<envid>.json`
+8. Unzip into a folder outside `tests/` and look at the report:
+   `cargo run -p vba-rs --example oracle -- report <folder>` (or the two-file form
+   `report results-<envid>.jsonl environment-<envid>.json`)
+9. If the report is sensible, `cargo run -p vba-rs --example oracle -- apply <folder>`
    rewrites `' SOURCE:` of matching programs to `oracle`, appends the environment to
    `ENVIRONMENTS.md` and writes `mismatches/<envid>.md`. Mismatches are never auto-fixed.
 10. `VBA_BLESS=1 cargo test -p vba-rs --test conformance` to regenerate the conformance summary, then
@@ -119,8 +124,9 @@ Back on the development machine:
 | `host-failure` | The program did not start (import, compile or COM failure); `error_description` has the message. |
 | `not-capturable` | Not run (see `reason`). |
 
-`digest` is a hash of the program text at bundle time; the comparison reports STALE when the corpus
-changed afterwards. `environment-<envid>.json` holds host name, version, build, product version,
+`digest` is a hash of the program text at bundle time, without its `' SOURCE:` line (so applying one
+environment does not make the results of another environment stale); the comparison reports STALE
+when the program changed afterwards. `environment-<envid>.json` holds host name, version, build, product version,
 VBA version, bitness, OS, locale name and LCID, separators, `locale_override`, capture time.
 
 ## Assumptions to check on first run

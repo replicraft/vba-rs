@@ -4,8 +4,9 @@
 //! cargo run -p vba-rs --example oracle -- stats
 //! cargo run -p vba-rs --example oracle -- skiplist
 //! cargo run -p vba-rs --example oracle -- prepare <bundle-dir>
-//! cargo run -p vba-rs --example oracle -- report <results.jsonl> [<environment.json>]
-//! cargo run -p vba-rs --example oracle -- apply  <results.jsonl> <environment.json> [--allow-locale]
+//! cargo run -p vba-rs --example oracle -- report <dir | results.jsonl [<environment.json>]>
+//! cargo run -p vba-rs --example oracle -- apply  <dir | results.jsonl <environment.json>> [--allow-locale]
+//! cargo run -p vba-rs --example oracle -- fake-run <dir> [--perturb]
 //! ```
 //!
 //! See `docs/tooling/differential-testing.md`. The Windows side (`tests/oracle/`)
@@ -63,6 +64,7 @@ fn run() -> Result<(), String> {
                 std::fs::copy(&skip_file, out.join("oracle-skip.txt"))
                     .map_err(|e| e.to_string())?;
             }
+            o::write_lab_files(&oracle, &out)?;
             let all = m["programs"].as_array().map_or(0, Vec::len);
             let cap = m["programs"].as_array().map_or(0, |a| {
                 a.iter().filter(|p| p["status"] == "capturable").count()
@@ -72,36 +74,74 @@ fn run() -> Result<(), String> {
                 out.display()
             );
         }
-        Some(cmd @ ("report" | "apply")) => {
-            let results = o::parse_results(
-                &std::fs::read_to_string(args.get(1).ok_or("needs a results file")?)
-                    .map_err(|e| e.to_string())?,
-            )?;
-            let env = match args.get(2).filter(|a| !a.starts_with("--")) {
-                Some(f) => Some(o::parse_environment(
-                    &std::fs::read_to_string(f).map_err(|e| e.to_string())?,
-                )?),
-                None => None,
-            };
-            let rows = o::compare(&progs, &skip, &results);
-            if cmd == "report" {
-                print!("{}", o::render_report(&rows, env.as_ref()));
+        Some("fake-run") => {
+            let out = PathBuf::from(args.get(1).ok_or("fake-run needs an output directory")?);
+            let mode = if args.iter().any(|a| a == "--perturb") {
+                o::FakeMode::Perturbed
             } else {
-                let env = env.ok_or("apply needs an environment file")?;
-                let allow = args.iter().any(|a| a == "--allow-locale");
-                let out = o::apply(&progs, &rows, &env, &oracle, allow)?;
-                println!(
-                    "upgraded {}, already oracle {}, environment row added: {}, mismatch report: {:?}",
-                    out.upgraded.len(),
-                    out.already_oracle.len(),
-                    out.environment_row_added,
-                    out.mismatch_report
-                );
+                o::FakeMode::Echo
+            };
+            let (results, env) = o::fake_oracle(&progs, &skip, mode)?;
+            std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            let id = o::FAKE_ENV_ID;
+            std::fs::write(out.join(format!("results-{id}.jsonl")), results)
+                .map_err(|e| e.to_string())?;
+            std::fs::write(out.join(format!("environment-{id}.json")), env)
+                .map_err(|e| e.to_string())?;
+            println!(
+                "fake results ({mode:?}) written to {}; they say nothing about real VBA and `apply` refuses them",
+                out.display()
+            );
+        }
+        Some(cmd @ ("report" | "apply")) => {
+            let first = PathBuf::from(args.get(1).ok_or("needs a results file or directory")?);
+            // A directory holds one or more results/environment pairs, as the
+            // driver writes them; the pairs are processed in environment-id order.
+            let pairs = if first.is_dir() {
+                o::find_result_pairs(&first)?
+            } else {
+                let env = args
+                    .get(2)
+                    .filter(|a| !a.starts_with("--"))
+                    .map(PathBuf::from);
+                vec![(first, env.unwrap_or_default())]
+            };
+            let allow = args.iter().any(|a| a == "--allow-locale");
+            // Each environment is applied to the corpus as the previous ones left
+            // it, so the program text is reloaded between pairs.
+            for (results_path, env_path) in pairs {
+                let progs = o::load_corpus(&root.join("tests/vba"))?;
+                let results = o::parse_results(
+                    &std::fs::read_to_string(&results_path).map_err(|e| e.to_string())?,
+                )?;
+                let env = if env_path.as_os_str().is_empty() {
+                    None
+                } else {
+                    Some(o::parse_environment(
+                        &std::fs::read_to_string(&env_path).map_err(|e| e.to_string())?,
+                    )?)
+                };
+                let rows = o::compare(&progs, &skip, &results);
+                if cmd == "report" {
+                    print!("{}", o::render_report(&rows, env.as_ref()));
+                } else {
+                    let env = env.ok_or("apply needs an environment file")?;
+                    let out = o::apply(&progs, &rows, &env, &oracle, allow)?;
+                    println!(
+                        "{}: upgraded {}, already oracle {}, environment row added: {}, mismatch report: {:?}",
+                        env.env_id,
+                        out.upgraded.len(),
+                        out.already_oracle.len(),
+                        out.environment_row_added,
+                        out.mismatch_report
+                    );
+                }
             }
         }
         _ => {
             return Err(
-                "usage: oracle stats|skiplist|prepare|report|apply (see the file header)".into(),
+                "usage: oracle stats|skiplist|prepare|report|apply|fake-run (see the file header)"
+                    .into(),
             );
         }
     }

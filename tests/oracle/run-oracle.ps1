@@ -28,13 +28,15 @@
   status is one of: ok, error, ended, timeout, host-failure, not-capturable.
 
 .PARAMETER HostApp
-  excel or access.
+  excel (default) or access.
 
 .PARAMETER Bundle
-  Directory produced by the "prepare" command.
+  Directory produced by the "prepare" command. Default: the folder this
+  script is in (the prepared bundle contains a copy of the script).
 
 .PARAMETER OutDir
-  Where results-<envid>.jsonl and environment-<envid>.json are written.
+  Where results-<envid>.jsonl, environment-<envid>.json and return-<envid>.zip
+  are written. Default: an "out" folder next to this script.
 
 .PARAMETER TimeoutSeconds
   Per-program limit for importing and running. On expiry the host process is
@@ -67,13 +69,16 @@
   Restart the host application after this many programs (default 100).
 
 .EXAMPLE
-  .\run-oracle.ps1 -HostApp excel -Bundle C:\oracle\bundle -OutDir C:\oracle\out -ConfirmThrowawayVm
+  .\run-oracle.ps1 -ConfirmThrowawayVm
+
+.EXAMPLE
+  .\run-oracle.ps1 -HostApp access -Bundle C:\oracle\bundle -OutDir C:\oracle\out -ConfirmThrowawayVm
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('excel', 'access')][string]$HostApp,
-    [Parameter(Mandatory = $true)][string]$Bundle,
-    [Parameter(Mandatory = $true)][string]$OutDir,
+    [ValidateSet('excel', 'access')][string]$HostApp = 'excel',
+    [string]$Bundle = $PSScriptRoot,
+    [string]$OutDir = (Join-Path $PSScriptRoot 'out'),
     [int]$TimeoutSeconds = 30,
     [string]$Filter = '*',
     [string]$WorkDir = '',
@@ -468,6 +473,7 @@ function Invoke-Program($entry) {
 # ----------------------------------------------------------------------- main
 
 $count = 0
+$statusCounts = @{}
 $sinceRestart = 0
 try {
     foreach ($entry in @($manifest.programs)) {
@@ -494,6 +500,7 @@ try {
         $sinceRestart++
         $count++
         Write-Result $id $digest $r.status $r.output $r.number $r.description $null
+        $statusCounts[$r.status] = 1 + [int]$statusCounts[$r.status]
         Write-Host ("{0,-60} {1}" -f $id, $r.status)
         if ($r.restart) {
             Stop-Host $hostObj
@@ -509,3 +516,14 @@ finally {
 
 Write-Host "Ran $count programs. Results: $resultsPath"
 Write-Host "Environment: $envPath"
+foreach ($k in ($statusCounts.Keys | Sort-Object)) { Write-Host ("  {0,-14} {1}" -f $k, $statusCounts[$k]) }
+
+# One file to send back: the results and the environment description, unchanged.
+$zipPath = Join-Path $OutDir "return-$envId.zip"
+try {
+    Compress-Archive -LiteralPath $resultsPath, $envPath -DestinationPath $zipPath -Force
+    Write-Host "Send this file back: $zipPath"
+}
+catch {
+    Write-Warning "Could not make the zip ($($_.Exception.Message)); send the two files above instead."
+}
