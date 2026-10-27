@@ -176,7 +176,7 @@ names:
 | Kind | Responsible party | Trappable by `On Error` |
 | --- | --- | --- |
 | `load` | the project does not compile (rendered diagnostics) | n/a |
-| `not-trusted`, `no-such-procedure`, `ambiguous-procedure`, `not-callable`, `no-such-member`, `ambiguous-member`, `not-accessible` | the embedder's request | n/a |
+| `not-trusted`, `compiled-only`, `no-such-procedure`, `ambiguous-procedure`, `not-callable`, `no-such-member`, `ambiguous-member`, `not-accessible` | the embedder's request | n/a |
 | `reentrancy` | a call-back from a host member that is stale or too deeply nested | n/a |
 | `poisoned` | the instance hit an internal error and refuses calls until `reset` | n/a |
 | `vba` | an unhandled error raised by the program or the language (number, description, source, help, module, procedure, line, call stack in the report) | yes while running |

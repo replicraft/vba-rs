@@ -23,6 +23,7 @@ are. Statements about behavior carry a confidence marker (`spec`, `doc`, `derive
 * [overview](architecture/overview.md): crate groups, dependency direction, data flow, the permission model, the standalone-library principle.
 * [embedding-guide](architecture/embedding-guide.md): embedding end to end (load, trust, forms, host objects, events with `Cancel`, re-entrancy, errors, limits, threading, transactions, what is not supported).
 * [public-api](architecture/public-api.md): the stable `vba` facade for embedders.
+* [adapter-checklist](architecture/adapter-checklist.md): the ordered checklist for an embedding application's adapter, with a tested skeleton.
 * [host](architecture/host.md): the `vba-host` contract, capabilities, policy and limits.
 * [security-model](architecture/security-model.md): what is guaranteed (with the tests) and what is not.
 * [dependencies](architecture/dependencies.md): every third-party dependency and why it is used.
