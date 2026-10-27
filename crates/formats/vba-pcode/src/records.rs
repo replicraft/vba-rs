@@ -42,6 +42,9 @@ pub enum IntrinsicType {
     Decimal,
     /// 17
     Byte,
+    /// 20: `LongLong`; with the pointer flag 0x80 it is `LongPtr` on x64
+    /// (`[obs]`: 8 of 8 `LongPtr` variables of x64 projects).
+    LongLong,
     /// 29: a user-defined type (`[obs]`: the id stored for arrays and
     /// records of user-defined types; the type name is not in the field).
     UserDefined,
@@ -68,6 +71,7 @@ impl IntrinsicType {
             12 => Self::Variant,
             14 => Self::Decimal,
             17 => Self::Byte,
+            20 => Self::LongLong,
             29 => Self::UserDefined,
             other => Self::Unknown(other),
         }
@@ -90,6 +94,7 @@ impl IntrinsicType {
             Self::Variant => "Variant",
             Self::Decimal => "Decimal",
             Self::Byte => "Byte",
+            Self::LongLong => "LongLong",
             Self::UserDefined | Self::Unknown(_) => return None,
         })
     }
@@ -716,6 +721,10 @@ mod tests {
         assert_eq!(t.intrinsic, IntrinsicType::String);
         assert_eq!(t.flags, 0x80);
         assert_eq!(IntrinsicType::from_id(13), IntrinsicType::Unknown(13));
+        // `LongPtr` on x64: LongLong with the pointer flag.
+        let p = TypeId::parse(0x94);
+        assert_eq!(p.intrinsic, IntrinsicType::LongLong);
+        assert_eq!(p.flags, 0x80);
         assert_eq!(IntrinsicType::Boolean.name(), Some("Boolean"));
     }
 

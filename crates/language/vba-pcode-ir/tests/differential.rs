@@ -325,6 +325,8 @@ fn lowered_procedures_agree_with_source() {
 #[ignore = "needs a local corpus (VBA_PCODE_CORPUS)"]
 fn corpus_agrees_with_source() {
     let mut total = Summary::default();
+    let mut per_layout: std::collections::BTreeMap<String, (usize, Summary)> =
+        std::collections::BTreeMap::new();
     let (mut files, mut skipped) = (0, 0);
     for (n, path) in common::corpus_files().iter().enumerate() {
         let Some(p) = common::load_path(path) else {
@@ -346,15 +348,21 @@ fn corpus_agrees_with_source() {
                     s.sessions,
                     s.mismatches
                 );
-                total.procedures += s.procedures;
-                total.lowered += s.lowered;
-                for i in 0..2 {
-                    total.executed[i] += s.executed[i];
-                    total.runs[i] += s.runs[i];
+                let e = per_layout
+                    .entry(format!("version {v:#x}, platform kind {}", p.sys_kind))
+                    .or_default();
+                e.0 += 1;
+                for t in [&mut e.1, &mut total] {
+                    t.procedures += s.procedures;
+                    t.lowered += s.lowered;
+                    for i in 0..2 {
+                        t.executed[i] += s.executed[i];
+                        t.runs[i] += s.runs[i];
+                    }
+                    t.errors_both += s.errors_both;
+                    t.sessions += s.sessions;
+                    t.mismatches += s.mismatches;
                 }
-                total.errors_both += s.errors_both;
-                total.sessions += s.sessions;
-                total.mismatches += s.mismatches;
             }
             Err(e) => {
                 skipped += 1;
@@ -365,6 +373,9 @@ fn corpus_agrees_with_source() {
                 );
             }
         }
+    }
+    for (k, (n, t)) in &per_layout {
+        println!("{k}: {n} files, {t:?}");
     }
     println!("files compared {files}, skipped {skipped}, total {total:?}");
     assert_eq!(total.mismatches, 0);

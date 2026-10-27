@@ -28,7 +28,8 @@
 //! generates from the *cache records* (headers, parameter and local
 //! declarations); no original source text is read.
 //!
-//! Only VBA 7.0 x86 caches (the verified layout) are accepted.
+//! Only caches of the verified layouts ([`vba_pcode::VERIFIED_LAYOUTS`]: VBA 6
+//! and 7, 32-bit and 64-bit Windows) are accepted.
 
 mod error;
 mod lower;
@@ -193,7 +194,7 @@ pub fn lower_project_with_options(
     let pc = ProjectCache::parse(project_stream, sys_kind)?;
     if pc.layout.verification() != Verification::Verified {
         return Err(LowerError::Shell(
-            "only the verified layout (VBA 7.0, 32-bit) is lowered".into(),
+            "only the verified layouts (vba_pcode::VERIFIED_LAYOUTS) are lowered".into(),
         ));
     }
     let mut models = Vec::new();
