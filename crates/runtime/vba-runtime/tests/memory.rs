@@ -13,13 +13,11 @@ use vba_vm::LimitKind;
 
 fn limited_host(max_memory: u64, policy: Policy) -> Rc<HeadlessHost> {
     Rc::new(
-        HeadlessHost::new()
-            .with_policy(policy)
-            .with_limits(ResourceLimits {
-                max_steps: Some(50_000_000),
-                max_memory_bytes: Some(max_memory),
-                ..ResourceLimits::default()
-            }),
+        HeadlessHost::new().with_policy(policy).with_limits(
+            ResourceLimits::default()
+                .with_max_steps(Some(50_000_000))
+                .with_max_memory_bytes(Some(max_memory)),
+        ),
     )
 }
 

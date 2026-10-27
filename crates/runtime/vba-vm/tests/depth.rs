@@ -14,11 +14,9 @@ fn deep(src_main: &str, class: &str, depth: u32) -> Outcome {
             module("Rec", ModuleKind::Class, class),
             module("M", ModuleKind::Standard, src_main),
         ],
-        ResourceLimits {
-            max_steps: Some(50_000_000),
-            max_call_depth: depth,
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default()
+            .with_max_steps(Some(50_000_000))
+            .with_max_call_depth(depth),
     )
 }
 
@@ -98,11 +96,9 @@ fn recursion_through_events_is_bounded() {
                 "Sub Main()\nDim s As New Src, k As New Sink\nSet k.S = s\ns.Fire 0\nEnd Sub\n",
             ),
         ],
-        ResourceLimits {
-            max_steps: Some(50_000_000),
-            max_call_depth: 100_000,
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default()
+            .with_max_steps(Some(50_000_000))
+            .with_max_call_depth(100_000),
     );
     assert_eq!(o.result, Err(VmError::Limit(LimitKind::CallDepth)));
 }

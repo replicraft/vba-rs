@@ -98,10 +98,7 @@ pub fn host(policy: Policy) -> Rc<dyn Host> {
     Rc::new(
         HeadlessHost::new()
             .with_policy(policy)
-            .with_limits(ResourceLimits {
-                max_steps: Some(5_000_000),
-                ..ResourceLimits::default()
-            }),
+            .with_limits(ResourceLimits::default().with_max_steps(Some(5_000_000))),
     )
 }
 

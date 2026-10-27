@@ -12,11 +12,9 @@ use vba_project::ModuleKind;
 use vba_vm::{LimitKind, NoServices, VmError};
 
 fn limited(max_memory: u64) -> ResourceLimits {
-    ResourceLimits {
-        max_steps: Some(50_000_000),
-        max_memory_bytes: Some(max_memory),
-        ..ResourceLimits::default()
-    }
+    ResourceLimits::default()
+        .with_max_steps(Some(50_000_000))
+        .with_max_memory_bytes(Some(max_memory))
 }
 
 fn hits_the_memory_limit(src: &str, max_memory: u64) {

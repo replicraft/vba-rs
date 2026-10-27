@@ -221,8 +221,10 @@ pub fn vm_error_to_disp(e: &VmError) -> DispError {
         VmError::Limit(l) => {
             let n = match l {
                 LimitKind::Steps => 18,
-                LimitKind::Memory | LimitKind::StringLength | LimitKind::ArraySize => 7,
                 LimitKind::CallDepth => 28,
+                // Memory and size limits (the project-size ones cannot
+                // occur while a program runs).
+                _ => 7,
             };
             DispError::raise(n, l.to_string(), "vba")
         }

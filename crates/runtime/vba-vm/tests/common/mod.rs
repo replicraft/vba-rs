@@ -89,10 +89,7 @@ pub fn run_full(
 pub fn run(src: &str) -> Outcome {
     run_limited(
         src,
-        ResourceLimits {
-            max_steps: Some(2_000_000),
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default().with_max_steps(Some(2_000_000)),
     )
 }
 
@@ -202,10 +199,10 @@ pub fn check_modules(cases: &[MCase]) {
                 &mods,
                 "Main",
                 vec![],
-                Rc::new(HeadlessHost::new().with_limits(ResourceLimits {
-                    max_steps: Some(2_000_000),
-                    ..ResourceLimits::default()
-                })),
+                Rc::new(
+                    HeadlessHost::new()
+                        .with_limits(ResourceLimits::default().with_max_steps(Some(2_000_000))),
+                ),
                 Box::new(NoServices),
             )
         });

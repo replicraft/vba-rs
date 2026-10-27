@@ -573,11 +573,14 @@ fn install_hook() {
 }
 
 fn run_vm(ir: IrProgram) {
-    let host = Rc::new(HeadlessHost::new().with_limits(ResourceLimits {
-        max_steps: Some(20_000),
-        max_memory_bytes: Some(8 << 20),
-        max_call_depth: 40,
-    }));
+    let host = Rc::new(
+        HeadlessHost::new().with_limits(
+            ResourceLimits::default()
+                .with_max_steps(Some(20_000))
+                .with_max_memory_bytes(Some(8 << 20))
+                .with_max_call_depth(40),
+        ),
+    );
     let sink = BufferSink::new();
     let Ok(mut vm) = Vm::new(
         Rc::new(ir),

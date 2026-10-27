@@ -14,10 +14,9 @@ fn out(body: &str) -> String {
     let src = format!("Sub Main()\nOn Error Resume Next\n{body}End Sub\n");
     let ir = compile(&[module("M", ModuleKind::Standard, &src)]);
     let sink = BufferSink::new();
-    let host = Rc::new(HeadlessHost::new().with_limits(ResourceLimits {
-        max_steps: Some(1_000_000),
-        ..ResourceLimits::default()
-    }));
+    let host = Rc::new(
+        HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(1_000_000))),
+    );
     let mut vm = Vm::new(
         ir,
         host,

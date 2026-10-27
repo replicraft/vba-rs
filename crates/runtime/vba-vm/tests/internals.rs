@@ -11,11 +11,9 @@ use vba_vm::VmError;
 fn user_defined_type_values_are_reclaimed() {
     let o = run_limited(
         "Private Type P\nX As Long\nS As String\nEnd Type\nFunction Make(n As Long) As P\nDim r As P\nr.X = n\nMake = r\nEnd Function\nSub Main()\nDim i As Long, a As P, total As Long\nFor i = 1 To 20000\na = Make(i)\ntotal = total + a.X Mod 7\nNext\nDebug.Print total\nEnd Sub\n",
-        ResourceLimits {
-            max_steps: Some(5_000_000),
-            max_memory_bytes: Some(1 << 20),
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default()
+            .with_max_steps(Some(5_000_000))
+            .with_max_memory_bytes(Some(1 << 20)),
     );
     assert!(o.result.is_ok(), "{:?}", o.result);
     assert!(
@@ -93,18 +91,9 @@ fn steps_scale_linearly_with_work() {
     let src = "Sub Main()\nDim i As Long, s As Long\nFor i = 1 To 50000\ns = s + i Mod 3\nNext\nDebug.Print s\nEnd Sub\n";
     let big = run_limited(
         src,
-        ResourceLimits {
-            max_steps: Some(1_000_000),
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default().with_max_steps(Some(1_000_000)),
     );
     assert!(big.result.is_ok(), "{:?}", big.result);
-    let small = run_limited(
-        src,
-        ResourceLimits {
-            max_steps: Some(100_000),
-            ..ResourceLimits::default()
-        },
-    );
+    let small = run_limited(src, ResourceLimits::default().with_max_steps(Some(100_000)));
     assert!(matches!(small.result, Err(VmError::Limit(_))));
 }

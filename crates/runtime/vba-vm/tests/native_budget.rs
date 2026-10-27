@@ -29,11 +29,13 @@ fn run_on_stack(mods: Mods, stack: usize, budget: Option<usize>) -> Result<(), V
                 max_native_stack_bytes: budget.unwrap_or(default.max_native_stack_bytes),
                 ..default
             };
-            let host = Rc::new(HeadlessHost::new().with_limits(ResourceLimits {
-                max_steps: Some(50_000_000),
-                max_call_depth: 1_000_000,
-                ..ResourceLimits::default()
-            }));
+            let host = Rc::new(
+                HeadlessHost::new().with_limits(
+                    ResourceLimits::default()
+                        .with_max_steps(Some(50_000_000))
+                        .with_max_call_depth(1_000_000),
+                ),
+            );
             let mut vm = Vm::new(
                 compile(&mods),
                 host,

@@ -149,6 +149,17 @@ pub enum LimitKind {
     StringLength,
     /// A single array larger than `VmConfig::max_array_elements`.
     ArraySize,
+    /// More bytes of source than `ResourceLimits::max_source_bytes`; the
+    /// project was refused before it was parsed.
+    SourceSize,
+    /// More modules than `ResourceLimits::max_modules`.
+    ModuleCount,
+    /// More statements and expressions than
+    /// `ResourceLimits::max_analysis_nodes`; analysis was stopped.
+    AnalysisSize,
+    /// More IR instructions than `ResourceLimits::max_ir_instructions`;
+    /// lowering was stopped.
+    ProgramSize,
 }
 
 impl fmt::Display for LimitKind {
@@ -159,6 +170,10 @@ impl fmt::Display for LimitKind {
             LimitKind::CallDepth => "call depth limit exceeded",
             LimitKind::StringLength => "string length limit exceeded",
             LimitKind::ArraySize => "array size limit exceeded",
+            LimitKind::SourceSize => "source size limit exceeded",
+            LimitKind::ModuleCount => "module count limit exceeded",
+            LimitKind::AnalysisSize => "analysis size limit exceeded",
+            LimitKind::ProgramSize => "program size limit exceeded",
         })
     }
 }

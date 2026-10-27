@@ -228,10 +228,7 @@ fn do_events_is_a_cancellable_safe_point_and_costs_a_step() {
     assert_eq!(h.do_events().unwrap_err().number, 18);
     assert_eq!(h.budget().steps_used(), 3);
 
-    let h = HeadlessHost::new().with_limits(ResourceLimits {
-        max_steps: Some(2),
-        ..ResourceLimits::default()
-    });
+    let h = HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(2)));
     assert!(h.do_events().is_ok());
     assert!(h.do_events().is_ok());
     assert_eq!(h.do_events().unwrap_err().number, 18);
@@ -240,23 +237,21 @@ fn do_events_is_a_cancellable_safe_point_and_costs_a_step() {
 
 #[test]
 fn a_scope_narrows_the_limits_and_restores_them() {
-    let b = Budget::new(ResourceLimits {
-        max_steps: Some(100),
-        max_memory_bytes: Some(1000),
-        max_call_depth: 10,
-    });
+    let b = Budget::new(
+        ResourceLimits::default()
+            .with_max_steps(Some(100))
+            .with_max_memory_bytes(Some(1000))
+            .with_max_call_depth(10),
+    );
     b.charge_steps(40).unwrap();
     b.alloc(100).unwrap();
-    let outer = b.enter_scope(ScopeLimits {
-        max_steps: Some(10),
-        max_memory_bytes: Some(50),
-        ..ScopeLimits::default()
-    });
+    let outer = b.enter_scope(
+        ScopeLimits::default()
+            .with_max_steps(Some(10))
+            .with_max_memory_bytes(Some(50)),
+    );
     // A wider inner scope cannot widen the outer one.
-    let inner = b.enter_scope(ScopeLimits {
-        max_steps: Some(1000),
-        ..ScopeLimits::default()
-    });
+    let inner = b.enter_scope(ScopeLimits::default().with_max_steps(Some(1000)));
     assert!(b.charge_steps(10).is_ok());
     assert_eq!(b.charge_step(), Err(LimitExceeded::Steps));
     b.leave_scope(inner);
@@ -268,10 +263,7 @@ fn a_scope_narrows_the_limits_and_restores_them() {
     assert!(b.charge_steps(40).is_ok());
     assert!(b.alloc(500).is_ok());
     assert!(!b.deadline_passed());
-    let t = b.enter_scope(ScopeLimits {
-        timeout: Some(std::time::Duration::ZERO),
-        ..ScopeLimits::default()
-    });
+    let t = b.enter_scope(ScopeLimits::default().with_timeout(Some(std::time::Duration::ZERO)));
     assert!(b.deadline_passed());
     b.leave_scope(t);
     assert!(!b.deadline_passed());
@@ -279,11 +271,12 @@ fn a_scope_narrows_the_limits_and_restores_them() {
 
 #[test]
 fn budget_limits() {
-    let b = Budget::new(ResourceLimits {
-        max_steps: Some(10),
-        max_memory_bytes: Some(100),
-        max_call_depth: 2,
-    });
+    let b = Budget::new(
+        ResourceLimits::default()
+            .with_max_steps(Some(10))
+            .with_max_memory_bytes(Some(100))
+            .with_max_call_depth(2),
+    );
     assert!(b.charge_steps(10).is_ok());
     assert_eq!(b.charge_step(), Err(LimitExceeded::Steps));
     assert!(b.enter_call().is_ok());
@@ -386,7 +379,7 @@ proptest! {
 
     #[test]
     fn budget_never_exceeds_limits(max in 0u64..50, charges in proptest::collection::vec(0u64..10, 0..30)) {
-        let b = Budget::new(ResourceLimits { max_steps: Some(max), ..ResourceLimits::default() });
+        let b = Budget::new(ResourceLimits::default().with_max_steps(Some(max)));
         let mut spent = 0u64;
         for c in charges {
             spent += c;
@@ -419,11 +412,12 @@ fn ui_automation_and_clock_are_refused_by_default() {
 
 #[test]
 fn a_bulk_charge_never_records_more_than_one_step_over_the_limit() {
-    let b = Budget::new(ResourceLimits {
-        max_steps: Some(100),
-        max_memory_bytes: None,
-        max_call_depth: 10,
-    });
+    let b = Budget::new(
+        ResourceLimits::default()
+            .with_max_steps(Some(100))
+            .with_max_memory_bytes(None)
+            .with_max_call_depth(10),
+    );
     b.charge_steps(90).unwrap();
     assert_eq!(b.charge_steps(5_000), Err(LimitExceeded::Steps));
     assert_eq!(b.steps_used(), 101);

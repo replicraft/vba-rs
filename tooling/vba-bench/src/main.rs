@@ -81,10 +81,10 @@ fn compile(src: &str) -> Rc<vba_ir::IrProgram> {
 
 /// One execution: (steps, output).
 fn run_once(ir: &Rc<vba_ir::IrProgram>) -> (u64, String) {
-    let host = Rc::new(HeadlessHost::new().with_limits(ResourceLimits {
-        max_steps: Some(500_000_000),
-        ..ResourceLimits::default()
-    }));
+    let host = Rc::new(
+        HeadlessHost::new()
+            .with_limits(ResourceLimits::default().with_max_steps(Some(500_000_000))),
+    );
     let sink = BufferSink::new();
     let mut vm = Vm::new(
         ir.clone(),

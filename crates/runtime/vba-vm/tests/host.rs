@@ -236,11 +236,13 @@ impl Dispatch for Emitter {
         name.eq_ignore_ascii_case("Fire").then_some(DispId(1))
     }
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
-        (id == DispId(1)).then(|| MemberInfo {
-            name: "Fire".into(),
-            id,
-            supports: InvokeFlags::METHOD,
-            params: vec![ParamInfo::required("v")],
+        (id == DispId(1)).then(|| {
+            MemberInfo::new(
+                "Fire",
+                id,
+                InvokeFlags::METHOD,
+                vec![ParamInfo::required("v")],
+            )
         })
     }
     fn invoke(
@@ -395,10 +397,7 @@ fn declare_string_buffers_are_written_back() {
 fn step_limit_stops_runaway_loops_and_is_not_trappable() {
     let o = run_limited(
         "Sub Main()\nOn Error Resume Next\nDo\nLoop\nDebug.Print \"never\"\nEnd Sub\n",
-        ResourceLimits {
-            max_steps: Some(10_000),
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default().with_max_steps(Some(10_000)),
     );
     assert_eq!(o.result, Err(VmError::Limit(LimitKind::Steps)));
     assert_eq!(o.out, "");
@@ -408,10 +407,7 @@ fn step_limit_stops_runaway_loops_and_is_not_trappable() {
 fn call_depth_limit_stops_runaway_recursion() {
     let o = run_limited(
         "Sub Down(n As Long)\nDown n + 1\nEnd Sub\nSub Main()\nOn Error Resume Next\nDown 0\nEnd Sub\n",
-        ResourceLimits {
-            max_call_depth: 50,
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default().with_max_call_depth(50),
     );
     assert_eq!(o.result, Err(VmError::Limit(LimitKind::CallDepth)));
 }
@@ -420,10 +416,7 @@ fn call_depth_limit_stops_runaway_recursion() {
 fn memory_limit_is_charged_by_arrays() {
     let o = run_limited(
         "Sub Main()\nDim a() As Long\nReDim a(1 To 100000)\nDebug.Print \"allocated\"\nEnd Sub\n",
-        ResourceLimits {
-            max_memory_bytes: Some(1_000_000),
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default().with_max_memory_bytes(Some(1_000_000)),
     );
     assert_eq!(o.result, Err(VmError::Limit(LimitKind::Memory)));
 }
@@ -432,11 +425,9 @@ fn memory_limit_is_charged_by_arrays() {
 fn collection_growth_is_charged_to_the_memory_limit() {
     let o = run_limited(
         "Sub Main()\nDim c As New Collection, i As Long\nFor i = 1 To 100000\nc.Add i\nNext\nDebug.Print \"allocated\"\nEnd Sub\n",
-        ResourceLimits {
-            max_steps: Some(10_000_000),
-            max_memory_bytes: Some(100_000),
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default()
+            .with_max_steps(Some(10_000_000))
+            .with_max_memory_bytes(Some(100_000)),
     );
     assert_eq!(o.result, Err(VmError::Limit(LimitKind::Memory)));
 }
@@ -445,11 +436,9 @@ fn collection_growth_is_charged_to_the_memory_limit() {
 fn strings_held_by_a_program_are_charged_to_the_memory_limit() {
     let o = run_limited(
         "Sub Main()\nDim a(1 To 8) As String, i As Long\nFor i = 1 To 8\na(i) = String$(1000000, \"x\")\nNext\nDebug.Print \"held\"\nEnd Sub\n",
-        ResourceLimits {
-            max_steps: Some(1_000_000),
-            max_memory_bytes: Some(100_000),
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default()
+            .with_max_steps(Some(1_000_000))
+            .with_max_memory_bytes(Some(100_000)),
     );
     assert_eq!(o.result, Err(VmError::Limit(LimitKind::Memory)));
     assert_eq!(o.out, "");
@@ -470,10 +459,7 @@ fn oversized_arrays_and_strings_are_refused() {
 #[test]
 fn do_events_runs_the_idle_hook_and_can_cancel() {
     let host = ScriptedHost::new()
-        .with_limits(ResourceLimits {
-            max_steps: Some(1_000_000),
-            ..ResourceLimits::default()
-        })
+        .with_limits(ResourceLimits::default().with_max_steps(Some(1_000_000)))
         .cancel_after_idles(3);
     let o = run_host(
         "Sub Main()\nDim i As Long\nFor i = 1 To 10\nDoEvents\nDebug.Print i\nNext\nEnd Sub\n",

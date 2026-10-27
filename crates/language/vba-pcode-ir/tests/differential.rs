@@ -94,10 +94,8 @@ fn run_one(
     args: &[Option<Variant>],
 ) -> String {
     let sink = BufferSink::new();
-    let host = HeadlessHost::new().with_limits(ResourceLimits {
-        max_steps: Some(300_000),
-        ..ResourceLimits::default()
-    });
+    let host =
+        HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(300_000)));
     let mut vm = match Vm::new(
         ir.clone(),
         Rc::new(host),
@@ -153,10 +151,8 @@ fn run_session(
     steps: &[(ProcSel<'_>, Vec<Option<Variant>>)],
 ) -> String {
     let sink = BufferSink::new();
-    let host = HeadlessHost::new().with_limits(ResourceLimits {
-        max_steps: Some(300_000),
-        ..ResourceLimits::default()
-    });
+    let host =
+        HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(300_000)));
     let mut vm = match Vm::new(
         ir.clone(),
         Rc::new(host),

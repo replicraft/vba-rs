@@ -12,10 +12,7 @@ use vba_project::ModuleKind;
 use vba_vm::{LimitKind, NoServices, VmError};
 
 fn steps(max: u64) -> ResourceLimits {
-    ResourceLimits {
-        max_steps: Some(max),
-        ..ResourceLimits::default()
-    }
+    ResourceLimits::default().with_max_steps(Some(max))
 }
 
 /// Runs `src` and returns the outcome and the steps it used.
@@ -258,10 +255,9 @@ fn big_charges_do_not_postpone_the_next_poll_by_whole_instructions() {
 fn a_spent_time_allowance_ends_a_run_on_any_host() {
     // The default `poll_cancel` honours the deadline of a call scope.
     let host = Rc::new(HeadlessHost::new());
-    let _scope = host.budget().enter_scope(vba_host::ScopeLimits {
-        timeout: Some(std::time::Duration::ZERO),
-        ..Default::default()
-    });
+    let _scope = host
+        .budget()
+        .enter_scope(vba_host::ScopeLimits::new().with_timeout(Some(std::time::Duration::ZERO)));
     let o = run_with(
         &[module(
             "M",
@@ -278,4 +274,83 @@ fn a_spent_time_allowance_ends_a_run_on_any_host() {
         "{:?}",
         o.result
     );
+}
+
+/// A host member that blocks cannot be interrupted, but the run ends as soon
+/// as it returns: nothing after the call runs once the allowance is spent.
+#[test]
+fn a_blocking_host_member_ends_the_run_when_it_returns() {
+    use std::time::Duration;
+    use vba_automation::testing::MemObject;
+    use vba_host::{Capability, Policy, ScopeLimits, ScriptedHost};
+    use vba_value::{ObjectRef, Variant};
+
+    let host = ScriptedHost::new()
+        .with_policy(Policy::deny_all().grant(Capability::ComCreate))
+        .with_factory("Test.Slow", |t| {
+            Ok(Variant::Object(ObjectRef::Handle(t.insert_obj(
+                MemObject::new("Slow").method("Block", vec![], |_, _| {
+                    std::thread::sleep(Duration::from_millis(200));
+                    Ok(Variant::Empty)
+                }),
+            ))))
+        });
+    let host = Rc::new(host);
+    let _scope = host
+        .budget()
+        .enter_scope(ScopeLimits::new().with_timeout(Some(Duration::from_millis(50))));
+    let o = run_with(
+        &[module(
+            "M",
+            ModuleKind::Standard,
+            "Sub Main()\nDim o As Object\nSet o = CreateObject(\"Test.Slow\")\nDebug.Print \"before\"\no.Block\nDebug.Print \"after\"\nEnd Sub\n",
+        )],
+        "Main",
+        vec![],
+        host,
+        Box::new(NoServices),
+    );
+    assert!(
+        matches!(o.result, Err(VmError::Cancelled(_))),
+        "{:?}",
+        o.result
+    );
+    assert_eq!(
+        o.out, "before\n",
+        "no statement ran after the blocking call"
+    );
+}
+
+/// Within the allowance the check changes nothing.
+#[test]
+fn a_host_member_within_the_allowance_is_unaffected() {
+    use std::time::Duration;
+    use vba_automation::testing::MemObject;
+    use vba_host::{Capability, Policy, ScopeLimits, ScriptedHost};
+    use vba_value::{ObjectRef, Variant};
+
+    let host = ScriptedHost::new()
+        .with_policy(Policy::deny_all().grant(Capability::ComCreate))
+        .with_factory("Test.Fast", |t| {
+            Ok(Variant::Object(ObjectRef::Handle(t.insert_obj(
+                MemObject::new("Fast").method("Go", vec![], |_, _| Ok(Variant::from(7))),
+            ))))
+        });
+    let host = Rc::new(host);
+    let _scope = host
+        .budget()
+        .enter_scope(ScopeLimits::new().with_timeout(Some(Duration::from_secs(60))));
+    let o = run_with(
+        &[module(
+            "M",
+            ModuleKind::Standard,
+            "Sub Main()\nDim o As Object\nSet o = CreateObject(\"Test.Fast\")\nDebug.Print o.Go\nEnd Sub\n",
+        )],
+        "Main",
+        vec![],
+        host,
+        Box::new(NoServices),
+    );
+    assert!(o.result.is_ok(), "{:?}", o.result);
+    assert_eq!(o.out, " 7 \n");
 }

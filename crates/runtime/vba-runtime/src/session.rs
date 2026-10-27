@@ -12,7 +12,7 @@ use vba_project::VbaProject;
 use vba_scripting::ScriptingHost;
 use vba_sema::{NoLibraries, Options, SourceModule, TypeProvider};
 use vba_value::{ObjectRef, Variant};
-use vba_vm::{Arg, DebugSink, NullSink, RunOutput, Vm, VmConfig, VmError};
+use vba_vm::{Arg, DebugSink, LimitKind, NullSink, RunOutput, Vm, VmConfig, VmError};
 
 use crate::error::{Error, ErrorReport, LoadError};
 use crate::files::{FileSystem, FsServices, ScriptFsAdapter};
@@ -297,7 +297,25 @@ impl SessionBuilder {
 
     fn build(self, modules: &[SourceModule], options: &Options) -> Result<Session, Error> {
         let profile = self.host.metadata().profile;
-        let analysis = vba_sema::analyze_sources(modules, &profile, &*self.provider, options);
+        // The size budgets of the host's limits bound the work done before
+        // anything runs: hostile source is refused with a typed limit.
+        let limits = *self.host.limits();
+        let options = Options {
+            limits: vba_sema::AnalysisLimits::unlimited()
+                .with_max_source_bytes(limits.max_source_bytes)
+                .with_max_modules(limits.max_modules)
+                .with_max_nodes(limits.max_analysis_nodes),
+            ..options.clone()
+        };
+        let analysis = vba_sema::analyze_sources(modules, &profile, &*self.provider, &options);
+        if let Some(limit) = analysis.limit_exceeded {
+            use vba_sema::AnalysisLimit as L;
+            return Err(Error::Limit(match limit {
+                L::SourceBytes { .. } => LimitKind::SourceSize,
+                L::Modules { .. } => LimitKind::ModuleCount,
+                _ => LimitKind::AnalysisSize,
+            }));
+        }
         let render = |sev: Severity| -> Vec<String> {
             analysis
                 .diagnostics
@@ -313,10 +331,13 @@ impl SessionBuilder {
             }));
         }
         let warnings = render(Severity::Warning);
-        let ir = vba_ir::lower(&analysis).map_err(|e| {
-            Error::Load(LoadError {
+        let lower_limits =
+            vba_ir::LowerLimits::unlimited().with_max_instructions(limits.max_ir_instructions);
+        let ir = vba_ir::lower_with_limits(&analysis, &lower_limits).map_err(|e| match e {
+            vba_ir::LowerError::TooLarge { .. } => Error::Limit(LimitKind::ProgramSize),
+            e => Error::Load(LoadError {
                 diagnostics: vec![e.to_string()],
-            })
+            }),
         })?;
         vba_ir::verify(&ir).map_err(|e| Error::Internal(format!("IR verification: {e:?}")))?;
         let ir = Rc::new(ir);

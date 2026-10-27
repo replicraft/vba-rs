@@ -98,11 +98,14 @@ fn execute(mods: &[SourceModule], entry: &str, max_steps: u64) -> Option<Run> {
     }
     let ir = vba_ir::lower(&a).ok()?;
     vba_ir::verify(&ir).expect("lowered programs verify");
-    let host = Rc::new(HeadlessHost::new().with_limits(ResourceLimits {
-        max_steps: Some(max_steps),
-        max_memory_bytes: Some(64 << 20),
-        max_call_depth: 200,
-    }));
+    let host = Rc::new(
+        HeadlessHost::new().with_limits(
+            ResourceLimits::default()
+                .with_max_steps(Some(max_steps))
+                .with_max_memory_bytes(Some(64 << 20))
+                .with_max_call_depth(200),
+        ),
+    );
     let sink = BufferSink::new();
     let mut vm = Vm::new(
         Rc::new(ir),

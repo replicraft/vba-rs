@@ -255,10 +255,8 @@ fn error_taxonomy_separates_who_is_responsible() {
         "{e:?}"
     );
     // A resource limit.
-    let limited = HeadlessHost::new().with_limits(ResourceLimits {
-        max_steps: Some(1000),
-        ..ResourceLimits::default()
-    });
+    let limited =
+        HeadlessHost::new().with_limits(ResourceLimits::default().with_max_steps(Some(1000)));
     let e = first_error(
         "Public Sub Main()\nDo\nLoop\nEnd Sub\n",
         Session::builder().host(Rc::new(limited)),

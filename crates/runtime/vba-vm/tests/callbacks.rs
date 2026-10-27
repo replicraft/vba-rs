@@ -38,10 +38,7 @@ fn granted() -> Policy {
 }
 
 fn limits() -> ResourceLimits {
-    ResourceLimits {
-        max_steps: Some(2_000_000),
-        ..ResourceLimits::default()
-    }
+    ResourceLimits::default().with_max_steps(Some(2_000_000))
 }
 
 fn build(src: &str, policy: Policy, limits: ResourceLimits) -> (Vm, BufferSink) {
@@ -291,10 +288,7 @@ Public Sub Main()
 End Sub
 ",
         granted(),
-        ResourceLimits {
-            max_steps: Some(10_000),
-            ..ResourceLimits::default()
-        },
+        ResourceLimits::default().with_max_steps(Some(10_000)),
     );
     let main = vm.find_procedure("Main").unwrap();
     let r = vm.run_procedure(main, vec![]);

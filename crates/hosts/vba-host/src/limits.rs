@@ -15,13 +15,41 @@ pub const UNTRUSTED_MAX_STEPS: u64 = 100_000_000;
 /// Memory budget of [`ResourceLimits::untrusted`], in bytes.
 pub const UNTRUSTED_MAX_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 
+/// Source budget of [`ResourceLimits::untrusted`]: total bytes of source
+/// over all modules of a project (checked before anything is parsed). Real
+/// projects are far smaller; the parse tree and bound tree of this much
+/// source stay well inside the memory budget.
+pub const UNTRUSTED_MAX_SOURCE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Module budget of [`ResourceLimits::untrusted`].
+pub const UNTRUSTED_MAX_MODULES: u64 = 1024;
+
+/// Analysis budget of [`ResourceLimits::untrusted`]: bound statements and
+/// expressions over the whole project.
+pub const UNTRUSTED_MAX_ANALYSIS_NODES: u64 = 2_000_000;
+
+/// Lowering budget of [`ResourceLimits::untrusted`]: IR instructions over
+/// the whole program.
+pub const UNTRUSTED_MAX_IR_INSTRUCTIONS: u64 = 2_000_000;
+
 /// Wall-clock allowance of one call from the embedder that the facade and
 /// `vbars run` give code that is not trusted: a minute, about twice what
 /// [`UNTRUSTED_MAX_STEPS`] steps take.
 pub const UNTRUSTED_CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Limits on one program run. `None` means unlimited.
+///
+/// The struct is `#[non_exhaustive]` so that new budgets can be added
+/// without breaking embedders: start from [`ResourceLimits::unlimited`],
+/// [`ResourceLimits::untrusted`] or `default()` and adjust with the
+/// `with_*` methods.
+///
+/// The first three bound the run itself. The last four bound the work done
+/// *before* it, when the project is analysed and lowered; a session builder
+/// reads them from the host's limits and refuses a project that exceeds one
+/// with a typed limit error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ResourceLimits {
     /// Fuel: maximum interpreter steps.
     pub max_steps: Option<u64>,
@@ -29,9 +57,66 @@ pub struct ResourceLimits {
     pub max_memory_bytes: Option<u64>,
     /// Maximum procedure call depth.
     pub max_call_depth: u32,
+    /// Maximum total bytes of source over all modules of a project.
+    pub max_source_bytes: Option<u64>,
+    /// Maximum number of modules in a project.
+    pub max_modules: Option<u64>,
+    /// Maximum bound statements and expressions in a project.
+    pub max_analysis_nodes: Option<u64>,
+    /// Maximum IR instructions in the lowered program.
+    pub max_ir_instructions: Option<u64>,
 }
 
 impl ResourceLimits {
+    /// Sets [`max_steps`](ResourceLimits::max_steps).
+    #[must_use]
+    pub const fn with_max_steps(mut self, n: Option<u64>) -> Self {
+        self.max_steps = n;
+        self
+    }
+
+    /// Sets [`max_memory_bytes`](ResourceLimits::max_memory_bytes).
+    #[must_use]
+    pub const fn with_max_memory_bytes(mut self, n: Option<u64>) -> Self {
+        self.max_memory_bytes = n;
+        self
+    }
+
+    /// Sets [`max_call_depth`](ResourceLimits::max_call_depth).
+    #[must_use]
+    pub const fn with_max_call_depth(mut self, n: u32) -> Self {
+        self.max_call_depth = n;
+        self
+    }
+
+    /// Sets [`max_source_bytes`](ResourceLimits::max_source_bytes).
+    #[must_use]
+    pub const fn with_max_source_bytes(mut self, n: Option<u64>) -> Self {
+        self.max_source_bytes = n;
+        self
+    }
+
+    /// Sets [`max_modules`](ResourceLimits::max_modules).
+    #[must_use]
+    pub const fn with_max_modules(mut self, n: Option<u64>) -> Self {
+        self.max_modules = n;
+        self
+    }
+
+    /// Sets [`max_analysis_nodes`](ResourceLimits::max_analysis_nodes).
+    #[must_use]
+    pub const fn with_max_analysis_nodes(mut self, n: Option<u64>) -> Self {
+        self.max_analysis_nodes = n;
+        self
+    }
+
+    /// Sets [`max_ir_instructions`](ResourceLimits::max_ir_instructions).
+    #[must_use]
+    pub const fn with_max_ir_instructions(mut self, n: Option<u64>) -> Self {
+        self.max_ir_instructions = n;
+        self
+    }
+
     /// No step or memory limit; only the call depth is bounded. For code the
     /// embedder trusts, and for tests.
     pub const fn unlimited() -> Self {
@@ -39,12 +124,19 @@ impl ResourceLimits {
             max_steps: None,
             max_memory_bytes: None,
             max_call_depth: DEFAULT_MAX_CALL_DEPTH,
+            max_source_bytes: None,
+            max_modules: None,
+            max_analysis_nodes: None,
+            max_ir_instructions: None,
         }
     }
 
     /// Finite limits for running code that is not trusted:
     /// [`UNTRUSTED_MAX_STEPS`] steps, [`UNTRUSTED_MAX_MEMORY_BYTES`] bytes and
-    /// [`DEFAULT_MAX_CALL_DEPTH`] nested calls. Generous for real programs,
+    /// [`DEFAULT_MAX_CALL_DEPTH`] nested calls, and the project-size budgets
+    /// ([`UNTRUSTED_MAX_SOURCE_BYTES`], [`UNTRUSTED_MAX_MODULES`],
+    /// [`UNTRUSTED_MAX_ANALYSIS_NODES`], [`UNTRUSTED_MAX_IR_INSTRUCTIONS`]).
+    /// Generous for real programs,
     /// finite for hostile ones. The facade's `Engine::new()` and `vbars run`
     /// start from these.
     pub const fn untrusted() -> Self {
@@ -52,6 +144,10 @@ impl ResourceLimits {
             max_steps: Some(UNTRUSTED_MAX_STEPS),
             max_memory_bytes: Some(UNTRUSTED_MAX_MEMORY_BYTES),
             max_call_depth: DEFAULT_MAX_CALL_DEPTH,
+            max_source_bytes: Some(UNTRUSTED_MAX_SOURCE_BYTES),
+            max_modules: Some(UNTRUSTED_MAX_MODULES),
+            max_analysis_nodes: Some(UNTRUSTED_MAX_ANALYSIS_NODES),
+            max_ir_instructions: Some(UNTRUSTED_MAX_IR_INSTRUCTIONS),
         }
     }
 }
@@ -61,11 +157,7 @@ impl ResourceLimits {
 /// that is not trusted.
 impl Default for ResourceLimits {
     fn default() -> Self {
-        ResourceLimits {
-            max_steps: None,
-            max_memory_bytes: None,
-            max_call_depth: DEFAULT_MAX_CALL_DEPTH,
-        }
+        ResourceLimits::unlimited()
     }
 }
 
@@ -119,6 +211,7 @@ pub struct Budget {
 
 /// What a call scope narrows, see [`Budget::enter_scope`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ScopeLimits {
     /// Steps the scope may spend from now on.
     pub max_steps: Option<u64>,
@@ -126,6 +219,38 @@ pub struct ScopeLimits {
     pub max_memory_bytes: Option<u64>,
     /// How long the scope may run.
     pub timeout: Option<Duration>,
+}
+
+impl ScopeLimits {
+    /// A scope that narrows nothing.
+    pub const fn new() -> Self {
+        ScopeLimits {
+            max_steps: None,
+            max_memory_bytes: None,
+            timeout: None,
+        }
+    }
+
+    /// Sets [`max_steps`](ScopeLimits::max_steps).
+    #[must_use]
+    pub const fn with_max_steps(mut self, n: Option<u64>) -> Self {
+        self.max_steps = n;
+        self
+    }
+
+    /// Sets [`max_memory_bytes`](ScopeLimits::max_memory_bytes).
+    #[must_use]
+    pub const fn with_max_memory_bytes(mut self, n: Option<u64>) -> Self {
+        self.max_memory_bytes = n;
+        self
+    }
+
+    /// Sets [`timeout`](ScopeLimits::timeout).
+    #[must_use]
+    pub const fn with_timeout(mut self, t: Option<Duration>) -> Self {
+        self.timeout = t;
+        self
+    }
 }
 
 /// The state [`Budget::enter_scope`] replaced; hand it to
@@ -209,6 +334,17 @@ impl Budget {
     /// is true.
     pub fn deadline_passed(&self) -> bool {
         self.deadline.get().is_some_and(|d| Instant::now() >= d)
+    }
+
+    /// Time left before the deadline of the call scope, `None` when no
+    /// deadline is set, zero when it has passed. A host member that blocks
+    /// (a network read, a child process, a sleep) should cap its wait with
+    /// this, because the interpreter can only notice a passed deadline when
+    /// the member returns.
+    pub fn time_left(&self) -> Option<Duration> {
+        self.deadline
+            .get()
+            .map(|d| d.saturating_duration_since(Instant::now()))
     }
 
     /// The limits.
