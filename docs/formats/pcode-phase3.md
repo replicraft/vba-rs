@@ -353,6 +353,9 @@ decoded first.
 
 ## 9. Other versions and 64-bit
 
+(Section 11 adds a second set of local projects: VBA 5 and more version words, database
+files, compiled-only projects. The text below describes the first set.)
+
 Material: 46 project files (public documents in the binary and the open document
 formats, and standalone project storages), with the source of every module in the
 same file. Counted per file: 492 modules, 2,693
@@ -447,7 +450,8 @@ both; the identifier adjustment for VBA6 (0), VBA7 x86 (4) and x64 (7); 29 built
 the line table, including the cases where the code area has gaps; the lowering and its
 differential checks on all of the above.
 
-Not verified: VBA5 and VBA3 (no material), big-endian caches, version words not in
+Not verified (as of section 9; section 11 adds VBA 5 and five more version words): VBA3,
+VBA5 (no material then), big-endian caches, version words not in
 `VERIFIED_LAYOUTS`, `PROC_CONTEXT` and its second operand on x64, the 8-byte integer
 literals, the built-in adjustment above 0xC3, 97 opcodes never seen, and the `Static`,
 `ParamArray` and `Optional` forms on x64 beyond what the differential run covers. (The
@@ -605,6 +609,8 @@ the runs that use them.
 
 ### 10.4 What is left
 
+(Round 4, section 11.4, lowers arrays, implicit variables, `Resume` forms, file statements, strings outside ASCII and `Declare` statements; the table below is the state at the end of round 3.)
+
 Refused procedures by the reason found after following calls and instance blocks to the
 procedure that is refused for its own reason (1,851 procedures):
 
@@ -623,6 +629,8 @@ early-bound calls into late-bound ones), and a class is not enumerated by `For E
 (its enumerator attribute has no line in the cache).
 
 ### 10.5 Opcodes never seen, and what they need
+
+(The second set, section 11.3, saw 15 of these 97: 24, 28, 54, 58, 160-162, 200, 214, 215, 219, 226, 231, 242 and 254; 82 remain.)
 
 Of the 264 canonical opcodes, 167 occur in the 46 files and 97 do not (86 Verified, 81
 Inferred). From their names and the opcode document, the 97 are reachable only from
@@ -654,3 +662,257 @@ graphics and file statements, `Print` lists, `Def` statements and `Currency`/`Si
 64-bit literals added), compiled with each of the verified layouts. Nothing in this
 list is needed to read the procedures of the 46 files: every instruction of every line
 with code decoded to its exact length.
+
+## 11. A second set of local projects (round 4)
+
+Material (local only, never committed): 29 files, 22 database files of the embedding
+application and 7 macro-enabled workbooks. The workbooks are read by the container
+reader. The database files are not compound files: the project is stored in a system
+table, so a one-off tool outside the repository carved the streams (below) and the
+tests read them as per-project stream folders (section 11.1). Not one byte, name, path
+or identifier of this material is in the repository; tests that need it skip when
+`VBA_PCODE_CORPUS` and `VBA_PCODE_STREAMS` are unset, and the synthetic tests
+(`vba-pcode/tests/new_layouts.rs`, `vba-pcode-ir/tests/arrays_and_more.rs`) rebuild
+each finding from constructed bytes.
+
+The set adds version words and platform kinds that no earlier file had (`0x5E` with
+platform kind 1, `0x6D` 1, `0x8E` 1, `0x91` 1, `0xA3` 1, `0xDF` 3), constructs the first
+set lacked (property procedures, `Enum`, `Type`, `Implements`, `WithEvents`,
+`Declare PtrSafe`, `ParamArray`, file statements, `Resume` forms), stale duplicate
+streams, and three compiled-only databases (no source, no `dir` stream).
+
+### 11.1 Feeding stream folders to the tests
+
+`VBA_PCODE_STREAMS` names a directory; every folder below it that holds `VBA/_VBA_PROJECT`
+is one project: `PROJECT`, `VBA/dir`, `VBA/_VBA_PROJECT` and one file per module stream
+(the file name is the stream name, `%XX` escapes allowed). A folder with a `dir` stream is read by
+`read_project_from_streams` (tolerant mode) like a compound file; a folder without
+one (compiled-only) is read as module caches with the platform kind taken from the
+word at offset 2 of the first module. `corpus_files()` in the test helpers of both
+crates returns these folders after the files of `VBA_PCODE_CORPUS`.
+
+How the streams of a database file were recovered (a stdlib script, not in the
+repository), so that the result can be repeated on other material:
+
+* Jet 3 files hold one blob per project (`_VBA_PROJECT`, `dir` and the `__SRP`
+  streams as `[name length][UTF-16 name][length][data]` entries after an 8-byte header)
+  and one blob per module (a single `_VBA_MODULE` entry with the module stream).
+* Jet 4 and ACE files hold each stream as one long value of a system table: inline in
+  a row (a 12-byte header whose first dword carries 0x80 and the length), alone in a
+  row, or chained over data pages with a 4-byte next pointer in front of each piece.
+  All rows of all data pages are read, deleted rows and the rows of earlier saved
+  generations included, so stale copies appear.
+* A stream is recognised by content: `CC 61` for the project stream, an MS-OVBA
+  container whose first record is `PROJECTSYSKIND` for `dir`, a plausible module header
+  (platform word 1 or 3 at offset 2 and table pointers inside the stream) for a module
+  stream. A module stream with source ends with the compressed source; its name is the
+  `Attribute VB_Name` of that source, which the `dir` stream's stream names (scrambled,
+  and in Jet 3 files all equal) cannot give.
+* Fixture repairs, because the container reader requires them: a `dir` stream without
+  the `PROJECTLCIDINVOKE` record (two Jet 3 files) got one, and equal stream names (Jet
+  3) were replaced by unique ones; the `dir` stream was recompressed. The `PROJECT`
+  stream was made up (`ID` and `Name` lines).
+
+**Choosing the right copy.** A file can hold several `dir` streams, project streams
+and module streams of different saved generations. The rule used, in order:
+
+1. a `dir` copy is used only if every module it lists has a module stream with the same
+   name and the same text offset in the file (the text offset is where the compressed
+   source starts, so a module of another generation does not fit);
+2. the project stream must carry the platform byte at offset 5 that equals the
+   `PROJECTSYSKIND` of the `dir` copy (and the platform word at offset 2 of the
+   module streams);
+3. of the candidates left, the copy physically nearest (distance in pages) to the `dir`
+   copy wins; sets that are identical are written once.
+
+What the files showed:
+
+| File (generic description) | Copies | Result |
+|---|---|---|
+| a database with two version words | 1 `dir` (64-bit), 3 project streams (`0x9A` 64-bit, `0x8E` 32-bit twice), 20 module streams | the `0x9A` project and its 16 modules decode as a unit (268 of 268 statements consistent); the two `0x8E` streams and 4 more module streams are an earlier 32-bit generation without `dir`: they decode as compiled-only sets (113 of 113 lines, structure only) |
+| a database saved three times | 3 `dir`, 3 project streams (`0x8E`), 59 module streams | one `dir` lists 53 modules of which only 11 have a stream in its generation: stale, not used. The other two are complete and decode alike (7,002 of 7,002 statements each); their project streams differ in 12 bytes, whose meaning is not known; no rule tells them apart, both are accepted |
+| a database saved twice | 2 `dir`, 2 project streams (`0x97`), 34 modules each | both generations decode (4,559 of 4,559 statements each); they differ in 64 and 128 bytes of unclaimed code area |
+| one file | two 130-byte rows with a `CC 61 97 00` header in a table that is not the project table | no `dir`, no module: not a project |
+| one Jet 4 file | none found | the carving found no stream (the rows are laid out differently); not decoded |
+
+A stale project stream applied to the modules of the live generation (the `0x8E` stream
+of the first row with the 64-bit modules) does not panic: the layout is selected from the
+stream's version word and the `dir` platform (`Vba6`, x64, `0x8E`, not verified), the
+identifier names come out wrong and 183 of 268 statements are consistent. The ways to
+notice are the platform byte against `PROJECTSYSKIND`, the version word against the
+other streams of the generation, and the consistency of the decoded names.
+
+### 11.2 Layouts: before and after
+
+"Before" is the decoder at the start of the round (stream sets only: the workbooks were
+first read after the first corrections). Statements are logical source lines with code
+that are consistent as defined in section 9.1.
+
+| Layout (family, bitness, version word) | Sets | Modules | Procedures | Statements | Consistent before | Consistent after |
+|---|---|---|---|---|---|---|
+| VBA 5, x86, `0x5E` | 3 | 46 | 155 | 1,990 | one set readable: 592 of 664 | **1,990 (100 %)** |
+| VBA 6, x86, `0x6D` | 3 + 1 compiled-only | 128 (27 without source) | 428 | 9,754 | 9,716 | 9,745 (99.9 %) |
+| VBA 6, x86, `0x8E` | 3 + 4 compiled-only | 153 (45 without source) | 1,327 | 14,455 | 3,784 | **14,455 (100 %)** |
+| VBA 6, x86, `0x91` | 1 | 2 | 3 | 25 | not read | 25 (100 %) |
+| VBA 7, x86, `0xA3` | 4 | 69 | 259 | 3,012 | not read | **3,012 (100 %)** |
+| VBA 7, x86, `0x97` (more) | 6 (5 stream sets and 1 workbook) | 185 | 2,304 | 35,699 | 32,661 of 32,838 (the 5 stream sets) | 35,685 (99.96 %) |
+| VBA 7, x64, `0x9A` (more) | 6 + 1 compiled-only | 143 (27 without source) | 1,374 | 16,418 | 16,343 | 16,344 (99.5 %) |
+| VBA 7, x64, `0xDF` | 1 | 8 | 17 | 464 | 0 of 8 modules parse | **464 (100 %)** |
+
+Everything else of section 9.1 agrees on each layout (modules parse and tile gap-free,
+line counts equal, every line with code decodes to its exact length, name operands,
+literals, record names, kinds, `Declare`-ness and visibility); the largest set has 15,911
+name operands, all of which agree. The statements that are not
+consistent are `Declare` lines of the other `#If` branch, comments on continued lines,
+the synthetic zero argument of the graphics `Line` statement, and type names that are
+built-in keywords (`Module`, `Property`: unresolved, not wrong). The first project
+(also present as a database, same numbers) now gives 9,215 of 9,226 statements
+consistent, 11,632 of 11,632 name operands (11,596 of 11,608 before this round), and
+5 forward failures (14 before).
+
+Unclaimed code bytes (section 7 of the format document) occur in 16 of the 30 decoded
+sets, from 8 to 10,144 bytes in a set; they are probably the leftovers of edits, as in
+the first set.
+
+**Compiled-only.** Three databases (`0x8E` 32-bit, `0x9A` 64-bit, `0x6D` 32-bit) hold
+86 module streams and a project stream each, no `dir`, no source. Structure only, no
+source comparison: the project stream walk ends at the identifier area (announced equals
+read) and the declaration, indirect and object tables are located in 86 of 86 modules.
+They hold no usable line table: in the `0x6D` file the stream ends 6 bytes after the
+line-table pointer in all 27 modules (no line table, no code), in the other two the
+pointer leads to a word of `0xFFFF` or `0x0000` instead of the `0xCAFE` marker (59 of 59). A decoder
+returns a typed error for the line table and keeps the tables; the module names are not
+recoverable (they are in `dir`).
+
+### 11.3 What changed in the decoder
+
+Each item states the evidence; the earlier text it replaces is corrected in the format
+document.
+
+* **Empty identifier entries take an index.** An entry whose name length is 0 and whose
+  type byte is 0x80 (six extra bytes, then the four-byte trailer) is a real entry of the
+  numbering although it has no text. Dropping it, as the walk did, shifted every later
+  index by one (VBA 5: 820 of 938 name operands before, 938 of 938 after; `0x6D`: 9,716 to
+  9,745 consistent statements). With the entries counted, entries read equal entries
+  announced in all projects of both sets.
+* **The identifier offset by version word.** `k - 0x100` indexes the identifier list
+  directly up to `0x88` (VBA 5 `0x5E`, `0x6D`, `0x79`, `0x88`) and with `-4` on x86 and
+  `-7` on x64 from `0x8E` on. The boundary lies between `0x89` and `0x8D`, which no file
+  has; `0x8E` is the lowest word seen with the adjustment. Before: 3,784 of 14,455
+  statements; after: 14,455 (10,806 of 10,806 name operands of the largest set). The
+  built-in adjustment above 0xC3 follows the same switch, still unverified.
+* **Library-qualified types on x86.** The word at +6 of a qualified object entry is the
+  byte offset of the record in the type-reference list (records of 8 bytes) on both
+  bitnesses: slot times 8, not slot times the pointer size. The one x86 case of round 3 had
+  slot 0, which hid it. Lists with several libraries (`DAO`, `ADODB`, `Outlook` types) were
+  resolved to the next record on x86. After the correction every qualified type of the
+  32-bit sets agrees with its source line (the five x86 `0x97` stream sets: 32,661 to
+  32,825 of 32,838 consistent statements; `0x8E`: 14,380 to 14,455 of 14,455).
+* **Fixed-length strings.** A type descriptor whose flag word has bit 0x20 and a clear
+  kind (`0x0020`, `0x1020`) is `String * n`: the word at +2 is `n` when it is non-zero
+  (64, 28 for a length written as a constant name, 512 and 1 seen) and 0 when the length
+  is the integer literal in front of the `VAR_DECL` (32, 512, 1280 seen). The stored position of one such variable had bit 0 set (the
+  descriptor is at the position with the bit cleared). They were read as an object type
+  and named a wrong type (`TypeRef::FixedString`, `ResolvedType::FixedString`).
+* **`LongPtr` on x86** is the intrinsic id 3 (`Long`) with the pointer flag 0x80 (19 of
+  19 variables), as `LongLong` with the flag on x64.
+* **VBA 5 public flag.** Bit 0x0008 of the function record's flag word (the VBA 6 flag byte
+  does not exist): 155 of 155 procedures agree with the source.
+* **The module header of `0xDF`** (one project, 8 modules): bit 0x10 is set in the word at
+  offset 2 (0x11 in a project with `PROJECTSYSKIND` 3, so the low nibble is not the
+  platform and is not compared), the declaration table length sits at 0x43 instead of
+  0x3F, the rest of the header (pointers at 5 to 0x1D, indirect length at `P + 12`, object
+  table, line table) is the x64 arrangement, and the function record has no six-byte gap
+  before the option, count and flag bytes. 464 of 464 statements, 17 of 17 procedure
+  records, 12 of 12 arguments, 41 of 41 variables agree.
+* **Built-in names**: 14 more confirmed (43 in all): 2 `Abs`, 3 `Access`, 37 `CStr`, 38
+  `CurDir`, 81 `Explicit`, 95 `GoTo`, 104 `InStr`, 118 `Load`, 119 `Local`, 135 `Nothing`, 136
+  `Null`, 160 `Rgb`, 172 `Stop`, 173 `StrComp`. Rule as before (the spelling is the only
+  token of the line that no other operand and no project identifier explains; 4,618
+  uses of confirmed entries, 0 contradictions); every one fits the alphabetical order.
+  Left out for lack of a unique token or of a second use: 21 `Case`, 25 `CDate`, 126 and
+  132 (a second `Mid`/`Name`), 148/149 and 130 (`Property`, `Module` as type names), 177, 194,
+  229/243.
+* **Opcodes first seen**: 15 (182 of 264 occur now): `INTRINSIC_TRUNCATE` (24, 4 uses),
+  `INTRINSIC_LENGTH_BYTES` (28, 3), `READ_WITH_BANG` (54, 54), `WRITE_WITH_BANG` (58, 107),
+  `READ_LIST_OPEN/CLOSE/ITEM` (160-162, 1 each), `RENAME_FILE` (200, 3), `OUT_COMMA` (214,
+  11), `OUT_STATEMENT_END` (215, 1), `OUT_NEWLINE` (219, 7), `FILE_WRITE_RECORD` (226, 5),
+  `COMMENT_REM_KEYWORD` (231, 27), `HALT_STOP` (242, 2), `PP_ELSEIF` (254, 9). Each decodes
+  to the exact line length everywhere; none is Verified. 82 opcodes remain unseen (86
+  Verified, 96 Inferred).
+* **Opcode numbering of VBA 5** (`0x5E`): the stored-to-canonical table of the opcode
+  document decodes all 1,990 lines of the three projects to their exact length, with 84
+  distinct opcodes; the opcodes of the table that do not occur remain unchecked.
+
+### 11.4 Lowering and differential execution on the second set
+
+All layouts of the table in 11.2 are now in `VERIFIED_LAYOUTS` and lowered. On the
+27 files that have source (workbooks and stream sets), 5,852 procedures: 2,192 lowered
+(37 %). Differential run (24 files; 3 are skipped because the source text does not
+compile in `vba-sema`: a name declared twice in a module): 4,732
+procedures, 1,573 lowered, 1,346 executed, 3,644 runs, 1,420 sessions, **0
+mismatches**.
+
+| Layout | Files | Procedures | Lowered |
+|---|---|---|---|
+| `0x5E` | 3 | 155 | 50 |
+| `0x6D` | 3 | 428 | 138 |
+| `0x8E` | 3 | 1,327 | 602 |
+| `0x91` | 1 | 3 | 3 |
+| `0x97` | 6 | 2,293 | 883 |
+| `0x9A` | 6 | 1,370 | 494 |
+| `0xA3` | 4 | 259 | 12 |
+| `0xDF` | 1 | 17 | 10 |
+
+The first differential run of this set had 70 mismatches (35 in each of two files),
+all one cause. In a module that defines `Function Trim`, the source analysis binds both
+`Trim$(x)` and `VBA.Trim$(x)` to the project function (it recurses until the call depth
+limit), while the cache lowering called the library function. Which binding the compiler
+makes for the `$` form is not in the cache (the operand is the project's own identifier
+with the `$` modifier); the qualified form is the library in the language. The lowering
+now refuses a library call whose name a procedure visible to the caller also has, so it
+asserts neither binding (7 and 6 procedures). The source side's binding of the qualified
+form is a defect of the source analysis, not corrected here.
+
+The harness had two defects that this set exposed, both corrected: the source text of
+a module was decoded as UTF-8 lossily (non-ASCII text in the project code page came
+out as replacement characters), and a lowered `Declare` was not part of the source
+program, so no caller of one could be compared.
+
+Refusal buckets of the previous run, in the order asked, over the 73 files of both sets
+(8,545 procedures; lowered 2,639 after the decoder corrections of 11.3 and before the
+lowering work below, 3,066 after it). Over the whole round the lowered counts moved:
+first set 842 to 874 of 2,693 procedures, first project 192 to 274 of 430, second set
+604 of 2,736 (the 10 files whose layouts were verified; the other 17 files were refused as a
+whole) to 2,192 of 5,852 (all 27 files). Procedures are counted once, by their first
+refusal:
+
+| Bucket | Procedures refused first for it, before | After | What was done | Evidence |
+|---|---|---|---|---|
+| Arrays | 340 | 248 (about 150 of these are `LongPtr` locals and parameters that share the message) | Local and parameter arrays of scalar elements: declaration with literal or constant bounds, dynamic `a()`, element read and write, `UBound`/`LBound`, `ReDim [Preserve]` (simple form), `Erase`, `Array(...)`, `ParamArray` parameters and calls, array arguments by reference, the default-member index of a `Variant` | synthetic: results worked out by hand (`fixed_and_dynamic_local_arrays`); differential: used by 9 to 11 lowered procedures per form (`UBound` 9, `LBound` 11, `Array` 2, element write 3, `ReDim` 1), all agree. Not done: arrays of objects or user types (the descriptor has no such element), module-level arrays, `ReDim` of a member, `Variant` arrays assigned through the default member |
+| Implicit variables | 130 | 32 | An assignment to a name that nothing declares (module without `Option Explicit` or `DefType`, name not a host member) declares a `Variant` slot, as the source binding does. Reads of such a name before an assignment are still refused | synthetic; differential: no mismatch (37 procedures newly lowered). The 32 left are assignments to module-level variables whose declarations are refused (library types, `WithEvents`) |
+| `Resume` | 5 | 0 | `Resume` (MOD 8), `Resume Next` (MOD 1), `Resume label` (MOD 0) | synthetic for all three; differential: `Resume Next` in 1 lowered procedure, bare `Resume` in none, label form 417 |
+| File numbers | 12 | 2 | `Open path For Input/Output/Append/Binary/Random As #n`, `Close #n...`, `Print #n, list`, `Line Input #n, v`; no `Access`, `Lock` or `Len` | synthetic (lowering and the failing run); differential: 2 and 3 lowered procedures use `Open` and `Close`; the harness has no file service, so a run ends in the same error on both sides |
+| Non-ASCII strings | 141 | 0 | The text bytes are decoded with the project code page (`LowerOptions::code_page`; Windows pages and the East Asian ones through `encoding_rs`, others refused) | synthetic; differential: 0 mismatches over 57 procedures lowered with such strings (after the harness fix) |
+| `Declare` | 366 | 2 | The statement is generated in the shell with `PtrSafe` (the target is 64-bit VBA 7; the keyword changes nothing else) and the calls bind like the source binding does (`ByVal String` variables go by reference); not done: `As Any`, `LongPtr`, user-type and library-type parameters | synthetic; differential: 199 lowered `Declare` statements, 0 mismatches; a call runs into the missing library on both sides |
+
+What the differential run says about these forms is weaker than the counts of lowered
+procedures suggest. Several forms occur in few lowered procedures (previous column),
+and a procedure that calls a library or opens a file ends in the same error on both
+sides. A form is accepted here because hand-assembled caches pin it, it lowers and runs
+without a mismatch wherever it occurs, and its operand shapes decode in every use; it is
+not claimed to be verified in the sense of section 3.
+
+### 11.5 Still not verified, still not done
+
+* VBA 3, big-endian caches, version words not listed in `VERIFIED_LAYOUTS` (for
+  example `0x91` and `0xDF` rest on one small project each, `0x8E` on three, `0x5E` on
+  three), the boundary of the identifier adjustment between `0x89` and `0x8D`, `PROC_CONTEXT`, the
+  8-byte literals, the built-in adjustment above 0xC3, 82 opcodes never seen.
+* The module streams of compiled-only databases carry no code; whether the compiled
+  form exists elsewhere in those files is not known.
+* One Jet 4 database could not be carved; Access-style streams whose stream names are
+  scrambled depend on the source for their names.
+* A project whose `dir` and project streams disagree in platform is decoded with the
+  layout of the project stream (version word) and the `dir` platform; only the
+  consistency checks of the test tell the cases apart.

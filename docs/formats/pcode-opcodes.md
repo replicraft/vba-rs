@@ -56,7 +56,7 @@ Consequences, derived from the above:
 
 * Canonical 174, 177 and 181 (the three 8-byte integer literals) **never occur** in x86 builds of any version.
 * Canonical 116-119 (event declaration and raise) and 159 (Implements) never occur in VBA5 or VBA3 output; 73-74 (address-of) and 69 (assert) also never occur there.
-* The x64 and x86 numberings differ only by the three 8-byte literal slots. **Verified**: a 32-bit and a 64-bit build of the same 25-module source decode to the same canonical opcode and modifier on all 1,021 lines with code, and 153 distinct opcodes (47 of them at or above 174) were decoded from 64-bit projects, 90 (21 at or above 174) from VBA7 32-bit ones, every line to its exact length. That the VBA6 and VBA7 x86 numberings are identical holds for the 21 distinct opcodes seen in VBA6 projects (6 of them in the shifted range 179-260: 185, 186, 212, 227, 248, 260); the +1 and +2 ranges (174-178) were not seen in VBA6. The VBA5 and VBA3 mappings are unverified (no project below version word 0x6B was available); VBA3 is the least certain (low confidence). The three 8-byte literals (174, 177, 181) were not seen in any 64-bit project.
+* The x64 and x86 numberings differ only by the three 8-byte literal slots. **Verified**: a 32-bit and a 64-bit build of the same 25-module source decode to the same canonical opcode and modifier on all 1,021 lines with code, and 153 distinct opcodes (47 of them at or above 174) were decoded from 64-bit projects, 90 (21 at or above 174) from VBA7 32-bit ones, every line to its exact length. That the VBA6 and VBA7 x86 numberings are identical holds for the 21 distinct opcodes seen in VBA6 projects (6 of them in the shifted range 179-260: 185, 186, 212, 227, 248, 260); the +1 and +2 ranges (174-178) were not seen in VBA6. The VBA5 mapping is verified for the 84 distinct opcodes that occur in three `0x5E` projects (1,990 lines with code, every line to its exact length and 100 % of the statements consistent with the source; second set, pcode-phase3.md 11); the VBA5 opcodes that did not occur stay unchecked. The VBA3 mapping is unverified (no project below version word 0x5E was available) and the least certain (low confidence). The three 8-byte literals (174, 177, 181) were not seen in any 64-bit project.
 
 ## 3. MOD field usage
 
@@ -331,7 +331,7 @@ Multi-word literals are stored low word first (plain little-endian bytes of the 
 | # | Name | Ops | Meaning |
 |---|---|---|---|
 | 204 | ERR_HANDLER_SET | name | `On Error`: MOD 1 Resume Next; MOD 2 GoTo 0; else GoTo label `name` |
-| 232 | ERR_RESUME | name | `Resume`: MOD 0 label/line, 1 `Resume Next`, other = bare `Resume` (no target) |
+| 232 | ERR_RESUME | name | `Resume`: MOD 0 label/line, 1 `Resume Next`, 8 bare `Resume` (observed; the name word is 0) |
 | 115 | ERR_RAISE_STMT | - | `Error n` statement |
 
 ### 4.14 Procedure, declaration and scope instructions
@@ -433,7 +433,8 @@ pin it (`tests/synthetic.rs`, `tests/classes.rs`) and, where the local project
 uses it, when the differential run (the lowered cache program against the
 program compiled from the original text, both on `vba-vm`; 871 runs and 112
 whole-module sessions on the local project, 1,988 runs and 880 sessions on the
-46 other projects, 0 mismatches) agrees. Receivers of the member forms are
+46 other projects, 3,644 runs and 1,420 sessions on the second set of 29 files, 0
+mismatches) agrees. Receivers of the member forms are
 described by their static type: a class of the project, a user-defined type, `Object`
 or `Variant` (late bound), a built-in library object (`Err`, `Debug`, `Collection`;
 early bound with the member id), and the names that qualify (a standard module, an
@@ -445,7 +446,16 @@ its occurrences in them.
 | Opcode | Accepted form | Procedures / instructions | Verification level |
 |---|---|---|---|
 | ERR_HANDLER_SET | MOD 1 (`Resume Next`), MOD 0 with a label name (`GoTo label`), MOD 2 (`GoTo 0`) | 108 / 162 (all MODs) | differential for MOD 0 and 1; MOD 2 synthetic only (its one use in the local project is in a procedure that stays unsupported for another reason) |
-| ERR_RESUME | MOD 0 with a label name | 56 / 131 | differential |
+| ERR_RESUME | MOD 0 with a label name; MOD 1 (`Resume Next`) and MOD 8 (`Resume`), the name word 0 | 56 / 131 (MOD 0); second set: 417 / 497 (MOD 0), 1 / 1 (MOD 1), 0 (MOD 8) | differential for MOD 0 and 1; MOD 8 synthetic only (`Resume` after the handler fixed the cause: 25 and 20 for the two arguments tried; `Resume Next` skips the statement: 7) |
+| FILE_OPEN | the word operand is the mode: 1 `Input`, 2 `Output`, 4 `Random`, 8 `Append`, 32 `Binary`; stack: path, file number, then `ARG_DEFAULT_PLACEHOLDER` (the missing `Len`); no `Access` or `Lock` clause | 2 / 3 (second set) | differential (the run ends in the file-service error on both sides); synthetic |
+| FILE_CLOSE, EXPR_FILE_NUMBER_MARK, OUT_CHANNEL, FILE_READ_LINE | `Close #n...` (W = count, the numbers on the stack), the marker after a file-number expression (no stack effect), `Print #n, list` (the number on the stack; the list parts as for `Debug.Print`), `Line Input #n, v` (number, then target) | 3 / 4 (`Close`) | differential as above; synthetic for `Print` |
+| ARG_DEFAULT_PLACEHOLDER | pushes an omitted argument (the `Len` of `Open`) | with FILE_OPEN | as FILE_OPEN |
+| OPTION_BASE_MARKER | marks a bound whose lower bound is the `Option Base` one: it precedes the upper bound (`ReDim a(n)`, `Dim a(n)`); in a declaration the bounds are dropped (the shell declares the array) | with the array forms | synthetic; differential |
+| WRITE_SIMPLE_PARAMS | `a(i) = v` on a local or parameter array: the value, then the W subscripts, on the stack (the subscripts are converted to `Long` unless integral) | 3 / 5 | differential; synthetic |
+| ARRAY_ELEMENT_PARAMS | the call of a procedure that takes an argument array: `Array(...)` of the library and the project's own `ParamArray` procedures; W arguments | 2 / 52 | differential; synthetic |
+| REDIM_SIMPLE, REDIM_SIMPLE_TYPED | `ReDim [Preserve] a(bounds)` of a dynamic local or parameter array of scalar elements: MOD 0 or 16 (`Preserve`); W is the dimension count; per dimension two values (the lower bound or the `OPTION_BASE_MARKER`, then the upper bound); the record operand is not read | 1 / 1 | differential for the one procedure; synthetic |
+| ERASE_ARRAYS | `Erase a, b`: W arrays on the stack | 0 / 0 | synthetic only |
+| INTRINSIC_UPPER_BOUND, INTRINSIC_LOWER_BOUND (Verified) | W is the number of dimension arguments after the array (0 or 1); lowered as the library `UBound`/`LBound` | 9 / 12 and 11 / 17 (second set) | differential; synthetic |
 | LABEL_NAMED | a label definition | 57 / 114 | differential |
 | CONST_INT16_HEX | an `Integer` hexadecimal literal | 0 / 0 in bodies; used by module-level constants | synthetic; constants: differential |
 | CONST_DATE | a `Date` literal | 1 / 1 | differential |
@@ -517,4 +527,5 @@ Canonical numbers; everything not listed has no operands.
 * Numbers of operands and their widths: high confidence for all tabulated shapes (VBA6/7 x86 and x64), medium for VBA5 (opcode existence differs; operand shapes assumed shared), low for VBA3.
 * Which canonical opcodes exist in which build: high confidence for the translation tables as they are algebraic.
 * Semantics/stack effects: inferred, medium at best; entries marked "inferred", "unknown" or "unverified" are guesses.
+* Opcodes that occur in the projects examined: 182 of 264 (86 Verified, 96 Inferred, 82 never seen). The second set added 15 (`INTRINSIC_TRUNCATE`, `INTRINSIC_LENGTH_BYTES`, `READ_WITH_BANG`, `WRITE_WITH_BANG`, `READ_LIST_OPEN/CLOSE/ITEM`, `RENAME_FILE`, `OUT_COMMA`, `OUT_STATEMENT_END`, `OUT_NEWLINE`, `FILE_WRITE_RECORD`, `COMMENT_REM_KEYWORD`, `HALT_STOP`, `PP_ELSEIF`); each decodes to the exact line length in every use, none is verified.
 * Unknown: purpose of RESERVED_A and RESERVED_B, CONST_SMALL_INT value location, the extra W of VAR_DECL with MOD 0x10, the second word of IMPLEMENTS_STMT, the second D of PROC_CONTEXT on x64, difference between PROC_HEADER and PROC_HEADER_ALT, between CONVERT_TO_TYPE and CONVERT_TO_TYPE_VARIANT, OPTION_STMT vs OPTION_BASE_MARKER, PP_MARKER.
