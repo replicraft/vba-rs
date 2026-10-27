@@ -280,11 +280,30 @@ itself dispatches to it, late bound.
   host base (an info diagnostic says they are late bound).
 * An *unqualified* name (`CustomerName`, `Dirty`) is a host member only if the
   module does not declare it and the engine was told about it with
-  `Engine::host_members([..])`. Other undeclared names keep the normal rules, so
-  typos under `Option Explicit` are still errors. Without `Option Explicit` an
-  unlisted name is an implicit local variable.
+  `Engine::host_members([..])` (one list for the whole engine) or, better,
+  the module has a described class (below). Other undeclared names keep the
+  normal rules, so typos under `Option Explicit` are still errors. Without
+  `Option Explicit` an unlisted name is an implicit local variable.
 * A name the module defines (a `Public` variable, a procedure) wins.
 * With no host base, such an access is VBA error 438.
+
+**Per-form description.** Describe each form as a `HostClass` (controls and
+properties as members, methods, events), check the library, and declare it as
+the `Me` of the module: `Engine::module_scope(ModuleScope::new("Form_Orders",
+"Form_Orders", lib))`. That module's bare names, `Me.Ctl`, `Me!Ctl`,
+`WithEvents` handlers and `Ctl_Click` / `Form_Load` handlers are then resolved
+against that class only, early bound and checked (a control of another form,
+a typo, a wrong event signature or a `ByVal Cancel` are diagnostics that name
+the class), `txtName.Value` and `cboKind.ListIndex` are typed through the
+control classes, and `For Each ctl In Me.Controls` yields the described item
+type. Modules without a scope keep `host_members`. When the designer adds or
+removes a control, describe the form again and call
+`Engine::set_module_scope` (then `analyze` / `load`) or, for a running
+`Instance`, `Instance::set_module_scope`, which re-analyses the program and
+swaps it in like `apply_edits`; nothing else is rebuilt. The complete rules are
+in [host-model](host-model.md), "Per-module host classes";
+`cargo run -p vba-rs --example form_scopes` shows the steps, and
+`vba.moduleHosts` gives the language server the same declaration.
 
 Event handlers are ordinary procedures named `<Source>_<Event>` (`Form_Current`,
 `Form_BeforeUpdate`, `Command1_Click`), usually `Private`. `raise_event_on` runs
@@ -836,8 +855,11 @@ host methods, in whatever order the program calls them. Therefore:
   `TypeProvider` describes the type: the declarative way is a `HostLibrary`
   (section 3a, `Engine::host_library`), the manual one
   `Engine::load_with(.., |b| b.extra_provider(..))`.
-* Host-defined members of document modules are known to the analysis only by name
-  (`host_members`), not by type; there is no form description import.
+* Host-defined members of document modules are known to the analysis by type only
+  when the module has a described class (`Engine::module_scope`); otherwise
+  only by name (`host_members`). There is no import of a form description from
+  a file format; the embedding application builds the `HostClass` from its own
+  form designer.
 * Subscribing the host to events that **VBA** classes raise (`RaiseEvent`); the
   other direction (host objects raising to `WithEvents` handlers) works.
 * Re-entry from `terminate`, `held_references` and enumerators of host objects.
@@ -862,12 +884,15 @@ host methods, in whatever order the program calls them. Therefore:
 Found while building the stand-in host of section 13. Each is pinned by a test
 in `crates/api/vba-rs/tests/db_host/` unless noted.
 
-* **Host name lists are engine-wide.** `Engine::host_members` is one list for
-  all document modules of the engine; a control name of one form is accepted
-  (late bound) in every form module, so a typo that happens to be another form's
-  control is not caught. The list must be known before `load`; adding a control
-  means building a new `Engine`. A declarative per-module description belongs to
-  the host type provider work, not to this contract.
+* **`Engine::host_members` is engine-wide.** It is one list for all document
+  modules of the engine; a control name of one form is accepted (late bound) in
+  every form module, so a typo that happens to be another form's control is not
+  caught, and the list must be known before `load`. This is the legacy
+  fallback. Give each form a described class instead
+  (`Engine::module_scope`, section 4): the controls are then per module, typed
+  and checked, and `set_module_scope` follows a design change without a new
+  `Engine`. The `Me` object is not compared with the class when an instance is
+  created.
 * **A host constant is a constant, a host global is an object.** Use
   `Engine::constant(s)` for enum members and literals; `Engine::global` /
   `dispatch_global` return objects. A non-object `global` value is not
@@ -914,7 +939,7 @@ modules whose `Me` is a host object. The tests show the patterns:
 | `rs!Name`, `rs("Name")`, `rs!Name = v` | `Fields` (or `Item`) as `DISPID_VALUE` taking the key and returning an object whose `Value` is `DISPID_VALUE`; the VM chains and applies `Let` to the default member |
 | A `ByRef` out-parameter | the host assigns `call.args[i].value`; the VM converts the value to the declared type of the caller's variable exactly as an assignment would (local, module variable, field, array element, user-defined type field; 13 or 6 and trappable when it does not fit; a `Variant` takes anything). Host-model parameters are converted to their declared type first. The comparison with a real host is **(unverified)** |
 | More arguments than a member declares | when the member is fully described (typed `TypeProvider`, host model or type library) and returns a described type with a default member, the surplus goes to that default member (`rs.Fields("a")`); when the result is a described type without one the analysis reports a compile error ("wrong number of arguments"); an undescribed (`Object`, opaque, late bound) result stays late bound and is not checked |
-| Controls as `Me.Ctl`, `Me!Ctl`, `Me("Ctl")`, bare `Ctl` | `member_id` resolves control names, `DISPID_VALUE` takes the name, and every control name goes into `Engine::host_members` |
+| Controls as `Me.Ctl`, `Me!Ctl`, `Me("Ctl")`, bare `Ctl` | `member_id` resolves control names, `DISPID_VALUE` takes the name, and every control name goes into `Engine::host_members` (the stand-in keeps this legacy list; an application with a form description uses `Engine::module_scope`, section 4) |
 | Form events with `Cancel` | `Instance::raise_event_on(form, "Form", "BeforeUpdate", vec![Arg::by_ref(0)])`; control events use the control name as source (`cmdSave_Click`); report modules use `Report` |
 | `WithEvents` on a host object | the object returns a `ConnectionPoint` from `event_source()`, `reentrant()` is `true` when VBA raises the event through a host call (synchronous, with write-back), otherwise events are queued: `Instance::deliver_pending_events()` |
 | `DoCmd.OpenForm` and similar | a `reentrant()` object using `HostContext::current(table)`: `create_object`, `raise_event_on`, `destroy_object`; an event handler error becomes `DispError::from(err)` |

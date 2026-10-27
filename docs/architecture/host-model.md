@@ -37,7 +37,7 @@ All types are plain data with builders. Nothing is checked while building.
 | Type | Holds |
 | --- | --- |
 | `HostLibrary` | name, doc, `classes`, `enums`, `consts`, `functions`, `globals` |
-| `HostClass` | name, doc, `members`, `events`, `creatable`, `enumerable` (the `For Each` item type, which implies a `_NewEnum` member), attributes |
+| `HostClass` | name, doc, `members`, `events`, `creatable`, `interface` (may be named in `Implements`; default false), `enumerable` (the `For Each` item type, which implies a `_NewEnum` member), attributes |
 | `HostMember` | name, `kind` (`Method` or `Property`), `ty` (result or property type; none for a `Sub`), `params`, `access` (`ReadOnly`, `ReadWrite`, `WriteOnly`), `default_member`, `hidden`, optional `dispid`, doc, attributes |
 | `HostParam` | name, `ty`, `optional`, `default` (`ConstValue`), `by_ref`, `param_array`, doc |
 | `HostEvent` | name, params (a `ByRef` parameter such as `Cancel` is written back to the raiser), doc |
@@ -131,6 +131,9 @@ language server.
 | `interface_members` | the non-hidden members in declaration order (what a language server lists) |
 | `events` | the described events, with `ByRef` flags (checks `WithEvents` handlers) |
 | `class_info` | `creatable` |
+| `is_interface` | the class's `interface` flag (`Implements SomeClass` is refused unless it is set) |
+| `enumerable_item` | the `enumerable` item type (the element type of `For Each`) |
+| `is_exact_class` | true for every class: a described class has no subtypes, see below |
 | `global` | constants and enumeration members (`Constant`), global functions (`Function`), predeclared objects (`Object`) |
 | `catalog` | every top-level name with its kind (new in this change) |
 | `documentation` | the doc text of a type, a member or a global name (new in this change) |
@@ -139,12 +142,25 @@ language server.
 with "nothing" defaults, so existing providers are unaffected. `Layers<T>`
 (also new) consults any number of providers in order.
 
-Two behaviors of the analysis that the description inherits, not changes:
+Behaviors of the analysis that the description inherits or sets:
 
-* A class used where another class is required is accepted by the analysis
-  (`RuntimeCast`) because `QueryInterface` could make it work; the run-time
-  adapter below rejects the wrong class with error 13. Passing a scalar where
-  an object is required is `SEM006` at analysis time.
+* A class used where another class is required is a compile-time `SEM006`
+  when both are described by this provider (`is_exact_class`): a described
+  class has no subtypes and no other interfaces, so `Set rs = db` for a
+  `Database` and `db.Attach db` can never work, and the run-time adapter
+  rejects the wrong class with error 13 anyway. A provider that does not
+  claim exactness (a type library, which has inheritance and
+  `QueryInterface`) keeps the `RuntimeCast` and the run-time check. `Object`
+  and `Variant` values are still cast at run time. Passing a scalar where an
+  object is required is `SEM006` as before.
+* `For Each x In coll` uses the `enumerable` item type: an undeclared control
+  variable (no `Option Explicit`) takes it, and a variable declared as
+  another described class is `SEM018`. `Variant` and `Object` variables
+  stay allowed.
+* `Implements C` for a described class is `SEM011` unless the class is an
+  `interface` (set `HostClass::interface`, JSON `"interface": true`).
+  `interface_members` (completion, the completeness check) still lists the
+  members of every class.
 * More arguments than a member declares go to the default member of its
   result when that is an object, as in `rs.Fields("a")`. For a described
   result type without a default member the analysis reports `SEM008` ("wrong
@@ -155,6 +171,65 @@ This change also lets sema assign through the default member of a library
 type (`rs.Fields("a") = 5` for a `Field` whose default member is `Value`),
 when the default member needs no arguments; before, only project classes
 supported that.
+
+## Per-module host classes: forms and reports
+
+An embedding application's forms and reports are class-like modules whose
+`Me` is a host object, and each form has its own controls. The engine-wide
+name list (`Engine::host_members`) accepts every control name in every form.
+The description replaces it per module: describe each form as a class of the
+library (its controls and properties as members, its methods, its events),
+and declare that class as the `Me` of the module.
+
+```rust
+use vba::{Engine, ModuleScope};
+
+// `lib` is the CheckedLibrary that describes the form as the class `Form_Orders`.
+let engine = Engine::new()
+    .module_scope(ModuleScope::new("Form_Orders", "Form_Orders", lib));
+```
+
+`ModuleScope::new(module, class, provider)` names the module, the class
+(`Class` or `Library.Class`) and the provider that describes it (a
+`CheckedLibrary`). In that module, and only there:
+
+| Use | Resolution |
+| --- | --- |
+| bare `Ctl`, `Ctl.Value`, `Ctl = x`, `Requery` | a member of the class, early bound and checked like a member of a library type (argument counts and types, read-only, the result type, the control's own members). They win over library functions of the same name. The module's own declarations still win over them |
+| `Me.Ctl`, `frm.Ctl` (`frm As Form_Orders`) | the same |
+| `Me!Ctl`, `Me("Ctl")` with a literal key | the member `Ctl`; other keys go to the class's default member |
+| a name the class does not have | `SEM019` for `Me.X` and `Me!X` (``... is not a control or member of `Form_Orders` (host class `Lib.Form_Orders`)``), `SEM002` or `SEM003` for a bare name, with the class named; without `Option Explicit` a bare unknown name is an implicit variable as in VBA |
+| `Ctl_Event` handlers | the event must be among the control type's described events: a wrong parameter list or type is `SEM017`, so is a `ByVal` parameter for an event parameter described `ByRef` (`Cancel`); a name that matches no described event is a warning (it compiles and the host never calls it) |
+| `Form_Event` handlers | the same against the events of the class itself; the prefix (`Form`) is `ModuleScope::event_source("Report")` for reports |
+| `WithEvents` controls | unchanged: the declared type's events |
+| `For Each ctl In Me.Controls` | typed, see above |
+
+The engine-wide `host_members` list remains the fallback of every document and
+designer module without a scope. The class must exist in the provider: an
+unknown class name is `SEM004` on the module, which then keeps the fallback.
+A scope for a module the project does not have is ignored.
+
+At run time nothing changes: the module's own members answer first, the rest
+reaches the object given to `create_object` by name. That object is not
+compared with the class; build it with `HostObject::new(&lib, "Form_Orders",
+..)` from the same description so that the two cannot drift.
+
+**Design changes.** A form that gained or lost a control is described again
+and analysed again; no engine is rebuilt:
+
+* `Engine::set_module_scope(scope)` replaces the scope (and
+  `remove_module_scope(module)` drops it); `analyze` and `load` follow.
+* `Instance::set_module_scope(scope)` and `remove_module_scope(module)`
+  re-analyse a loaded program and swap it in, like `apply_edits` (same state
+  policy; `Busy` while a procedure runs). If the program no longer analyses
+  (code still uses a removed control) the diagnostics come back as the
+  error and the instance keeps its old scope and program.
+* Lower down, `SessionBuilder::module_scope` and `Session::set_module_scope`;
+  in `vba-sema`, `Options::module_hosts`.
+* The language server takes the same declaration as `vba.moduleHosts` (see
+  [lsp](../tooling/lsp.md)): controls complete after `Me.` and as bare names
+  inside the module, with hover and signature help; installing the new
+  description (`Workspace::set_type_provider`) updates them.
 
 ## Adapter 2: `Dispatch`
 
@@ -316,24 +391,30 @@ automatic `DISPID`s and for completion).
 | Validation: every rule above | `vba-host-model/tests/validate.rs` |
 | JSON: round trip, exact form, strict reader | `vba-host-model/tests/json.rs` |
 | Properties: JSON round trip, case-variant duplicates, dangling types, `TypeProvider` and `Dispatch` agree on every member, garbage never panics | `vba-host-model/tests/properties.rs` |
+| Per-module host classes: controls, `Me.X`, `Me!X`, handlers, `For Each`, `Implements`, fallback | `vba-host-model/tests/host_scope.rs` |
+| Module scopes through the facade: run, events, design change on an engine and on an instance | `vba-rs/tests/form_scopes.rs`, `cargo run -p vba-rs --example form_scopes` |
 | Facade: analyze and run one description end to end, errors in `Err`, `New`, `For Each`, events with `Cancel` | `vba-rs/tests/host_library.rs` |
 | Language server core: completion, hover, signature help, diagnostics | `vba-lsp-core/tests/host_library.rs` |
+| Language server, per-module classes | `vba-lsp-core/tests/host_scope.rs`, `vba-lsp/tests/host_libraries.rs` |
 | `vba-lsp` over stdio: file and inline descriptions, invalid ones, reload | `vba-lsp/tests/host_libraries.rs` |
 | Worked example | `cargo run -p vba-rs --example host_library` |
 
 ## Not covered
 
-* User-defined types (records) and aliases; interfaces to `Implements`
-  (a described class is listed as an interface by `interface_members`, so
-  `Implements Recordset` would require all of its members).
+* User-defined types (records) and aliases.
 * Inheritance between described classes: a parameter of class `A` accepts
-  only an `A` at run time.
+  only an `A`, at analysis time and at run time. A described interface is
+  implemented by a project class (`Implements`); a described class is not
+  a subtype of it.
 * Global functions cannot write back `ByRef` arguments (they are passed by
   value); named arguments work because the analysis puts them in parameter
   order before the call.
 * Collections with `Add`/`Remove` semantics are ordinary classes with an
-  `enumerable` item type; `For Each` element types are not used by the
-  analysis (the control variable is typed by its own `Dim`).
+  `enumerable` item type. The item type types an undeclared `For Each`
+  variable and is checked against a declared one; a `Variant` variable
+  stays a `Variant`.
+* The `Me` object of a module scope is not compared with the class at
+  `create_object`; events are matched by name, not by the object's identity.
 * Localised names, version gating of members, `Friend` members.
 * The description does not enforce that an implementation honours the
   described types of values it stores; results and arguments are converted at

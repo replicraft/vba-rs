@@ -68,6 +68,25 @@ entry that made it:
 - `Instance::with_output` (borrows the print buffer; `output` still copies),
   `InstanceThread::close_and_cancel`, `Project.Module.Proc` names in `run`/`call` (the project name
   is ignored), and `runtime::LoadError` as the `source()` of `runtime::Error::Load`.
+- Per-module host classes: `Engine::module_scope`, `Engine::set_module_scope`,
+  `Engine::remove_module_scope` and `Instance::set_module_scope` /
+  `remove_module_scope` (`ModuleScope`) declare the described class that is the `Me` of a form
+  module. Its bare names, `Me.Ctl`, `Me!Ctl` and `Ctl_Event` / `Form_Event` handlers are resolved
+  early bound and checked against that class only (unknown control, wrong event signature or
+  `ByVal Cancel` are diagnostics naming the class); a form whose design changed is analysed again
+  without rebuilding the engine. `vba-sema`: `Options::module_hosts` (`ModuleHost`),
+  `analyze_project_with_hosts`; `vba-runtime`: `SessionBuilder::module_scope`,
+  `Session::set_module_scope`; `vba-lsp`: `vba.moduleHosts` and `Config::module_hosts`
+  (completion, hover, signature help and diagnostics inside the form). `Engine::host_members`
+  stays the fallback for modules without a class. Example `form_scopes`.
+- `vba-sema` `TypeProvider::is_exact_class`, `is_interface` and `enumerable_item` (defaults: not
+  exact, unknown, none). For described classes (`vba-host-model`): assigning or passing one class
+  where another is required is a compile-time `SEM006` (was a run-time cast failing with error
+  13; type libraries are unchanged), `Implements` needs the new `HostClass::interface` flag
+  (JSON `"interface": true`), and `For Each` uses the `enumerable` item type (an undeclared
+  control variable takes it, a declared variable of another described class is `SEM018`).
+  `Ctl = v` where `Ctl` is a read-only property returning an object with a default member assigns
+  that default member.
 - `vba-host-model` and `vba::host_model`: describe an embedding application's object model once
   (`HostLibrary`, `HostClass`, `HostMember`, `HostParam`, `HostEnum`, `HostConst`, `HostGlobal`;
   validated by `check()` with typed `ModelError`s) and derive from it the sema `TypeProvider`, the

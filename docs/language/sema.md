@@ -30,9 +30,13 @@ the provider, and the `vba-stdlib` registry resolves intrinsic functions
 
 `TypeProvider` has a "does not know" default for every method:
 `resolve_type`, `member`, `default_member`, `describes_members`,
-`interface_members`, `events`, `global`, and for tools `catalog` (every
-top-level name with its kind) and `documentation` (the doc text of a type, a
-member or a global name). `StaticLibrary` is a table-driven implementation for
+`interface_members`, `events`, `global`, `is_interface` (may the type be
+named in `Implements`; `Some(false)` is `SEM011`), `enumerable_item` (the
+`For Each` element type), `is_exact_class` (a completely described class with
+no subtypes: assigning one such class to another is `SEM006` instead of a
+run-time cast; `false` by default and for type libraries), and for tools
+`catalog` (every top-level name with its kind) and `documentation` (the doc
+text of a type, a member or a global name). `StaticLibrary` is a table-driven implementation for
 tests and small hosts; `Layers` consults any number of providers in order;
 `vba-host-model`'s `CheckedLibrary` is a provider derived from a declarative
 description of an embedding application's object model
@@ -176,13 +180,32 @@ library types; a procedure `Var_Event` is a handler when `Var` is a
 `WithEvents` variable of the module, its event must exist (project class
 events, or the provider's `events`) and its parameter types must match.
 
+### Host classes of modules
+
+`Options::module_hosts` (`ModuleHost { module, class, event_source }`)
+names, per document, designer or class module, the provider class that is
+the module's `Me`. In such a module a name that the module does not declare
+is looked up in that class before the library layer: bare `Ctl`, `Me.Ctl`,
+`Me!Ctl` and `Me("Ctl")` with a literal key bind like members of a library
+type (typed, early bound by `DISPID`, arguments checked, read-only and
+write-only respected; `Ctl = v` for a read-only control property assigns the
+default member of the control's class). Because `Me` stays the module's own
+class, the module's declarations win and, at run time, an undeclared name
+reaches the host base object by name. A name the class lacks is `SEM019`
+(member access) or `SEM002`/`SEM003` (bare), naming the class. Procedures
+named `Ctl_Event` and `<event_source>_Event` are checked against the events of
+the control type and of the class (`SEM017`: wrong parameters, `ByVal` for a
+`ByRef` event parameter; an unknown event name is a warning). The class is
+resolved through the provider (`SEM004` when it does not exist). Modules
+without a host class keep `Options::host_members`.
+
 ## Not implemented / known gaps
 
-- Document and designer modules: members of the host base class and controls
-  (`Text1.Text`, `Show`, `Me.Caption`) cannot be verified without the form
-  description, so they are bound late with `SEM005`. A bare, unqualified,
-  undeclared name in such a module is still an ordinary implicit variable /
-  `SEM002`.
+- Document and designer modules without a host class (`Options::module_hosts`):
+  members of the host base class and controls (`Text1.Text`, `Show`,
+  `Me.Caption`) cannot be verified, so they are bound late with `SEM005`. A
+  bare, unqualified, undeclared name in such a module is an ordinary
+  implicit variable / `SEM002`, unless it is listed in `host_members`.
 - String literals are decoded as UTF-8 if valid, otherwise as Latin-1; the
   module code page is not applied. `Option Compare Database` compares like
   `Text`. Date literals that `vba-value` cannot parse stay as `DateText`.

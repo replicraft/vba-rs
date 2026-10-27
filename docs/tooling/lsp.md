@@ -222,7 +222,9 @@ Configuration, from `initializationOptions` or `workspace/configuration`
            "semantic": true, "projectName": "VBAProject",
            "moduleKinds": { "*.txt": "class", "Sheet1.vba": "document" },
            "typeLibraries": ["C:/libs/scrrun.dll", "libs/Shapes.tlb"],
-           "hostLibraries": ["libs/app-objects.json"] } }
+           "hostLibraries": ["libs/app-objects.json"],
+           "moduleHosts": { "Form_Orders": "Form_Orders",
+                            "Report_Sales": { "class": "Report_Sales", "eventSource": "Report" } } } }
 ```
 
 `profile` is one of the `vba-profile` identifiers, `encoding` is `utf-8` or a
@@ -242,6 +244,23 @@ or with malformed parameters get `InvalidParams` (-32602); refused renames
 and unsupported semantic requests get `RequestFailed` (-32803) with the
 reason; requests after `shutdown` get `InvalidRequest` (-32600). `exit`
 returns code 0 after `shutdown`, 1 otherwise.
+
+### Forms: `vba.moduleHosts`
+
+`moduleHosts` maps a module name to the class of a host library that is that
+module's `Me` (a string, or `{ "class": name, "eventSource": prefix }`; the
+prefix of the handlers of the class's own events is `Form` by default). In
+such a module the controls, properties and methods of that class complete as
+bare names and after `Me.`, with signatures and documentation; `Me.txtName.`
+and `txtName.` complete the members of the control's class; hover and
+signature help work on them (`Requery T`, `Me.Requery(T)`); and the
+diagnostics are those of the analysis: a control of another form is `SEM019`
+or `SEM002`/`SEM003` naming the class, handlers are checked against the
+described events. An embedder whose form design changes installs the new
+description (`Workspace::set_type_provider`, or a changed `hostLibraries`
+setting); `Config::module_hosts` is the in-process equivalent of the
+setting. Entries for modules that are not open are ignored; a class the
+libraries do not describe is `SEM004` on the module.
 
 ### Host libraries (`vba.hostLibraries`)
 
