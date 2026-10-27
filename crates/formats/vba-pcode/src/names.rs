@@ -5,19 +5,23 @@ use crate::project_stream::IdentTable;
 
 /// Built-in names confirmed by observation.
 ///
-/// Evidence kind for every entry: in observed VBA 7.0 x86 material,
-/// every instruction whose name operand has this built-in index sits on a
-/// source line that contains the spelling as a token, and no other
-/// candidate token is shared by all such lines. Entries observed fewer than
-/// twice are noted in `docs/formats/pcode-status.md`. Indices are the value `k`
-/// (`word >> 1`) after the VBA7 adjustment of section 5.2 of the format
-/// document; no confirmed entry lies in the adjusted range.
+/// Evidence kind for every entry: in observed material (VBA 6 and 7, 32-bit
+/// and 64-bit), every instruction whose name operand has this built-in index
+/// sits on a source line that contains the spelling as a token, and no other
+/// identifier-like candidate token is shared by all such lines. Entries
+/// observed fewer than twice are noted in `docs/formats/pcode-status.md`.
+/// Indices are the value `k` (`word >> 1`) after the VBA7 adjustment of
+/// section 5.2 of the format document; no confirmed entry lies in the
+/// adjusted range.
 ///
 /// The table is sorted by index. All other built-in indices are unknown and
 /// are reported as such, never guessed.
 pub const CONFIRMED_BUILTINS: &[(u16, &str)] = &[
     (8, "Append"),
+    (9, "Array"),
+    (11, "Assert"),
     (12, "b"),
+    (13, "Base"),
     (33, "Close"),
     (34, "Compare"),
     (41, "CVDate"),
@@ -26,15 +30,22 @@ pub const CONFIRMED_BUILTINS: &[(u16, &str)] = &[
     (63, "Dir"),
     (66, "DoEvents"),
     (72, "End"),
+    (77, "Error"),
     (82, "f"),
     (86, "Format"),
     (88, "FreeFile"),
     (110, "Left"),
+    (116, "Line"),
     (125, "Mid"),
     (131, "Name"),
+    (137, "Object"),
+    (139, "Open"),
     (154, "Randomize"),
+    (164, "Select"),
     (174, "String"),
     (178, "Text"),
+    (182, "Type"),
+    (185, "Unload"),
     // 9 uses, all on lines with the token; no other token shared by all
     // of them (the dot and `Me` are separate operands).
     (192, "Width"),

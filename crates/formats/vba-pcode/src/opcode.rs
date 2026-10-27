@@ -239,7 +239,7 @@ opcodes! {
     (156, IfBlockOpen, "IF_BLOCK_OPEN", None),
     (157, TypeTest, "TYPE_TEST", Obj),
     (158, IfBlockOpenTypeTest, "IF_BLOCK_OPEN_TYPE_TEST", Obj),
-    (159, ImplementsStmt, "IMPLEMENTS_STMT", WWWW),
+    (159, ImplementsStmt, "IMPLEMENTS_STMT", WW),
     (160, ReadListOpen, "READ_LIST_OPEN", None),
     (161, ReadListClose, "READ_LIST_CLOSE", None),
     (162, ReadListItem, "READ_LIST_ITEM", None),
@@ -386,15 +386,18 @@ const VERIFIED: &[u16] = &[
     258,
 ];
 
-/// Opcodes that occur in the observed material (135 of 264).
+/// Opcodes that occur in the observed material (167 of 264): 135 on VBA 7.0
+/// x86, 32 more in VBA 6 and 7 projects of both bitnesses, each decoding to
+/// the exact length of every line it occurs on.
 const SEEN: &[u16] = &[
-    3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 29,
-    32, 33, 34, 36, 37, 39, 40, 41, 43, 44, 46, 53, 55, 57, 65, 66, 70, 71, 73, 75, 76, 81, 82, 83,
-    84, 86, 88, 91, 93, 94, 95, 97, 98, 100, 101, 103, 105, 106, 107, 109, 110, 111, 112, 113, 114,
-    121, 122, 124, 132, 133, 134, 138, 142, 145, 146, 147, 149, 150, 152, 154, 155, 156, 157, 163,
-    165, 166, 168, 170, 171, 172, 173, 175, 176, 178, 183, 185, 186, 188, 189, 190, 191, 198, 201,
-    202, 203, 204, 207, 208, 209, 210, 211, 216, 217, 218, 220, 227, 228, 229, 232, 237, 240, 243,
-    245, 246, 247, 248, 250, 257, 258, 260,
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 29,
+    30, 32, 33, 34, 35, 36, 37, 39, 40, 41, 43, 44, 46, 47, 48, 50, 51, 53, 55, 57, 59, 61, 65, 66,
+    67, 68, 69, 70, 71, 73, 75, 76, 77, 81, 82, 83, 84, 86, 88, 91, 93, 94, 95, 97, 98, 99, 100,
+    101, 103, 105, 106, 107, 109, 110, 111, 112, 113, 114, 116, 117, 120, 121, 122, 123, 124, 132,
+    133, 134, 138, 141, 142, 145, 146, 147, 149, 150, 152, 154, 155, 156, 157, 159, 163, 165, 166,
+    167, 168, 170, 171, 172, 173, 175, 176, 178, 183, 185, 186, 188, 189, 190, 191, 194, 195, 198,
+    201, 202, 203, 204, 207, 208, 209, 210, 211, 212, 213, 216, 217, 218, 220, 227, 228, 229, 230,
+    232, 237, 240, 243, 245, 246, 247, 248, 250, 251, 252, 253, 255, 256, 257, 258, 260, 262,
 ];
 
 impl Opcode {
@@ -420,12 +423,13 @@ mod tests {
         assert!(VERIFIED.windows(2).all(|w| w[0] < w[1]));
         assert!(SEEN.windows(2).all(|w| w[0] < w[1]));
         assert!(VERIFIED.iter().all(|v| SEEN.contains(v)));
-        assert_eq!(SEEN.len(), 135);
+        assert_eq!(SEEN.len(), 167);
         assert!(SEEN.iter().all(|&n| Opcode::from_canonical(n).is_some()));
         assert_eq!(Opcode::NumAdd.evidence(), Evidence::Verified);
         assert_eq!(Opcode::ReadDot.evidence(), Evidence::Inferred);
         assert_eq!(Opcode::FileOpen.evidence(), Evidence::Inferred);
-        assert_eq!(Opcode::ImplementsStmt.evidence(), Evidence::Unseen);
+        assert_eq!(Opcode::ImplementsStmt.evidence(), Evidence::Inferred);
+        assert_eq!(Opcode::ProcContext.evidence(), Evidence::Unseen);
     }
 
     #[test]
