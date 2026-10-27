@@ -43,7 +43,7 @@ impl Sema<'_> {
     /// or enum differs from the name of every module and of every other
     /// public type or enum of the project.
     fn check_public_type_names(&self) {
-        let mut seen: std::collections::HashMap<Name, ()> = std::collections::HashMap::new();
+        let mut seen: std::collections::HashSet<Name> = std::collections::HashSet::new();
         let decls = self
             .program
             .udts
@@ -66,7 +66,7 @@ impl Sema<'_> {
                     span,
                     format!("the public {what} `{name}` has the name of a module of the project"),
                 );
-            } else if seen.insert(name.clone(), ()).is_some() {
+            } else if !seen.insert(name.clone()) {
                 self.spec_strict(
                     module,
                     codes::TYPE_DECLARATION,

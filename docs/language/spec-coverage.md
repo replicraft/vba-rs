@@ -187,14 +187,14 @@ object variables without a default member are analysis errors rather than run-ti
 
 * The lexer recognises U+2028/2029 line terminators and Unicode space characters only in
   sources that are valid UTF-8; code-page text is byte-based (3.2.1, 3.2.2).
-* Circular dependencies between modules through `Const`, `Enum`, `Type`, `Implements`, `Event`
-  (5.2.3.6); forward references between Enum members; uniqueness of public type names across
-  modules; reserved words as `Type` member names; `Dim a&(n)` at module level; `#ordinal`
-  alias checks of `Declare`; `VB_GlobalNameSpace` classes.
-* `Call` on an object whose default member is a property is not error 450;
-  late-bound named-argument error numbers (448/449); trailing `Static` in a procedure header;
-  event-handler declaration rules; private types as result types; Variant overflow promotion
-  for Date and Single operands.
+* `VB_GlobalNameSpace` classes; an event named like a variable, constant or procedure of its
+  class (one namespace here); a variable named like an Enum of its module; circular
+  dependencies through `Type` and `Event` declarations.
+* `Call` on an object whose default member is a property is not error 450; a label named like
+  the `Randomize` statement is accepted; `As New` in a `Type` member stays rejected; a
+  `ByRef Object` parameter given a variable of a specific class stays rejected (only
+  `ByRef Variant` takes a copy); late-bound named-argument error numbers (448/449); Variant
+  overflow promotion for Date and Single operands.
 * `Lock`/`Unlock` ranges are not tracked; `Width` does not wrap a single long item;
   `Write` with a trailing semicolon or `Spc`; static checks of `Input`/`Put`/`Get` operands.
 * `MidB` statement, `LSet`/`RSet` between UDTs, `Str` of a Date.

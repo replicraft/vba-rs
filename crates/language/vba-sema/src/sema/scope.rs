@@ -144,6 +144,11 @@ pub(crate) struct ModuleScope<'s, 'a> {
 }
 
 impl ModuleScope<'_, '_> {
+    fn eval_member(&self, e: EnumId, i: usize) -> Option<i32> {
+        self.sema.check_enum_forward_reference(e, i);
+        self.sema.eval_enum_member(e, i)
+    }
+
     fn symbol_const(&self, owner: ModuleId, sym: Symbol) -> ConstLookup {
         if owner != self.module && matches!(sym, Symbol::Const(_) | Symbol::EnumMember(..)) {
             self.sema
@@ -156,10 +161,7 @@ impl ModuleScope<'_, '_> {
                 Some((v, t)) => ConstLookup::Found(v, t),
                 None => ConstLookup::Failed,
             },
-            Symbol::EnumMember(e, i) => match {
-                self.sema.check_enum_forward_reference(e, i as usize);
-                self.sema.eval_enum_member(e, i as usize)
-            } {
+            Symbol::EnumMember(e, i) => match self.eval_member(e, i as usize) {
                 Some(v) => {
                     ConstLookup::Found(Constant::Value(vba_value::Variant::Long(v)), Type::Enum(e))
                 }

@@ -1,6 +1,6 @@
 ' INV: vbal.5.2.3.1
 ' SOURCE: spec ms-vbal 5.2.3.1 variable may share the enum name of an enum in the same module
-' XFAIL: wrong not implemented: a variable named like an Enum type of the module
+' XFAIL: wrong not implemented: a module-level variable and an Enum of the same name are one namespace here (SEM001 duplicate declaration); VBA is believed to do the same, unconfirmed
 ' EXPECT: ok=4
 Private Enum Color
     Red = 1
