@@ -13,6 +13,8 @@ mod events;
 mod forms;
 mod host;
 mod more;
+mod names;
+mod robust;
 mod session;
 
 use std::rc::Rc;

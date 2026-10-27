@@ -760,6 +760,89 @@ host methods, in whatever order the program calls them. Therefore:
   and the other gaps listed in [vm.md](../runtime/vm.md) and
   [conformance.md](../tooling/conformance.md).
 
+### Known limits
+
+Found while building the stand-in host of section 13. Each is pinned by a test
+in `crates/api/vba-rs/tests/db_host/` unless noted.
+
+* **`ByRef` write-back from a host member is not converted to the variable's
+  declared type.** `Dim n As Long` passed to `Application.TryGetOption("x", n)`
+  holds whatever `Value` the host wrote (a `String` becomes the content of a
+  `Long` variable until the next arithmetic fails with 13). The VM does not know
+  the declared type of the caller's variable at that point and `ParamInfo` has no
+  type. A host must write back values of the type its parameter documents
+  (`Variant` parameters take anything). Fixing it needs a conversion step in the
+  compiled call site.
+* **Frames of a failing nested handler are not in the outer report.** When
+  `DoCmd.OpenForm` runs `Form_Current` and that fails, the outer `Error` carries
+  the nested number, description and source (so `On Error` and `Err` see them)
+  but its stack lists only the outer frames. `HostContext::raise_event_on`
+  returns the nested `Error` with its frames; log them in the host before
+  converting with `DispError::from`.
+* **Host name lists are engine-wide.** `Engine::host_members` is one list for
+  all document modules of the engine; a control name of one form is accepted
+  (late bound) in every form module, so a typo that happens to be another form's
+  control is not caught. The list must be known before `load`; adding a control
+  means building a new `Engine`. A declarative per-module description belongs to
+  the host type provider work, not to this contract.
+* **A host constant is a constant, a host global is an object.** Use
+  `Engine::constant(s)` for enum members and literals; `Engine::global` /
+  `dispatch_global` return objects. A non-object `global` value is not
+  readable as a bare name (error 424) and is not a constant expression.
+* **Types in `As` clauses need a `TypeProvider`.** `Dim rs As DAO.Recordset`,
+  `Dim f As Form` and `WithEvents` need the type (and, for `WithEvents`, its
+  events) described: `Engine::load_with(.., |b| b.extra_provider(StaticLibrary..))`
+  from `vba::raw::sema`. Opaque types keep members late bound. The
+  stand-in's `libraries()` shows the minimum. `Object` always works.
+* **Returning an object that is not yours.** A member that returns one of its
+  arguments, or a stored object, must `ObjectTable::add_ref_value` it first
+  (the caller owns one reference). Forgetting this does not fail at the call;
+  the object is released once too often and a later use fails with 91 or 424.
+  The `live_count` leak check in the stand-in's `robust.rs` is the way to
+  find such mistakes.
+* **`TypeName(obj)` names the object, `IsNull`, `IsEmpty`, `IsNumeric`,
+  `IsDate` and `VarType` use the default member when the object has one.**
+  This mirrors the documented description of `VarType` ("the type of an
+  object's default property") and the usual `IsNull(Me.Field)` idiom; the
+  `IsNull`-family choice is **unverified** against a real host.
+* **Host error number 0 is raised as 5**, because 0 means "no error" to VBA
+  code. Numbers above 65535 and negative numbers are passed through.
+* **`MsgBox` without UI hooks** fails with a trappable error 70; install
+  `Engine::ui(..)`.
+* **Reentrancy depth** beyond `VmConfig::max_reentrancy_depth` is a trappable
+  error 5 in the frame that made the call (not a fatal fault).
+
+## 13. A database-application host: the stand-in
+
+`crates/api/vba-rs/tests/db_host/` is a generic stand-in written with the public
+facade only, the way an adapter would be. It models an `Application`, `DoCmd`,
+`CurrentDb` with recordsets (`EOF`, `MoveNext`, `rs!Field`, `Fields("x").Value`,
+`AddNew`/`Edit`/`Update`), `Forms`/`Reports` collections (`Forms!Orders`,
+`Forms("Orders")`, `For Each`, `Count`), `Screen.ActiveForm`, `TempVars`, domain
+functions (`DLookup`, `DCount`, `Nz`, `Eval`) and constants. Forms are document
+modules whose `Me` is a host object. The tests show the patterns:
+
+| Need | Pattern |
+| --- | --- |
+| Global function (`Nz(x, d)`, `DLookup(..)`) | `dispatch_global("Nz", ..)` with an object whose method is also its default member (`MemObject::default_member`); optional parameters use `ParamInfo::optional(..).with_default(..)`, an omitted one without default is `Arg::is_missing()` |
+| Enum members and literals | `Engine::constants([("acViewNormal", 0), ..])`; they work in `Const`, `Case` and array bounds |
+| `Dim x As VbMsgBoxResult` and the other VBA enumeration types | built in (they hold a `Long`) |
+| Host collection (`Forms`) | a `Dispatch` with `Item` as `DISPID_VALUE` (name or index), `Count` and `DISPID_NEWENUM` returning an object whose `enumerator()` is set; items are borrowed, add one reference per returned object |
+| `rs!Name`, `rs("Name")`, `rs!Name = v` | `Fields` (or `Item`) as `DISPID_VALUE` taking the key and returning an object whose `Value` is `DISPID_VALUE`; the VM chains and applies `Let` to the default member |
+| Controls as `Me.Ctl`, `Me!Ctl`, `Me("Ctl")`, bare `Ctl` | `member_id` resolves control names, `DISPID_VALUE` takes the name, and every control name goes into `Engine::host_members` |
+| Form events with `Cancel` | `Instance::raise_event_on(form, "Form", "BeforeUpdate", vec![Arg::by_ref(0)])`; control events use the control name as source (`cmdSave_Click`); report modules use `Report` |
+| `WithEvents` on a host object | the object returns a `ConnectionPoint` from `event_source()`, `reentrant()` is `true` when VBA raises the event through a host call (synchronous, with write-back), otherwise events are queued: `Instance::deliver_pending_events()` |
+| `DoCmd.OpenForm` and similar | a `reentrant()` object using `HostContext::current(table)`: `create_object`, `raise_event_on`, `destroy_object`; an event handler error becomes `DispError::from(err)` |
+| `Application.Run "Proc", a, b` | a reentrant method with a `ParamArray` that calls `HostContext::call(CallTarget::Project, name, args)`; from the host the same call is `Instance::call` (module-qualified names and named arguments work) |
+| `MsgBox` / `InputBox` | `Engine::ui(impl UiHooks)` |
+| Host errors | `DispError::raise(number, description, source)`; `Err.Number/Description/Source` are exactly those, `On Error` traps them |
+| Class modules from host code | `create_object("Counter", None)`, `call_on`, `get_member`/`set_member` (`Property Let`), `destroy_object` runs `Class_Terminate` |
+| Limits around host entry points | `Instance::with_call_limits`; a runaway handler reached through `DoCmd.OpenForm` ends with `limit` and the instance is reusable after `reset_step_counter` |
+
+Expected values in the stand-in tests are reasoned from VBA semantics; messages
+and numbers that imitate a familiar product are marked unverified there. The
+stand-in does not claim compatibility with any real product.
+
 ## Phased integration
 
 A suggested order for an embedding application (a database application with
@@ -767,7 +850,8 @@ forms, reports and a recordset-like data layer) that wraps vba-rs in a thin
 adapter crate behind a Cargo feature. Each phase is usable on its own and ends
 with something you can test. `crates/api/vba-rs/examples/embedded_table.rs`
 exercises phases 1 to 4 with an in-memory table, and
-`crates/api/vba-rs/tests/host_app.rs` pins the behavior.
+`crates/api/vba-rs/tests/host_app.rs` pins the behavior; section 13 describes the larger
+stand-in host in `crates/api/vba-rs/tests/db_host/`.
 
 | Phase | Goal | Facade items | Done when |
 | --- | --- | --- | --- |

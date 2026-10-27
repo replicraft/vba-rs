@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::host::*;
 use crate::orders_db;
-use vba::{Arg, CallTarget, Instance, ModuleKind, Variant};
+use vba::{CallTarget, Instance, ModuleKind, Variant};
 
 pub const FORM_ORDERS: &str = "\
 Option Explicit
@@ -165,4 +165,3 @@ fn open_form_runs_open_load_current_in_order_and_binds_the_first_record() {
     assert_eq!(st.value("Customer"), Variant::from("Ann"));
     assert!(st.ctl("cmdSave").unwrap().1.enabled.get());
 }
-

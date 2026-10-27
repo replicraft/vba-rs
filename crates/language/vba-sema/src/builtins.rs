@@ -595,11 +595,7 @@ const VBA_ENUM_TYPES: &[&str] = &[
 impl TypeProvider for BuiltinLibrary {
     fn resolve_declared(&self, qualifier: Option<&str>, name: &str) -> Option<Type> {
         let vba_scope = qualifier.is_none_or(|q| q.eq_ignore_ascii_case(VBA_LIBRARY));
-        if vba_scope
-            && VBA_ENUM_TYPES
-                .iter()
-                .any(|e| e.eq_ignore_ascii_case(name))
-        {
+        if vba_scope && VBA_ENUM_TYPES.iter().any(|e| e.eq_ignore_ascii_case(name)) {
             return Some(Type::Long);
         }
         self.resolve_type(qualifier, name).map(Type::Library)

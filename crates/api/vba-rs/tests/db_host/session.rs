@@ -87,11 +87,19 @@ fn the_embedder_calls_by_module_qualified_and_named_arguments() {
     let db = orders_db();
     let mut inst = load(&db, &[("Math", ModuleKind::Standard, MATH)]);
     let r = inst
-        .call(CallTarget::Project, "Math.Add", vec![Arg::val(1), Arg::named("b", Arg::val(41))])
+        .call(
+            CallTarget::Project,
+            "Math.Add",
+            vec![Arg::val(1), Arg::named("b", Arg::val(41))],
+        )
         .unwrap();
     assert_eq!(r.value, Variant::Long(42));
     let r = inst
-        .call(CallTarget::Project, "add", vec![Arg::val(1), Arg::missing()])
+        .call(
+            CallTarget::Project,
+            "add",
+            vec![Arg::val(1), Arg::missing()],
+        )
         .unwrap();
     assert_eq!(r.value, Variant::Long(11));
     let err = inst
@@ -203,7 +211,10 @@ fn a_class_module_is_instantiated_and_driven_from_host_code() {
     let c = inst.create_object("Counter", None).unwrap();
     inst.call_on(c, "Add", vec![Arg::val(5)]).unwrap();
     inst.call_on(c, "Add", vec![Arg::val(7)]).unwrap();
-    assert_eq!(inst.call_on(c, "Total", vec![]).unwrap().value, Variant::Long(12));
+    assert_eq!(
+        inst.call_on(c, "Total", vec![]).unwrap().value,
+        Variant::Long(12)
+    );
     assert_eq!(inst.get_member(c, "Total").unwrap(), Variant::Long(12));
     // Property Let through set_member, a public field the same way.
     inst.set_member(c, "Limit", Variant::Long(20)).unwrap();
@@ -255,7 +266,11 @@ fn withevents_on_a_host_control_gets_events_from_vba_and_from_the_host() {
     let mut inst = load_typed(
         &db,
         &[
-            ("Module1", ModuleKind::Standard, "Public Sub OpenOrders()\n DoCmd.OpenForm \"Orders\"\nEnd Sub\n"),
+            (
+                "Module1",
+                ModuleKind::Standard,
+                "Public Sub OpenOrders()\n DoCmd.OpenForm \"Orders\"\nEnd Sub\n",
+            ),
             ("Form_Orders", ModuleKind::Document, FORM_ORDERS),
             ("Watcher", ModuleKind::Class, WATCHER),
             ("Wire", ModuleKind::Standard, WIRE),
@@ -288,7 +303,11 @@ fn property_set_on_a_host_object_keeps_the_recordset_alive() {
     let mut inst = load_typed(
         &db,
         &[
-            ("Module1", ModuleKind::Standard, "Public Sub OpenDetails()\n DoCmd.OpenForm \"Details\"\nEnd Sub\n"),
+            (
+                "Module1",
+                ModuleKind::Standard,
+                "Public Sub OpenDetails()\n DoCmd.OpenForm \"Details\"\nEnd Sub\n",
+            ),
             ("Form_Details", ModuleKind::Document, "Option Explicit\n"),
             (
                 "Probe",

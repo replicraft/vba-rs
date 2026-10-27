@@ -100,15 +100,23 @@ End Sub
 fn is_functions_look_at_the_default_member_of_objects_that_have_one() {
     let engine = Engine::new()
         .dispatch_global("NullBox", || {
-            MemObject::new("TextBox").property("Value", Variant::Null).default_member("Value")
+            MemObject::new("TextBox")
+                .property("Value", Variant::Null)
+                .default_member("Value")
         })
         .dispatch_global("EmptyBox", || {
-            MemObject::new("TextBox").property("Value", Variant::Empty).default_member("Value")
+            MemObject::new("TextBox")
+                .property("Value", Variant::Empty)
+                .default_member("Value")
         })
         .dispatch_global("TextBox", || {
-            MemObject::new("TextBox").property("Value", Variant::from("12")).default_member("Value")
+            MemObject::new("TextBox")
+                .property("Value", Variant::from("12"))
+                .default_member("Value")
         })
-        .dispatch_global("Plain", || MemObject::new("Thing").property("Size", Variant::Long(1)));
+        .dispatch_global("Plain", || {
+            MemObject::new("Thing").property("Size", Variant::Long(1))
+        });
     let out = run(
         &engine,
         "\

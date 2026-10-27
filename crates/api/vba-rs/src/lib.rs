@@ -268,8 +268,8 @@ pub use vba_value::{Currency, Date, Decimal, VarType, Variant, VbaArray, VbaStri
 
 // Host contract and policy.
 pub use vba_host::{
-    Capability, HeadlessHost, Host, HostMetadata, HostResult, InputBoxRequest, MsgBoxRequest, Policy,
-    ResourceLimits, ScriptedHost, UiHooks,
+    Capability, HeadlessHost, Host, HostMetadata, HostResult, InputBoxRequest, MsgBoxRequest,
+    Policy, ResourceLimits, ScriptedHost, UiHooks,
 };
 
 /// The automation traits an embedder implements to expose host objects.

@@ -50,7 +50,10 @@ fn form_before_update_cancel_blocks_the_save_and_msgbox_goes_through_the_ui_hook
     user_edit(&mut inst, &st, "Customer", Variant::from("Xavier")).unwrap();
     assert!(save_record(&mut inst, &st).unwrap());
     assert_eq!(db.rows("orders")[0][1], Variant::from("Xavier"));
-    assert!(inst.output().ends_with("BeforeUpdate cancel=0\nsaved Xavier\n"));
+    assert!(
+        inst.output()
+            .ends_with("BeforeUpdate cancel=0\nsaved Xavier\n")
+    );
     assert_eq!(st.props.borrow()["dirty"], Variant::Boolean(false));
 }
 
@@ -64,12 +67,16 @@ fn a_click_handler_named_after_a_control_runs_with_the_bare_control_names() {
         .borrow_mut()
         .insert("dirty".into(), Variant::Boolean(true));
     let obj = st.object.get().unwrap();
-    let out = inst.raise_event_on(obj, "cmdSave", "Click", vec![]).unwrap();
+    let out = inst
+        .raise_event_on(obj, "cmdSave", "Click", vec![])
+        .unwrap();
     assert!(out.handled);
     assert_eq!(out.output, "click dirty=True\n");
     assert_eq!(st.props.borrow()["dirty"], Variant::Boolean(false));
     // No handler for this event: not an error, not handled.
-    let none = inst.raise_event_on(obj, "lblInfo", "Click", vec![]).unwrap();
+    let none = inst
+        .raise_event_on(obj, "lblInfo", "Click", vec![])
+        .unwrap();
     assert!(!none.handled);
 }
 

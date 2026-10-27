@@ -16,8 +16,8 @@ use std::rc::Rc;
 
 use vba::automation::testing::MemObject;
 use vba::automation::{
-    ConnectionPoint, DispError, DispId, DispParams, Dispatch, EventSource, InvokeFlags,
-    MemberInfo, ObjectHandle, ObjectRef, ObjectTable, ParamInfo, VariantEnum,
+    ConnectionPoint, DispError, DispId, DispParams, Dispatch, EventSource, InvokeFlags, MemberInfo,
+    ObjectHandle, ObjectRef, ObjectTable, ParamInfo, VariantEnum,
 };
 use vba::{
     Arg, CallTarget, Engine, Error, HostContext, InputBoxRequest, Instance, MsgBoxRequest, UiHooks,
@@ -136,11 +136,7 @@ impl UiHooks for TestUi {
             .borrow_mut()
             .push(format!("input:{}|{}", req.prompt, req.default));
         let mut a = self.0.inputs.borrow_mut();
-        Ok(if a.is_empty() {
-            None
-        } else {
-            a.remove(0)
-        })
+        Ok(if a.is_empty() { None } else { a.remove(0) })
     }
 }
 
@@ -350,7 +346,10 @@ impl Dispatch for Field {
     }
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
         let (n, f) = match id {
-            DispId::VALUE => ("Value", InvokeFlags::PROPERTY_GET | InvokeFlags::PROPERTY_PUT),
+            DispId::VALUE => (
+                "Value",
+                InvokeFlags::PROPERTY_GET | InvokeFlags::PROPERTY_PUT,
+            ),
             DispId(2) => ("Name", InvokeFlags::PROPERTY_GET),
             _ => return None,
         };
@@ -491,7 +490,11 @@ impl FormState {
 
     /// The object of control `i`, created on first use. The returned handle
     /// is borrowed: the form owns the table's initial reference.
-    fn control_handle(self: &Rc<Self>, table: &ObjectTable, i: usize) -> Result<ObjectHandle, DispError> {
+    fn control_handle(
+        self: &Rc<Self>,
+        table: &ObjectTable,
+        i: usize,
+    ) -> Result<ObjectHandle, DispError> {
         let mut handles = self.handles.borrow_mut();
         if let Some(h) = handles[i] {
             return Ok(h);
@@ -810,12 +813,14 @@ impl Dispatch for Control {
                 }
             }
             2 if flags.is_write() => {
-                c.visible.set(bool::try_from(&put()).map_err(|_| DispError::TYPE_MISMATCH)?);
+                c.visible
+                    .set(bool::try_from(&put()).map_err(|_| DispError::TYPE_MISMATCH)?);
                 Ok(Variant::Empty)
             }
             2 => Ok(Variant::Boolean(c.visible.get())),
             3 if flags.is_write() => {
-                c.enabled.set(bool::try_from(&put()).map_err(|_| DispError::TYPE_MISMATCH)?);
+                c.enabled
+                    .set(bool::try_from(&put()).map_err(|_| DispError::TYPE_MISMATCH)?);
                 Ok(Variant::Empty)
             }
             3 => Ok(Variant::Boolean(c.enabled.get())),
@@ -854,6 +859,7 @@ impl Dispatch for Control {
 
 /// A host collection over a live list: `Count`, `Item(name or 0-based
 /// index)` as the default member (so `Forms!Orders` works) and `For Each`.
+#[allow(clippy::type_complexity)]
 pub struct Collection {
     class: &'static str,
     /// The live items as (name, object); the objects are borrowed, the
@@ -866,7 +872,11 @@ impl Collection {
     pub fn of_forms(db: &Rc<Db>, kind: Kind) -> Collection {
         let db = db.clone();
         Collection {
-            class: if kind == Kind::Form { "Forms" } else { "Reports" },
+            class: if kind == Kind::Form {
+                "Forms"
+            } else {
+                "Reports"
+            },
             list: Box::new(move |_| {
                 let list = match kind {
                     Kind::Form => db.forms.borrow().clone(),
@@ -895,7 +905,10 @@ impl Collection {
                 (0..st.ctls.len())
                     .map(|i| {
                         let h = st.control_handle(t, i)?;
-                        Ok((st.ctls[i].name.clone(), Variant::Object(ObjectRef::Handle(h))))
+                        Ok((
+                            st.ctls[i].name.clone(),
+                            Variant::Object(ObjectRef::Handle(h)),
+                        ))
                     })
                     .collect()
             }),
@@ -963,7 +976,12 @@ impl Dispatch for Collection {
     }
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
         match id.0 {
-            1 => Some(MemberInfo::new("Count", id, InvokeFlags::PROPERTY_GET, vec![])),
+            1 => Some(MemberInfo::new(
+                "Count",
+                id,
+                InvokeFlags::PROPERTY_GET,
+                vec![],
+            )),
             i if i == DispId::VALUE.0 => Some(MemberInfo::new(
                 "Item",
                 id,
@@ -1023,10 +1041,7 @@ impl Dispatch for Collection {
 
 // ------------------------------------------------------------------ DoCmd
 
-fn bind_args(
-    info: &[ParamInfo],
-    params: &DispParams,
-) -> Result<vba::automation::Bound, DispError> {
+fn bind_args(info: &[ParamInfo], params: &DispParams) -> Result<vba::automation::Bound, DispError> {
     vba::automation::bind(info, params)
 }
 
@@ -1050,7 +1065,9 @@ fn open_form(
         // (unverified) wording
         return Err(err(
             2102,
-            &format!("The form name '{name}' is misspelled or refers to a form that doesn't exist."),
+            &format!(
+                "The form name '{name}' is misspelled or refers to a form that doesn't exist."
+            ),
             "DoCmd",
         ));
     };
@@ -1063,7 +1080,12 @@ fn open_form(
         Ok(o.byref.first().is_some_and(|v| *v != Variant::Integer(0)))
     };
     db.note(format!("open {} begin", st.name));
-    if cancelled(ctx.raise_event_on(obj, st.kind.source(), "Open", vec![Arg::by_ref(Variant::Integer(0))]))? {
+    if cancelled(ctx.raise_event_on(
+        obj,
+        st.kind.source(),
+        "Open",
+        vec![Arg::by_ref(Variant::Integer(0))],
+    ))? {
         ctx.destroy_object(obj).map_err(DispError::from)?;
         db.note(format!("open {} cancelled", st.name));
         return Err(err(2501, "The OpenForm action was canceled.", "DoCmd"));
@@ -1092,8 +1114,7 @@ pub const AC_REPORT: i32 = 3;
 pub fn docmd(db: &Rc<Db>) -> MemObject {
     let (d1, d2, d3, d4) = (db.clone(), db.clone(), db.clone(), db.clone());
     let ctx = |t: &ObjectTable| {
-        HostContext::current(t)
-            .ok_or_else(|| err(5, "DoCmd needs a running session", "DoCmd"))
+        HostContext::current(t).ok_or_else(|| err(5, "DoCmd needs a running session", "DoCmd"))
     };
     MemObject::new("DoCmd")
         .reentrant()
@@ -1101,7 +1122,9 @@ pub fn docmd(db: &Rc<Db>) -> MemObject {
             "OpenForm",
             vec![
                 ParamInfo::required("FormName").by_val(),
-                ParamInfo::optional("View").by_val().with_default(Variant::Long(0)),
+                ParamInfo::optional("View")
+                    .by_val()
+                    .with_default(Variant::Long(0)),
                 ParamInfo::optional("FilterName").by_val(),
                 ParamInfo::optional("WhereCondition").by_val(),
                 ParamInfo::optional("DataMode").by_val(),
@@ -1122,17 +1145,27 @@ pub fn docmd(db: &Rc<Db>) -> MemObject {
             "OpenReport",
             vec![
                 ParamInfo::required("ReportName").by_val(),
-                ParamInfo::optional("View").by_val().with_default(Variant::Long(0)),
+                ParamInfo::optional("View")
+                    .by_val()
+                    .with_default(Variant::Long(0)),
             ],
             move |t, call| {
-                open_form(&ctx(t)?, &d2, &txt(&call.args[0].value), Kind::Report, Variant::Null)?;
+                open_form(
+                    &ctx(t)?,
+                    &d2,
+                    &txt(&call.args[0].value),
+                    Kind::Report,
+                    Variant::Null,
+                )?;
                 Ok(Variant::Empty)
             },
         )
         .method(
             "Close",
             vec![
-                ParamInfo::optional("ObjectType").by_val().with_default(Variant::Long(AC_FORM)),
+                ParamInfo::optional("ObjectType")
+                    .by_val()
+                    .with_default(Variant::Long(AC_FORM)),
                 ParamInfo::optional("ObjectName").by_val(),
                 ParamInfo::optional("Save").by_val(),
             ],
@@ -1148,21 +1181,33 @@ pub fn docmd(db: &Rc<Db>) -> MemObject {
                         Kind::Form => d3.forms.borrow(),
                         Kind::Report => d3.reports.borrow(),
                     };
-                    list.iter().find(|f| f.name.eq_ignore_ascii_case(&name)).cloned()
+                    list.iter()
+                        .find(|f| f.name.eq_ignore_ascii_case(&name))
+                        .cloned()
                 };
                 let Some(st) = found else {
                     // (unverified) wording
-                    return Err(err(2489, &format!("The object '{name}' isn't open."), "DoCmd"));
+                    return Err(err(
+                        2489,
+                        &format!("The object '{name}' isn't open."),
+                        "DoCmd",
+                    ));
                 };
                 let c = ctx(t)?;
                 let obj = st.object.get().expect("open form has an object");
                 let o = c
-                    .raise_event_on(obj, st.kind.source(), "Unload", vec![Arg::by_ref(Variant::Integer(0))])
+                    .raise_event_on(
+                        obj,
+                        st.kind.source(),
+                        "Unload",
+                        vec![Arg::by_ref(Variant::Integer(0))],
+                    )
                     .map_err(DispError::from)?;
                 if o.byref[0] != Variant::Integer(0) {
                     return Err(err(2501, "The Close action was canceled.", "DoCmd"));
                 }
-                c.raise_event_on(obj, st.kind.source(), "Close", vec![]).map_err(DispError::from)?;
+                c.raise_event_on(obj, st.kind.source(), "Close", vec![])
+                    .map_err(DispError::from)?;
                 match kind {
                     Kind::Form => d3.forms.borrow_mut().retain(|f| !Rc::ptr_eq(f, &st)),
                     Kind::Report => d3.reports.borrow_mut().retain(|f| !Rc::ptr_eq(f, &st)),
@@ -1211,7 +1256,10 @@ pub fn tempvars(db: &Rc<Db>) -> MemObject {
     MemObject::new("TempVars")
         .method(
             "Add",
-            vec![ParamInfo::required("Name").by_val(), ParamInfo::required("Value").by_val()],
+            vec![
+                ParamInfo::required("Name").by_val(),
+                ParamInfo::required("Value").by_val(),
+            ],
             move |_, call| {
                 let n = txt(&call.args[0].value);
                 let mut t = a.temp.borrow_mut();
@@ -1228,22 +1276,39 @@ pub fn tempvars(db: &Rc<Db>) -> MemObject {
             vec![ParamInfo::required("Index").by_val()],
             move |t, call| {
                 let n = txt(&call.args[0].value);
-                if !b.temp.borrow().iter().any(|(k, _)| k.eq_ignore_ascii_case(&n)) {
-                    return Err(DispError::Hresult(vba::raw::automation::hresult::DISP_E_BADINDEX));
+                if !b
+                    .temp
+                    .borrow()
+                    .iter()
+                    .any(|(k, _)| k.eq_ignore_ascii_case(&n))
+                {
+                    return Err(DispError::Hresult(
+                        vba::raw::automation::hresult::DISP_E_BADINDEX,
+                    ));
                 }
-                Ok(Variant::Object(ObjectRef::Handle(
-                    t.insert_obj(TempVar { db: b.clone(), name: n }),
-                )))
+                Ok(Variant::Object(ObjectRef::Handle(t.insert_obj(TempVar {
+                    db: b.clone(),
+                    name: n,
+                }))))
             },
             None,
         )
         .default_member("Item")
-        .computed("Count", move |_| Variant::Long(c.temp.borrow().len() as i32))
-        .method("Remove", vec![ParamInfo::required("Index").by_val()], move |_, call| {
-            let n = txt(&call.args[0].value);
-            d.temp.borrow_mut().retain(|(k, _)| !k.eq_ignore_ascii_case(&n));
-            Ok(Variant::Empty)
-        })
+        .computed(
+            "Count",
+            move |_| Variant::Long(c.temp.borrow().len() as i32),
+        )
+        .method(
+            "Remove",
+            vec![ParamInfo::required("Index").by_val()],
+            move |_, call| {
+                let n = txt(&call.args[0].value);
+                d.temp
+                    .borrow_mut()
+                    .retain(|(k, _)| !k.eq_ignore_ascii_case(&n));
+                Ok(Variant::Empty)
+            },
+        )
         .method("RemoveAll", vec![], move |_, _| {
             e.temp.borrow_mut().clear();
             Ok(Variant::Empty)
@@ -1275,7 +1340,12 @@ impl Dispatch for TempVar {
                 InvokeFlags::PROPERTY_GET | InvokeFlags::PROPERTY_PUT,
                 vec![],
             )),
-            2 => Some(MemberInfo::new("Name", id, InvokeFlags::PROPERTY_GET, vec![])),
+            2 => Some(MemberInfo::new(
+                "Name",
+                id,
+                InvokeFlags::PROPERTY_GET,
+                vec![],
+            )),
             _ => None,
         }
     }
@@ -1328,7 +1398,11 @@ pub fn application() -> MemObject {
             |t, call| {
                 let ctx = HostContext::current(t)
                     .ok_or_else(|| err(5, "Run needs a running session", "Application"))?;
-                let args = call.rest.iter().map(|a| Arg::val(a.value.clone())).collect();
+                let args = call
+                    .rest
+                    .iter()
+                    .map(|a| Arg::val(a.value.clone()))
+                    .collect();
                 let r = ctx
                     .call(CallTarget::Project, &txt(&call.args[0].value), args)
                     .map_err(DispError::from)?;
@@ -1375,7 +1449,11 @@ fn compare(a: &Variant, op: &str, b: &Variant) -> bool {
 }
 
 /// Rows of `domain` matching a single `[Field] <op> literal` criterion.
-fn matching(db: &Db, domain: &str, criteria: &Variant) -> Result<(Vec<String>, Vec<Vec<Variant>>), DispError> {
+fn matching(
+    db: &Db,
+    domain: &str,
+    criteria: &Variant,
+) -> Result<(Vec<String>, Vec<Vec<Variant>>), DispError> {
     let t = db.tables.borrow();
     let Some(tb) = t.get(&domain.to_lowercase()) else {
         // (unverified) wording
@@ -1396,7 +1474,10 @@ fn matching(db: &Db, domain: &str, criteria: &Variant) -> Result<(Vec<String>, V
     let value = if let Some(s) = lit.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
         Variant::from(s)
     } else {
-        Variant::Double(lit.parse::<f64>().map_err(|_| err(3075, "Syntax error in criteria.", "Domain"))?)
+        Variant::Double(
+            lit.parse::<f64>()
+                .map_err(|_| err(3075, "Syntax error in criteria.", "Domain"))?,
+        )
     };
     let col = tb
         .fields
@@ -1427,9 +1508,12 @@ fn domain_params() -> Vec<ParamInfo> {
 fn function(
     name: &str,
     params: Vec<ParamInfo>,
-    f: impl Fn(&ObjectTable, &mut vba::automation::testing::Call) -> Result<Variant, DispError> + 'static,
+    f: impl Fn(&ObjectTable, &mut vba::automation::testing::Call) -> Result<Variant, DispError>
+    + 'static,
 ) -> MemObject {
-    MemObject::new(name).method(name, params, f).default_member(name)
+    MemObject::new(name)
+        .method(name, params, f)
+        .default_member(name)
 }
 
 pub fn dlookup(db: &Rc<Db>) -> MemObject {
@@ -1437,9 +1521,10 @@ pub fn dlookup(db: &Rc<Db>) -> MemObject {
     function("DLookup", domain_params(), move |_, call| {
         let (fields, rows) = matching(&db, &txt(&call.args[1].value), &call.args[2].value)?;
         let want = txt(&call.args[0].value);
+        let want = want.trim_matches(['[', ']']);
         let col = fields
             .iter()
-            .position(|f| f.eq_ignore_ascii_case(&want))
+            .position(|f| f.eq_ignore_ascii_case(want))
             .ok_or_else(|| err(3075, "Unknown field.", "DLookup"))?;
         Ok(rows.first().map_or(Variant::Null, |r| r[col].clone()))
     })
@@ -1478,17 +1563,21 @@ pub fn nz() -> MemObject {
 
 /// `Eval`: integer sums such as `"1+2+3"`, or a quoted string.
 pub fn eval() -> MemObject {
-    function("Eval", vec![ParamInfo::required("Expr").by_val()], |_, call| {
-        let e = txt(&call.args[0].value);
-        let mut sum = 0i32;
-        for part in e.split('+') {
-            sum += part
-                .trim()
-                .parse::<i32>()
-                .map_err(|_| err(2425, "Eval: unsupported expression.", "Eval"))?;
-        }
-        Ok(Variant::Long(sum))
-    })
+    function(
+        "Eval",
+        vec![ParamInfo::required("Expr").by_val()],
+        |_, call| {
+            let e = txt(&call.args[0].value);
+            let mut sum = 0i32;
+            for part in e.split('+') {
+                sum += part
+                    .trim()
+                    .parse::<i32>()
+                    .map_err(|_| err(2425, "Eval: unsupported expression.", "Eval"))?;
+            }
+            Ok(Variant::Long(sum))
+        },
+    )
 }
 
 /// Enum members and constants of the embedding application's libraries.
@@ -1512,8 +1601,7 @@ pub fn constants() -> Vec<(&'static str, i32)> {
 /// the form modules may use unqualified.
 pub fn engine(db: &Rc<Db>) -> Engine {
     let g = |db: &Rc<Db>| db.clone();
-    let (d1, d2, d3, d4, d5, d6, d7, d8) =
-        (g(db), g(db), g(db), g(db), g(db), g(db), g(db), g(db));
+    let (d1, d2, d3, d4, d5, d6, d7, d8) = (g(db), g(db), g(db), g(db), g(db), g(db), g(db), g(db));
     let mut names: Vec<String> = db.control_names();
     names.extend(FIXED.iter().map(|s| s.to_string()));
     Engine::new()
@@ -1549,10 +1637,7 @@ pub fn load(db: &Rc<Db>, modules: &[(&str, vba::ModuleKind, &str)]) -> Instance 
 /// The types the VBA code of the stand-in may name in `As` clauses:
 /// opaque (members stay late bound) except that controls have a `Click`
 /// event, which `WithEvents` needs to know.
-pub fn libraries() -> (
-    vba::raw::sema::StaticLibrary,
-    vba::raw::sema::StaticLibrary,
-) {
+pub fn libraries() -> (vba::raw::sema::StaticLibrary, vba::raw::sema::StaticLibrary) {
     use vba::raw::sema::{LibEvent, StaticLibrary};
     let dao = StaticLibrary::new("DAO")
         .with_opaque_type("Database")
@@ -1616,7 +1701,9 @@ pub fn user_edit(
         *c.value.borrow_mut() = old;
         return Ok(false);
     }
-    st.props.borrow_mut().insert("dirty".into(), Variant::Boolean(true));
+    st.props
+        .borrow_mut()
+        .insert("dirty".into(), Variant::Boolean(true));
     inst.raise_event_on(obj, ctl, "AfterUpdate", vec![])?;
     Ok(true)
 }
@@ -1632,7 +1719,9 @@ pub fn save_record(inst: &mut Instance, st: &Rc<FormState>) -> Result<bool, Erro
     }
     if let Some(Variant::String(src)) = st.props.borrow().get("recordsource").cloned() {
         let mut t = st.db.tables.borrow_mut();
-        let tb = t.get_mut(&src.to_string_lossy().to_lowercase()).expect("table");
+        let tb = t
+            .get_mut(&src.to_string_lossy().to_lowercase())
+            .expect("table");
         let fields = tb.fields.clone();
         let row = fields.iter().map(|f| st.value(f)).collect::<Vec<_>>();
         match tb.rows.get_mut(st.pos.get()) {
@@ -1640,7 +1729,9 @@ pub fn save_record(inst: &mut Instance, st: &Rc<FormState>) -> Result<bool, Erro
             None => tb.rows.push(row),
         }
     }
-    st.props.borrow_mut().insert("dirty".into(), Variant::Boolean(false));
+    st.props
+        .borrow_mut()
+        .insert("dirty".into(), Variant::Boolean(false));
     inst.raise_event_on(obj, "Form", "AfterUpdate", vec![])?;
     st.db.note(format!("save {} committed", st.name));
     Ok(true)

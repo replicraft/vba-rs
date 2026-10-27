@@ -165,7 +165,12 @@ impl DispError {
     pub const UNKNOWN_NAME: DispError = DispError::Hresult(hresult::DISP_E_UNKNOWNNAME);
 
     /// An exception carrying a VBA error number and description.
+    ///
+    /// Number 0 means "no error" to VBA code (`If Err.Number <> 0`), so it
+    /// is raised as 5 ("Invalid procedure call or argument"), like
+    /// `Err.Raise 0` (unverified against a real host).
     pub fn raise(number: i32, description: impl Into<String>, source: impl Into<String>) -> Self {
+        let number = if number == 0 { 5 } else { number };
         DispError::Exception(ExcepInfo {
             scode: hresult::number_to_hresult(number),
             description: description.into(),

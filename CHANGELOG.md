@@ -75,6 +75,14 @@ entry that made it:
   against the platform kind, and more statements lower to IR (`On Error`, `Resume`, `GoTo`, optional
   parameters, `End`, Date and hexadecimal literals, class-like modules). The compiled cache is read for
   analysis only; it is never executed.
+- `vba`: `Engine::constant`/`constants` (host constants usable in `Const`, `Case` and array
+  bounds), `Engine::ui` (`MsgBox`/`InputBox` hooks) and the re-exports `UiHooks`,
+  `MsgBoxRequest`, `InputBoxRequest`; `MemObject::reentrant`.
+- The VBA library enumeration types (`VbMsgBoxResult`, `VbVarType`, `VbCompareMethod`, ...) are
+  valid in `As` clauses.
+- A generic stand-in host for a database-style embedding application
+  (`crates/api/vba-rs/tests/db_host/`) and the "Known limits" and section 13 of the embedding
+  guide.
 
 - `vbars`: every file argument accepts `-` for standard input.
 - `vbars`: `--json` for `check`, `parse`, `fmt-check` and `profiles` (schema version 1).
@@ -109,6 +117,8 @@ entry that made it:
 
 ### Changed
 
+- `IsNull`, `IsEmpty`, `IsNumeric`, `IsDate` and `VarType` read the default member of an object
+  argument when it has one; `DispError::raise(0, ..)` is raised as error 5.
 - Breaking: `ResourceLimits`, `ScopeLimits`, `ErrInfo`, `MemberInfo`, `ParamInfo`, `ModuleKind`,
   `VfsError` and `LowerError` are `#[non_exhaustive]`, so fields and variants can be added without
   another break. Build limits with `ResourceLimits::default()` / `unlimited()` / `untrusted()` plus
