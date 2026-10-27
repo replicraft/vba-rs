@@ -266,6 +266,25 @@ fn scan(p: &common::Project, t: &mut Tally) -> Option<Layout> {
         t.tiled += usize::from(tiled);
         let chk = cache.code_area_check();
         t.holes += chk.holes + chk.overlaps;
+        if p.compiled_only {
+            // No source: structure and decoding only.
+            let dis = Disassembler::new(&cache, &idents);
+            t.line_count_ok += 1;
+            for i in 0..cache.lines.lines.len() {
+                let l = dis.line(i);
+                if cache.lines.lines[i].length > 0 {
+                    t.lines_with_code += 1;
+                    t.lines_decoded += usize::from(l.error.is_none());
+                }
+                if l.instructions
+                    .iter()
+                    .any(|x| matches!(x.opcode, Opcode::ProcHeader | Opcode::ProcHeaderAlt))
+                {
+                    t.procs_cache += 1;
+                }
+            }
+            continue;
+        }
         let src = common::logical_lines(&m.source);
         t.line_count_ok += usize::from(src.len() == cache.lines.lines.len());
         if src.len() != cache.lines.lines.len() && std::env::var_os("SHOW_LINES").is_some() {
@@ -370,7 +389,18 @@ struct Totals {
 #[ignore = "needs a local corpus (VBA_PCODE_CORPUS)"]
 fn corpus_structure() {
     let mut totals: BTreeMap<String, Totals> = BTreeMap::new();
+    let mut fails: Vec<String> = Vec::new();
+    macro_rules! chk_eq {
+        ($f:expr, $a:expr, $b:expr, $($m:tt)+) => {
+            if $a != $b {
+                $f.push(format!("{}: {} vs {}", format!($($m)+), $a, $b));
+            }
+        };
+    }
     for (n, path) in corpus_files().iter().enumerate() {
+        if std::env::var_os("SHOW_PATHS").is_some() {
+            println!("#{n} = {}", path.display());
+        }
         let Some(p) = load_path(path) else {
             println!("#{n} unreadable");
             continue;
@@ -382,8 +412,9 @@ fn corpus_structure() {
         });
         let sc = &t.score;
         println!(
-            "#{n} {desc} modules {} parsed {} tiled {} unclaimed-code-bytes {} line-count {} \
+            "#{n}{} {desc} modules {} parsed {} tiled {} unclaimed-code-bytes {} line-count {} \
              decoded {}/{} procedures {}",
+            if p.compiled_only { " (compiled-only)" } else { "" },
             t.modules,
             t.parsed,
             t.tiled,
@@ -450,35 +481,44 @@ fn corpus_structure() {
             continue;
         }
         // The invariants of a verified layout.
-        assert!(t.errors.is_empty(), "#{n} {desc}: {:?}", t.errors);
-        assert_eq!(t.parsed, t.modules, "#{n} {desc}: modules that parse");
-        assert_eq!(t.tiled, t.modules, "#{n} {desc}: gap-free tiling");
-        assert_eq!(t.line_count_ok, t.modules, "#{n} {desc}: line counts");
-        assert_eq!(t.lines_decoded, t.lines_with_code, "#{n} {desc}: decoding");
-        assert_eq!(t.rec_name_ok, t.rec_procs, "#{n} {desc}: procedure names");
-        assert_eq!(t.rec_kind_ok, t.rec_procs, "#{n} {desc}: procedure kinds");
-        assert_eq!(t.rec_declare_ok, t.rec_procs, "#{n} {desc}: declares");
-        assert_eq!(t.rec_args_ok, t.rec_args, "#{n} {desc}: argument names");
-        assert_eq!(t.rec_vars_ok, t.rec_vars, "#{n} {desc}: variable names");
-        assert_eq!(t.rec_types_ok, t.rec_types, "#{n} {desc}: intrinsic types");
-        assert_eq!(t.named_ok, t.named, "#{n} {desc}: named types");
-        assert_eq!(t.attr_public_rec, t.attr_procs, "#{n} {desc}: visibility");
-        assert_eq!(t.attr_friend, t.attr_procs, "#{n} {desc}: Friend");
-        assert_eq!(t.attr_static, t.attr_procs, "#{n} {desc}: Static");
-        assert_eq!(t.attr_ptrsafe, t.attr_declares, "#{n} {desc}: PtrSafe");
-        assert_eq!(sc.name_ops_ok, sc.name_ops, "#{n} {desc}: name operands");
-        assert_eq!(sc.text_ops_ok, sc.text_ops, "#{n} {desc}: string operands");
-        assert_eq!(sc.int_ops_ok, sc.int_ops, "#{n} {desc}: integer operands");
+        if !t.errors.is_empty() {
+            fails.push(format!("#{n} {desc}: {:?}", t.errors));
+        }
+        chk_eq!(fails, t.parsed, t.modules, "#{n} {desc}: modules that parse");
+        chk_eq!(fails, t.tiled, t.modules, "#{n} {desc}: gap-free tiling");
+        chk_eq!(fails, t.line_count_ok, t.modules, "#{n} {desc}: line counts");
+        chk_eq!(fails, t.lines_decoded, t.lines_with_code, "#{n} {desc}: decoding");
+        if p.compiled_only {
+            continue;
+        }
+        chk_eq!(fails, t.rec_name_ok, t.rec_procs, "#{n} {desc}: procedure names");
+        chk_eq!(fails, t.rec_kind_ok, t.rec_procs, "#{n} {desc}: procedure kinds");
+        chk_eq!(fails, t.rec_declare_ok, t.rec_procs, "#{n} {desc}: declares");
+        chk_eq!(fails, t.rec_args_ok, t.rec_args, "#{n} {desc}: argument names");
+        chk_eq!(fails, t.rec_vars_ok, t.rec_vars, "#{n} {desc}: variable names");
+        chk_eq!(fails, t.rec_types_ok, t.rec_types, "#{n} {desc}: intrinsic types");
+        chk_eq!(fails, t.named_ok, t.named, "#{n} {desc}: named types");
+        chk_eq!(fails, t.attr_public_rec, t.attr_procs, "#{n} {desc}: visibility");
+        chk_eq!(fails, t.attr_friend, t.attr_procs, "#{n} {desc}: Friend");
+        chk_eq!(fails, t.attr_static, t.attr_procs, "#{n} {desc}: Static");
+        chk_eq!(fails, t.attr_ptrsafe, t.attr_declares, "#{n} {desc}: PtrSafe");
+        chk_eq!(fails, sc.name_ops_ok, sc.name_ops, "#{n} {desc}: name operands");
+        chk_eq!(fails, sc.text_ops_ok, sc.text_ops, "#{n} {desc}: string operands");
+        chk_eq!(fails, sc.int_ops_ok, sc.int_ops, "#{n} {desc}: integer operands");
         if sc.statements >= 20 {
-            assert!(
-                sc.consistent * 10 >= sc.statements * 9,
-                "#{n} {desc}: {} of {} statements consistent",
-                sc.consistent,
-                sc.statements
-            );
+            if sc.consistent * 10 < sc.statements * 9 {
+                fails.push(format!(
+                    "#{n} {desc}: {} of {} statements consistent",
+                    sc.consistent, sc.statements
+                ));
+            }
         }
     }
     for (k, v) in &totals {
         println!("{k}: {v:?}");
     }
+    for f in &fails {
+        println!("INVARIANT FAILED {f}");
+    }
+    assert!(fails.is_empty(), "{} invariant failures", fails.len());
 }
