@@ -310,9 +310,12 @@ impl Budget {
             self.memory.set_limit(Some(limit));
         }
         if let Some(t) = scope.timeout {
-            let at = Instant::now() + t;
-            let at = self.deadline.get().map_or(at, |d| d.min(at));
-            self.deadline.set(Some(at));
+            // A timeout too large to represent as an instant is no deadline
+            // at all (never earlier than the one already in force).
+            if let Some(at) = Instant::now().checked_add(t) {
+                let at = self.deadline.get().map_or(at, |d| d.min(at));
+                self.deadline.set(Some(at));
+            }
         }
         token
     }
