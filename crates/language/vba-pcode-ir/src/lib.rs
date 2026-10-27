@@ -310,6 +310,7 @@ pub fn lower_project_with_options(
                 host_members: &host_members,
                 compare: m.compare,
                 name: &p.name,
+                project: options.project_name.as_deref(),
             };
             match lower::lower_body(&cx, &p.body, p.header_line, ir.function_of(id)) {
                 Ok(l) => {

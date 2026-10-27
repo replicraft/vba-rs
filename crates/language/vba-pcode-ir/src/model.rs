@@ -33,6 +33,9 @@ pub(crate) struct LocalDecl {
 pub(crate) enum TyRef {
     Scalar(vba_sema::Type),
     Object,
+    /// A class of the built-in library that `vba-sema` describes
+    /// (`Collection`).
+    Builtin(&'static str),
     Class(String),
     Enum(String),
     Udt(String),
@@ -44,6 +47,7 @@ impl TyRef {
         match self {
             TyRef::Scalar(t) => type_spelling(t).to_owned(),
             TyRef::Object => "Object".to_owned(),
+            TyRef::Builtin(n) => (*n).to_owned(),
             TyRef::Class(n) | TyRef::Enum(n) | TyRef::Udt(n) => n.clone(),
         }
     }
@@ -140,6 +144,16 @@ impl TypeEnv {
                 let Some(name) = n.spelling() else {
                     return Err("type name does not resolve".to_owned());
                 };
+                let builtin = name.eq_ignore_ascii_case("Collection")
+                    && !self.classes.contains_key("collection")
+                    && !self.public.contains_key("collection")
+                    && !self.own[module].contains_key("collection")
+                    && qualifier.is_none_or(|q| {
+                        q.spelling().is_some_and(|q| q.eq_ignore_ascii_case("VBA"))
+                    });
+                if builtin {
+                    return Ok(TyRef::Builtin("Collection"));
+                }
                 if let Some(q) = qualifier {
                     let own = q.spelling().is_some_and(|q| {
                         self.project

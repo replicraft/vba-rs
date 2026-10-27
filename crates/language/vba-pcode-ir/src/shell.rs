@@ -257,7 +257,7 @@ pub(crate) fn build_shell(
                     let decl = &mut models[mi].decls[di];
                     if decl.problem.is_none() {
                         decl.problem =
-                            Some("rejected by the analysis of the generated declarations".into());
+                            Some(format!("rejected by the analysis of the generated declarations: {}", d.message));
                         changed = true;
                     }
                 }
@@ -273,7 +273,7 @@ pub(crate) fn build_shell(
                     let t = &mut models[mi].types[ti];
                     if t.problem.is_none() {
                         t.problem =
-                            Some("rejected by the analysis of the generated declarations".into());
+                            Some(format!("rejected by the analysis of the generated declarations: {}", d.message));
                         changed = true;
                     }
                 }

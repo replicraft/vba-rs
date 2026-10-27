@@ -17,7 +17,10 @@ use vba_ir::{
 use vba_pcode::{Evidence, Listed, Opcode, Operand};
 use vba_sema::bound::Constant;
 use vba_sema::builtins::BuiltinLibrary;
-use vba_sema::{GlobalId, LocalId, LocalKind, ModuleId, ProcId, ProcInfo, Program, Symbol, Type};
+use vba_sema::bound::NewTarget;
+use vba_sema::{
+    GlobalId, LocalId, LocalKind, ModuleId, ProcId, ProcInfo, Program, Symbol, Type, UdtId,
+};
 use vba_sema::{LibGlobal, LibMember, LibMemberKind, LibraryType, TypeProvider};
 use vba_source::Span;
 use vba_value::ops::{ArithOp, CompareOp, CompareOptions, LogicOp, Overflow, StringNumberRule};
@@ -74,9 +77,27 @@ enum Ex {
         callee: Callee,
         ty: Type,
         args: Vec<ArgEx>,
-        /// The callee is a member of the current class instance (`Me`).
-        on_me: bool,
+        /// The object a method is invoked on (`Me`, or a value).
+        recv: Option<Box<Ex>>,
     },
+    /// A field of a class instance reached through a value.
+    Field {
+        recv: Box<Ex>,
+        global: GlobalId,
+        ty: Type,
+    },
+    /// A field of a user-defined type value.
+    UdtField {
+        base: Box<Ex>,
+        udt: UdtId,
+        index: u32,
+        ty: Type,
+    },
+    /// `New T`.
+    New { target: NewTarget, ty: Type },
+    /// A value that was already emitted (an assigned value that is
+    /// evaluated before the target).
+    Emitted(IrOperand, Type),
     /// A module-level variable (a static variable of a standard module, a
     /// field of the instance in a class-like one).
     Global {
@@ -113,17 +134,27 @@ enum Ex {
     },
 }
 
-/// A variable that can be passed by reference.
-#[derive(Debug, Clone, Copy)]
-enum RefTarget {
+/// A location that can be passed by reference or assigned to.
+#[derive(Debug, Clone)]
+enum Place {
     Local(LocalId),
     Global(GlobalId),
+    Field {
+        recv: Box<Ex>,
+        global: GlobalId,
+    },
+    Udt {
+        base: Box<Place>,
+        udt: UdtId,
+        index: u32,
+        ty: Type,
+    },
 }
 
 #[derive(Debug, Clone)]
 enum ArgEx {
     Val(Ex),
-    Ref(RefTarget),
+    Ref(Place),
     Missing,
 }
 
@@ -132,7 +163,7 @@ enum ArgEx {
 #[derive(Debug, Clone)]
 enum LateEx {
     Val(Ex),
-    Ref(RefTarget),
+    Ref(Place),
     Missing,
 }
 
@@ -143,6 +174,8 @@ enum Role {
     Read,
     /// Assignment: `Property Let`.
     Let,
+    /// Reference assignment: `Property Set`.
+    Set,
 }
 
 impl Ex {
@@ -152,6 +185,10 @@ impl Ex {
             Ex::Unary { ty, .. }
             | Ex::Binary { ty, .. }
             | Ex::Call { ty, .. }
+            | Ex::Field { ty, .. }
+            | Ex::UdtField { ty, .. }
+            | Ex::New { ty, .. }
+            | Ex::Emitted(_, ty)
             | Ex::Global { ty, .. } => ty.clone(),
             Ex::Me(m) => Type::Class(*m),
             Ex::Late { .. } | Ex::Missing => Type::Variant,
@@ -225,6 +262,8 @@ pub(crate) struct ProcCtx<'a> {
     pub host_members: &'a std::collections::HashSet<String>,
     pub compare: CompareStored,
     pub name: &'a str,
+    /// The name of the project, for types qualified with it.
+    pub project: Option<&'a str>,
 }
 
 /// The result of lowering one procedure.
@@ -260,9 +299,37 @@ struct Lw<'a> {
     defined: Vec<String>,
     /// Local constants (lower-case name): folded where they are read.
     local_consts: HashMap<String, (Variant, Type)>,
+    /// A `Set` keyword marker was seen and not yet consumed by the
+    /// reference assignment that follows it.
+    set_marker: bool,
 }
 
 type R<T> = Result<T, Unsupported>;
+
+/// The location behind a value that denotes a variable, a field or a
+/// user-type field.
+fn place_of(e: &Ex) -> Option<Place> {
+    match e {
+        Ex::Local { id, .. } => Some(Place::Local(*id)),
+        Ex::Global { id, .. } => Some(Place::Global(*id)),
+        Ex::Field { recv, global, .. } => Some(Place::Field {
+            recv: recv.clone(),
+            global: *global,
+        }),
+        Ex::UdtField {
+            base,
+            udt,
+            index,
+            ty,
+        } => Some(Place::Udt {
+            base: Box::new(place_of(base)?),
+            udt: *udt,
+            index: *index,
+            ty: ty.clone(),
+        }),
+        _ => None,
+    }
+}
 
 const SPAN: Span = Span { start: 0, end: 0 };
 
@@ -345,6 +412,7 @@ pub(crate) fn lower_body(
         labels: HashMap::new(),
         defined: Vec::new(),
         local_consts: HashMap::new(),
+        set_marker: false,
     };
     lw.begin_stmt();
     let mut last_op = Opcode::ProcHeader;
@@ -455,6 +523,7 @@ impl Lw<'_> {
 
     /// Ends a simple statement: `Resume Next` continues right here.
     fn close_stmt(&mut self) {
+        self.set_marker = false;
         let p = self.here();
         let s = &mut self.stmts[self.cur_stmt.0 as usize];
         if s.resume_next.is_none() {
@@ -568,6 +637,82 @@ impl Lw<'_> {
         }
     }
 
+    /// Converts an argument to the parameter type: scalars as an
+    /// assignment would, objects as `vba-sema` does for an argument.
+    fn coerce_arg(&self, ins: &Listed, e: Ex, to: &Type) -> R<Ex> {
+        if to.is_object() || e.ty().is_object() {
+            return self.coerce_object(ins, e, to, true);
+        }
+        Ok(self.coerce(e, to))
+    }
+
+    /// Converts an object value to the type of the location or parameter
+    /// that receives it (`Set` or an argument). A `Variant` source is only
+    /// accepted for an argument (the `Set` statement checks it at run time
+    /// through a call that is not lowered).
+    fn coerce_object(&self, ins: &Listed, e: Ex, to: &Type, arg: bool) -> R<Ex> {
+        let from = e.ty();
+        if from == *to {
+            return Ok(e);
+        }
+        if to.is_variant() {
+            // An object into a `Variant` stays an object reference.
+            return if from.is_object() {
+                Ok(e)
+            } else {
+                Err(self.no(ins.opcode, "non-object value into an object assignment"))
+            };
+        }
+        if !to.is_object() {
+            return Err(self.no(ins.opcode, "object value where a scalar is expected"));
+        }
+        if from.is_variant() {
+            return if arg {
+                Ok(Ex::Convert {
+                    e: Box::new(e),
+                    to: to.clone(),
+                })
+            } else {
+                Err(self.no(ins.opcode, "Variant source of a Set statement"))
+            };
+        }
+        if !from.is_object() {
+            return Err(self.no(ins.opcode, "non-object value into an object assignment"));
+        }
+        let program = self.cx.program;
+        match (&from, to) {
+            (Type::Nothing, _) | (_, Type::Object) => Ok(e),
+            (Type::Class(a), Type::Class(_) | Type::Library(_)) => {
+                if program
+                    .module(*a)
+                    .implements
+                    .iter()
+                    .any(|i| i.interface == *to)
+                {
+                    Ok(e)
+                } else if let Type::Class(b) = to
+                    && program
+                        .module(*b)
+                        .implements
+                        .iter()
+                        .any(|i| i.interface == Type::Class(*a))
+                {
+                    Ok(Ex::Convert {
+                        e: Box::new(e),
+                        to: to.clone(),
+                    })
+                } else {
+                    Err(self.no(ins.opcode, "object types that do not convert"))
+                }
+            }
+            (Type::Object, Type::Class(_) | Type::Library(_)) => Ok(Ex::Convert {
+                e: Box::new(e),
+                to: to.clone(),
+            }),
+            _ => Err(self.no(ins.opcode, "object types that do not convert")),
+        }
+    }
+
     fn coerce_condition(&self, e: Ex) -> Ex {
         match e.ty() {
             Type::Boolean | Type::Variant => e,
@@ -600,6 +745,7 @@ impl Lw<'_> {
             match role {
                 Role::Read => matches!(k, K::Sub | K::Function | K::PropertyGet),
                 Role::Let => k == K::PropertyLet,
+                Role::Set => k == K::PropertySet,
             }
         };
         let same: Vec<_> = list
@@ -721,6 +867,19 @@ impl Lw<'_> {
     // ---- calls ------------------------------------------------------------
 
     fn project_call(&mut self, ins: &Listed, id: ProcId, args: Vec<Ex>) -> R<Ex> {
+        self.project_call_on(ins, None, id, args)
+    }
+
+    /// A call of a project procedure; `recv` is the object it is invoked on
+    /// (a member of a class), otherwise `Me` for a member of the current
+    /// class.
+    fn project_call_on(
+        &mut self,
+        ins: &Listed,
+        recv: Option<Ex>,
+        id: ProcId,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
         let callee = self.cx.program.proc(id);
         let given = args.len();
         if given > callee.params.len()
@@ -741,7 +900,7 @@ impl Lw<'_> {
             }
             let forced = matches!(a, Ex::Paren(_));
             if p.by_val || forced {
-                out.push(ArgEx::Val(self.coerce(a, &p.ty)));
+                out.push(ArgEx::Val(self.coerce_arg(ins, a, &p.ty)?));
                 continue;
             }
             let target = match &a {
@@ -749,16 +908,17 @@ impl Lw<'_> {
                     id: lid,
                     ty,
                     bare: true,
-                } => Some((RefTarget::Local(*lid), ty)),
+                } => Some((Place::Local(*lid), ty.clone())),
                 Ex::Global {
                     id: gid,
                     ty,
                     bare: true,
-                } => Some((RefTarget::Global(*gid), ty)),
+                } => Some((Place::Global(*gid), ty.clone())),
+                Ex::Field { .. } | Ex::UdtField { .. } => place_of(&a).map(|pl| (pl, a.ty())),
                 _ => None,
             };
             if let Some((t, ty)) = target {
-                if *ty == p.ty {
+                if ty == p.ty {
                     out.push(ArgEx::Ref(t));
                     continue;
                 }
@@ -766,10 +926,18 @@ impl Lw<'_> {
                     return Err(self.no(ins.opcode, "ByRef argument of a different type"));
                 }
             }
-            out.push(ArgEx::Val(self.coerce(a, &p.ty)));
+            out.push(ArgEx::Val(self.coerce_arg(ins, a, &p.ty)?));
         }
         out.resize(callee.params.len(), ArgEx::Missing);
-        let on_me = self.cx.program.module(callee.module).is_class_like();
+        let recv = match recv {
+            Some(r) => Some(Box::new(r)),
+            None => self
+                .cx
+                .program
+                .module(callee.module)
+                .is_class_like()
+                .then(|| Box::new(self.me())),
+        };
         Ok(Ex::Call {
             callee: Callee::Proc(id),
             ty: if callee.has_result {
@@ -778,7 +946,7 @@ impl Lw<'_> {
                 Type::Variant
             },
             args: out,
-            on_me,
+            recv,
         })
     }
 
@@ -863,7 +1031,7 @@ impl Lw<'_> {
             },
             ty,
             args: out,
-            on_me: false,
+            recv: None,
         })
     }
 
@@ -886,7 +1054,7 @@ impl Lw<'_> {
                 out.push(ArgEx::Missing);
                 continue;
             }
-            out.push(ArgEx::Val(self.coerce(a, &p.ty)));
+            out.push(ArgEx::Val(self.coerce_arg(ins, a, &p.ty)?));
         }
         while out.len() < m.params.len() {
             if !m.params[out.len()].optional {
@@ -905,7 +1073,7 @@ impl Lw<'_> {
                 m.ty.clone()
             },
             args: out,
-            on_me: false,
+            recv: None,
         })
     }
 
@@ -1015,10 +1183,45 @@ impl Lw<'_> {
                 callee,
                 ty,
                 args,
-                on_me,
+                recv,
             } => {
-                let dst = self.emit_call(callee, args, *on_me, Some(ty));
+                let dst = self.emit_call(callee, args, recv.as_deref(), Some(ty));
                 IrOperand::Reg(dst.unwrap_or(Reg(0)))
+            }
+            Ex::Field { recv, global, ty } => {
+                let obj = self.emit_ex(recv);
+                let dst = self.reg(ty.clone());
+                self.emit(InstKind::LoadField {
+                    dst,
+                    obj,
+                    global: *global,
+                });
+                IrOperand::Reg(dst)
+            }
+            Ex::UdtField {
+                base,
+                udt,
+                index,
+                ty,
+            } => {
+                let b = self.emit_ex(base);
+                let dst = self.reg(ty.clone());
+                self.emit(InstKind::UdtField {
+                    dst,
+                    base: b,
+                    udt: *udt,
+                    index: *index,
+                });
+                IrOperand::Reg(dst)
+            }
+            Ex::Emitted(o, _) => o.clone(),
+            Ex::New { target, ty } => {
+                let dst = self.reg(ty.clone());
+                self.emit(InstKind::New {
+                    dst,
+                    target: target.clone(),
+                });
+                IrOperand::Reg(dst)
             }
             Ex::Global { id, ty, .. } => {
                 let dst = self.reg(ty.clone());
@@ -1055,24 +1258,6 @@ impl Lw<'_> {
         }
     }
 
-    fn emit_global_store(&mut self, g: GlobalId, src: IrOperand) {
-        if self.global_in_instance(g) {
-            let obj = self.emit_me();
-            self.emit(InstKind::StoreField {
-                obj,
-                global: g,
-                src,
-                mode: StoreMode::Let,
-            });
-        } else {
-            self.emit(InstKind::StoreGlobal {
-                global: g,
-                src,
-                mode: StoreMode::Let,
-            });
-        }
-    }
-
     /// Whether the variable lives in the class instance.
     fn global_in_instance(&self, g: GlobalId) -> bool {
         self.cx
@@ -1087,17 +1272,18 @@ impl Lw<'_> {
         IrOperand::Reg(dst)
     }
 
-    fn emit_ref(&mut self, t: RefTarget) -> Reg {
+    fn emit_ref(&mut self, t: &Place) -> Reg {
         match t {
-            RefTarget::Local(l) => {
-                let r = self.reg(self.local_ty(l));
+            Place::Local(l) => {
+                let r = self.reg(self.local_ty(*l));
                 self.emit(InstKind::MakeRef {
                     dst: r,
-                    place: RefPlace::Local(l),
+                    place: RefPlace::Local(*l),
                 });
                 r
             }
-            RefTarget::Global(g) => {
+            Place::Global(g) => {
+                let g = *g;
                 let ty = self.cx.program.global(g).ty.clone();
                 let place = if self.global_in_instance(g) {
                     RefPlace::Field {
@@ -1111,6 +1297,78 @@ impl Lw<'_> {
                 self.emit(InstKind::MakeRef { dst: r, place });
                 r
             }
+            Place::Field { recv, global } => {
+                let obj = self.emit_ex(recv);
+                let ty = self.cx.program.global(*global).ty.clone();
+                let r = self.reg(ty);
+                self.emit(InstKind::MakeRef {
+                    dst: r,
+                    place: RefPlace::Field {
+                        obj,
+                        global: *global,
+                    },
+                });
+                r
+            }
+            Place::Udt {
+                base,
+                udt,
+                index,
+                ty,
+            } => {
+                let b = self.emit_ref(base);
+                let r = self.reg(ty.clone());
+                self.emit(InstKind::MakeRef {
+                    dst: r,
+                    place: RefPlace::UdtField {
+                        base: b,
+                        udt: *udt,
+                        index: *index,
+                    },
+                });
+                r
+            }
+        }
+    }
+
+    /// Stores `v` into a location.
+    fn store_place(&mut self, p: &Place, v: IrOperand, mode: StoreMode) {
+        match p {
+            Place::Local(l) => self.emit(InstKind::StoreLocal {
+                slot: *l,
+                src: v,
+                mode,
+            }),
+            Place::Global(g) => {
+                if self.global_in_instance(*g) {
+                    let obj = self.emit_me();
+                    self.emit(InstKind::StoreField {
+                        obj,
+                        global: *g,
+                        src: v,
+                        mode,
+                    });
+                } else {
+                    self.emit(InstKind::StoreGlobal {
+                        global: *g,
+                        src: v,
+                        mode,
+                    });
+                }
+            }
+            Place::Field { recv, global } => {
+                let obj = self.emit_ex(recv);
+                self.emit(InstKind::StoreField {
+                    obj,
+                    global: *global,
+                    src: v,
+                    mode,
+                });
+            }
+            Place::Udt { .. } => {
+                let r = self.emit_ref(p);
+                self.emit(InstKind::StoreRef { r, src: v, mode });
+            }
         }
     }
 
@@ -1121,16 +1379,16 @@ impl Lw<'_> {
         &mut self,
         callee: &Callee,
         args: &[ArgEx],
-        on_me: bool,
+        recv: Option<&Ex>,
         result: Option<&Type>,
     ) -> Option<Reg> {
-        let receiver = on_me.then(|| self.emit_me());
+        let receiver = recv.map(|r| self.emit_ex(r));
         let mut out = Vec::new();
         for a in args {
             out.push(match a {
                 ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
                 ArgEx::Missing => CallArg::Missing,
-                ArgEx::Ref(t) => CallArg::Ref(self.emit_ref(*t)),
+                ArgEx::Ref(t) => CallArg::Ref(self.emit_ref(t)),
             });
         }
         let dst = result.map(|t| self.reg(t.clone()));
@@ -1162,7 +1420,7 @@ impl Lw<'_> {
                 name: None,
                 arg: match a {
                     LateEx::Val(v) => CallArg::Val(self.emit_ex(v)),
-                    LateEx::Ref(t) => CallArg::Ref(self.emit_ref(*t)),
+                    LateEx::Ref(t) => CallArg::Ref(self.emit_ref(t)),
                     LateEx::Missing => CallArg::Missing,
                 },
             });
@@ -1190,12 +1448,9 @@ impl Lw<'_> {
     fn emit_call_stmt(&mut self, e: &Ex) {
         match e {
             Ex::Call {
-                callee,
-                args,
-                on_me,
-                ..
+                callee, args, recv, ..
             } => {
-                self.emit_call(callee, args, *on_me, None);
+                self.emit_call(callee, args, recv.as_deref(), None);
             }
             Ex::Late { recv, name, args } => {
                 self.emit_late(recv, name, args, InvokeKind::Get, None, false);
@@ -1425,8 +1680,44 @@ impl Lw<'_> {
                 self.stack.push(e);
             }
             Opcode::WriteSimple => {
-                self.assign(ins)?;
+                self.assign(ins, false)?;
                 self.close_stmt();
+            }
+            Opcode::SetKeywordMarker => {
+                self.set_marker = true;
+            }
+            Opcode::WriteRefSimple => {
+                self.assign(ins, true)?;
+                self.close_stmt();
+            }
+            Opcode::WriteRefDot => {
+                self.dot_assign(ins, true)?;
+                self.close_stmt();
+            }
+            Opcode::ConstNullObject => {
+                self.stack.push(Ex::Const(
+                    Variant::Object(vba_value::ObjectRef::Nothing),
+                    Type::Nothing,
+                ));
+            }
+            Opcode::NewObject => {
+                let e = self.new_object(ins)?;
+                self.stack.push(e);
+            }
+            Opcode::CompareObjectIdentity => {
+                let r = self.pop(ins)?;
+                let l = self.pop(ins)?;
+                if !(l.ty().is_object() || l.ty().is_variant())
+                    || !(r.ty().is_object() || r.ty().is_variant())
+                {
+                    return Err(self.no(ins.opcode, "Is needs object operands"));
+                }
+                self.stack.push(Ex::Binary {
+                    op: AstBin::Is,
+                    ty: Type::Boolean,
+                    l: Box::new(l),
+                    r: Box::new(r),
+                });
             }
             Opcode::ErrHandlerSet => {
                 let mode = if ins.modifier == 1 {
@@ -1492,7 +1783,7 @@ impl Lw<'_> {
                 self.close_stmt();
             }
             Opcode::WriteDot => {
-                self.dot_assign(ins)?;
+                self.dot_assign(ins, false)?;
                 self.close_stmt();
             }
 
@@ -1871,12 +2162,74 @@ impl Lw<'_> {
             Opcode::ReadDot => matches!(
                 self.stack.last(),
                 Some(Ex::LibObj { .. } | Ex::Me(_) | Ex::Late { .. })
-            ),
-            Opcode::ReadDotParams | Opcode::InvokeDot | Opcode::WriteDot => {
+            ) || self.stack.last().is_some_and(|e| self.member_receiver(e)),
+            Opcode::ReadDotParams
+            | Opcode::InvokeDot
+            | Opcode::WriteDot
+            | Opcode::WriteRefDot => {
                 matches!(self.stack.last(), Some(Ex::Me(_) | Ex::Late { .. }))
+                    || self.stack.last().is_some_and(|e| self.member_receiver(e))
             }
+            // `Set` statements, `New`.
+            Opcode::SetKeywordMarker | Opcode::WriteRefSimple | Opcode::NewObject => true,
             _ => false,
         }
+    }
+
+    /// Whether a value is a receiver the member forms are lowered for: a
+    /// value of a class of the project, a user-defined type or `Object`.
+    fn member_receiver(&self, e: &Ex) -> bool {
+        matches!(
+            e.ty(),
+            Type::Class(_) | Type::Udt(_) | Type::Object | Type::Variant
+        )
+    }
+
+    /// `New T`: a class of the project, or the built-in `Collection`.
+    fn new_object(&mut self, ins: &Listed) -> R<Ex> {
+        let (name, qualifier) = match ins.operands.first() {
+            Some(Operand::Object {
+                class: Some(n), ..
+            }) => (n.spelling(), None),
+            Some(Operand::Object {
+                qualified: Some(q), ..
+            }) => (q.name.spelling(), q.qualifier.spelling()),
+            _ => (None, None),
+        };
+        let Some(name) = name else {
+            return Err(self.no(ins.opcode, "class of New does not resolve"));
+        };
+        if let Some(q) = qualifier {
+            let own = self
+                .cx
+                .project
+                .is_some_and(|p| p.eq_ignore_ascii_case(q));
+            let vba = q.eq_ignore_ascii_case("VBA");
+            if !own && !vba {
+                return Err(self.no(ins.opcode, "New of a library-qualified class"));
+            }
+        }
+        let program = self.cx.program;
+        if let Some(m) = program.module_by_name(name)
+            && m.is_class_like()
+        {
+            let id = m.id;
+            for p in [m.initialize, m.terminate].into_iter().flatten() {
+                self.note_callee(p);
+            }
+            return Ok(Ex::New {
+                target: NewTarget::Class(id),
+                ty: Type::Class(id),
+            });
+        }
+        if name.eq_ignore_ascii_case("Collection") {
+            let lt = vba_sema::builtins::collection_type();
+            return Ok(Ex::New {
+                target: NewTarget::Library(lt.clone()),
+                ty: Type::Library(lt),
+            });
+        }
+        Err(self.no(ins.opcode, "New of a class that is not part of the project"))
     }
 
     fn expect_empty(&self, ins: &Listed) -> R<()> {
@@ -1925,8 +2278,13 @@ impl Lw<'_> {
     fn late_args(args: Vec<Ex>) -> Vec<LateEx> {
         args.into_iter()
             .map(|a| match &a {
-                Ex::Local { id, bare: true, .. } => LateEx::Ref(RefTarget::Local(*id)),
-                Ex::Global { id, bare: true, .. } => LateEx::Ref(RefTarget::Global(*id)),
+                Ex::Local { bare: true, .. }
+                | Ex::Global { bare: true, .. }
+                | Ex::Field { .. }
+                | Ex::UdtField { .. } => match place_of(&a) {
+                    Some(p) => LateEx::Ref(p),
+                    None => LateEx::Val(a),
+                },
                 Ex::Missing => LateEx::Missing,
                 _ => LateEx::Val(a),
             })
@@ -2110,11 +2468,101 @@ impl Lw<'_> {
                     dispid: m.dispid,
                 })
             }
-            _ => Err(self.no(
-                ins.opcode,
-                "member access outside the Err object, Me and host members",
-            )),
+            other => match other.ty() {
+                Type::Class(m) => self.class_member(ins, other, m, name, args),
+                Type::Udt(u) => self.udt_member(ins, other, u, name, args),
+                Type::Object | Type::Variant => Ok(Ex::Late {
+                    recv: Box::new(other),
+                    name: name.to_owned(),
+                    args: Self::late_args(args),
+                }),
+                _ => Err(self.no(
+                    ins.opcode,
+                    "member access outside the Err object, Me, objects and user types",
+                )),
+            },
         }
+    }
+
+    /// Records a call dependency: a procedure whose callee is not lowered is
+    /// not lowered either.
+    fn note_callee(&mut self, id: ProcId) {
+        if !self.callees.contains(&id) {
+            self.callees.push(id);
+        }
+    }
+
+    /// `receiver.name[(args)]` for a value of a class of the project.
+    fn class_member(
+        &mut self,
+        ins: &Listed,
+        recv: Ex,
+        m: ModuleId,
+        name: &str,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
+        let program = self.cx.program;
+        let key = vba_ast::Name::new(name);
+        match program.module(m).symbols.get(&key).map(|(s, _)| *s) {
+            Some(Symbol::Var(g)) if args.is_empty() => {
+                let info = program.global(g);
+                if !matches!(
+                    info.visibility,
+                    vba_ast::Visibility::Public
+                        | vba_ast::Visibility::Global
+                        | vba_ast::Visibility::Friend
+                ) {
+                    return Err(self.no(ins.opcode, "private field of another class"));
+                }
+                if info.with_events || info.auto_new {
+                    return Err(self.no(ins.opcode, "WithEvents or As New field"));
+                }
+                Ok(Ex::Field {
+                    recv: Box::new(recv),
+                    global: g,
+                    ty: info.ty.clone(),
+                })
+            }
+            Some(Symbol::Proc(id)) => {
+                self.note_callee(id);
+                self.project_call_on(ins, Some(recv), id, args)
+            }
+            Some(Symbol::Property(grp)) => match grp.get {
+                Some(id) => {
+                    self.note_callee(id);
+                    self.project_call_on(ins, Some(recv), id, args)
+                }
+                None => Err(self.no(ins.opcode, "property without a Get")),
+            },
+            Some(_) => Err(self.no(ins.opcode, "member of the class that is not callable")),
+            None => Err(self.no(ins.opcode, "member of the class that is not available")),
+        }
+    }
+
+    /// `value.field` for a user-defined type.
+    fn udt_member(
+        &mut self,
+        ins: &Listed,
+        base: Ex,
+        u: UdtId,
+        name: &str,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
+        if !args.is_empty() {
+            return Err(self.no(ins.opcode, "indexing of a user-type field"));
+        }
+        let info = &self.cx.program.udts[u.index()];
+        let key = vba_ast::Name::new(name);
+        let Some(i) = info.fields.iter().position(|f| f.name == key) else {
+            return Err(self.no(ins.opcode, "no such field in the user type"));
+        };
+        let ty = info.fields[i].ty.clone();
+        Ok(Ex::UdtField {
+            base: Box::new(base),
+            udt: u,
+            index: i as u32,
+            ty,
+        })
     }
 
     /// A member of the current module reached through `Me`.
@@ -2149,15 +2597,63 @@ impl Lw<'_> {
         self.project_call(ins, id, args)
     }
 
-    fn assign(&mut self, ins: &Listed) -> R<()> {
+    fn assign(&mut self, ins: &Listed, set: bool) -> R<()> {
         let (name, _) = self.name_of(ins)?;
         let v = self.pop(ins)?;
         self.expect_empty(ins)?;
-        self.store_name(ins, &name, v)
+        if set {
+            self.check_set_source(ins, &v)?;
+        }
+        self.store_name(ins, &name, v, set)
+    }
+
+    /// The right-hand side of a `Set` must be an object reference known at
+    /// lowering time (a `Variant` is checked at run time by a call that is
+    /// not lowered).
+    fn check_set_source(&mut self, ins: &Listed, v: &Ex) -> R<()> {
+        if !self.set_marker {
+            return Err(self.no(ins.opcode, "reference assignment without a Set marker"));
+        }
+        self.set_marker = false;
+        if v.ty().is_object() {
+            Ok(())
+        } else {
+            Err(self.no(ins.opcode, "Set with a value that is not a known object"))
+        }
+    }
+
+    /// Assigns `v` to a location of type `ty`: a value assignment for
+    /// scalars, a reference assignment (`Set`) for objects.
+    fn assign_to_place(
+        &mut self,
+        ins: &Listed,
+        place: Place,
+        ty: Type,
+        v: Ex,
+        set: bool,
+    ) -> R<()> {
+        let v = if set {
+            if !(ty.is_object() || ty.is_variant()) {
+                return Err(self.no(ins.opcode, "Set on a location that is not an object"));
+            }
+            self.coerce_object(ins, v, &ty, false)?
+        } else {
+            if v.ty().is_object()
+                || ty.is_object()
+                || matches!(ty, Type::Udt(_) | Type::Array { .. } | Type::FixedString(_))
+                || matches!(v.ty(), Type::Udt(_) | Type::Array { .. })
+            {
+                return Err(self.no(ins.opcode, "object assignment"));
+            }
+            self.coerce(v, &ty)
+        };
+        let o = self.emit_ex(&v);
+        self.store_place(&place, o, if set { StoreMode::Set } else { StoreMode::Let });
+        Ok(())
     }
 
     /// Stores `v` into the variable or `Property Let` called `name`.
-    fn store_name(&mut self, ins: &Listed, name: &str, v: Ex) -> R<()> {
+    fn store_name(&mut self, ins: &Listed, name: &str, v: Ex, set: bool) -> R<()> {
         enum Target {
             Local(LocalId, Type),
             Global(GlobalId, Type),
@@ -2176,57 +2672,58 @@ impl Lw<'_> {
         } else {
             match self.module_symbol(name) {
                 Some(Symbol::Var(g)) => Target::Global(g, self.cx.program.global(g).ty.clone()),
-                Some(Symbol::Property(_)) => match self.proc_target(name, Role::Let) {
-                    Some(p) => Target::Property(p),
-                    None => return Err(self.no(ins.opcode, "property without a Let")),
-                },
+                Some(Symbol::Property(_)) => {
+                    match self.proc_target(name, if set { Role::Set } else { Role::Let }) {
+                        Some(p) => Target::Property(p),
+                        None => return Err(self.no(ins.opcode, "property without a Let or Set")),
+                    }
+                }
                 _ => {
                     return Err(self.no(ins.opcode, "assignment to a name that is not a variable"));
                 }
             }
         };
-        let (ty, store) = match target {
-            Target::Property(pid) => return self.let_property(ins, pid, v),
-            Target::Local(l, t) => (t, Ok(l)),
-            Target::Global(g, t) => (t, Err(g)),
+        let (ty, place) = match target {
+            Target::Property(pid) => return self.property_assign(ins, None, pid, v, set),
+            Target::Local(l, t) => (t, Place::Local(l)),
+            Target::Global(g, t) => (t, Place::Global(g)),
         };
-        if v.ty().is_object() || ty.is_object() {
-            return Err(self.no(ins.opcode, "object assignment"));
-        }
-        let v = self.coerce(v, &ty);
-        let o = self.emit_ex(&v);
-        match store {
-            Ok(slot) => self.emit(InstKind::StoreLocal {
-                slot,
-                src: o,
-                mode: StoreMode::Let,
-            }),
-            Err(g) => self.emit_global_store(g, o),
-        }
-        Ok(())
+        self.assign_to_place(ins, place, ty, v, set)
     }
 
-    /// Stores `v` into a module-level variable.
-    fn store_global(&mut self, ins: &Listed, g: GlobalId, v: Ex) -> R<()> {
-        let ty = self.cx.program.global(g).ty.clone();
-        if v.ty().is_object() || ty.is_object() {
+    /// A `Property Let` or `Property Set` call with the value as its last
+    /// argument. The value is evaluated before the receiver, as the source
+    /// lowering evaluates the right-hand side of an assignment first.
+    fn property_assign(
+        &mut self,
+        ins: &Listed,
+        recv: Option<Ex>,
+        pid: ProcId,
+        v: Ex,
+        set: bool,
+    ) -> R<()> {
+        if !set && v.ty().is_object() {
             return Err(self.no(ins.opcode, "object assignment"));
         }
-        let v = self.coerce(v, &ty);
+        self.note_callee(pid);
+        let callee = self.cx.program.proc(pid);
+        let Some(last) = callee.params.last() else {
+            return Err(self.no(ins.opcode, "property without a value parameter"));
+        };
+        let pty = last.ty.clone();
+        let v = if set {
+            self.coerce_object(ins, v, &pty, true)?
+        } else {
+            self.coerce_arg(ins, v, &pty)?
+        };
+        let vty = v.ty();
         let o = self.emit_ex(&v);
-        self.emit_global_store(g, o);
-        Ok(())
-    }
-
-    /// `Property Let` call with the value as its last argument (by value).
-    fn let_property(&mut self, ins: &Listed, pid: ProcId, v: Ex) -> R<()> {
-        if v.ty().is_object() {
-            return Err(self.no(ins.opcode, "object assignment"));
-        }
-        let call = self.project_call(ins, pid, vec![Ex::Paren(Box::new(v))])?;
+        let call = self.project_call_on(ins, recv, pid, vec![Ex::Paren(Box::new(Ex::Emitted(o, vty)))])?;
         self.emit_call_stmt(&call);
         Ok(())
     }
+
+
 
     /// `Const name [As T] = value` inside the procedure: the value must fold
     /// to a literal.
@@ -2267,43 +2764,105 @@ impl Lw<'_> {
     }
 
     /// `receiver.name = v`.
-    fn dot_assign(&mut self, ins: &Listed) -> R<()> {
+    fn dot_assign(&mut self, ins: &Listed, set: bool) -> R<()> {
         let name = self.name_of(ins)?.0;
         let recv = self.pop(ins)?;
         let v = self.pop(ins)?;
         self.expect_empty(ins)?;
+        if set {
+            self.check_set_source(ins, &v)?;
+        }
         match recv {
             Ex::Me(_) => {
                 let key = vba_ast::Name::new(&name);
                 let own = self.cx.program.module(self.sema.module);
                 match own.symbols.get(&key).map(|(s, _)| *s) {
-                    Some(Symbol::Var(g)) => self.store_global(ins, g, v),
-                    Some(Symbol::Property(g)) => match g.let_ {
-                        Some(p) => {
-                            if !self.callees.contains(&p) {
-                                self.callees.push(p);
-                            }
-                            self.let_property(ins, p, v)
-                        }
-                        None => Err(self.no(ins.opcode, "property without a Let")),
+                    Some(Symbol::Var(g)) => {
+                        let ty = self.cx.program.global(g).ty.clone();
+                        self.assign_to_place(ins, Place::Global(g), ty, v, set)
+                    }
+                    Some(Symbol::Property(g)) => match if set { g.set } else { g.let_ } {
+                        Some(p) => self.property_assign(ins, None, p, v, set),
+                        None => Err(self.no(ins.opcode, "property without a Let or Set")),
                     },
                     Some(_) => Err(self.no(ins.opcode, "assignment to a module member")),
                     None if self.cx.host_backed && !self.declared_in_module(&name) => {
-                        self.late_put(ins, Ex::Me(self.sema.module), &name, v)
+                        self.late_put(ins, Ex::Me(self.sema.module), &name, v, set)
                     }
                     None => Err(self.no(ins.opcode, "member of the module that is not available")),
                 }
             }
-            Ex::Late { .. } => self.late_put(ins, recv, &name, v),
-            _ => Err(self.no(ins.opcode, "assignment to a member of this receiver")),
+            Ex::Late { .. } => self.late_put(ins, recv, &name, v, set),
+            other => match other.ty() {
+                Type::Class(m) => self.class_assign(ins, other, m, &name, v, set),
+                Type::Udt(u) => {
+                    let field = self.udt_member(ins, other, u, &name, Vec::new())?;
+                    let ty = field.ty();
+                    match place_of(&field) {
+                        Some(place) => self.assign_to_place(ins, place, ty, v, set),
+                        None => Err(self.no(ins.opcode, "assignment to a value that is not a variable")),
+                    }
+                }
+                Type::Object | Type::Variant => self.late_put(ins, other, &name, v, set),
+                _ => Err(self.no(ins.opcode, "assignment to a member of this receiver")),
+            },
         }
     }
 
-    fn late_put(&mut self, ins: &Listed, recv: Ex, name: &str, v: Ex) -> R<()> {
-        if v.ty().is_object() {
+    /// `receiver.name = v` / `Set receiver.name = v` on a value of a class
+    /// of the project.
+    fn class_assign(
+        &mut self,
+        ins: &Listed,
+        recv: Ex,
+        m: ModuleId,
+        name: &str,
+        v: Ex,
+        set: bool,
+    ) -> R<()> {
+        let program = self.cx.program;
+        let key = vba_ast::Name::new(name);
+        match program.module(m).symbols.get(&key).map(|(s, _)| *s) {
+            Some(Symbol::Var(g)) => {
+                let info = program.global(g);
+                if !matches!(
+                    info.visibility,
+                    vba_ast::Visibility::Public
+                        | vba_ast::Visibility::Global
+                        | vba_ast::Visibility::Friend
+                ) {
+                    return Err(self.no(ins.opcode, "private field of another class"));
+                }
+                if info.with_events || info.auto_new {
+                    return Err(self.no(ins.opcode, "WithEvents or As New field"));
+                }
+                let ty = info.ty.clone();
+                let place = Place::Field {
+                    recv: Box::new(recv),
+                    global: g,
+                };
+                self.assign_to_place(ins, place, ty, v, set)
+            }
+            Some(Symbol::Property(grp)) => match if set { grp.set } else { grp.let_ } {
+                Some(p) => self.property_assign(ins, Some(recv), p, v, set),
+                None => Err(self.no(ins.opcode, "property without a Let or Set")),
+            },
+            Some(_) => Err(self.no(ins.opcode, "member of the class that is not assignable")),
+            None => Err(self.no(ins.opcode, "member of the class that is not available")),
+        }
+    }
+
+    fn late_put(&mut self, ins: &Listed, recv: Ex, name: &str, v: Ex, set: bool) -> R<()> {
+        if set {
+            // An object reference into a late-bound member: passed on as it
+            // is (`PutRef`).
+            if !v.ty().is_object() {
+                return Err(self.no(ins.opcode, "Set with a value that is not an object"));
+            }
+        } else if v.ty().is_object() {
             return Err(self.no(ins.opcode, "object assignment"));
         }
-        let v = self.coerce(v, &Type::Variant);
+        let v = if set { v } else { self.coerce(v, &Type::Variant) };
         // The value is evaluated before the receiver: the compiled code
         // pushes it first, and the source lowering evaluates the right-hand
         // side of an assignment before the target.
@@ -2313,7 +2872,7 @@ impl Lw<'_> {
             dst: None,
             receiver,
             member: Member::Named(name.to_owned()),
-            kind: InvokeKind::Put,
+            kind: if set { InvokeKind::PutRef } else { InvokeKind::Put },
             args: vec![LateArg {
                 name: None,
                 arg: CallArg::Val(vo),
