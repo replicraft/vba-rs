@@ -33,6 +33,10 @@ pub const KIND_PROPERTY_LET: u16 = 0x4000;
 pub struct Tables {
     pub idents: Vec<String>,
     pub ind: Vec<u8>,
+    /// Object-table entries (10 bytes each).
+    pub objects: Vec<[u8; 10]>,
+    /// Records of the type-reference list after the object table.
+    pub type_refs: Vec<[u8; 8]>,
 }
 
 impl Default for Tables {
@@ -42,6 +46,8 @@ impl Default for Tables {
         Self {
             idents: Vec::new(),
             ind: vec![0; 8],
+            objects: Vec::new(),
+            type_refs: Vec::new(),
         }
     }
 }
@@ -152,6 +158,79 @@ impl Tables {
         self.ind[at + 24..at + 26].copy_from_slice(&opt.to_le_bytes());
     }
 
+    /// Adds an object-table entry naming a class or type; returns its index.
+    pub fn object(&mut self, name: &str) -> usize {
+        let nw = self.name(name);
+        let mut e = [0u8; 10];
+        e[6..8].copy_from_slice(&nw.to_le_bytes());
+        self.objects.push(e);
+        self.objects.len() - 1
+    }
+
+    /// Adds an object-table entry for a library-qualified type
+    /// (`Qualifier.Name`); returns its index.
+    pub fn qualified(&mut self, qualifier: &str, name: &str) -> usize {
+        let (q, n) = (self.name(qualifier), self.name(name));
+        let slot = self.type_refs.len() as u16;
+        let mut r = [0u8; 8];
+        r[0..2].copy_from_slice(&2u16.to_le_bytes());
+        r[2..4].copy_from_slice(&q.to_le_bytes());
+        r[4..6].copy_from_slice(&n.to_le_bytes());
+        self.type_refs.push(r);
+        let mut e = [0u8; 10];
+        e[2..4].copy_from_slice(&0x3C01u16.to_le_bytes());
+        e[6..8].copy_from_slice(&(slot * 4).to_le_bytes());
+        self.objects.push(e);
+        self.objects.len() - 1
+    }
+
+    /// Adds a type descriptor of an object-table entry; returns its offset.
+    pub fn named_type(&mut self, entry: usize) -> u32 {
+        self.pad8();
+        let off = self.ind.len() as u32;
+        let mut d = vec![0u8; 8];
+        d[0..2].copy_from_slice(&0x001Du16.to_le_bytes());
+        d[2..4].copy_from_slice(&((entry * 4) as u16).to_le_bytes());
+        self.ind.extend_from_slice(&d);
+        off
+    }
+
+    /// Adds a variable record whose type is the descriptor at `desc`.
+    pub fn variable_of(&mut self, name: &str, desc: u32) -> u32 {
+        self.pad8();
+        let off = self.ind.len() as u32;
+        let nw = self.name(name);
+        let mut r = vec![0u8; 24];
+        r[0] = 0x20;
+        r[2..4].copy_from_slice(&nw.to_le_bytes());
+        r[12..16].copy_from_slice(&desc.to_le_bytes());
+        self.ind.extend_from_slice(&r);
+        off
+    }
+
+    /// Adds a user-defined-type record (`Type` or `Enum` header).
+    pub fn udt(&mut self, name: &str, public: bool) -> u32 {
+        self.pad8();
+        let off = self.ind.len() as u32;
+        let nw = self.name(name);
+        let mut r = vec![0u8; 24];
+        r[2..4].copy_from_slice(&nw.to_le_bytes());
+        r[18..20].copy_from_slice(&u16::from(public).to_le_bytes());
+        self.ind.extend_from_slice(&r);
+        off
+    }
+
+    /// Gives the `index`-th argument of the function record at `func` the
+    /// type field `ty` (a descriptor offset).
+    pub fn set_arg_type(&mut self, func: u32, index: usize, ty: u32) {
+        let f = func as usize;
+        let mut at = u32::from_le_bytes(self.ind[f + 40..f + 44].try_into().unwrap()) as usize;
+        for _ in 0..index {
+            at = u32::from_le_bytes(self.ind[at + 20..at + 24].try_into().unwrap()) as usize;
+        }
+        self.ind[at + 12..at + 16].copy_from_slice(&ty.to_le_bytes());
+    }
+
     /// Adds a variable record; returns its offset.
     pub fn variable(&mut self, name: &str, ty: Option<u8>) -> u32 {
         self.pad8();
@@ -201,6 +280,14 @@ impl Line {
         self.word(op, modifier);
         self.0.extend_from_slice(&name.to_le_bytes());
         self.0.extend_from_slice(&argc.to_le_bytes());
+        self
+    }
+
+    /// An instruction with an object-table operand (entry index times 4).
+    pub fn obj(mut self, op: Opcode, entry: usize) -> Self {
+        self.word(op, 0);
+        self.0
+            .extend_from_slice(&((entry * 4) as u16).to_le_bytes());
         self
     }
 
@@ -271,6 +358,22 @@ impl Line {
 
 /// Assembles a module cache (VBA 7.0 x86 arrangement).
 pub fn build_cache(lines: &[Line], indirect: &[u8]) -> Vec<u8> {
+    build_cache_with(lines, indirect, &[], &[])
+}
+
+/// Like [`build_cache`], with the object table and the type-reference list
+/// of `t`.
+pub fn build_cache_t(lines: &[Line], t: &Tables) -> Vec<u8> {
+    build_cache_with(lines, &t.ind, &t.objects, &t.type_refs)
+}
+
+/// Assembles a module cache with object-table entries and type references.
+pub fn build_cache_with(
+    lines: &[Line],
+    indirect: &[u8],
+    objects: &[[u8; 10]],
+    type_refs: &[[u8; 8]],
+) -> Vec<u8> {
     fn put32(v: &mut [u8], at: usize, x: u32) {
         v[at..at + 4].copy_from_slice(&x.to_le_bytes());
     }
@@ -281,9 +384,25 @@ pub fn build_cache(lines: &[Line], indirect: &[u8]) -> Vec<u8> {
     v.extend_from_slice(&[0u8; 20]);
     let q = v.len();
     v.extend_from_slice(&[0u8; 0x8A]);
-    v.extend_from_slice(&20u32.to_le_bytes());
-    v.extend_from_slice(&[0u8; 20]);
-    v.extend_from_slice(&[0u8; 24]);
+    if objects.is_empty() {
+        v.extend_from_slice(&20u32.to_le_bytes());
+        v.extend_from_slice(&[0u8; 20]);
+    } else {
+        v.extend_from_slice(&((objects.len() * 10) as u32).to_le_bytes());
+        for e in objects {
+            v.extend_from_slice(e);
+        }
+    }
+    let mut block = vec![0u8; 24];
+    if !type_refs.is_empty() {
+        block = vec![0, 0, 1, 1];
+        block.extend_from_slice(&((type_refs.len() * 8) as u32).to_le_bytes());
+        for r in type_refs {
+            block.extend_from_slice(r);
+        }
+        block.resize(block.len().max(24), 0);
+    }
+    v.extend_from_slice(&block);
     let p = v.len();
     v.extend_from_slice(&[0u8; 10]);
     v.extend_from_slice(&(indirect.len() as u32).to_le_bytes());

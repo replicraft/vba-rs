@@ -32,7 +32,7 @@ fn lower_kind(
     host_members: &[&str],
 ) -> LoweredProject {
     let project = build_project_stream(&t.idents);
-    let cache = build_cache(lines, &t.ind);
+    let cache = build_cache_t(lines, t);
     let options = LowerOptions {
         host_members: host_members.iter().map(|s| (*s).to_owned()).collect(),
         project_name: None,
@@ -159,8 +159,12 @@ fn constants_keep_their_literal_types_and_unsupported_declarations_are_left_out(
     let v1 = t.variable("C1", None);
     let v2 = t.variable("C2", None);
     let v3 = t.variable("C3", Some(T_DOUBLE));
-    // A constant whose value is not a single literal is left out.
+    // A constant whose value is an expression of literals is generated;
+    // one that names something unknown is left out (below).
     let v4 = t.variable("C4", None);
+    let v5 = t.variable("C5", None);
+    let (c5, r5) = (t.name("C5"), t.name("R5"));
+    let un = t.name("Unknown");
     let mut lines = vec![
         // Const C1 = &H7FFF (Integer), C2 = 5& (Long), C3 As Double = 2, C4 = 1 + 2
         Line::new()
@@ -181,18 +185,27 @@ fn constants_keep_their_literal_types_and_unsupported_declarations_are_left_out(
             .i16(2)
             .op(Opcode::NumAdd)
             .rec(Opcode::VarDecl, 2, v4),
+        // Const C5 = Unknown + 1
+        Line::new()
+            .opm(Opcode::DimMarker, 1)
+            .read(un)
+            .i16(1)
+            .op(Opcode::NumAdd)
+            .rec(Opcode::VarDecl, 2, v5),
     ];
     for (name, c, ret) in [
         ("R1", c1, T_VARIANT),
         ("R2", c2, T_VARIANT),
         ("R3", c3, T_VARIANT),
         ("R4", c4, T_VARIANT),
+        ("R5", c5, T_VARIANT),
     ] {
         let target = match name {
             "R1" => r1,
             "R2" => r2,
             "R3" => r3,
-            _ => r4,
+            "R4" => r4,
+            _ => r5,
         };
         let f = t.function(name, Some(ret), &[]);
         lines.extend(block(
@@ -209,9 +222,9 @@ fn constants_keep_their_literal_types_and_unsupported_declarations_are_left_out(
         .filter(|d| d.unsupported.is_some())
         .map(|d| d.name.as_str())
         .collect();
-    assert_eq!(unsupported, ["C4"]);
-    assert_eq!(lp.lowered_count(), 3, "{:?}", lp.procedures);
-    assert!(reasons(&lp, "R4").contains("not a local"));
+    assert_eq!(unsupported, ["C5"]);
+    assert_eq!(lp.lowered_count(), 4, "{:?}", lp.procedures);
+    assert!(reasons(&lp, "R5").contains("not a local"));
     let (mut vm, _) = new_vm(&lp);
     let mut val = |name: &str| {
         let p = vm.find_procedure(&format!("Cls.{name}")).expect("entry");
@@ -220,6 +233,8 @@ fn constants_keep_their_literal_types_and_unsupported_declarations_are_left_out(
     assert_eq!(val("R1"), Variant::Integer(0x7FFF));
     assert_eq!(val("R2"), l(5));
     assert_eq!(val("R3"), Variant::Double(2.0));
+    // The constant expression is evaluated like the source would: 1 + 2.
+    assert_eq!(val("R4"), Variant::Integer(3));
 }
 
 /// A class with a field, `Class_Initialize`, a property pair, a method that
@@ -785,8 +800,10 @@ fn me_reaches_the_field_even_when_a_parameter_has_the_same_name() {
 fn a_member_the_cache_declares_is_never_taken_for_a_host_member() {
     let mut t = Tables::default();
     let (x, r) = (t.name("x"), t.name("Look"));
-    // Private x As Object   (not a plain scalar: left out of the program)
-    let xv = t.variable("x", Some(9));
+    // Private x As Excel.Range   (a library type: left out of the program)
+    let e = t.qualified("Excel", "Range");
+    let d = t.named_type(e);
+    let xv = t.variable_of("x", d);
     let mut lines = vec![
         Line::new().opm(Opcode::OptionStmt, 4),
         Line::new()

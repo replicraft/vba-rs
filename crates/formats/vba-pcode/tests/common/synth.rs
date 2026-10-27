@@ -12,6 +12,8 @@ pub struct CacheSpec {
     pub lines: Vec<Vec<u8>>,
     /// Object-table entries.
     pub objects: Vec<[u8; 10]>,
+    /// Records of the type-reference list that follows the object table.
+    pub type_refs: Vec<[u8; 8]>,
     /// Indirect-table contents.
     pub indirect: Vec<u8>,
     /// Declaration-table contents.
@@ -30,6 +32,7 @@ impl Default for CacheSpec {
         Self {
             lines: Vec::new(),
             objects: vec![[0; 10]; 2],
+            type_refs: Vec::new(),
             indirect: vec![0; 16],
             decl: Vec::new(),
             references: vec!["*\\Rtest".into()],
@@ -63,7 +66,20 @@ pub fn build_cache(spec: &CacheSpec) -> Vec<u8> {
     for e in &spec.objects {
         v.extend_from_slice(e);
     }
-    v.extend_from_slice(&[0u8; 24]);
+    if spec.type_refs.is_empty() {
+        v.extend_from_slice(&[0u8; 24]);
+    } else {
+        // A word, `01 01`, the byte length, the records.
+        let mut block = vec![0, 0, 1, 1];
+        block.extend_from_slice(&((spec.type_refs.len() * 8) as u32).to_le_bytes());
+        for r in &spec.type_refs {
+            block.extend_from_slice(r);
+        }
+        while block.len() < 24 {
+            block.push(0);
+        }
+        v.extend_from_slice(&block);
+    }
     // Indirect table.
     let p = v.len();
     v.extend_from_slice(&vec![0u8; if spec.x64 { 12 } else { 10 }]);

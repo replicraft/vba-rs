@@ -90,6 +90,90 @@ L0005 +0000 PROC_END_FUNCTION
     assert_eq!(d.to_string(), expected);
 }
 
+/// Library-qualified types resolve through the type-reference list that
+/// follows the object table, and the interface of `Implements` through the
+/// type descriptor the statement points at.
+#[test]
+fn qualified_types_and_implements_interfaces_resolve() {
+    let project = synth::build_project_stream(0x97, &["Lib", "Thing", "Iface", "v"]);
+    let pc = ProjectCache::parse(&project, 1).unwrap();
+    let w = |b: [u8; 2]| u16::from_le_bytes(b);
+    // Indirect table: a descriptor of entry 0 (offset 0), a descriptor of
+    // entry 1 (offset 8), a variable record `v As <entry 1>` (offset 16).
+    let mut ind = vec![0u8; 8];
+    ind[0..2].copy_from_slice(&0x001Du16.to_le_bytes());
+    let mut d = vec![0u8; 8];
+    d[0..2].copy_from_slice(&0x001Du16.to_le_bytes());
+    d[2..4].copy_from_slice(&4u16.to_le_bytes()); // entry 1, times 4
+    ind.extend(d);
+    let mut var = vec![0u8; 24];
+    var[0] = 0x20;
+    var[2..4].copy_from_slice(&synth::user_name(3));
+    var[12..16].copy_from_slice(&8u32.to_le_bytes());
+    ind.extend(var);
+    // Entry 0 names `Iface`; entry 1 is qualified: slot 0 of the list.
+    let mut e0 = [0u8; 10];
+    e0[6..8].copy_from_slice(&synth::user_name(2));
+    let mut e1 = [0u8; 10];
+    e1[2..4].copy_from_slice(&0x3C01u16.to_le_bytes());
+    let mut rec = [0u8; 8];
+    rec[0..2].copy_from_slice(&2u16.to_le_bytes());
+    rec[2..4].copy_from_slice(&synth::user_name(0)); // `Lib`
+    rec[4..6].copy_from_slice(&synth::user_name(1)); // `Thing`
+    let mut l0 = synth::word(242, 1).to_vec(); // VAR_DECL
+    l0.extend_from_slice(&16u32.to_le_bytes());
+    let mut l1 = synth::word(198, 0).to_vec(); // NEW_OBJECT
+    l1.extend_from_slice(&4u16.to_le_bytes());
+    let mut l2 = synth::word(159, 1).to_vec(); // IMPLEMENTS_STMT
+    l2.extend_from_slice(&8u16.to_le_bytes());
+    l2.extend_from_slice(&0u16.to_le_bytes());
+    let spec = CacheSpec {
+        indirect: ind,
+        objects: vec![e0, e1],
+        type_refs: vec![rec],
+        lines: vec![l0, l1, l2],
+        ..CacheSpec::default()
+    };
+    let bytes = synth::build_cache(&spec);
+    let cache = ModuleCache::parse(&bytes, &pc.layout).unwrap();
+    let dis = Disassembler::new(&cache, &pc.idents);
+    let want = QualifiedType {
+        library: w(synth::user_name(0)),
+        qualifier: Name::User("Lib".into()),
+        name: Name::User("Thing".into()),
+    };
+    let Operand::Variable(v) = &dis.line(0).instructions[0].operands[0] else {
+        panic!("variable expected");
+    };
+    assert_eq!(v.ty, ResolvedType::Qualified(want.clone()));
+    assert_eq!(v.ty.to_string(), "Lib.Thing");
+    assert_eq!(
+        dis.line(1).instructions[0].operands[0],
+        Operand::Object {
+            offset: 4,
+            class: None,
+            qualified: Some(want),
+        }
+    );
+    assert_eq!(
+        dis.line(2).instructions[0].operands,
+        vec![
+            Operand::Words(vec![8, 0]),
+            Operand::Interface(ResolvedType::Named(Name::User("Iface".into())))
+        ]
+    );
+    // A slot outside the list leaves the type unresolved instead of failing.
+    let mut spec2 = spec.clone();
+    spec2.type_refs.clear();
+    let bytes2 = synth::build_cache(&spec2);
+    let cache2 = ModuleCache::parse(&bytes2, &pc.layout).unwrap();
+    let dis2 = Disassembler::new(&cache2, &pc.idents);
+    let Operand::Variable(v2) = &dis2.line(0).instructions[0].operands[0] else {
+        panic!("variable expected");
+    };
+    assert!(matches!(v2.ty, ResolvedType::Unknown(_)), "{:?}", v2.ty);
+}
+
 #[test]
 fn member_table_is_found_when_present() {
     let project = synth::build_project_stream(0x97, &["A"]);
