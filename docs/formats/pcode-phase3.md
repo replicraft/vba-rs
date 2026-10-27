@@ -415,10 +415,10 @@ modules, a recording host mock, whole-module sessions).
 | total | 46 | 2,693 | 279 | 33 + 246 | 103 + 351 | 488 | 0 |
 
 The coverage is low in the large projects for reasons that are not about layout (as in
-section 8.4): locals, parameters and return types of object and library types (`Worksheet`,
-`Collection`, user classes: about 1,100 of 2,693), the `This As TState` idiom of module
-user types (346 procedures), `Set` (99), host objects used without being declared
-(`Application`, `ActiveSheet`, `Worksheets`), `Declare` (20), `Property Set`, `With`, and
+section 8.4): locals, parameters and return types of object, library and class types (about 1,100 of
+2,693), module-level variables of a user-defined type read through a name that is not
+lowered (346 procedures), `Set` (99), host objects used without being declared (a
+bare `Application`, a sheet collection), `Declare` (20), `Property Set`, `With`, and
 `Implements`.
 
 The first project still gives 189 of 430 procedures lowered, 524 + 344 runs, 112 sessions
