@@ -30,6 +30,11 @@ pub(crate) struct Node {
     pub state_bits: u32,
 }
 
+/// Longest accepted path of a storage or stream, in bytes.
+const MAX_PATH_BYTES: usize = 4096;
+/// Most bytes of path text accepted over all objects.
+const MAX_TOTAL_PATH_BYTES: usize = 16 << 20;
+
 /// Opens the compound file and lists every object in it.
 pub(crate) fn open_and_list<'a>(
     bytes: &'a [u8],
@@ -44,6 +49,7 @@ pub(crate) fn open_and_list<'a>(
     let cf =
         cfb::CompoundFile::open(Cursor::new(bytes)).map_err(|e| Error::Container(e.to_string()))?;
     let mut nodes = Vec::new();
+    let mut path_bytes = 0usize;
     for entry in cf.walk() {
         if nodes.len() >= limits.max_entries {
             return Err(Error::TooManyEntries {
@@ -51,6 +57,16 @@ pub(crate) fn open_and_list<'a>(
             });
         }
         let path = entry.path().to_string_lossy().replace('\\', "/");
+        // A chain of nested storages makes every path as long as the nesting
+        // is deep, so the paths alone would take the square of the depth in
+        // time and memory. Names are at most 31 characters; real documents
+        // nest a handful of levels.
+        path_bytes += path.len();
+        if path.len() > MAX_PATH_BYTES || path_bytes > MAX_TOTAL_PATH_BYTES {
+            return Err(Error::Container(
+                "storages are nested too deeply".to_owned(),
+            ));
+        }
         nodes.push(Node {
             path: path.trim_start_matches('/').to_owned(),
             is_stream: entry.is_stream(),

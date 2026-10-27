@@ -585,3 +585,86 @@ fn compress_round_trips_pathological_inputs() {
         assert_eq!(&back[..input.len()], &input[..]);
     }
 }
+
+// ----------------------------------------------------------- OOXML parts
+
+fn package_with_main_rels(main_rels: String) -> Vec<u8> {
+    let root = rels(&[(OFFICE_DOCUMENT, "word/document.xml", "")]);
+    zip_of(&[
+        ("[Content_Types].xml", CONTENT_TYPES.to_owned()),
+        ("_rels/.rels", root),
+        ("word/document.xml", "<w:document/>".to_owned()),
+        ("word/_rels/document.xml.rels", main_rels),
+    ])
+}
+
+/// Hostile relationship parts: huge element counts, absurd nesting, entity
+/// declarations and endless parent steps in targets all end in `Ok` or `Err`
+/// quickly.
+#[test]
+fn hostile_relationship_parts_are_handled() {
+    let limits = Limits {
+        max_stream_bytes: 32 << 20,
+        max_container_bytes: 64 << 20,
+        ..Limits::default()
+    };
+    let head = r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#;
+    let many = format!(
+        "{head}{}</Relationships>",
+        r#"<Relationship Id="r" Type="x" Target="y"/>"#.repeat(200_000)
+    );
+    let deep = format!("{head}{}{}", "<a>".repeat(400_000), "</a>".repeat(400_000));
+    let entities = format!(
+        r#"<?xml version="1.0"?><!DOCTYPE r [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">]><Relationships><Relationship Id="r" Type="{VBA}" Target="&c;"/></Relationships>"#
+    );
+    let parents = format!(
+        r#"{head}<Relationship Id="r" Type="{VBA}" Target="{}x"/></Relationships>"#,
+        "../".repeat(300_000)
+    );
+    let long_attr = format!(
+        r#"{head}<Relationship Id="r" Type="{VBA}" Target="{}"/></Relationships>"#,
+        "a".repeat(8 << 20)
+    );
+    for (what, rels) in [
+        ("many", many),
+        ("deep", deep),
+        ("entities", entities),
+        ("parents", parents),
+        ("long attribute", long_attr),
+    ] {
+        let pkg = package_with_main_rels(rels);
+        within(Duration::from_secs(30), what, || {
+            let _ = extract_project(&pkg, &limits);
+            let _ = vba_format::locate_ooxml_project(&pkg, &limits);
+        });
+    }
+}
+
+// ------------------------------------------------------------ deep trees
+
+fn nested_storages(depth: usize) -> Vec<u8> {
+    let mut cf = cfb::CompoundFile::create(std::io::Cursor::new(Vec::new())).unwrap();
+    let mut path = String::new();
+    for _ in 0..depth {
+        path.push_str("/s");
+        cf.create_storage(&path).unwrap();
+    }
+    cf.flush().unwrap();
+    cf.into_inner().into_inner()
+}
+
+/// A chain of nested storages makes every path as long as the nesting is
+/// deep, so listing the tree costs the square of the depth unless the length
+/// of a path is bounded.
+#[test]
+fn deeply_nested_storages_cost_bounded_time() {
+    let limits = Limits::default();
+    let bytes = nested_storages(3000);
+    assert!(matches!(read_project(&bytes, &limits), Err(Error::Container(_))));
+    let started = std::time::Instant::now();
+    within(Duration::from_secs(20), "3000 nested storages", || {
+        let _ = extract_project(&bytes, &limits);
+        let _ = read_project(&bytes, &limits);
+    });
+    eprintln!("read time {:?}", started.elapsed());
+}
