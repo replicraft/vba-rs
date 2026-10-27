@@ -137,11 +137,33 @@ leave the choice to the embedder. The facade's `Engine::new()` and `vbars run` s
 (`engine_defaults_are_finite_and_unlimited_opts_out`). Every call from the embedding application
 also has a wall-clock allowance of 60 seconds by default (`Engine::call_timeout`,
 `vbars run --timeout`), removed by `Engine::unlimited()` / `--unlimited` or raised with
-`call_timeout(Some(d))` / `--timeout S`; `Instance::from_session` and a host you wrote yourself
-start without it (`engines_allow_a_minute_per_call_unless_unlimited`,
+`call_timeout(Some(d))` / `--timeout S`. `Instance::from_session` gets the same 60 seconds
+(`from_session_has_the_default_allowance`; a hand-built host may carry no limits at all, so the safe
+value is the default and `default_call_timeout(None)` is the explicit opt-out); a host
+you wrote yourself, driven without the facade, starts without it
+(`engines_allow_a_minute_per_call_unless_unlimited`,
 `the_default_time_allowance_ends_a_loop_that_the_step_limit_would_let_run`,
 `run_has_a_wall_clock_limit_that_unlimited_and_zero_remove`).
 
+* **Work before the run.** `ResourceLimits` also carries budgets for what happens before
+  anything executes, and `ResourceLimits::untrusted()` sets them: 8 MiB of source over all modules,
+  1024 modules, 2 million bound statements and expressions, 2 million IR instructions. A session
+  builder reads them from the host's limits. Source size and module count are checked before
+  anything is parsed (`too_much_source_is_refused_before_parsing`, `too_many_modules_are_refused`;
+  vba-sema `limits.rs`); binding stops descending as soon as the node budget is spent, so a huge
+  body costs a bounded amount of work (`a_huge_body_stops_binding_at_the_node_budget`); lowering
+  checks its instruction budget at every statement and expression
+  (`a_huge_body_is_cut_off`, `the_budget_is_shared_by_all_procedures`; vba-ir `limits.rs`). An
+  exceeded budget is a typed error, `Error::Limit(LimitKind::SourceSize | ModuleCount |
+  AnalysisSize | ProgramSize)`, and exit code 4 in `vbars run`
+  (`hostile_source_is_refused_with_a_typed_limit`; vba-runtime). The formatter has its own
+  budgets, `FormatLimits::untrusted()` (8 MiB document, 1024 characters of indentation on any line) through
+  `View::try_format`, and runs in linear time on files of comment lines and many keywords
+  (`a_file_of_comment_lines_formats_in_linear_time`, `many_keyword_edits_format_in_linear_time`,
+  `a_huge_tab_size_is_refused_instead_of_allocated`; vba-lsp-core). The budgets are
+  approximations of size, not of time or bytes: one node or instruction is a few hundred bytes at
+  most, and parsing itself (before the node budget) is bounded only by the source-size budget and
+  the nesting and chain limits.
 * **Memory.** One `MemoryMeter` per run is shared by every owner of data a program can grow.
   Strings of 32 UTF-16 units or more and arrays register their capacity with the meter that is
   current on the creating thread and credit it when dropped, wherever that happens; objects,
@@ -268,14 +290,23 @@ error, never a panic.
   work, not guaranteed: the cost of an allocation, a hash lookup or a collation compare varies by
   machine and by string content (`Option Compare Text` folds through a table). The wall-clock allowance
   (60 seconds per call by default) bounds the rest; it is checked between chunks of work, so a
-  single native operation of at most the string or array size limit can overshoot it, and a
-  host member that blocks is not interrupted.
+  single native operation of at most the string or array size limit can overshoot it.
+* **A host member that blocks is not interrupted.** The interpreter and a host member share one
+  thread, so nothing can stop a member that sleeps, waits on a socket or reads a pipe while it runs.
+  What is guaranteed: when the member returns, the deadline and the cancel token are checked at once,
+  before its results are stored and before the next statement
+  (`a_blocking_host_member_ends_the_run_when_it_returns`), so the overshoot is one host call and
+  not the rest of the poll interval. What is not: the call itself can take as long as the member
+  takes. A member that can wait should cap its wait with `Budget::time_left()` (zero once the
+  deadline has passed; `None` without a deadline) or poll the `CancelToken`; the embedding
+  application owns that. Making it preemptive would need the member on its own thread, which the
+  single-threaded object model does not allow.
 * **Check and use are two steps where there are no directory handles.** On Unix the
-  mutating operations and file opens act through a verified directory handle (see
-  above). What remains: `Dir`, `FileLen`, `FileDateTime`, `GetAttr` and `stat`/`list`
-  inside the file system read metadata and names by path after the re-resolution, so
-  a parent swapped in that instant can show the program the metadata or the names of
-  a directory outside the grant (they change nothing). `Name` onto an existing name
+  mutating operations, file opens and the metadata reads (`Dir`, `FileLen`, `FileDateTime`,
+  `GetAttr`, `stat` and `list` inside the file system) act through a verified directory
+  handle (see above; `metadata_and_listings_do_not_follow_a_swapped_parent`). A link that
+  is a *member* of a listed directory shows the metadata of its target, resolved relative to
+  that handle. `Name` onto an existing name
   is refused with an atomic no-replace rename on Linux, Android and macOS, and with
   a check followed by `renameat` elsewhere, where a file created in the instant
   between them in the already verified directory is replaced. The host-side
@@ -293,7 +324,11 @@ error, never a panic.
   drive or UNC grant, and the start of a process (`CreateProcess` through
   `std::process::Command`) was not run.
 * Native recursion outside the interpreter (sema, IR lowering and the formatter for shapes
-  not listed above) has no byte budget; the shapes tried are bounded or iterative. Run
-  analysis of untrusted source on a thread with a large stack (for example 64 MiB).
+  not listed above) has no byte budget of its own; the shapes tried are bounded or iterative,
+  and the size budgets above bound how much of it can happen. Run analysis of untrusted source
+  on a thread with a large stack (for example 64 MiB).
+* The size budgets of analysis and lowering are enforced by the session builder. The
+  lower-level entry points (`vba_sema::analyze_sources` with default `Options`, `vba_ir::lower`)
+  and `View::format` are unlimited unless the caller passes limits.
 * The Wine helper executes native code of the library the embedder exports; it is not a sandbox.
 * `Session::vm()` gives an embedder the interpreter without the trust gate.
