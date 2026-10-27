@@ -16,6 +16,10 @@ fn lowering_over_the_corpus() {
     let mut shapes: BTreeMap<String, usize> = BTreeMap::new();
     // (version word, platform kind) -> (files, procedures, lowered)
     let mut layouts: BTreeMap<(u16, u32), (usize, usize, usize)> = BTreeMap::new();
+    let mut roots: BTreeMap<String, usize> = BTreeMap::new();
+    let mut roots_raw: BTreeMap<String, usize> = BTreeMap::new();
+    let mut decl_reasons: BTreeMap<String, usize> = BTreeMap::new();
+    let (mut decls, mut decls_ok) = (0usize, 0usize);
     let (mut procs, mut lowered, mut files, mut refused) = (0, 0, 0, 0);
     for (n, path) in common::corpus_files().iter().enumerate() {
         let Some(p) = common::load_path(path) else {
@@ -46,6 +50,66 @@ fn lowering_over_the_corpus() {
                 e.0 += 1;
                 e.1 += t;
                 e.2 += l;
+                for d in &lp.declarations {
+                    decls += 1;
+                    match &d.unsupported {
+                        None => decls_ok += 1,
+                        Some(r) => {
+                            if std::env::var_os("SHOW_RAW_DECL").is_some() {
+                                println!("DECL {} {}: {r}", d.module, d.name);
+                            }
+                            *decl_reasons.entry(shape(r)).or_default() += 1
+                        }
+                    }
+                }
+                // Root cause: follow "calls X" and "instances run X" to the
+                // procedure that is itself refused for another reason.
+                let by_name: std::collections::HashMap<
+                    (String, String),
+                    &vba_pcode_ir::Unsupported,
+                > = lp
+                    .procedures
+                    .iter()
+                    .filter_map(|r| match &r.outcome {
+                        Outcome::Unsupported(u) => {
+                            Some(((r.module.to_lowercase(), r.procedure.to_lowercase()), u))
+                        }
+                        Outcome::Lowered => None,
+                    })
+                    .collect();
+                for r in &lp.procedures {
+                    let Outcome::Unsupported(u0) = &r.outcome else {
+                        continue;
+                    };
+                    let mut u = u0;
+                    let mut module = r.module.to_lowercase();
+                    for _ in 0..30 {
+                        let next = if let Some(rest) = u.reason.strip_prefix("calls `") {
+                            rest.split_once('`').and_then(|(m, _)| {
+                                m.split_once('.')
+                                    .map(|(a, b)| (a.to_lowercase(), b.to_lowercase()))
+                            })
+                        } else if let Some(rest) = u.reason.strip_prefix("instances run `") {
+                            rest.split_once('`')
+                                .map(|(b, _)| (module.clone(), b.to_lowercase()))
+                        } else {
+                            None
+                        };
+                        match next.and_then(|k| by_name.get(&k).map(|v| (k, *v))) {
+                            Some(((m, _), nu)) => {
+                                module = m;
+                                u = nu;
+                            }
+                            None => break,
+                        }
+                    }
+                    *roots
+                        .entry(format!("{} | {}", u.opcode.label(), shape(&u.reason)))
+                        .or_default() += 1;
+                    *roots_raw
+                        .entry(format!("{} | {}", u.opcode.label(), u.reason))
+                        .or_default() += 1;
+                }
                 let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
                 for r in &lp.procedures {
                     if let Outcome::Unsupported(u) = &r.outcome {
@@ -81,6 +145,29 @@ fn lowering_over_the_corpus() {
     }
     println!("-- refusal shapes (names collapsed), one per procedure");
     let mut top: Vec<_> = shapes.into_iter().collect();
+    top.sort_by_key(|x| std::cmp::Reverse(x.1));
+    for (k, n) in &top {
+        println!("{n:5} {k}");
+    }
+    println!(
+        "-- root causes (calls and instance blocks followed to the procedure refused for its own reason)"
+    );
+    let mut top: Vec<_> = roots.into_iter().collect();
+    top.sort_by_key(|x| std::cmp::Reverse(x.1));
+    for (k, n) in &top {
+        println!("{n:5} {k}");
+    }
+    if std::env::var_os("SHOW_RAW_ROOTS").is_some() {
+        let mut top: Vec<_> = roots_raw.into_iter().collect();
+        top.sort_by_key(|x| std::cmp::Reverse(x.1));
+        for (k, n) in top.iter().take(60) {
+            println!("RAWROOT {n:5} {k}");
+        }
+    }
+    println!(
+        "-- module-level declarations (variables, constants, types, enums, Implements): {decls}, generated {decls_ok}"
+    );
+    let mut top: Vec<_> = decl_reasons.into_iter().collect();
     top.sort_by_key(|x| std::cmp::Reverse(x.1));
     for (k, n) in &top {
         println!("{n:5} {k}");

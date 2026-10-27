@@ -165,6 +165,47 @@ pub fn lower_project(
     lower_project_with_options(project_stream, sys_kind, modules, &LowerOptions::default())
 }
 
+/// A class module whose name is used as the receiver of a member form
+/// (`ClassName.Create(...)`) has a default instance: the language allows
+/// that only for `VB_PredeclaredId`, an attribute that has no line in the
+/// cache.
+fn mark_default_instances(models: &mut [model::ModuleModel]) {
+    use vba_pcode::{Opcode, Operand};
+    let classes: std::collections::HashSet<String> = models
+        .iter()
+        .filter(|m| m.kind == vba_project::ModuleKind::Class)
+        .map(|m| m.name.to_ascii_lowercase())
+        .collect();
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for m in models.iter() {
+        for p in &m.procs {
+            for w in p.body.windows(2) {
+                let (a, b) = (&w[0].1, &w[1].1);
+                if a.opcode == Opcode::ReadSimple
+                    && matches!(
+                        b.opcode,
+                        Opcode::ReadDot
+                            | Opcode::ReadDotParams
+                            | Opcode::InvokeDot
+                            | Opcode::WriteDot
+                            | Opcode::WriteDotParams
+                            | Opcode::WriteRefDot
+                            | Opcode::WriteRefDotParams
+                    )
+                    && let Some(Operand::Name { name, .. }) = a.operands.first()
+                    && let Some(n) = name.spelling()
+                    && classes.contains(&n.to_ascii_lowercase())
+                {
+                    used.insert(n.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    for m in models.iter_mut() {
+        m.predeclared = used.contains(&m.name.to_ascii_lowercase());
+    }
+}
+
 /// Settings of the embedding application that the compiled code does not
 /// carry.
 #[derive(Debug, Clone, Default)]
@@ -217,10 +258,24 @@ pub fn lower_project_with_options(
                 types: Vec::new(),
                 implements: Vec::new(),
                 procs: Vec::new(),
+                predeclared: false,
             }),
         }
     }
-    let env = model::TypeEnv::build(&models, options.project_name.as_deref());
+    mark_default_instances(&mut models);
+    let mut env = model::TypeEnv::build(&models, options.project_name.as_deref());
+    // A user type with a field that does not resolve is left out, and so is
+    // every type with a field of that type.
+    loop {
+        let mut changed = false;
+        for (mi, m) in models.iter_mut().enumerate() {
+            changed |= model::resolve_types(m, mi, &env);
+        }
+        if !changed {
+            break;
+        }
+        env = model::TypeEnv::build(&models, options.project_name.as_deref());
+    }
     for (mi, m) in models.iter_mut().enumerate() {
         model::resolve_module(m, mi, &env);
     }
@@ -363,7 +418,7 @@ pub fn lower_project_with_options(
             let p = &models[mi].procs[pi];
             let callee_name = by_id
                 .get(&callee)
-                .map(|&(cm, cp)| models[cm].procs[cp].name.clone())
+                .map(|&(cm, cp)| format!("{}.{}", models[cm].name, models[cm].procs[cp].name))
                 .unwrap_or_default();
             reports[mi][pi] = Some(Outcome::Unsupported(Unsupported {
                 opcode: vba_pcode::Opcode::InvokeSimple,

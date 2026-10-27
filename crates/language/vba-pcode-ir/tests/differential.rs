@@ -111,6 +111,17 @@ fn find_proc(ir: &IrProgram, module: &str, sel: &ProcSel<'_>) -> Option<vba_sema
         .map(|p| p.id)
 }
 
+/// Whether two runs agree. Two runs that both stop at the step limit agree
+/// up to that point: how many steps an iteration takes depends on the shape of
+/// the blocks, which the two lowerings do not share.
+fn same(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    let cut = |s: &str| s.split("Limit(Steps)").next().unwrap_or("").to_owned();
+    a.contains("Limit(Steps)") && b.contains("Limit(Steps)") && cut(a) == cut(b)
+}
+
 /// Builds the arguments of a call on `vm`.
 fn build_args(
     vm: &mut Vm,
@@ -300,6 +311,14 @@ fn source_program(
     for m in &p.modules {
         let lines = common::logical_lines(&m.source);
         let mut text = String::new();
+        // Attribute lines have no line in the compiled code; the default
+        // instance of a class is the one that matters to the lowering.
+        for raw in String::from_utf8_lossy(&m.source).lines() {
+            let low = raw.trim().to_ascii_lowercase().replace(' ', "");
+            if low.starts_with("attributevb_predeclaredid=true") {
+                text.push_str("Attribute VB_PredeclaredId = True\n");
+            }
+        }
         for l in &lines {
             let t = String::from_utf8_lossy(l);
             let low = t.trim_start().to_ascii_lowercase();
@@ -527,7 +546,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
             if a.starts_with("Err") {
                 errors_both += 1;
             }
-            if a != b {
+            if !same(&a, &b) {
                 mismatches += 1;
                 println!("MISMATCH {full} {args:?}\n  source: {a}\n  cache : {b}");
                 if std::env::var_os("DUMP_IR").is_some() {
@@ -583,7 +602,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
             let a = run_session(&src, &m.name, cl, &steps);
             let b = run_session(&cache_ir, &m.name, cl, &steps);
             sessions += 1;
-            if a != b {
+            if !same(&a, &b) {
                 mismatches += 1;
                 println!(
                     "SESSION MISMATCH {} round {round}\n  source: {a}\n  cache : {b}",

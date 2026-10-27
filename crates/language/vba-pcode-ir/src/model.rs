@@ -248,6 +248,10 @@ pub(crate) struct ModuleModel {
     /// resolved, the class it names.
     pub implements: Vec<ImplementsDecl>,
     pub procs: Vec<ProcModel>,
+    /// The module name is used as a value (`ClassName.Member`) in the
+    /// project, which a class module allows only when it has a default
+    /// instance (`VB_PredeclaredId`; attribute lines have no cache line).
+    pub predeclared: bool,
 }
 
 /// An `Implements` statement of a class-like module.
@@ -381,6 +385,7 @@ pub(crate) fn extract_module(
         types: Vec::new(),
         implements: Vec::new(),
         procs: Vec::new(),
+        predeclared: false,
     };
     let mut cur: Option<ProcModel> = None;
     let mut decls = DeclScan::default();
@@ -775,16 +780,11 @@ fn default_values(
         .collect())
 }
 
-/// Resolves the types of the declarations, types and procedures of module
-/// `mi` against the type names of the whole project.
-pub(crate) fn resolve_module(m: &mut ModuleModel, mi: usize, env: &TypeEnv) {
-    for i in &mut m.implements {
-        i.class = match env.resolve(&i.raw, mi) {
-            Ok(TyRef::Class(n)) => Ok(n),
-            Ok(_) => Err("interface that is not a class module of the project".to_owned()),
-            Err(e) => Err(e),
-        };
-    }
+/// Resolves the fields of the user types of module `mi`; a type with a field
+/// that does not resolve gets a problem. Returns whether one was found.
+/// Repeated, with the environment rebuilt, until nothing changes.
+pub(crate) fn resolve_types(m: &mut ModuleModel, mi: usize, env: &TypeEnv) -> bool {
+    let mut changed = false;
     for t in &mut m.types {
         if t.problem.is_some() {
             continue;
@@ -792,6 +792,7 @@ pub(crate) fn resolve_module(m: &mut ModuleModel, mi: usize, env: &TypeEnv) {
         if t.is_enum {
             if t.members.is_empty() {
                 t.problem = Some("empty enum".into());
+                changed = true;
             }
             continue;
         }
@@ -801,32 +802,29 @@ pub(crate) fn resolve_module(m: &mut ModuleModel, mi: usize, env: &TypeEnv) {
                 Ok(ty) => fields.push((n.clone(), ty)),
                 Err(e) => {
                     t.problem = Some(format!("field of {e}"));
+                    changed = true;
                     break;
                 }
             }
         }
         if t.problem.is_none() && fields.is_empty() {
             t.problem = Some("empty type".into());
+            changed = true;
         }
         t.fields = fields;
     }
-    // A type that refers to a type with a problem has one itself.
-    for _ in 0..4 {
-        let bad: Vec<String> = m
-            .types
-            .iter()
-            .filter(|t| t.problem.is_some())
-            .map(|t| t.name.to_ascii_lowercase())
-            .collect();
-        for t in &mut m.types {
-            if t.problem.is_none()
-                && t.fields
-                    .iter()
-                    .any(|(_, ty)| matches!(ty, TyRef::Udt(n) | TyRef::Enum(n) if bad.contains(&n.to_ascii_lowercase())))
-            {
-                t.problem = Some("field of a type that is not supported".into());
-            }
-        }
+    changed
+}
+
+/// Resolves the types of the declarations and procedures of module `mi`
+/// against the type names of the whole project (after `resolve_types`).
+pub(crate) fn resolve_module(m: &mut ModuleModel, mi: usize, env: &TypeEnv) {
+    for i in &mut m.implements {
+        i.class = match env.resolve(&i.raw, mi) {
+            Ok(TyRef::Class(n)) => Ok(n),
+            Ok(_) => Err("interface that is not a class module of the project".to_owned()),
+            Err(e) => Err(e),
+        };
     }
     for d in &mut m.decls {
         if d.problem.is_some() {

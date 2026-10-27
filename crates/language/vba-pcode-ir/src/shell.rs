@@ -50,6 +50,9 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
     if m.explicit {
         text.push_str("Option Explicit\n");
     }
+    if m.predeclared {
+        text.push_str("Attribute VB_PredeclaredId = True\n");
+    }
     match m.compare {
         CompareStored::Binary => {}
         CompareStored::Text => text.push_str("Option Compare Text\n"),
@@ -256,8 +259,10 @@ pub(crate) fn build_shell(
                 Some(Origin::Decl(di)) => {
                     let decl = &mut models[mi].decls[di];
                     if decl.problem.is_none() {
-                        decl.problem =
-                            Some(format!("rejected by the analysis of the generated declarations: {}", d.message));
+                        decl.problem = Some(format!(
+                            "rejected by the analysis of the generated declarations: {}",
+                            d.message
+                        ));
                         changed = true;
                     }
                 }
@@ -272,8 +277,10 @@ pub(crate) fn build_shell(
                 Some(Origin::Type(ti)) => {
                     let t = &mut models[mi].types[ti];
                     if t.problem.is_none() {
-                        t.problem =
-                            Some(format!("rejected by the analysis of the generated declarations: {}", d.message));
+                        t.problem = Some(format!(
+                            "rejected by the analysis of the generated declarations: {}",
+                            d.message
+                        ));
                         changed = true;
                     }
                 }

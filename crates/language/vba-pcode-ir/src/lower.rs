@@ -16,10 +16,10 @@ use vba_ir::{
 };
 use vba_pcode::{Evidence, Listed, Opcode, Operand};
 use vba_sema::bound::Constant;
-use vba_sema::builtins::BuiltinLibrary;
 use vba_sema::bound::NewTarget;
+use vba_sema::builtins::BuiltinLibrary;
 use vba_sema::{
-    GlobalId, LocalId, LocalKind, ModuleId, ProcId, ProcInfo, Program, Symbol, Type, UdtId,
+    EnumId, GlobalId, LocalId, LocalKind, ModuleId, ProcId, ProcInfo, Program, Symbol, Type, UdtId,
 };
 use vba_sema::{LibGlobal, LibMember, LibMemberKind, LibraryType, TypeProvider};
 use vba_source::Span;
@@ -94,10 +94,20 @@ enum Ex {
         ty: Type,
     },
     /// `New T`.
-    New { target: NewTarget, ty: Type },
+    New {
+        target: NewTarget,
+        ty: Type,
+    },
     /// A value that was already emitted (an assigned value that is
     /// evaluated before the target).
     Emitted(IrOperand, Type),
+    /// A named argument (`name:=value`); only valid inside an argument list.
+    Named(String, Box<Ex>),
+    /// The predeclared default instance of a class module.
+    DefaultInstance(ModuleId),
+    /// A name that qualifies another (a module, an enum, the project); only
+    /// valid as the receiver of a member form.
+    Ns(Ns),
     /// A module-level variable (a static variable of a standard module, a
     /// field of the instance in a class-like one).
     Global {
@@ -134,6 +144,14 @@ enum Ex {
     },
 }
 
+/// What a qualifying name stands for.
+#[derive(Debug, Clone, Copy)]
+enum Ns {
+    Project,
+    Module(ModuleId),
+    Enum(EnumId),
+}
+
 /// A location that can be passed by reference or assigned to.
 #[derive(Debug, Clone)]
 enum Place {
@@ -162,6 +180,8 @@ enum ArgEx {
 /// everything else by value, nothing is converted.
 #[derive(Debug, Clone)]
 enum LateEx {
+    /// A named argument.
+    Named(String, Box<LateEx>),
     Val(Ex),
     Ref(Place),
     Missing,
@@ -190,7 +210,9 @@ impl Ex {
             | Ex::New { ty, .. }
             | Ex::Emitted(_, ty)
             | Ex::Global { ty, .. } => ty.clone(),
-            Ex::Me(m) => Type::Class(*m),
+            Ex::Me(m) | Ex::DefaultInstance(m) => Type::Class(*m),
+            Ex::Named(_, e) => e.ty(),
+            Ex::Ns(_) => Type::Error,
             Ex::Late { .. } | Ex::Missing => Type::Variant,
             Ex::Convert { to, .. } => to.clone(),
             Ex::Paren(e) => e.ty(),
@@ -783,11 +805,26 @@ impl Lw<'_> {
         }
         let mut found = None;
         for m in &self.cx.program.modules {
-            if m.id == own.id || m.is_class_like() {
+            if m.id == own.id {
+                continue;
+            }
+            if m.is_class_like() {
+                // Members of the public enums of a class module are global.
+                if let Some((sym @ Symbol::EnumMember(e, _), _)) = m.symbols.get(&key)
+                    && self.cx.program.enums[e.index()].visibility != vba_ast::Visibility::Private
+                {
+                    if found.is_some() {
+                        return None;
+                    }
+                    found = Some(*sym);
+                }
                 continue;
             }
             if let Some((sym, _)) = m.symbols.get(&key)
-                && matches!(sym, Symbol::Var(_) | Symbol::Const(_))
+                && matches!(
+                    sym,
+                    Symbol::Var(_) | Symbol::Const(_) | Symbol::EnumMember(..)
+                )
             {
                 if found.is_some() {
                     return None;
@@ -851,7 +888,21 @@ impl Lw<'_> {
     fn pop(&mut self, ins: &Listed) -> R<Ex> {
         match self.stack.pop() {
             Some(Ex::Missing) => Err(self.no(ins.opcode, "omitted argument outside a call")),
+            Some(Ex::Ns(_)) => Err(self.no(ins.opcode, "a qualifying name used as a value")),
+            Some(Ex::Named(..)) => Err(self.no(ins.opcode, "named argument outside a call")),
             Some(e) => Ok(e),
+            None => Err(self.no(ins.opcode, "expression stack underflow")),
+        }
+    }
+
+    /// Pops the receiver of a member form: a value, or a qualifying name.
+    fn pop_receiver(&mut self, ins: &Listed) -> R<Ex> {
+        match self.stack.pop() {
+            Some(e @ Ex::Ns(_)) => Ok(e),
+            Some(e) => {
+                self.stack.push(e);
+                self.pop(ins)
+            }
             None => Err(self.no(ins.opcode, "expression stack underflow")),
         }
     }
@@ -861,7 +912,53 @@ impl Lw<'_> {
             return Err(self.no(ins.opcode, "expression stack underflow"));
         }
         let at = self.stack.len() - n;
-        Ok(self.stack.split_off(at))
+        let v = self.stack.split_off(at);
+        if v.iter().any(|e| matches!(e, Ex::Ns(_))) {
+            return Err(self.no(ins.opcode, "a qualifying name used as a value"));
+        }
+        Ok(v)
+    }
+
+    /// Puts the arguments of a call in parameter order when some are named:
+    /// positional ones first, then each named one at the place of the
+    /// parameter it names; the others are omitted. Without named arguments
+    /// the list is returned unchanged.
+    fn arrange_args(&self, ins: &Listed, params: &[&str], args: Vec<Ex>) -> R<Vec<Ex>> {
+        if !args.iter().any(|a| matches!(a, Ex::Named(..))) {
+            return Ok(args);
+        }
+        let mut slots: Vec<Option<Ex>> = (0..params.len()).map(|_| None).collect();
+        let mut pos = 0usize;
+        let mut named_seen = false;
+        for a in args {
+            match a {
+                Ex::Named(n, v) => {
+                    named_seen = true;
+                    let Some(i) = params.iter().position(|p| p.eq_ignore_ascii_case(&n)) else {
+                        return Err(self.no(ins.opcode, "named argument that names no parameter"));
+                    };
+                    if slots[i].is_some() {
+                        return Err(self.no(ins.opcode, "argument given twice"));
+                    }
+                    slots[i] = Some(*v);
+                }
+                other => {
+                    if named_seen || pos >= slots.len() {
+                        return Err(self.no(ins.opcode, "positional argument after a named one"));
+                    }
+                    slots[pos] = Some(other);
+                    pos += 1;
+                }
+            }
+        }
+        // Trailing omitted parameters are dropped; the others are `Missing`.
+        while matches!(slots.last(), Some(None)) {
+            slots.pop();
+        }
+        Ok(slots
+            .into_iter()
+            .map(|s| s.unwrap_or(Ex::Missing))
+            .collect())
     }
 
     // ---- calls ------------------------------------------------------------
@@ -881,6 +978,9 @@ impl Lw<'_> {
         args: Vec<Ex>,
     ) -> R<Ex> {
         let callee = self.cx.program.proc(id);
+        let names: Vec<String> = callee.params.iter().map(|p| p.name.to_string()).collect();
+        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let args = self.arrange_args(ins, &name_refs, args)?;
         let given = args.len();
         if given > callee.params.len()
             || callee.params[given..]
@@ -950,13 +1050,7 @@ impl Lw<'_> {
         })
     }
 
-    fn intrinsic_call(
-        &mut self,
-        ins: &Listed,
-        name: &str,
-        dollar: bool,
-        mut args: Vec<Ex>,
-    ) -> R<Ex> {
+    fn intrinsic_call(&mut self, ins: &Listed, name: &str, dollar: bool, args: Vec<Ex>) -> R<Ex> {
         let lookup = if dollar {
             format!("{name}$")
         } else {
@@ -975,6 +1069,13 @@ impl Lw<'_> {
         if info.params.iter().any(|p| p.param_array) {
             return Err(self.no(ins.opcode, "ParamArray function"));
         }
+        if args.iter().any(|a| matches!(a, Ex::Named(..)))
+            && matches!(info.name, "InStr" | "InStrB")
+        {
+            return Err(self.no(ins.opcode, "named argument of InStr"));
+        }
+        let names: Vec<&str> = info.params.iter().map(|p| p.name).collect();
+        let mut args = self.arrange_args(ins, &names, args)?;
         let is_instr = matches!(info.name, "InStr" | "InStrB");
         let mut lead_missing = false;
         if is_instr {
@@ -1042,6 +1143,8 @@ impl Lw<'_> {
         if m.params.iter().any(|p| p.param_array || p.ty.is_object()) || m.ty.is_object() {
             return Err(self.no(ins.opcode, "object or ParamArray run-time function"));
         }
+        let names: Vec<&str> = m.params.iter().map(|p| p.name.as_str()).collect();
+        let args = self.arrange_args(ins, &names, args)?;
         if args.len() > m.params.len() {
             return Err(self.no(ins.opcode, "too many arguments"));
         }
@@ -1215,6 +1318,13 @@ impl Lw<'_> {
                 IrOperand::Reg(dst)
             }
             Ex::Emitted(o, _) => o.clone(),
+            Ex::Named(_, e) => self.emit_ex(e),
+            Ex::DefaultInstance(m) => {
+                let dst = self.reg(Type::Class(*m));
+                self.emit(InstKind::LoadDefaultInstance { dst, module: *m });
+                IrOperand::Reg(dst)
+            }
+            Ex::Ns(_) => IrOperand::Const(Constant::Value(Variant::Empty)),
             Ex::New { target, ty } => {
                 let dst = self.reg(ty.clone());
                 self.emit(InstKind::New {
@@ -1401,6 +1511,29 @@ impl Lw<'_> {
         dst
     }
 
+    /// One argument of a late-bound call.
+    fn late_arg(&mut self, a: &LateEx) -> LateArg {
+        match a {
+            LateEx::Named(n, inner) => {
+                let mut l = self.late_arg(inner);
+                l.name = Some(n.clone());
+                l
+            }
+            LateEx::Val(v) => LateArg {
+                name: None,
+                arg: CallArg::Val(self.emit_ex(v)),
+            },
+            LateEx::Ref(t) => LateArg {
+                name: None,
+                arg: CallArg::Ref(self.emit_ref(t)),
+            },
+            LateEx::Missing => LateArg {
+                name: None,
+                arg: CallArg::Missing,
+            },
+        }
+    }
+
     /// Emits a late-bound member access. For `Put`, `value` is the
     /// assigned value (passed last). The result register, when wanted, is
     /// allocated after the receiver and the arguments.
@@ -1416,14 +1549,7 @@ impl Lw<'_> {
         let receiver = self.emit_ex(recv);
         let mut out = Vec::new();
         for a in args {
-            out.push(LateArg {
-                name: None,
-                arg: match a {
-                    LateEx::Val(v) => CallArg::Val(self.emit_ex(v)),
-                    LateEx::Ref(t) => CallArg::Ref(self.emit_ref(t)),
-                    LateEx::Missing => CallArg::Missing,
-                },
-            });
+            out.push(self.late_arg(a));
         }
         if let Some(v) = value {
             out.push(LateArg {
@@ -1664,6 +1790,9 @@ impl Lw<'_> {
                             | Opcode::ReadDotParams
                             | Opcode::InvokeDot
                             | Opcode::WriteDot
+                            | Opcode::WriteDotParams
+                            | Opcode::WriteRefDot
+                            | Opcode::WriteRefDotParams
                     )
                 });
                 let e = self.read_name(ins, &name, Vec::new(), receiver)?;
@@ -1691,7 +1820,7 @@ impl Lw<'_> {
                 self.close_stmt();
             }
             Opcode::WriteRefDot => {
-                self.dot_assign(ins, true)?;
+                self.dot_assign(ins, true, 0)?;
                 self.close_stmt();
             }
             Opcode::ConstNullObject => {
@@ -1754,7 +1883,7 @@ impl Lw<'_> {
             }
             Opcode::ReadDot => {
                 let (name, _) = self.name_of(ins)?;
-                let recv = self.pop(ins)?;
+                let recv = self.pop_receiver(ins)?;
                 let e = self.dot_member(ins, recv, &name, Vec::new())?;
                 self.stack.push(e);
             }
@@ -1764,7 +1893,7 @@ impl Lw<'_> {
                     Some(Operand::Count(c)) => usize::from(*c),
                     _ => return Err(self.no(op, "missing argument count")),
                 };
-                let recv = self.pop(ins)?;
+                let recv = self.pop_receiver(ins)?;
                 let args = self.pop_n(ins, argc)?;
                 let e = self.dot_member(ins, recv, &name, args)?;
                 self.stack.push(e);
@@ -1775,7 +1904,7 @@ impl Lw<'_> {
                     Some(Operand::Count(c)) => usize::from(*c),
                     _ => return Err(self.no(op, "missing argument count")),
                 };
-                let recv = self.pop(ins)?;
+                let recv = self.pop_receiver(ins)?;
                 let args = self.pop_n(ins, argc)?;
                 let call = self.dot_member(ins, recv, &name, args)?;
                 self.expect_empty(ins)?;
@@ -1783,8 +1912,21 @@ impl Lw<'_> {
                 self.close_stmt();
             }
             Opcode::WriteDot => {
-                self.dot_assign(ins, false)?;
+                self.dot_assign(ins, false, 0)?;
                 self.close_stmt();
+            }
+            Opcode::WriteDotParams | Opcode::WriteRefDotParams => {
+                let argc = match ins.operands.get(1) {
+                    Some(Operand::Count(c)) => usize::from(*c),
+                    _ => return Err(self.no(op, "missing argument count")),
+                };
+                self.dot_assign(ins, op == Opcode::WriteRefDotParams, argc)?;
+                self.close_stmt();
+            }
+            Opcode::ArgNamed => {
+                let (name, _) = self.name_of(ins)?;
+                let v = self.pop(ins)?;
+                self.stack.push(Ex::Named(name, Box::new(v)));
             }
 
             // ---- statements ----
@@ -2159,19 +2301,26 @@ impl Lw<'_> {
             // Property reads on the `Err` object, and the member forms with
             // `Me` or a late-bound value as the receiver (on top of the
             // stack).
-            Opcode::ReadDot => matches!(
-                self.stack.last(),
-                Some(Ex::LibObj { .. } | Ex::Me(_) | Ex::Late { .. })
-            ) || self.stack.last().is_some_and(|e| self.member_receiver(e)),
+            Opcode::ReadDot => {
+                matches!(
+                    self.stack.last(),
+                    Some(Ex::LibObj { .. } | Ex::Me(_) | Ex::Late { .. })
+                ) || self.stack.last().is_some_and(|e| self.member_receiver(e))
+            }
             Opcode::ReadDotParams
             | Opcode::InvokeDot
             | Opcode::WriteDot
-            | Opcode::WriteRefDot => {
+            | Opcode::WriteDotParams
+            | Opcode::WriteRefDot
+            | Opcode::WriteRefDotParams => {
                 matches!(self.stack.last(), Some(Ex::Me(_) | Ex::Late { .. }))
                     || self.stack.last().is_some_and(|e| self.member_receiver(e))
             }
             // `Set` statements, `New`.
-            Opcode::SetKeywordMarker | Opcode::WriteRefSimple | Opcode::NewObject => true,
+            Opcode::SetKeywordMarker
+            | Opcode::WriteRefSimple
+            | Opcode::NewObject
+            | Opcode::ArgNamed => true,
             _ => false,
         }
     }
@@ -2179,18 +2328,17 @@ impl Lw<'_> {
     /// Whether a value is a receiver the member forms are lowered for: a
     /// value of a class of the project, a user-defined type or `Object`.
     fn member_receiver(&self, e: &Ex) -> bool {
-        matches!(
-            e.ty(),
-            Type::Class(_) | Type::Udt(_) | Type::Object | Type::Variant
-        )
+        matches!(e, Ex::Ns(_))
+            || matches!(
+                e.ty(),
+                Type::Class(_) | Type::Udt(_) | Type::Object | Type::Variant
+            )
     }
 
     /// `New T`: a class of the project, or the built-in `Collection`.
     fn new_object(&mut self, ins: &Listed) -> R<Ex> {
         let (name, qualifier) = match ins.operands.first() {
-            Some(Operand::Object {
-                class: Some(n), ..
-            }) => (n.spelling(), None),
+            Some(Operand::Object { class: Some(n), .. }) => (n.spelling(), None),
             Some(Operand::Object {
                 qualified: Some(q), ..
             }) => (q.name.spelling(), q.qualifier.spelling()),
@@ -2200,10 +2348,7 @@ impl Lw<'_> {
             return Err(self.no(ins.opcode, "class of New does not resolve"));
         };
         if let Some(q) = qualifier {
-            let own = self
-                .cx
-                .project
-                .is_some_and(|p| p.eq_ignore_ascii_case(q));
+            let own = self.cx.project.is_some_and(|p| p.eq_ignore_ascii_case(q));
             let vba = q.eq_ignore_ascii_case("VBA");
             if !own && !vba {
                 return Err(self.no(ins.opcode, "New of a library-qualified class"));
@@ -2278,6 +2423,14 @@ impl Lw<'_> {
     fn late_args(args: Vec<Ex>) -> Vec<LateEx> {
         args.into_iter()
             .map(|a| match &a {
+                Ex::Named(n, inner) => LateEx::Named(
+                    n.clone(),
+                    Box::new(
+                        Self::late_args(vec![(**inner).clone()])
+                            .pop()
+                            .unwrap_or(LateEx::Missing),
+                    ),
+                ),
                 Ex::Local { bare: true, .. }
                 | Ex::Global { bare: true, .. }
                 | Ex::Field { .. }
@@ -2323,7 +2476,11 @@ impl Lw<'_> {
         match self.module_symbol(name) {
             Some(Symbol::Var(g)) if args.is_empty() => return Ok(self.global_ex(g)),
             Some(Symbol::Const(c)) if args.is_empty() => return self.const_ex(ins, c),
-            Some(Symbol::Var(_) | Symbol::Const(_)) => {
+            Some(Symbol::EnumMember(e, i)) if args.is_empty() => {
+                let v = self.cx.program.enums[e.index()].members[i as usize].1;
+                return Ok(Ex::Const(Variant::Long(v), Type::Enum(e)));
+            }
+            Some(Symbol::Var(_) | Symbol::Const(_) | Symbol::EnumMember(..)) => {
                 return Err(self.no(ins.opcode, "indexing of a variable"));
             }
             _ => {}
@@ -2354,6 +2511,38 @@ impl Lw<'_> {
         }
         if self.is_host_name(name, !receiver && args.is_empty()) {
             return Ok(self.host_member(name, args));
+        }
+        if args.is_empty() {
+            let program = self.cx.program;
+            if let Some(m) = program.module_by_name(name) {
+                let id = m.id;
+                if m.is_class_like() {
+                    if m.predeclared {
+                        return Ok(Ex::DefaultInstance(id));
+                    }
+                } else if receiver {
+                    return Ok(Ex::Ns(Ns::Module(id)));
+                }
+            }
+            if receiver {
+                if let Some(Symbol::Enum(e)) = self
+                    .cx
+                    .program
+                    .module(self.sema.module)
+                    .symbols
+                    .get(&vba_ast::Name::new(name))
+                    .map(|(s, _)| *s)
+                {
+                    return Ok(Ex::Ns(Ns::Enum(e)));
+                }
+                if self
+                    .cx
+                    .project
+                    .is_some_and(|p| p.eq_ignore_ascii_case(name))
+                {
+                    return Ok(Ex::Ns(Ns::Project));
+                }
+            }
         }
         Err(self.no(
             ins.opcode,
@@ -2468,6 +2657,7 @@ impl Lw<'_> {
                     dispid: m.dispid,
                 })
             }
+            Ex::Ns(ns) => self.ns_member(ins, ns, name, args),
             other => match other.ty() {
                 Type::Class(m) => self.class_member(ins, other, m, name, args),
                 Type::Udt(u) => self.udt_member(ins, other, u, name, args),
@@ -2481,6 +2671,82 @@ impl Lw<'_> {
                     "member access outside the Err object, Me, objects and user types",
                 )),
             },
+        }
+    }
+
+    /// `Qualifier.name[(args)]`: a member of a standard module, of the
+    /// default instance of a class, a member of an enum, a module of the
+    /// project.
+    fn ns_member(&mut self, ins: &Listed, ns: Ns, name: &str, args: Vec<Ex>) -> R<Ex> {
+        let program = self.cx.program;
+        let key = vba_ast::Name::new(name);
+        match ns {
+            Ns::Project => match program.module_by_name(name) {
+                Some(m) if args.is_empty() => Ok(self.module_ns(m.id)),
+                _ => Err(self.no(ins.opcode, "project has no such module")),
+            },
+            Ns::Enum(e) => {
+                let info = &program.enums[e.index()];
+                match info.members.iter().find(|(n, _)| *n == key) {
+                    Some((_, v)) if args.is_empty() => {
+                        Ok(Ex::Const(Variant::Long(*v), Type::Enum(e)))
+                    }
+                    _ => Err(self.no(ins.opcode, "enum has no such member")),
+                }
+            }
+            Ns::Module(m) => {
+                let mi = program.module(m);
+                if mi.is_class_like() {
+                    if !mi.predeclared {
+                        return Err(self.no(ins.opcode, "class used without an instance"));
+                    }
+                    return self.class_member(ins, Ex::DefaultInstance(m), m, name, args);
+                }
+                let own = m == self.sema.module;
+                match mi.symbols.get(&key).map(|(s, _)| *s) {
+                    Some(Symbol::Proc(id)) => {
+                        self.note_callee(id);
+                        self.project_call_on(ins, None, id, args)
+                    }
+                    Some(Symbol::Property(grp)) => match grp.get {
+                        Some(id) => {
+                            self.note_callee(id);
+                            self.project_call_on(ins, None, id, args)
+                        }
+                        None => Err(self.no(ins.opcode, "property without a Get")),
+                    },
+                    Some(Symbol::Var(g)) if args.is_empty() => {
+                        let info = program.global(g);
+                        let public = matches!(
+                            info.visibility,
+                            vba_ast::Visibility::Public
+                                | vba_ast::Visibility::Global
+                                | vba_ast::Visibility::Friend
+                        );
+                        if !public && !own {
+                            return Err(self.no(ins.opcode, "private variable of another module"));
+                        }
+                        Ok(self.global_ex(g))
+                    }
+                    Some(Symbol::Const(c)) if args.is_empty() => self.const_ex(ins, c),
+                    Some(Symbol::EnumMember(e, i)) if args.is_empty() => {
+                        let v = program.enums[e.index()].members[i as usize].1;
+                        Ok(Ex::Const(Variant::Long(v), Type::Enum(e)))
+                    }
+                    Some(Symbol::Enum(e)) if args.is_empty() => Ok(Ex::Ns(Ns::Enum(e))),
+                    _ => Err(self.no(ins.opcode, "module has no such member")),
+                }
+            }
+        }
+    }
+
+    /// A module name as a value or qualifier: a class with a default
+    /// instance is that instance, a standard module qualifies.
+    fn module_ns(&self, m: ModuleId) -> Ex {
+        if self.cx.program.module(m).is_class_like() {
+            Ex::DefaultInstance(m)
+        } else {
+            Ex::Ns(Ns::Module(m))
         }
     }
 
@@ -2540,14 +2806,7 @@ impl Lw<'_> {
     }
 
     /// `value.field` for a user-defined type.
-    fn udt_member(
-        &mut self,
-        ins: &Listed,
-        base: Ex,
-        u: UdtId,
-        name: &str,
-        args: Vec<Ex>,
-    ) -> R<Ex> {
+    fn udt_member(&mut self, ins: &Listed, base: Ex, u: UdtId, name: &str, args: Vec<Ex>) -> R<Ex> {
         if !args.is_empty() {
             return Err(self.no(ins.opcode, "indexing of a user-type field"));
         }
@@ -2624,14 +2883,7 @@ impl Lw<'_> {
 
     /// Assigns `v` to a location of type `ty`: a value assignment for
     /// scalars, a reference assignment (`Set`) for objects.
-    fn assign_to_place(
-        &mut self,
-        ins: &Listed,
-        place: Place,
-        ty: Type,
-        v: Ex,
-        set: bool,
-    ) -> R<()> {
+    fn assign_to_place(&mut self, ins: &Listed, place: Place, ty: Type, v: Ex, set: bool) -> R<()> {
         let v = if set {
             if !(ty.is_object() || ty.is_variant()) {
                 return Err(self.no(ins.opcode, "Set on a location that is not an object"));
@@ -2684,7 +2936,9 @@ impl Lw<'_> {
             }
         };
         let (ty, place) = match target {
-            Target::Property(pid) => return self.property_assign(ins, None, pid, v, set),
+            Target::Property(pid) => {
+                return self.property_assign(ins, None, pid, Vec::new(), v, set);
+            }
             Target::Local(l, t) => (t, Place::Local(l)),
             Target::Global(g, t) => (t, Place::Global(g)),
         };
@@ -2699,6 +2953,7 @@ impl Lw<'_> {
         ins: &Listed,
         recv: Option<Ex>,
         pid: ProcId,
+        idx: Vec<Ex>,
         v: Ex,
         set: bool,
     ) -> R<()> {
@@ -2718,12 +2973,12 @@ impl Lw<'_> {
         };
         let vty = v.ty();
         let o = self.emit_ex(&v);
-        let call = self.project_call_on(ins, recv, pid, vec![Ex::Paren(Box::new(Ex::Emitted(o, vty)))])?;
+        let mut args = idx;
+        args.push(Ex::Paren(Box::new(Ex::Emitted(o, vty))));
+        let call = self.project_call_on(ins, recv, pid, args)?;
         self.emit_call_stmt(&call);
         Ok(())
     }
-
-
 
     /// `Const name [As T] = value` inside the procedure: the value must fold
     /// to a literal.
@@ -2764,15 +3019,20 @@ impl Lw<'_> {
     }
 
     /// `receiver.name = v`.
-    fn dot_assign(&mut self, ins: &Listed, set: bool) -> R<()> {
+    fn dot_assign(&mut self, ins: &Listed, set: bool, argc: usize) -> R<()> {
         let name = self.name_of(ins)?.0;
-        let recv = self.pop(ins)?;
+        let recv = self.pop_receiver(ins)?;
+        let idx = self.pop_n(ins, argc)?;
         let v = self.pop(ins)?;
         self.expect_empty(ins)?;
         if set {
             self.check_set_source(ins, &v)?;
         }
+        if !idx.is_empty() {
+            return self.dot_assign_indexed(ins, recv, &name, idx, v, set);
+        }
         match recv {
+            Ex::Ns(_) => Err(self.no(ins.opcode, "assignment to a member of a qualifying name")),
             Ex::Me(_) => {
                 let key = vba_ast::Name::new(&name);
                 let own = self.cx.program.module(self.sema.module);
@@ -2782,7 +3042,7 @@ impl Lw<'_> {
                         self.assign_to_place(ins, Place::Global(g), ty, v, set)
                     }
                     Some(Symbol::Property(g)) => match if set { g.set } else { g.let_ } {
-                        Some(p) => self.property_assign(ins, None, p, v, set),
+                        Some(p) => self.property_assign(ins, None, p, Vec::new(), v, set),
                         None => Err(self.no(ins.opcode, "property without a Let or Set")),
                     },
                     Some(_) => Err(self.no(ins.opcode, "assignment to a module member")),
@@ -2800,13 +3060,112 @@ impl Lw<'_> {
                     let ty = field.ty();
                     match place_of(&field) {
                         Some(place) => self.assign_to_place(ins, place, ty, v, set),
-                        None => Err(self.no(ins.opcode, "assignment to a value that is not a variable")),
+                        None => {
+                            Err(self.no(ins.opcode, "assignment to a value that is not a variable"))
+                        }
                     }
                 }
                 Type::Object | Type::Variant => self.late_put(ins, other, &name, v, set),
                 _ => Err(self.no(ins.opcode, "assignment to a member of this receiver")),
             },
         }
+    }
+
+    /// `receiver.name(idx) = v`: a property with parameters of a class of
+    /// the project, or a late-bound member.
+    fn dot_assign_indexed(
+        &mut self,
+        ins: &Listed,
+        recv: Ex,
+        name: &str,
+        idx: Vec<Ex>,
+        v: Ex,
+        set: bool,
+    ) -> R<()> {
+        let program = self.cx.program;
+        let key = vba_ast::Name::new(name);
+        let class = match &recv {
+            Ex::Me(m) => Some(*m),
+            Ex::Ns(_) => return Err(self.no(ins.opcode, "indexed assignment to a qualifier")),
+            other => match other.ty() {
+                Type::Class(m) => Some(m),
+                _ => None,
+            },
+        };
+        if let Some(m) = class {
+            return match program.module(m).symbols.get(&key).map(|(s, _)| *s) {
+                Some(Symbol::Property(grp)) => match if set { grp.set } else { grp.let_ } {
+                    Some(p) => {
+                        let recv = if matches!(recv, Ex::Me(_)) {
+                            None
+                        } else {
+                            Some(recv)
+                        };
+                        self.property_assign(ins, recv, p, idx, v, set)
+                    }
+                    None => Err(self.no(ins.opcode, "property without a Let or Set")),
+                },
+                _ => Err(self.no(
+                    ins.opcode,
+                    "indexed assignment to a member that is not a property",
+                )),
+            };
+        }
+        match recv.ty() {
+            Type::Object | Type::Variant => self.late_put_indexed(ins, recv, name, idx, v, set),
+            _ => Err(self.no(
+                ins.opcode,
+                "indexed assignment to a member of this receiver",
+            )),
+        }
+    }
+
+    /// `receiver.name(idx) = v` on a late-bound receiver.
+    fn late_put_indexed(
+        &mut self,
+        ins: &Listed,
+        recv: Ex,
+        name: &str,
+        idx: Vec<Ex>,
+        v: Ex,
+        set: bool,
+    ) -> R<()> {
+        if set {
+            if !v.ty().is_object() {
+                return Err(self.no(ins.opcode, "Set with a value that is not an object"));
+            }
+        } else if v.ty().is_object() {
+            return Err(self.no(ins.opcode, "object assignment"));
+        }
+        let v = if set {
+            v
+        } else {
+            self.coerce(v, &Type::Variant)
+        };
+        let vo = self.emit_ex(&v);
+        let receiver = self.emit_ex(&recv);
+        let mut args = Vec::new();
+        for a in Self::late_args(idx) {
+            args.push(self.late_arg(&a));
+        }
+        args.push(LateArg {
+            name: None,
+            arg: CallArg::Val(vo),
+        });
+        self.emit(InstKind::Invoke {
+            dst: None,
+            receiver,
+            member: Member::Named(name.to_owned()),
+            kind: if set {
+                InvokeKind::PutRef
+            } else {
+                InvokeKind::Put
+            },
+            args,
+            static_receiver: None,
+            dispid: None,
+        });
+        Ok(())
     }
 
     /// `receiver.name = v` / `Set receiver.name = v` on a value of a class
@@ -2844,7 +3203,7 @@ impl Lw<'_> {
                 self.assign_to_place(ins, place, ty, v, set)
             }
             Some(Symbol::Property(grp)) => match if set { grp.set } else { grp.let_ } {
-                Some(p) => self.property_assign(ins, Some(recv), p, v, set),
+                Some(p) => self.property_assign(ins, Some(recv), p, Vec::new(), v, set),
                 None => Err(self.no(ins.opcode, "property without a Let or Set")),
             },
             Some(_) => Err(self.no(ins.opcode, "member of the class that is not assignable")),
@@ -2862,7 +3221,11 @@ impl Lw<'_> {
         } else if v.ty().is_object() {
             return Err(self.no(ins.opcode, "object assignment"));
         }
-        let v = if set { v } else { self.coerce(v, &Type::Variant) };
+        let v = if set {
+            v
+        } else {
+            self.coerce(v, &Type::Variant)
+        };
         // The value is evaluated before the receiver: the compiled code
         // pushes it first, and the source lowering evaluates the right-hand
         // side of an assignment before the target.
@@ -2872,7 +3235,11 @@ impl Lw<'_> {
             dst: None,
             receiver,
             member: Member::Named(name.to_owned()),
-            kind: if set { InvokeKind::PutRef } else { InvokeKind::Put },
+            kind: if set {
+                InvokeKind::PutRef
+            } else {
+                InvokeKind::Put
+            },
             args: vec![LateArg {
                 name: None,
                 arg: CallArg::Val(vo),
