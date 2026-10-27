@@ -437,6 +437,17 @@ impl Binder<'_, '_> {
                     if v.ty.is_error() {
                         return v;
                     }
+                    // MS-VBAL 5.6.2.3: the depth of default member recursion
+                    // is limited; a chain that is still an object after the
+                    // limit is a type mismatch, not an endless descent.
+                    if v.ty.is_object() {
+                        self.err(
+                            codes::TYPE_MISMATCH,
+                            span,
+                            "default member recursion limit exceeded",
+                        );
+                        return self.error_expr(span);
+                    }
                     return self.coerce(v, to, ctx);
                 }
                 match from {
