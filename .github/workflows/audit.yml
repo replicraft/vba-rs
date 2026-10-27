@@ -1,0 +1,45 @@
+# Dependency policy and security advisories. Read-only: no secrets, nothing is
+# published or pushed. The advisory database is fetched from GitHub at run
+# time, so these checks can only be validated here, not offline.
+name: audit
+
+on:
+  schedule:
+    # Mondays 05:17 UTC (advisories appear independently of our commits).
+    - cron: "17 5 * * 1"
+  pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - deny.toml
+      - .github/workflows/audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  deny:
+    name: cargo-deny (licenses, bans, sources, advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      # The tools are built with the current stable compiler, not the pinned
+      # one: their own minimum supported version can be newer than ours.
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo +stable install cargo-deny --locked
+      - run: cargo deny --locked check
+
+  audit:
+    name: cargo-audit (RUSTSEC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo +stable install cargo-audit --locked
+      - run: cargo audit --deny warnings

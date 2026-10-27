@@ -1,0 +1,11 @@
+# Pins the toolchain for contributors and CI. 1.99.0 is the version that
+# `rust-version = "1.99"` in Cargo.toml (edition 2024, let-chains) requires, so
+# the pinned compiler is also the minimum supported one and "builds on my
+# machine" and "builds in CI" mean the same compiler. Raise both together.
+# Embedding applications are not bound by this file (cargo reads it only for
+# builds run inside this repository); they need only a compiler that
+# satisfies rust-version.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

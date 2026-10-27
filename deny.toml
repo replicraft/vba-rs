@@ -1,0 +1,65 @@
+# cargo-deny configuration. Run by .github/workflows/audit.yml (weekly and on
+# changes to Cargo.lock or this file): `cargo deny check`.
+#
+# The license list comes from the manual audit in
+# docs/architecture/dependencies.md ("Licence audit"), re-checked against
+# `cargo metadata --all-features` for the committed Cargo.lock. The advisory
+# database (RUSTSEC), yanked-release detection and the exact keys accepted by
+# the cargo-deny release CI installs could NOT be validated locally (neither
+# cargo-deny nor network access was available when this file was written): the
+# first CI run is the validation, and a rejected key is fixed there.
+
+[graph]
+# Check the packages of every feature and every target platform, like the
+# audit did, so a dependency behind `native-call` or `cfg(windows)` counts.
+all-features = true
+
+[advisories]
+# Yanked releases in Cargo.lock are an error; unmaintained/unsound notices are
+# reported (as warnings or errors, whatever the installed version defaults to)
+# and are handled by an explicit entry in `ignore` below with a reason.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive licenses only. An `A OR B` expression passes when one side is
+# allowed (`r-efi` offers LGPL-2.1-or-later only as an alternative to MIT and
+# Apache-2.0). `encoding_rs` is `(Apache-2.0 OR MIT) AND BSD-3-Clause`, so
+# BSD-3-Clause must be listed; binary redistributions must reproduce its
+# notice (see THIRD-PARTY-NOTICES.md and docs/architecture/dependencies.md).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions exist only in the test and tool graph (see
+# docs/architecture/dependencies.md); report them without failing.
+multiple-versions = "warn"
+# Workspace crates depend on each other by path.
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    # Data parallelism can change observable order (diagnostics, output).
+    { name = "rayon" },
+    # No async runtime in a deterministic interpreter.
+    { name = "tokio" },
+    # The syntax tree is the crate's own lossless tree.
+    { name = "rowan" },
+]
+
+[sources]
+# Everything comes from crates.io: no git or alternative registry dependency.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

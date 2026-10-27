@@ -1,16 +1,62 @@
+# Continuous integration. Nothing here publishes, pushes, tags or reads a
+# secret: the token is read-only and no step uses `secrets.*`.
+#
+# The toolchain is pinned by rust-toolchain.toml (1.99.0); each job installs
+# exactly that. The advisory and license checks are in audit.yml.
 name: ci
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
 jobs:
-  check:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  lint:
+    name: fmt, clippy, doc
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # rustup 1.28+ no longer installs the toolchain of rust-toolchain.toml on demand.
+      - run: rustup toolchain install
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Documentation (broken links and warnings are errors)
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: cargo build --workspace --locked
+      - run: cargo test --workspace --locked
+
+  windows-build:
+    # Build only: the test suite is not run on Windows (the host file-system
+    # tests and the Wine bridge assume a Unix-like runner). Whether this job
+    # passes has not been verified locally; if it fails for a reason that is
+    # not a real portability bug, fix the job, do not hide the failure.
+    name: build (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: cargo build --workspace --all-targets --locked
