@@ -29,7 +29,11 @@ End Sub
 fn main() -> Result<(), vba::Error> {
     let mut project = Project::new();
     project
-        .add_module("Module1", ModuleKind::Standard, &SOURCE.replace('\n', "\r\n"))
+        .add_module(
+            "Module1",
+            ModuleKind::Standard,
+            &SOURCE.replace('\n', "\r\n"),
+        )
         .unwrap();
     let mut inst = Engine::new().load(&project)?;
     inst.trust();
