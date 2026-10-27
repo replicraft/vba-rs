@@ -825,6 +825,12 @@ impl Vm {
         if let Some(f) = self.pending_fatal.take() {
             return Err(f);
         }
+        // A host member that blocks cannot be interrupted from here (the
+        // interpreter and the member share one thread). What can be done is
+        // to notice at once, when it returns, that the time allowance of
+        // the call ran out or the run was cancelled meanwhile: the overshoot
+        // is one host call, not the rest of the poll interval.
+        self.poll_now()?;
         for (arg, loc) in ca.positional.iter().zip(&positional_locs) {
             if let (true, Some(l)) = (arg.by_ref, loc) {
                 self.store(l, arg.value.clone())?;
