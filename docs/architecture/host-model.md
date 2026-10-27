@@ -146,8 +146,10 @@ Two behaviors of the analysis that the description inherits, not changes:
   adapter below rejects the wrong class with error 13. Passing a scalar where
   an object is required is `SEM006` at analysis time.
 * More arguments than a member declares go to the default member of its
-  result when that is an object, as in `rs.Fields("a")`. For a result without
-  a default member nothing reports the surplus.
+  result when that is an object, as in `rs.Fields("a")`. For a described
+  result type without a default member the analysis reports `SEM008` ("wrong
+  number of arguments"); a result that is not described (`Object`, `Variant`)
+  stays late bound and is not checked.
 
 This change also lets sema assign through the default member of a library
 type (`rs.Fields("a") = 5` for a `Field` whose default member is `Value`),

@@ -537,7 +537,15 @@ families that come from running code (`Vba`, `Host`, `PermissionDenied`)
   module source as it was given to the engine);
 * `frames`: the call stack, innermost first, each with module, procedure, `Erl`
   line and source line. Host code has no frames; a call that went through a host
-  object shows the VBA frames only.
+  object shows the VBA frames only. When the error was raised by VBA code that a
+  host member started (a form event raised by `DoCmd.OpenForm`, `Application.Run`)
+  and the member returned that error unchanged, the frames of the nested run come
+  first, then one marker frame (`StackFrame::host_boundary` is `true`, printed
+  `[host boundary]`, `stack` has the same text), then the frames of the run that
+  called the member; `procedure`, `module`, `line` and `source_line` then describe
+  the innermost frame. An error the member changed (other number, description or
+  source) or made itself lists the outer frames only. The nested frames are
+  matched to the returned error by number, description and source.
 
 `e.error_info()` gives the same as a `VbaErrorInfo`; `{}` prints one line,
 `e.detail()` / `{:#}` adds source and stack. `Instance::last_error()` is the
@@ -854,20 +862,6 @@ host methods, in whatever order the program calls them. Therefore:
 Found while building the stand-in host of section 13. Each is pinned by a test
 in `crates/api/vba-rs/tests/db_host/` unless noted.
 
-* **`ByRef` write-back from a host member is not converted to the variable's
-  declared type.** `Dim n As Long` passed to `Application.TryGetOption("x", n)`
-  holds whatever `Value` the host wrote (a `String` becomes the content of a
-  `Long` variable until the next arithmetic fails with 13). The VM does not know
-  the declared type of the caller's variable at that point and `ParamInfo` has no
-  type. A host must write back values of the type its parameter documents
-  (`Variant` parameters take anything). Fixing it needs a conversion step in the
-  compiled call site.
-* **Frames of a failing nested handler are not in the outer report.** When
-  `DoCmd.OpenForm` runs `Form_Current` and that fails, the outer `Error` carries
-  the nested number, description and source (so `On Error` and `Err` see them)
-  but its stack lists only the outer frames. `HostContext::raise_event_on`
-  returns the nested `Error` with its frames; log them in the host before
-  converting with `DispError::from`.
 * **Host name lists are engine-wide.** `Engine::host_members` is one list for
   all document modules of the engine; a control name of one form is accepted
   (late bound) in every form module, so a typo that happens to be another form's
@@ -918,6 +912,8 @@ modules whose `Me` is a host object. The tests show the patterns:
 | `Dim x As VbMsgBoxResult` and the other VBA enumeration types | built in (they hold a `Long`) |
 | Host collection (`Forms`) | a `Dispatch` with `Item` as `DISPID_VALUE` (name or index), `Count` and `DISPID_NEWENUM` returning an object whose `enumerator()` is set; items are borrowed, add one reference per returned object |
 | `rs!Name`, `rs("Name")`, `rs!Name = v` | `Fields` (or `Item`) as `DISPID_VALUE` taking the key and returning an object whose `Value` is `DISPID_VALUE`; the VM chains and applies `Let` to the default member |
+| A `ByRef` out-parameter | the host assigns `call.args[i].value`; the VM converts the value to the declared type of the caller's variable exactly as an assignment would (local, module variable, field, array element, user-defined type field; 13 or 6 and trappable when it does not fit; a `Variant` takes anything). Host-model parameters are converted to their declared type first. The comparison with a real host is **(unverified)** |
+| More arguments than a member declares | when the member is fully described (typed `TypeProvider`, host model or type library) and returns a described type with a default member, the surplus goes to that default member (`rs.Fields("a")`); when the result is a described type without one the analysis reports a compile error ("wrong number of arguments"); an undescribed (`Object`, opaque, late bound) result stays late bound and is not checked |
 | Controls as `Me.Ctl`, `Me!Ctl`, `Me("Ctl")`, bare `Ctl` | `member_id` resolves control names, `DISPID_VALUE` takes the name, and every control name goes into `Engine::host_members` |
 | Form events with `Cancel` | `Instance::raise_event_on(form, "Form", "BeforeUpdate", vec![Arg::by_ref(0)])`; control events use the control name as source (`cmdSave_Click`); report modules use `Report` |
 | `WithEvents` on a host object | the object returns a `ConnectionPoint` from `event_source()`, `reentrant()` is `true` when VBA raises the event through a host call (synchronous, with write-back), otherwise events are queued: `Instance::deliver_pending_events()` |

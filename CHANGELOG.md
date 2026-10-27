@@ -44,6 +44,21 @@ entry that made it:
 * `Policy::grant_prefixes` scopes are matched per capability (whole path segments, exact ProgID or
   `Namespace.*`, `library!procedure`, ...); a scope of another form matches nothing.
 
+### Fixed
+
+- `ByRef` write-back from a late-bound host member is converted to the declared type of the
+  caller's variable like an assignment (error 13 or 6, trappable); a `Long` variable can no longer
+  hold a `String`. Host-model parameters convert an assigned value to their declared type. Programs
+  that make no such call keep their step counts (the step digest of the conformance corpus is
+  unchanged).
+- The `Error` of a failing nested run (a form event raised by a host member) lists the frames of
+  the nested run first, then a host-boundary marker (`StackFrame::host_boundary`), then the outer
+  frames; `procedure`, `module` and `line` describe the innermost frame.
+- `vba-sema`: a member of a fully described library type that is called with more arguments than it
+  declares, and whose result type is described and has no default member, is a compile error
+  ("wrong number of arguments"); before, the surplus went to a default member that did not exist
+  and nothing reported it.
+
 ### Added
 
 - `vba-conformance` (`tooling/vba-conformance`): the conformance corpus runner as a reusable crate

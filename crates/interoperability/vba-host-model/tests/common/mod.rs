@@ -237,8 +237,7 @@ pub fn recordset(lib: &CheckedLibrary, data: Data) -> HostObject {
                 let key = cx.args.string(0)?;
                 let hit = s.rows.iter().find(|(n, _)| *n == key);
                 // Written as text: the declared `Boolean` type converts it.
-                cx.args
-                    .set(1, if hit.is_some() { "True" } else { "False" });
+                cx.args.set(1, if hit.is_some() { "True" } else { "False" });
                 Ok(Variant::Long(hit.map_or(0, |(_, q)| *q)))
             })
             .method("Join", |_, cx| {

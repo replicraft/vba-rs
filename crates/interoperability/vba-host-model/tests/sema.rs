@@ -53,6 +53,12 @@ fn an_argument_count_error_is_precise() {
         check("Dim rs As Recordset\nDim ok As Boolean\nok = rs.FindFirst(\"a\", \"b\")\n"),
         ["SEM008@5"]
     );
+    // Too many, for a member whose result is a described class without a
+    // default member (`Recordset`): nothing can take the surplus argument.
+    assert_eq!(
+        check("Dim db As Database\nDim rs As Recordset\nSet rs = db.OpenRecordset(\"t\", 1, 2)\n"),
+        ["SEM008@5"]
+    );
     // A global function with a required parameter missing.
     assert_eq!(
         check("Dim v As Variant\nv = DLookup(\"a\")\n"),
