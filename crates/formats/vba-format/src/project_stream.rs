@@ -17,6 +17,9 @@ pub(crate) struct ProjectProps {
     pub id: Option<String>,
     /// Module entries in file order: kind and name.
     pub modules: Vec<(ModuleKind, String)>,
+    /// First kind listed for each module name (ASCII lower-cased), so a
+    /// lookup costs one hash instead of a scan of every line.
+    kinds: std::collections::HashMap<String, ModuleKind>,
     pub help_file: Option<String>,
     pub name: Option<String>,
     pub help_context: Option<String>,
@@ -24,6 +27,13 @@ pub(crate) struct ProjectProps {
     pub protection: Protection,
     pub host_extenders: Vec<HostExtender>,
     pub workspace: Vec<WindowRecord>,
+}
+
+impl ProjectProps {
+    /// The kind the stream lists for module `name` (case-insensitive).
+    pub(crate) fn kind_of(&self, name: &str) -> Option<ModuleKind> {
+        self.kinds.get(&name.to_ascii_lowercase()).copied()
+    }
 }
 
 /// A line of the stream: the content range and the start of the next line.
@@ -147,6 +157,12 @@ pub(crate) fn parse(raw: &[u8], code_page: u16) -> Result<ProjectProps, Error> {
             }),
             Section::Other => {}
         }
+    }
+    for (kind, name) in &props.modules {
+        props
+            .kinds
+            .entry(name.to_ascii_lowercase())
+            .or_insert(*kind);
     }
     props.protection = decode_protection(cmg.as_deref(), dpb.as_deref(), gc.as_deref());
     Ok(props)

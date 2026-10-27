@@ -118,10 +118,7 @@ pub(crate) fn decompress_stream(
 /// `dir` stream's MODULETYPE (which cannot tell class from document/designer).
 pub(crate) fn module_kind(props: &ProjectProps, m: &DirModule) -> ModuleKind {
     props
-        .modules
-        .iter()
-        .find(|(_, n)| n.eq_ignore_ascii_case(&m.name))
-        .map(|(k, _)| *k)
+        .kind_of(&m.name)
         .unwrap_or(if m.procedural {
             ModuleKind::Standard
         } else {
@@ -157,6 +154,19 @@ pub fn read_project_with(
 ) -> Result<VbaProject, Error> {
     let (mut cf, nodes) = open_and_list(bytes, limits)?;
     find(&nodes, "VBA", false).ok_or_else(|| Error::MissingStream { path: "VBA".into() })?;
+    // Directory entries may share sectors, so the sum of the declared lengths
+    // can exceed the file. Refuse before reading anything rather than after
+    // holding the multiplied data.
+    let declared: u64 = nodes
+        .iter()
+        .filter(|n| n.is_stream)
+        .fold(0u64, |a, n| a.saturating_add(n.len));
+    if declared > limits.max_container_bytes {
+        return Err(Error::InputTooLarge {
+            size: declared,
+            limit: limits.max_container_bytes,
+        });
+    }
     let mut streams = ProjectStreams::new();
     for node in nodes.iter().filter(|n| n.is_stream) {
         streams.insert(&node.path, read_stream(&mut cf, node, limits)?);
@@ -224,6 +234,21 @@ pub fn read_project_from_streams(
 
     let dir_bytes = decompress_stream(dir_compressed, dir_path, limits)?;
     let info = DirInfo::parse_with(&dir_bytes, mode == ReadMode::Tolerant)?;
+    // Module records may name one stream many times. Everything the model
+    // is about to hold on their behalf (stream copies, decompressed text,
+    // decoded text) is charged here, so the memory kept is bounded by the
+    // container limit however many records there are.
+    let mut held = dir_bytes.len() as u64;
+    let mut charge = |n: usize| -> Result<(), Error> {
+        held = held.saturating_add(n as u64);
+        if held > limits.max_container_bytes {
+            return Err(Error::InputTooLarge {
+                size: held,
+                limit: limits.max_container_bytes,
+            });
+        }
+        Ok(())
+    };
 
     let props = project_stream::parse(project_raw, info.code_page)?;
 
@@ -280,12 +305,16 @@ pub fn read_project_from_streams(
                 len: data.len(),
             });
         }
+        charge(data.len())?;
         let (cache, compressed) = data.split_at(offset);
         let (source, has_source) = if compressed.is_empty() {
             (String::new(), false)
         } else {
             let raw = decompress_stream(compressed, node_path, limits)?;
-            (codepage::decode(info.code_page, &raw)?, true)
+            charge(raw.len())?;
+            let text = codepage::decode(info.code_page, &raw)?;
+            charge(text.len())?;
+            (text, true)
         };
         let mut module = Module::new(dm.name.clone(), module_kind(&props, dm), source);
         module.has_source = has_source;

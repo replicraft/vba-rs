@@ -174,7 +174,7 @@ fn read_entry(
         .saturating_mul(limits.max_archive_ratio as u64);
     let cap = max_len.min(ratio_cap);
     let mut out = Vec::new();
-    file.take(cap + 1)
+    file.take(cap.saturating_add(1))
         .read_to_end(&mut out)
         .map_err(|e| package_err(format!("entry {name:?}: {e}")))?;
     if out.len() as u64 > cap {
@@ -566,7 +566,9 @@ fn record_header(data: &[u8], offset: usize) -> Result<RecordHeader, Error> {
 }
 
 fn record_body(data: &[u8], offset: usize, h: &RecordHeader) -> Result<(usize, usize), Error> {
-    let start = offset + 8;
+    let start = offset
+        .checked_add(8)
+        .ok_or_else(|| be_err("offset overflow"))?;
     let end = start
         .checked_add(h.len as usize)
         .filter(|&e| e <= data.len())
@@ -588,6 +590,8 @@ const RT_USER_EDIT_ATOM: u16 = 0x0FF5;
 const RT_CURRENT_USER_ATOM: u16 = 0x0FF6;
 const RT_EXTERNAL_OLE_OBJECT_STG: u16 = 0x1011;
 const RT_PERSIST_DIRECTORY_ATOM: u16 = 0x1772;
+/// Most persist directory entries replayed over all user edits.
+const MAX_PERSIST_ENTRIES: usize = 1 << 21;
 const ENCRYPTED_TOKEN: u32 = 0xF3D1_C4DF;
 
 /// Finds the VBA project storage of a PowerPoint binary document and returns
@@ -615,6 +619,8 @@ fn powerpoint_vba_storage(
     // persist directory.
     let mut directories: Vec<usize> = Vec::new();
     let mut doc_persist_id = None;
+    let mut edits_seen = 0usize;
+    let mut seen_dirs = std::collections::BTreeSet::new();
     loop {
         let h = record_header(doc, edit)?;
         if h.ty != RT_USER_EDIT_ATOM || !(h.len == 0x1C || h.len == 0x20) {
@@ -625,7 +631,15 @@ fn powerpoint_vba_storage(
         if doc_persist_id.is_none() {
             doc_persist_id = Some(u32_at(doc, edit + 24)?);
         }
-        directories.push(dir_offset);
+        // Edits that share a directory add nothing; replaying it per edit
+        // would make a long chain cost chain length times directory size.
+        if seen_dirs.insert(dir_offset) {
+            directories.push(dir_offset);
+        }
+        edits_seen += 1;
+        if edits_seen > limits.max_entries {
+            return Err(be_err("the user edit chain is too long"));
+        }
         if last_edit == 0 {
             break;
         }
@@ -636,6 +650,9 @@ fn powerpoint_vba_storage(
         edit = last_edit;
     }
     let mut persist: BTreeMap<u32, usize> = BTreeMap::new();
+    // Distinct directories may still overlap one another, so the total number
+    // of entries replayed is capped as well (persist identifiers are 20 bits).
+    let mut entries_left: usize = MAX_PERSIST_ENTRIES;
     for &dir in directories.iter().rev() {
         let h = record_header(doc, dir)?;
         if h.ty != RT_PERSIST_DIRECTORY_ATOM {
@@ -649,6 +666,9 @@ fn powerpoint_vba_storage(
             if count == 0 || p + 4 * count > end {
                 return Err(be_err("malformed persist directory entry"));
             }
+            entries_left = entries_left
+                .checked_sub(count)
+                .ok_or_else(|| be_err("the persist directories hold too many entries"))?;
             for k in 0..count {
                 persist.insert(first + k as u32, u32_at(doc, p + 4 * k)? as usize);
             }
@@ -725,7 +745,7 @@ fn powerpoint_vba_storage(
             );
             let mut out = Vec::new();
             flate2::read::ZlibDecoder::new(compressed)
-                .take(cap + 1)
+                .take(cap.saturating_add(1))
                 .read_to_end(&mut out)
                 .map_err(|e| be_err_owned(format!("invalid zlib data: {e}")))?;
             if out.len() as u64 != declared {
