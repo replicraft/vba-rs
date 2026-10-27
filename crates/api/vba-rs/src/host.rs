@@ -76,6 +76,7 @@ pub(crate) struct EngineHost {
     pub(crate) classes: BTreeMap<String, Factory>,
     pub(crate) references: Vec<ProjectReference>,
     pub(crate) cancel: CancelToken,
+    pub(crate) ui: Option<Rc<dyn UiHooks>>,
 }
 
 impl EngineHost {
@@ -96,6 +97,7 @@ impl EngineHost {
             classes: BTreeMap::new(),
             references: Vec::new(),
             cancel,
+            ui: None,
         }
     }
 }
@@ -114,7 +116,10 @@ impl Host for EngineHost {
         &self.table
     }
     fn ui(&self) -> &dyn UiHooks {
-        &HeadlessUi
+        match &self.ui {
+            Some(ui) => ui.as_ref(),
+            None => &HeadlessUi,
+        }
     }
     fn events(&self) -> &dyn EventDispatch {
         &self.router

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use vba_automation::{Dispatch, ObjectTable};
 use vba_host::{
-    Capability, HostMetadata, HostResult, Policy, ResourceLimits, UNTRUSTED_CALL_TIMEOUT,
+    Capability, HostMetadata, HostResult, Policy, ResourceLimits, UNTRUSTED_CALL_TIMEOUT, UiHooks,
 };
 use vba_profile::{Profile, default_profile};
 use vba_runtime::{MemFs, RealFs, Session, SessionBuilder, SystemHost};
@@ -21,7 +21,28 @@ use crate::project::{Project, Report};
 /// Tells the analysis which global names the engine registered, so that
 /// `Application.Name` in VBA code is a late-bound member access on a global
 /// object and not an undeclared variable.
-struct EngineGlobals(Vec<String>);
+struct EngineGlobals {
+    objects: Vec<String>,
+    constants: Vec<(String, Variant)>,
+}
+
+/// The static type VBA gives a constant of this value.
+fn constant_type(v: &Variant) -> vba_sema::Type {
+    use vba_sema::Type;
+    match v {
+        Variant::Boolean(_) => Type::Boolean,
+        Variant::Byte(_) => Type::Byte,
+        Variant::Integer(_) => Type::Integer,
+        Variant::Long(_) => Type::Long,
+        Variant::LongLong(_) => Type::LongLong,
+        Variant::Single(_) => Type::Single,
+        Variant::Double(_) => Type::Double,
+        Variant::Currency(_) => Type::Currency,
+        Variant::Date(_) => Type::Date,
+        Variant::String(_) => Type::String,
+        _ => Type::Variant,
+    }
+}
 
 impl vba_sema::TypeProvider for EngineGlobals {
     fn resolve_type(&self, _: Option<&str>, _: &str) -> Option<vba_sema::LibraryType> {
@@ -29,7 +50,14 @@ impl vba_sema::TypeProvider for EngineGlobals {
     }
 
     fn global(&self, name: &str) -> Option<vba_sema::LibGlobal> {
-        self.0
+        if let Some((_, v)) = self
+            .constants
+            .iter()
+            .find(|(g, _)| g.eq_ignore_ascii_case(name))
+        {
+            return Some(vba_sema::LibGlobal::Constant(v.clone(), constant_type(v)));
+        }
+        self.objects
             .iter()
             .any(|g| g.eq_ignore_ascii_case(name))
             .then_some(vba_sema::LibGlobal::Object(vba_sema::Type::Object))
@@ -65,6 +93,7 @@ pub struct Engine {
     vm: VmConfig,
     cancel: CancelToken,
     globals: Vec<(String, Factory)>,
+    constants: Vec<(String, Variant)>,
     classes: Vec<(String, Factory)>,
     files: Files,
     system_environment: bool,
@@ -72,6 +101,7 @@ pub struct Engine {
     host_members: Vec<String>,
     strict_spec: bool,
     fixed_clock: Option<Date>,
+    ui: Option<Rc<dyn UiHooks>>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -118,6 +148,7 @@ impl Engine {
             vm: VmConfig::default(),
             cancel: CancelToken::new(),
             globals: Vec::new(),
+            constants: Vec::new(),
             classes: Vec::new(),
             files: Files::Memory(Vec::new()),
             system_environment: false,
@@ -125,6 +156,7 @@ impl Engine {
             host_members: Vec::new(),
             strict_spec: false,
             fixed_clock: None,
+            ui: None,
         }
     }
 
@@ -286,6 +318,32 @@ impl Engine {
         })
     }
 
+    /// Registers a named constant of the embedding application
+    /// (`acViewNormal`, `dbOpenDynaset`, `vbYes`-like members of its
+    /// libraries). It is a real constant for the analysis: it can be used in
+    /// `Const` declarations, `Case` labels and array bounds, and it folds at
+    /// compile time. The static type follows the value (`Long` for an enum
+    /// member). A constant shadows a [`global`](Engine::global) or
+    /// intrinsic of the same name.
+    #[must_use]
+    pub fn constant(mut self, name: &str, value: impl Into<Variant>) -> Engine {
+        self.constants.push((name.to_owned(), value.into()));
+        self
+    }
+
+    /// Registers several constants at once, for example an enum.
+    #[must_use]
+    pub fn constants<I, S, V>(mut self, items: I) -> Engine
+    where
+        I: IntoIterator<Item = (S, V)>,
+        S: Into<String>,
+        V: Into<Variant>,
+    {
+        self.constants
+            .extend(items.into_iter().map(|(n, v)| (n.into(), v.into())));
+        self
+    }
+
     /// Seeds the in-memory file system with a file (switches back to the
     /// in-memory file system if [`Engine::real_files`] was chosen).
     #[must_use]
@@ -341,6 +399,15 @@ impl Engine {
         self
     }
 
+    /// Installs the `MsgBox` / `InputBox` implementation of the embedding
+    /// application. Without it both fail with error 70, as in a headless
+    /// host; the engine never invents an answer.
+    #[must_use]
+    pub fn ui(mut self, ui: impl UiHooks + 'static) -> Engine {
+        self.ui = Some(Rc::new(ui));
+        self
+    }
+
     /// Treats the spec-strict diagnostics as errors. These are static rules
     /// taken from the MS-VBAL text (overlapping `Def<Type>` ranges, empty
     /// `Type`/`Enum`, `ByVal` array parameters...) that real VBA is not
@@ -362,13 +429,20 @@ impl Engine {
     /// Analyses the project with this engine's profile; nothing runs.
     #[must_use]
     pub fn analyze(&self, project: &Project) -> Report {
-        let globals = EngineGlobals(self.globals.iter().map(|(n, _)| n.clone()).collect());
+        let globals = self.provider();
         project.analyze_with(
             &self.profile,
             &globals,
             &self.host_members,
             self.strict_spec,
         )
+    }
+
+    fn provider(&self) -> EngineGlobals {
+        EngineGlobals {
+            objects: self.globals.iter().map(|(n, _)| n.clone()).collect(),
+            constants: self.constants.clone(),
+        }
     }
 
     /// A session builder configured like this engine, plus the sink that
@@ -384,6 +458,7 @@ impl Engine {
             self.limits,
             self.cancel.clone(),
         );
+        host.ui = self.ui.clone();
         for (n, f) in &self.globals {
             host.globals.insert(n.clone(), f.clone());
         }
@@ -391,9 +466,7 @@ impl Engine {
             host.classes.insert(n.clone(), f.clone());
         }
         let mut b = Session::builder()
-            .provider(EngineGlobals(
-                self.globals.iter().map(|(n, _)| n.clone()).collect(),
-            ))
+            .provider(self.provider())
             .host(Rc::new(host))
             .debug_sink(sink.clone())
             .command_line(&self.command)

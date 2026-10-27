@@ -70,6 +70,7 @@ pub struct MemObject {
     held: RefCell<Vec<ObjectHandle>>,
     points: ConnectionPoint,
     enumerator: Option<ListEnum>,
+    reentrant: bool,
 }
 
 impl MemObject {
@@ -83,6 +84,7 @@ impl MemObject {
             held: RefCell::default(),
             points: ConnectionPoint::new(&format!("{class}Events")),
             enumerator: None,
+            reentrant: false,
         }
     }
 
@@ -247,6 +249,13 @@ impl MemObject {
             items,
             pos: Cell::new(0),
         });
+        self
+    }
+
+    /// Declares that the object's members may call back into the running
+    /// session (see [`Dispatch::reentrant`]).
+    pub fn reentrant(mut self) -> Self {
+        self.reentrant = true;
         self
     }
 
@@ -418,5 +427,9 @@ impl Dispatch for MemObject {
 
     fn event_source(&self) -> Option<&dyn EventSource> {
         Some(&self.points)
+    }
+
+    fn reentrant(&self) -> bool {
+        self.reentrant
     }
 }
