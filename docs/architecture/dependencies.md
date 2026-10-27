@@ -115,7 +115,7 @@ commit that introduced this section.
 
 | License expression (as declared) | Packages | Note |
 | --- | ---: | --- |
-| `MIT OR Apache-2.0` and the same options in other spellings (`Apache-2.0 OR MIT`, `MIT/Apache-2.0`, `Apache-2.0 / MIT`) | 124 | permissive, dual |
+| `MIT OR Apache-2.0` and the same options in other spellings (`Apache-2.0 OR MIT`, `MIT/Apache-2.0`, `Apache-2.0 / MIT`) | 120 | permissive, dual |
 | `MIT` | 16 | includes `cfb`, `zip`, `quick-xml`, `nix`, `lsp-types` |
 | `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | 5 | `rustix`, `linux-raw-sys`, WASI crates |
 | `Unlicense OR MIT` | 4 | `memchr`, `jiff*` |
