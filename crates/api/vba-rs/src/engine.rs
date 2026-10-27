@@ -897,7 +897,7 @@ impl Instance {
         self.session.warnings()
     }
 
-    /// Runs a public procedure by `Proc` or `Module.Proc`.
+    /// Runs a public procedure by `Proc`, `Module.Proc` or `Project.Module.Proc`.
     pub fn run(&mut self, procedure: &str, args: Vec<Variant>) -> Result<Outcome, Error> {
         let before = self.output_mark();
         let r = self.guarded(|s| s.run_procedure(procedure, args));
@@ -993,10 +993,20 @@ impl Instance {
             .to_owned()
     }
 
-    /// Everything printed so far.
+    /// Everything printed so far, as an owned copy. For a large buffer prefer
+    /// [`with_output`](Instance::with_output), which borrows it.
     #[must_use]
     pub fn output(&self) -> String {
         self.sink.contents()
+    }
+
+    /// Calls `f` with everything printed so far, without copying the buffer.
+    /// `f` must not call back into this instance (the buffer is borrowed
+    /// while it runs; printing from a host callback inside `f` would panic).
+    pub fn with_output<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        let buffer = self.sink.buffer();
+        let text = buffer.borrow();
+        f(text.as_str())
     }
 
     /// Releases module-level objects (running `Class_Terminate`) and closes

@@ -201,8 +201,8 @@ impl Instance {
     /// [`AmbiguousProcedure`](vba_runtime::Error::AmbiguousProcedure)). A
     /// procedure of a plain class module is not callable by name; create an
     /// instance and use [`CallTarget::Object`](crate::CallTarget::Object).
-    /// A qualification with the project name (`Project.Module.Proc`) is not
-    /// supported.
+    /// The project name may qualify the name as well
+    /// (`Project.Module.Proc`, case-insensitive); it is ignored.
     pub fn callable_procedures(&self) -> Vec<CallableProcedure> {
         self.session.callable_procedures()
     }

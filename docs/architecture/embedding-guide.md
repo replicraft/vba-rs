@@ -1068,7 +1068,8 @@ diagnostics), a limit is hit or a call is running. State policy:
 `Application.Run`-style entry: `Module.Proc` or a bare `Proc` of a standard
 module (ambiguous names are an error), case-insensitive, public `Sub`s and
 `Function`s; procedures of a class-like module only when it has a default
-instance. `Project.Module.Proc` is not accepted. `callable_procedures()` lists
+instance. `Project.Module.Proc` is accepted too: the project name (the
+`Project::name`, case-insensitive) is optional and ignored. `callable_procedures()` lists
 what the dialog can offer with parameters, `requires_arguments` and whether the
 bare name is unique. Whether real `Application.Run` agrees in every corner
 (optional arguments, class modules) is unverified.

@@ -62,7 +62,9 @@
 //!   see [`ThreadError::Stopped`]) and drop the instance on its own thread,
 //!   without running `Class_Terminate`. Call `Instance::shutdown` in a last
 //!   command first when the program's terminators matter. Neither cancels the
-//!   [`CancelToken`]: if the running command may be long, cancel first.
+//!   [`CancelToken`] (it may be shared); use
+//!   [`close_and_cancel`](InstanceThread::close_and_cancel) to interrupt a
+//!   running command and close in one step.
 //!
 //! Limits, the call timeout and cancellation are those of the instance; the
 //! thread adds none. A command that blocks forever (a host member that never
@@ -279,7 +281,21 @@ impl InstanceThread {
     /// queued ones are dropped and the instance is dropped on its thread.
     /// Returns [`ThreadError::Panicked`] when the thread ended by a panic
     /// that no command reported.
+    ///
+    /// This does **not** cancel the [`CancelToken`]: a long-running command
+    /// is waited for. Use [`close_and_cancel`](InstanceThread::close_and_cancel)
+    /// to interrupt it.
     pub fn close(mut self) -> Result<(), ThreadError> {
+        self.stop()
+    }
+
+    /// Cancels the [`CancelToken`], then closes like
+    /// [`close`](InstanceThread::close): a running command is interrupted at
+    /// its next poll (it ends with a cancellation error), queued ones are
+    /// dropped. Note that the token is shared with every clone of
+    /// [`cancel_token`](InstanceThread::cancel_token) and stays set.
+    pub fn close_and_cancel(mut self) -> Result<(), ThreadError> {
+        self.cancel.cancel();
         self.stop()
     }
 
@@ -294,6 +310,12 @@ impl InstanceThread {
     }
 }
 
+/// Dropping the handle is [`close`](InstanceThread::close): it waits for the
+/// running command (it blocks the dropping thread for as long as that
+/// command runs) and does **not** cancel the token, because the token may be
+/// shared with other holders that did not ask for cancellation. Use
+/// [`close_and_cancel`](InstanceThread::close_and_cancel) to interrupt a
+/// long command.
 impl Drop for InstanceThread {
     fn drop(&mut self) {
         let _ = self.stop();

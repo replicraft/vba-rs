@@ -188,6 +188,8 @@ pub struct LoadError {
     pub diagnostics: Vec<String>,
 }
 
+impl std::error::Error for LoadError {}
+
 impl fmt::Display for LoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "the project has {} error(s)", self.diagnostics.len())?;
@@ -216,9 +218,11 @@ fn compiled_only_message(project: &str, modules: &[String]) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The project did not compile.
+    /// The project did not compile. The structured [`LoadError`] is also the
+    /// `source()` of this error, so `downcast_ref::<LoadError>()` on it works
+    /// (its text repeats this error's, which error-chain printers show twice).
     #[error("{0}")]
-    Load(LoadError),
+    Load(#[source] LoadError),
     /// `run_procedure` / `raise_event` before [`Session::trust`](crate::Session::trust).
     #[error("execution is not enabled for this session; the embedder must call `trust` first")]
     NotTrusted,

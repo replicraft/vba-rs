@@ -143,6 +143,45 @@ fn closing_skips_queued_commands() {
 }
 
 #[test]
+fn dropping_the_handle_waits_and_does_not_cancel_the_token() {
+    let w = worker();
+    let token = w.cancel_token();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let reply = w
+        .submit(move |i| {
+            started_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(150));
+            i.run("Bump", vec![]).unwrap().value
+        })
+        .unwrap();
+    started_rx.recv().unwrap();
+    // Drop blocks until the running command is done; the command completes.
+    drop(w);
+    assert_eq!(reply.wait().unwrap(), Variant::Long(1));
+    assert!(!token.is_cancelled(), "Drop must not cancel a shared token");
+}
+
+#[test]
+fn close_and_cancel_interrupts_a_running_command() {
+    let w = worker();
+    let token = w.cancel_token();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let reply = w
+        .submit(move |i| {
+            started_tx.send(()).unwrap();
+            i.run("Spin", vec![])
+        })
+        .unwrap();
+    started_rx.recv().unwrap();
+    let started = Instant::now();
+    w.close_and_cancel().unwrap();
+    let err = reply.wait().unwrap().unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(token.is_cancelled());
+}
+
+#[test]
 fn try_wait_does_not_block() {
     let w = worker();
     let mut reply = w

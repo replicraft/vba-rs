@@ -452,7 +452,8 @@ impl Session {
     }
 
     /// Runs a `Sub` or `Function` by name, case-insensitively, like
-    /// `Application.Run`: `Proc` (the standard modules) or `Module.Proc`.
+    /// `Application.Run`: `Proc` (the standard modules), `Module.Proc` or
+    /// `Project.Module.Proc` (the project name is optional and ignored).
     /// Only public procedures run; a procedure of a document or designer
     /// module runs on the module's default instance, a class module's does
     /// not run by name.
@@ -477,7 +478,28 @@ impl Session {
         named: Vec<(String, Arg)>,
     ) -> Result<RunOutput, Error> {
         self.require_trust()?;
+        let name = self.without_project_prefix(target, name);
         self.ops().call(target, name, positional, named)
+    }
+
+    /// `Project.Module.Proc` names the same procedure as `Module.Proc`: the
+    /// project prefix (the project name, case-insensitive) is dropped for a
+    /// project-level call. Any other name is returned unchanged.
+    fn without_project_prefix<'n>(&self, target: &Target, name: &'n str) -> &'n str {
+        if matches!(target, Target::Object(_)) {
+            return name;
+        }
+        let project = &self.compiler.options.project_name;
+        match name.split_once('.') {
+            Some((first, rest))
+                if !project.is_empty()
+                    && first.eq_ignore_ascii_case(project)
+                    && rest.contains('.') =>
+            {
+                rest
+            }
+            _ => name,
+        }
     }
 
     /// Creates a **new** instance of a class, document or designer module,
