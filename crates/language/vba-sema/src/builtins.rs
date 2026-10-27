@@ -572,7 +572,39 @@ fn builtin_member(ty: &LibraryType, name: &str) -> Option<LibMember> {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuiltinLibrary;
 
+/// The enumeration types of the VBA library. Their members are the `vb...`
+/// constants; a variable of such a type holds a `Long`.
+const VBA_ENUM_TYPES: &[&str] = &[
+    "VbAppWinStyle",
+    "VbCalendar",
+    "VbCallType",
+    "VbCompareMethod",
+    "VbDateTimeFormat",
+    "VbDayOfWeek",
+    "VbFileAttribute",
+    "VbFirstWeekOfYear",
+    "VbIMEStatus",
+    "VbMsgBoxResult",
+    "VbMsgBoxStyle",
+    "VbQueryClose",
+    "VbStrConv",
+    "VbTriState",
+    "VbVarType",
+];
+
 impl TypeProvider for BuiltinLibrary {
+    fn resolve_declared(&self, qualifier: Option<&str>, name: &str) -> Option<Type> {
+        let vba_scope = qualifier.is_none_or(|q| q.eq_ignore_ascii_case(VBA_LIBRARY));
+        if vba_scope
+            && VBA_ENUM_TYPES
+                .iter()
+                .any(|e| e.eq_ignore_ascii_case(name))
+        {
+            return Some(Type::Long);
+        }
+        self.resolve_type(qualifier, name).map(Type::Library)
+    }
+
     fn resolve_type(&self, qualifier: Option<&str>, name: &str) -> Option<LibraryType> {
         let lower = name.to_ascii_lowercase();
         // `stdole` interfaces are visible to every VBA project.
