@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use vba_ast::{BinaryOp, CompareMode, ExitKind, UnaryOp};
 use vba_sema::bound::*;
-use vba_sema::{Analysis, GlobalInfo, LabelId, LocalId, LocalKind, ModuleId, ProcId, Program, Type};
+use vba_sema::{
+    Analysis, GlobalInfo, LabelId, LocalId, LocalKind, ModuleId, ProcId, Program, Type,
+};
 use vba_source::Span;
 use vba_value::Variant;
 use vba_value::ops::{ArithOp, CompareOp, CompareOptions, LogicOp, Overflow, StringNumberRule};

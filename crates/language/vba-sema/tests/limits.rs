@@ -75,7 +75,10 @@ fn source_budget_counts_all_modules() {
 #[test]
 fn too_many_modules_are_refused() {
     let mods: Vec<_> = (0..50).map(|i| bas(&format!("M{i}"), "")).collect();
-    let a = limited(&mods, AnalysisLimits::unlimited().with_max_modules(Some(49)));
+    let a = limited(
+        &mods,
+        AnalysisLimits::unlimited().with_max_modules(Some(49)),
+    );
     assert_eq!(
         a.limit_exceeded,
         Some(AnalysisLimit::Modules {
@@ -83,7 +86,10 @@ fn too_many_modules_are_refused() {
             actual: 50
         })
     );
-    let ok = limited(&mods, AnalysisLimits::unlimited().with_max_modules(Some(50)));
+    let ok = limited(
+        &mods,
+        AnalysisLimits::unlimited().with_max_modules(Some(50)),
+    );
     assert!(ok.limit_exceeded.is_none());
 }
 

@@ -25,8 +25,8 @@ fn a_program_within_the_budget_lowers_identically() {
     assert!(!a.has_errors());
     let plain = vba_ir::lower(&a).unwrap();
     let n = instructions(&plain);
-    let exact = lower_with_limits(&a, &LowerLimits::unlimited().with_max_instructions(Some(n)))
-        .unwrap();
+    let exact =
+        lower_with_limits(&a, &LowerLimits::unlimited().with_max_instructions(Some(n))).unwrap();
     assert_eq!(
         vba_ir::dump_program(&plain, vba_ir::DumpOptions::default()),
         vba_ir::dump_program(&exact, vba_ir::DumpOptions::default())
@@ -61,7 +61,10 @@ fn a_huge_body_is_cut_off() {
         &a,
         &LowerLimits::unlimited().with_max_instructions(Some(1_000)),
     );
-    assert!(matches!(r, Err(LowerError::TooLarge { limit: 1_000 })), "{r:?}");
+    assert!(
+        matches!(r, Err(LowerError::TooLarge { limit: 1_000 })),
+        "{r:?}"
+    );
 }
 
 #[test]
