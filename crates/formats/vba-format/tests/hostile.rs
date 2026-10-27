@@ -19,8 +19,9 @@
 
 mod common;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use common::fuzz::*;
 use common::packages::*;
 use common::*;
 use vba_format::signature;
@@ -31,38 +32,6 @@ use vba_format::{
 use vba_project::VbaProject;
 
 // ------------------------------------------------------------ infrastructure
-
-/// Deterministic xorshift64* generator.
-struct Rng(u64);
-
-impl Rng {
-    fn new(seed: u64) -> Self {
-        Rng(seed | 1)
-    }
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.0 = x;
-        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
-    }
-    fn below(&mut self, n: usize) -> usize {
-        if n == 0 { 0 } else { (self.next() % n as u64) as usize }
-    }
-}
-
-/// Values that sit on arithmetic boundaries.
-const U32_SPECIAL: [u32; 8] = [
-    0,
-    1,
-    0xFFFF_FFFF,
-    0xFFFF_FFFE,
-    0x7FFF_FFFF,
-    0x8000_0000,
-    0xFFFF,
-    0x1_0000,
-];
 
 /// Total bytes a project keeps alive.
 fn retained(p: &VbaProject) -> usize {
@@ -82,15 +51,6 @@ fn small_limits() -> Limits {
         max_archive_entries: 64,
         ..Limits::default()
     }
-}
-
-/// Runs `f` and fails if it takes longer than `budget`.
-fn within<T>(budget: Duration, what: &str, f: impl FnOnce() -> T) -> T {
-    let start = Instant::now();
-    let out = f();
-    let took = start.elapsed();
-    assert!(took <= budget, "{what} took {took:?} (budget {budget:?})");
-    out
 }
 
 /// Every byte-level entry point on one input; the single hook a
@@ -441,75 +401,6 @@ fn streams_sharing_one_chain_are_bounded() {
 
 // ------------------------------------------------------- generic mutation
 
-fn mutate(rng: &mut Rng, base: &[u8]) -> Vec<u8> {
-    let mut b = base.to_vec();
-    if b.is_empty() {
-        return b;
-    }
-    match rng.below(9) {
-        0 => {
-            for _ in 0..1 + rng.below(8) {
-                let i = rng.below(b.len());
-                b[i] ^= 1 << rng.below(8);
-            }
-        }
-        1 => {
-            for _ in 0..1 + rng.below(8) {
-                let i = rng.below(b.len());
-                b[i] = [0x00, 0xFF, 0x7F, 0x80][rng.below(4)];
-            }
-        }
-        2 => {
-            let cut = rng.below(b.len() + 1);
-            b.truncate(cut);
-        }
-        3 => {
-            let extra = rng.below(4096);
-            for _ in 0..extra {
-                b.push(rng.next() as u8);
-            }
-        }
-        4 => {
-            // duplicate a chunk
-            let s = rng.below(b.len());
-            let e = (s + 1 + rng.below(600)).min(b.len());
-            let chunk = b[s..e].to_vec();
-            let at = rng.below(b.len() + 1);
-            b.splice(at..at, chunk);
-        }
-        5 => {
-            // remove a chunk
-            let s = rng.below(b.len());
-            let e = (s + 1 + rng.below(600)).min(b.len());
-            b.drain(s..e);
-        }
-        6 => {
-            // overwrite a u32 with a boundary value
-            if b.len() >= 4 {
-                let i = rng.below(b.len() - 3);
-                let v = U32_SPECIAL[rng.below(U32_SPECIAL.len())];
-                b[i..i + 4].copy_from_slice(&v.to_le_bytes());
-            }
-        }
-        7 => {
-            // overwrite a u16
-            if b.len() >= 2 {
-                let i = rng.below(b.len() - 1);
-                let v = [0u16, 1, 0xFFFF, 0xFFFE, 0x8000][rng.below(5)];
-                b[i..i + 2].copy_from_slice(&v.to_le_bytes());
-            }
-        }
-        _ => {
-            // splice random bytes
-            let at = rng.below(b.len() + 1);
-            let n = rng.below(64);
-            let junk: Vec<u8> = (0..n).map(|_| rng.next() as u8).collect();
-            b.splice(at..at, junk);
-        }
-    }
-    b
-}
-
 #[test]
 fn mutated_containers_never_panic() {
     let limits = small_limits();
@@ -535,8 +426,21 @@ fn mutated_containers_never_panic() {
 
 // ------------------------------------------------- stream-level mutation
 
+/// `dir` as a container of raw (stored) chunks: valid framing without the
+/// cost of the compressor, which dominates in debug builds. The last chunk is
+/// zero padded, which the reader keeps as trailing bytes.
+fn stored(dir: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x01];
+    for chunk in dir.chunks(4096) {
+        out.extend_from_slice(&0x3FFFu16.to_le_bytes());
+        out.extend_from_slice(chunk);
+        out.resize(out.len() + 4096 - chunk.len(), 0);
+    }
+    out
+}
+
 fn recompress_set(dir: &[u8], mut streams: ProjectStreams) -> ProjectStreams {
-    streams.insert("VBA/dir", compress(dir));
+    streams.insert("VBA/dir", stored(dir));
     streams
 }
 
@@ -548,16 +452,16 @@ fn dir_field_inflation_never_panics() {
     let streams = base_streams();
     let dir = decompress(streams.get("VBA/dir").unwrap(), 1 << 20).unwrap();
     let mut runs = 0;
-    for at in (0..dir.len()).step_by(2) {
+    for at in 0..dir.len() {
         let mut variants: Vec<Vec<u8>> = Vec::new();
-        for v in [0, 0xFFFF_FFFF, dir.len() as u32 + 1] {
+        for v in U32_SPECIAL.iter().copied().chain([dir.len() as u32 + 1]) {
             if at + 4 <= dir.len() {
                 let mut d = dir.clone();
                 d[at..at + 4].copy_from_slice(&v.to_le_bytes());
                 variants.push(d);
             }
         }
-        for v in [0xFFFFu16] {
+        for v in [0u16, 1, 0xFFFF, 0xFFFE] {
             if at + 2 <= dir.len() {
                 let mut d = dir.clone();
                 d[at..at + 2].copy_from_slice(&v.to_le_bytes());
@@ -565,7 +469,7 @@ fn dir_field_inflation_never_panics() {
             }
         }
         for d in &mut variants {
-            for mode in [if at % 4 == 0 { ReadMode::Strict } else { ReadMode::Tolerant }] {
+            for mode in [ReadMode::Strict, ReadMode::Tolerant] {
                 let set = recompress_set(d, streams.clone());
                 within(Duration::from_secs(5), "inflated dir field", || {
                     let r = read_project_from_streams(&set, mode, &limits);
@@ -574,13 +478,13 @@ fn dir_field_inflation_never_panics() {
                 runs += 1;
             }
         }
-        // Truncation at every third offset.
-        if at % 6 == 0 {
+        // Truncation at every offset.
+        {
             let set = recompress_set(&dir[..at], streams.clone());
             let _ = read_project_from_streams(&set, ReadMode::Tolerant, &limits);
         }
     }
-    assert!(runs > 1500, "{runs}");
+    assert!(runs > 5000, "{runs}");
 }
 
 /// Random mutation of the decompressed `dir`, PROJECT, `_VBA_PROJECT` and
