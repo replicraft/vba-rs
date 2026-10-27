@@ -341,15 +341,9 @@ impl Sema<'_> {
                 fixed_bounds = fb;
                 base = Type::array_of(base, Some(rank));
             }
-            if auto_new {
-                self.error(
-                    module,
-                    codes::ARRAY_RULE,
-                    name.span,
-                    "an array cannot be declared `As New`",
-                );
-                auto_new = false;
-            }
+            // `Dim a(n) As New C`: each element is an automatic
+            // instantiation variable (MS-VBAL 5.2.3.1.1); the flag stays on the
+            // array variable.
         }
         DeclType {
             ty: base,

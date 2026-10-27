@@ -72,7 +72,8 @@ println!("{}", vba_ir::dump_program(&ir, DumpOptions::default()));
   releases all object slots (the `return` terminator). `new` allocates, runs
   the class's field initialiser (`ClassInfo::init`) and `Class_Initialize`.
   `As New` variables are `ensure.new` before each use, including when
-  they are passed by reference. `Set` of a
+  they are passed by reference. For an array declared `As New` the element is
+  `ensure.new`-ed (through an element reference) before it is indexed or passed. `Set` of a
   `WithEvents` variable is `set.events` and the VM reconnects the handlers in
   `ClassInfo::handlers`. `raise.event` delivers to the handlers of every
   connected sink. Interface calls name the *interface's* procedure with a

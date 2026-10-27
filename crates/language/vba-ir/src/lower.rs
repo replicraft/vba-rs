@@ -1443,11 +1443,57 @@ impl<'p> Builder<'p> {
                 let gi = self.prog.global(*g);
                 gi.auto_new.then(|| gi.ty.clone())
             }
+            BPlace::Index { base, elem, .. } if self.auto_new_array_root(base) => {
+                Some(elem.clone())
+            }
             _ => None,
         };
         if let Some(target) = ty.and_then(|t| self.new_target(&t)) {
             self.emit(InstKind::EnsureNew { r, target });
         }
+    }
+
+    /// Whether the variable at the root of an element place is an array
+    /// declared `As New`.
+    fn auto_new_array_root(&self, p: &BPlace) -> bool {
+        match p {
+            BPlace::Local(l) => self
+                .proc
+                .is_some_and(|pid| self.prog.proc(pid).locals[l.index()].auto_new),
+            BPlace::Global(g) | BPlace::Field { global: g, .. } => self.prog.global(*g).auto_new,
+            _ => false,
+        }
+    }
+
+    /// The place of the variable behind `e` when it is an array declared
+    /// `As New` (a local, a module variable or a field of a plain receiver).
+    fn auto_new_array_place(&mut self, e: &BExpr) -> Result<Option<RefPlace>, LowerError> {
+        Ok(match &e.kind {
+            BExprKind::Local(l) => {
+                let auto = self
+                    .proc
+                    .is_some_and(|p| self.prog.proc(p).locals[l.index()].auto_new);
+                auto.then_some(RefPlace::Local(*l))
+            }
+            BExprKind::Global(g) => self
+                .prog
+                .global(*g)
+                .auto_new
+                .then_some(RefPlace::Global(*g)),
+            BExprKind::Field { receiver, global }
+                if self.prog.global(*global).auto_new
+                    && matches!(
+                        receiver.kind,
+                        BExprKind::Me | BExprKind::Local(_) | BExprKind::Global(_)
+                    ) =>
+            {
+                Some(RefPlace::Field {
+                    obj: self.lower_expr(receiver)?,
+                    global: *global,
+                })
+            }
+            _ => None,
+        })
     }
 
     fn lower_late_args(&mut self, args: &[BLateArg]) -> Result<Vec<LateArg>, LowerError> {
@@ -1671,6 +1717,23 @@ impl<'p> Builder<'p> {
                 let mut idx = Vec::new();
                 for i in indices {
                     idx.push(self.lower_expr(i)?);
+                }
+                // Elements of an array declared `As New` are instantiated on use.
+                if self.new_target(ty).is_some()
+                    && let Some(arr) = self.auto_new_array_place(base)?
+                {
+                    let arr_ref = self.reg(base.ty.clone());
+                    self.emit(InstKind::MakeRef {
+                        dst: arr_ref,
+                        place: arr,
+                    });
+                    self.ensure_new(
+                        RefPlace::Elem {
+                            base: arr_ref,
+                            indices: idx.clone(),
+                        },
+                        ty,
+                    );
                 }
                 let dst = self.reg(ty.clone());
                 self.emit(InstKind::Index {
