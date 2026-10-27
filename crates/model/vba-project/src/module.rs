@@ -3,6 +3,7 @@ use crate::standalone::{self, StandaloneError};
 
 /// The role of a module within a project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ModuleKind {
     /// A procedural (`.bas`) module.
     Standard,

@@ -349,9 +349,8 @@ impl Dispatch for FormHost {
         name.eq_ignore_ascii_case("Update").then_some(DispId(1))
     }
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
-        (id == DispId(1)).then(|| MemberInfo {
-            name: "Update".into(), id,
-            supports: InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET, params: vec![],
+        (id == DispId(1)).then(|| {
+            MemberInfo::new("Update", id, InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET, vec![])
         })
     }
     fn invoke(&self, table: &ObjectTable, _id: DispId, _f: InvokeFlags, _p: &mut DispParams)
@@ -517,12 +516,13 @@ embedding errors `NoSuchMember`, `AmbiguousMember`, `NotAccessible` and
   `Engine::new()` starts from the finite `ResourceLimits::untrusted()` set (100
   million steps, 256 MiB, call depth 1000) and gives every call from the embedding
   application a wall-clock allowance of 60 seconds (`UNTRUSTED_CALL_TIMEOUT`).
-  To raise them: `max_steps(n)`, `max_memory(bytes)`, `limits(ResourceLimits { .. })` and
+  To raise them: `max_steps(n)`, `max_memory(bytes)`, `limits(ResourceLimits::untrusted().with_max_steps(Some(n)))` and
   `call_timeout(Some(Duration::from_secs(300)))`; to remove them for code you trust,
   `Engine::unlimited()` (also `call_timeout(None)` for the clock alone). A
   `CallLimits::timeout` replaces the default allowance inside its scope, longer or shorter.
-  An instance built with `Instance::from_session` has no default allowance (the session
-  brings its own host); `Instance::default_call_timeout(Some(d))` sets one. The step count spans
+  An instance built with `Instance::from_session` gets the same 60-second allowance
+  (a hand-built host may carry no limits at all); `Instance::default_call_timeout(None)`
+  removes it and `Some(d)` changes it. The step count spans
   the whole life of the instance, nested calls included, so a long-lived
   instance that serves many events eventually spends it: give each event its own
   allowance with `reset_step_counter()` (below). `Instance::reset_step_counter()` starts a fresh allowance (give each

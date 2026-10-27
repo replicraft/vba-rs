@@ -75,12 +75,12 @@ impl Dispatch for FormObject {
 
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
         let name = NAMES.get((id.0 - 1) as usize)?;
-        Some(MemberInfo {
-            name: (*name).into(),
+        Some(MemberInfo::new(
+            *name,
             id,
-            supports: InvokeFlags::PROPERTY_GET | InvokeFlags::PROPERTY_PUT,
-            params: Vec::<ParamInfo>::new(),
-        })
+            InvokeFlags::PROPERTY_GET | InvokeFlags::PROPERTY_PUT,
+            Vec::<ParamInfo>::new(),
+        ))
     }
 
     fn invoke(

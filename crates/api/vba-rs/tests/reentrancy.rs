@@ -370,11 +370,13 @@ impl Dispatch for Spy {
         name.eq_ignore_ascii_case("Grab").then_some(DispId(1))
     }
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
-        (id == DispId(1)).then(|| MemberInfo {
-            name: "Grab".into(),
-            id,
-            supports: InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
-            params: vec![],
+        (id == DispId(1)).then(|| {
+            MemberInfo::new(
+                "Grab",
+                id,
+                InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
+                vec![],
+            )
         })
     }
     fn invoke(
@@ -446,11 +448,13 @@ impl Dispatch for Button {
         name.eq_ignore_ascii_case("Press").then_some(DispId(1))
     }
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
-        (id == DispId(1)).then(|| MemberInfo {
-            name: "Press".into(),
-            id,
-            supports: InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
-            params: vec![],
+        (id == DispId(1)).then(|| {
+            MemberInfo::new(
+                "Press",
+                id,
+                InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
+                vec![],
+            )
         })
     }
     fn invoke(

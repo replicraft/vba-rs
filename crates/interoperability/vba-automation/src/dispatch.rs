@@ -139,6 +139,7 @@ impl DispParams {
 
 /// Declared parameter of a member.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ParamInfo {
     /// Parameter name (matched case-insensitively for named arguments).
     pub name: String,
@@ -183,6 +184,35 @@ impl ParamInfo {
         }
     }
 
+    /// Sets whether the parameter is `Optional`.
+    #[must_use]
+    pub fn with_optional(mut self, optional: bool) -> Self {
+        self.optional = optional;
+        self
+    }
+
+    /// Sets whether the parameter is declared `ByRef`.
+    #[must_use]
+    pub fn with_by_ref(mut self, by_ref: bool) -> Self {
+        self.by_ref = by_ref;
+        self
+    }
+
+    /// Sets whether the parameter is a `ParamArray`.
+    #[must_use]
+    pub fn with_param_array(mut self, param_array: bool) -> Self {
+        self.param_array = param_array;
+        self
+    }
+
+    /// Sets the default value of an omitted optional parameter (`None`
+    /// leaves the missing marker).
+    #[must_use]
+    pub fn with_default_value(mut self, default: Option<Variant>) -> Self {
+        self.default = default;
+        self
+    }
+
     /// Marks the parameter ByVal.
     pub fn by_val(mut self) -> Self {
         self.by_ref = false;
@@ -199,6 +229,7 @@ impl ParamInfo {
 /// Type information about one member (the subset of `ITypeInfo` VBA's call
 /// resolution needs).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct MemberInfo {
     /// Member name.
     pub name: String,
@@ -211,6 +242,21 @@ pub struct MemberInfo {
 }
 
 impl MemberInfo {
+    /// A member description.
+    pub fn new(
+        name: impl Into<String>,
+        id: DispId,
+        supports: InvokeFlags,
+        params: Vec<ParamInfo>,
+    ) -> Self {
+        MemberInfo {
+            name: name.into(),
+            id,
+            supports,
+            params,
+        }
+    }
+
     /// Number of declared non-ParamArray parameters.
     pub fn fixed_param_count(&self) -> usize {
         self.params.iter().filter(|p| !p.param_array).count()

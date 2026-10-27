@@ -159,6 +159,7 @@ impl Project {
                 ModuleKind::Class => "Class module",
                 ModuleKind::Document => "Document module",
                 ModuleKind::Designer => "Designer module",
+                _ => "Module",
             };
             format!("{kind} `{}`", mi.name)
         };

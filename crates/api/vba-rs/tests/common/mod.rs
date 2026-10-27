@@ -132,12 +132,7 @@ impl Dispatch for FormHost {
                 InvokeFlags::PROPERTY_GET | InvokeFlags::PROPERTY_PUT,
             ),
         };
-        Some(MemberInfo {
-            name,
-            id,
-            supports,
-            params,
-        })
+        Some(MemberInfo::new(name, id, supports, params))
     }
 
     fn invoke(
@@ -233,11 +228,13 @@ impl Dispatch for ControlHost {
     }
 
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
-        (id == DispId::VALUE).then(|| MemberInfo {
-            name: "Value".into(),
-            id,
-            supports: InvokeFlags::PROPERTY_GET | InvokeFlags::PROPERTY_PUT,
-            params: vec![],
+        (id == DispId::VALUE).then(|| {
+            MemberInfo::new(
+                "Value",
+                id,
+                InvokeFlags::PROPERTY_GET | InvokeFlags::PROPERTY_PUT,
+                vec![],
+            )
         })
     }
 
@@ -333,15 +330,17 @@ impl Dispatch for DoCmd {
         name.eq_ignore_ascii_case("OpenForm").then_some(OPEN_FORM)
     }
     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
-        (id == OPEN_FORM).then(|| MemberInfo {
-            name: "OpenForm".into(),
-            id,
-            supports: InvokeFlags::METHOD,
-            params: vec![
-                ParamInfo::required("FormName").by_val(),
-                ParamInfo::optional("DataMode").by_val(),
-                ParamInfo::optional("OpenArgs").by_val(),
-            ],
+        (id == OPEN_FORM).then(|| {
+            MemberInfo::new(
+                "OpenForm",
+                id,
+                InvokeFlags::METHOD,
+                vec![
+                    ParamInfo::required("FormName").by_val(),
+                    ParamInfo::optional("DataMode").by_val(),
+                    ParamInfo::optional("OpenArgs").by_val(),
+                ],
+            )
         })
     }
     fn invoke(
@@ -439,12 +438,12 @@ impl Dispatch for Application {
             ),
             _ => return None,
         };
-        Some(MemberInfo {
-            name: name.into(),
+        Some(MemberInfo::new(
+            name,
             id,
-            supports: InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
+            InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
             params,
-        })
+        ))
     }
     fn invoke(
         &self,

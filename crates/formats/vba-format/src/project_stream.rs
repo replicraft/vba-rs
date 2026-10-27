@@ -266,7 +266,9 @@ pub(crate) fn generate(project: &VbaProject) -> Result<Vec<u8>, Error> {
             ModuleKind::Class => {
                 let _ = write!(t, "Class={}{nl}", m.name);
             }
-            ModuleKind::Designer => {
+            // Designer modules, and any kind added later, cannot be written
+            // to a new project stream.
+            _ => {
                 return Err(Error::UnsupportedEdit(
                     "writing designer modules to a new project is not supported".into(),
                 ));

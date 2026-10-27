@@ -11,6 +11,7 @@ use std::fmt;
 /// Failures of a file system operation. The caller maps them to VBA errors
 /// (53, 58, 70, 75, 76, ...).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum VfsError {
     /// The file or directory does not exist.
     NotFound,

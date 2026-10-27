@@ -69,22 +69,21 @@ pub struct MemberDesc {
 impl MemberDesc {
     /// The `vba-automation` description of the member.
     pub fn info(&self) -> MemberInfo {
-        MemberInfo {
-            name: self.name.clone(),
-            id: self.id,
-            supports: self.supports,
-            params: self
-                .params
+        MemberInfo::new(
+            self.name.clone(),
+            self.id,
+            self.supports,
+            self.params
                 .iter()
-                .map(|p| ParamInfo {
-                    name: p.name.clone(),
-                    optional: p.optional,
-                    by_ref: p.by_ref,
-                    param_array: p.param_array,
-                    default: p.default.clone(),
+                .map(|p| {
+                    ParamInfo::required(&p.name)
+                        .with_optional(p.optional)
+                        .with_by_ref(p.by_ref)
+                        .with_param_array(p.param_array)
+                        .with_default_value(p.default.clone())
                 })
                 .collect(),
-        }
+        )
     }
 }
 

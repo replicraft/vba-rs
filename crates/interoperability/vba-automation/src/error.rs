@@ -37,6 +37,7 @@ pub fn describe(number: i32) -> String {
 
 /// The contents of the VBA `Err` object after a failed call.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ErrInfo {
     /// `Err.Number`.
     pub number: i32,
@@ -70,6 +71,13 @@ impl ErrInfo {
     /// Sets the source (builder style).
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
         self.source = source.into();
+        self
+    }
+
+    /// Sets the help file and context (builder style).
+    pub fn with_help(mut self, help_file: impl Into<String>, help_context: u32) -> Self {
+        self.help_file = help_file.into();
+        self.help_context = help_context;
         self
     }
 

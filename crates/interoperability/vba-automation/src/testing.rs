@@ -358,12 +358,7 @@ impl Dispatch for MemObject {
             .borrow()
             .iter()
             .find(|m| m.id == id)
-            .map(|m| MemberInfo {
-                name: m.name.clone(),
-                id: m.id,
-                supports: m.supports(),
-                params: m.params.clone(),
-            })
+            .map(|m| MemberInfo::new(m.name.clone(), m.id, m.supports(), m.params.clone()))
     }
 
     fn invoke(

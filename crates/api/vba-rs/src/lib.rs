@@ -58,11 +58,13 @@
 //!         name.eq_ignore_ascii_case("Greet").then_some(DispId(1))
 //!     }
 //!     fn member_info(&self, id: DispId) -> Option<MemberInfo> {
-//!         (id == DispId(1)).then(|| MemberInfo {
-//!             name: "Greet".into(),
-//!             id,
-//!             supports: InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
-//!             params: vec![ParamInfo::required("Who").by_val()],
+//!         (id == DispId(1)).then(|| {
+//!             MemberInfo::new(
+//!                 "Greet",
+//!                 id,
+//!                 InvokeFlags::METHOD | InvokeFlags::PROPERTY_GET,
+//!                 vec![ParamInfo::required("Who").by_val()],
+//!             )
 //!         })
 //!     }
 //!     fn invoke(

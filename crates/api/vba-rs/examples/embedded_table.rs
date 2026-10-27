@@ -73,12 +73,7 @@ impl Dispatch for Recordset {
             ),
             _ => return None,
         };
-        Some(MemberInfo {
-            name: name.into(),
-            id,
-            supports,
-            params,
-        })
+        Some(MemberInfo::new(name, id, supports, params))
     }
 
     fn invoke(

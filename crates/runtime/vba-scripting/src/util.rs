@@ -105,12 +105,7 @@ pub(crate) fn info_of(d: &Def) -> MemberInfo {
                 | InvokeFlags::PROPERTY_PUT_REF
         }
     };
-    MemberInfo {
-        name: d.name.to_owned(),
-        id: DispId(d.id),
-        supports,
-        params: params_of(d),
-    }
+    MemberInfo::new(d.name.to_owned(), DispId(d.id), supports, params_of(d))
 }
 
 /// Checks that the member supports the requested access; otherwise the
