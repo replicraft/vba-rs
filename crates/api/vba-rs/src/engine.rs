@@ -489,11 +489,24 @@ impl Instance {
     /// Wraps a session you built yourself (see
     /// [`Engine::session_builder`]). `cancel` is the token the session's
     /// host polls (the engine's own, or a fresh one if your host has none);
-    /// it only feeds [`is_usable`](Instance::is_usable). The instance has no
-    /// wall-clock allowance per call, because the session brings its own host
-    /// and limits; set one with [`Instance::default_call_timeout`].
+    /// it only feeds [`is_usable`](Instance::is_usable).
+    ///
+    /// Every call from the embedder gets the same wall-clock allowance that
+    /// [`Engine::new`] gives, [`UNTRUSTED_CALL_TIMEOUT`] (60 seconds). The
+    /// session brings its own host, and a host built without limits has
+    /// neither a step budget nor a deadline; an instance that quietly
+    /// inherited that would let a hostile loop run forever, so the safe
+    /// value is the default and the unlimited one is an explicit choice.
+    /// Change it with [`Instance::default_call_timeout`]
+    /// (`Some(d)` for another allowance, `None` for none).
     pub fn from_session(session: Session, sink: BufferSink, cancel: CancelToken) -> Instance {
-        Instance::new(session, sink, cancel, None)
+        Instance::new(session, sink, cancel, Some(UNTRUSTED_CALL_TIMEOUT))
+    }
+
+    /// The wall-clock allowance of every call from the embedder that is not
+    /// inside a [`CallLimits::timeout`] scope; `None` means none.
+    pub fn call_timeout(&self) -> Option<Duration> {
+        self.call_timeout
     }
 
     /// Sets the wall-clock allowance of every call from the embedder that
@@ -532,10 +545,7 @@ impl Instance {
         // time, and only to the outermost one.
         let token = match self.call_timeout {
             Some(timeout) if !budget.has_deadline() => {
-                Some(budget.enter_scope(vba_host::ScopeLimits {
-                    timeout: Some(timeout),
-                    ..Default::default()
-                }))
+                Some(budget.enter_scope(vba_host::ScopeLimits::new().with_timeout(Some(timeout))))
             }
             _ => None,
         };

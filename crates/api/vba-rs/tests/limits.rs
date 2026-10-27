@@ -273,3 +273,34 @@ fn a_long_library_call_is_cancelled_by_the_time_allowance() {
     assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
     assert!(started.elapsed() < Duration::from_secs(30));
 }
+
+#[test]
+fn from_session_has_the_default_allowance() {
+    // A hand-built session on a host without any limits: the instance still
+    // bounds every call in time, and opting out is explicit.
+    let engine = Engine::new().unlimited();
+    let (builder, sink) = engine.session_builder();
+    let session = builder.build_project(engine_project().model()).unwrap();
+    let mut inst = vba::Instance::from_session(session, sink, engine.cancel_token());
+    assert_eq!(inst.call_timeout(), Some(Duration::from_secs(60)));
+    inst.default_call_timeout(None);
+    assert_eq!(inst.call_timeout(), None);
+    inst.default_call_timeout(Some(Duration::from_millis(100)));
+    inst.trust();
+    let form = inst.create_object("Form_Work", None).unwrap();
+    let started = std::time::Instant::now();
+    let err = inst.call_on(form, "Spin", vec![]).unwrap_err();
+    assert!(matches!(err, Error::Run(RunError::Cancelled(_))), "{err:?}");
+    assert!(started.elapsed() < Duration::from_secs(30));
+}
+
+#[test]
+fn from_session_with_the_default_allowance_runs_ordinary_calls() {
+    let engine = Engine::new().unlimited();
+    let (builder, sink) = engine.session_builder();
+    let session = builder.build_project(engine_project().model()).unwrap();
+    let mut inst = vba::Instance::from_session(session, sink, engine.cancel_token());
+    inst.trust();
+    inst.run("Bump", vec![]).unwrap();
+    assert!(inst.is_usable());
+}

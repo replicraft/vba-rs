@@ -165,11 +165,10 @@ impl CallLimits {
     }
 
     pub(crate) fn to_scope(self) -> vba_host::ScopeLimits {
-        vba_host::ScopeLimits {
-            max_steps: self.steps,
-            max_memory_bytes: self.memory,
-            timeout: self.timeout,
-        }
+        vba_host::ScopeLimits::new()
+            .with_max_steps(self.steps)
+            .with_max_memory_bytes(self.memory)
+            .with_timeout(self.timeout)
     }
 }
 
