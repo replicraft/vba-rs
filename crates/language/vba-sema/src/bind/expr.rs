@@ -651,7 +651,12 @@ impl Binder<'_, '_> {
         span: Span,
         args: Option<&[Arg]>,
     ) -> BExpr {
-        let sig = Sig::of_intrinsic(r.info, r.dollar);
+        let mut sig = Sig::of_intrinsic(r.info, r.dollar);
+        if r.info.name == "VarPtr" {
+            // The token names the variable itself, so the argument is
+            // passed by reference without a converted copy.
+            sig.params[0].ty = Type::Any;
+        }
         // `InStr([start,] string1, string2[, compare])`: the two-argument form
         // has no `start`, which the declared signature cannot express.
         let shifted;

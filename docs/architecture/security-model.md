@@ -126,6 +126,19 @@ to resource prefixes. Denial is error 70 and always happens before the effect.
   library is loaded, and with it a host-issued `NativePermission` is still required
   (`a_callee_that_rewrites_a_string_cell_is_an_error`, `memory_bounds_and_pointers`).
 
+## No addresses are exposed
+
+`ObjPtr`, `StrPtr` and `VarPtr` return opaque identity tokens, never real
+addresses (see `docs/language/vba-stdlib.md`, "Identity tokens"). A token is a
+bijective mix of an internal handle number and `VmConfig::identity_salt` (or a
+hash of a variable location or of string content), so it reveals neither the
+layout of the process nor the contents of memory, and the VM has no operation
+that reads or writes memory at an integer. They need no capability because
+they leak nothing an embedding application has not already given the program;
+the identity relations (same object, same token) are information the program
+could already get with `Is`. `unsafe` stays forbidden outside the native-call
+feature of `vba-ffi`.
+
 ## Limits
 
 `ResourceLimits` bounds steps, memory and call depth; the VM bounds the length of one string and

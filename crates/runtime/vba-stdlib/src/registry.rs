@@ -808,6 +808,37 @@ static FUNCTIONS: &[FunctionInfo] = &[
         info::f_is_missing,
         Kind::Vm
     ),
+    // Emulated identity tokens: opaque, never an address, see the VM.
+    f!(
+        "ObjPtr",
+        "Hidden",
+        &[p("Object", T::Object)],
+        T::Variant,
+        false,
+        info::f_identity_token,
+        Kind::Vm
+    ),
+    f!(
+        "StrPtr",
+        "Hidden",
+        &[p("String", T::String)],
+        T::Variant,
+        false,
+        info::f_identity_token,
+        Kind::Vm
+    ),
+    f!(
+        "VarPtr",
+        "Hidden",
+        &[ParamInfo {
+            by_ref: true,
+            ..p("Variable", T::Variant)
+        }],
+        T::Variant,
+        false,
+        info::f_identity_token,
+        Kind::Vm
+    ),
     f!(
         "IsNull",
         "Information",

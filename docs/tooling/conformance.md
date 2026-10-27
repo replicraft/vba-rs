@@ -23,12 +23,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 
 | Measure | Count |
 | --- | ---: |
-| Inventory entries | 708 |
-| implemented | 590 |
+| Inventory entries | 711 |
+| implemented | 593 |
 | partial | 111 |
 | unsupported | 7 |
 | not-started | 0 |
-| Conformance programs | 2240 |
+| Conformance programs | 2242 |
 | Programs that are known deviations (XFAIL) | 94 |
 
 ## Entries per category and status
@@ -43,7 +43,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | function-string | 20 | 16 | 4 | 0 | 0 |
 | function-datetime | 20 | 17 | 3 | 0 | 0 |
 | function-financial | 13 | 13 | 0 | 0 | 0 |
-| function-information | 11 | 10 | 1 | 0 | 0 |
+| function-information | 14 | 13 | 1 | 0 | 0 |
 | function-array | 3 | 3 | 0 | 0 | 0 |
 | function-logic | 4 | 3 | 1 | 0 | 0 |
 | function-formatting | 4 | 4 | 0 | 0 | 0 |
@@ -75,7 +75,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | oracle | 0 |
 | spec | 435 |
 | doc | 97 |
-| derived | 74 |
+| derived | 77 |
 | unverified | 102 |
 | (no program) | 0 |
 
@@ -87,7 +87,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | classes | 30 | 0 | 12 | 6 | 9 | 3 |
 | collections | 25 | 0 | 7 | 14 | 2 | 2 |
 | conversions | 39 | 0 | 28 | 4 | 2 | 5 |
-| datatypes | 52 | 0 | 27 | 16 | 0 | 9 |
+| datatypes | 54 | 0 | 27 | 16 | 2 | 9 |
 | datetime | 48 | 0 | 18 | 14 | 5 | 11 |
 | derived-math | 21 | 0 | 0 | 21 | 0 | 0 |
 | errors | 27 | 0 | 18 | 6 | 1 | 2 |

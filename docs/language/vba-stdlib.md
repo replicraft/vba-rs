@@ -21,7 +21,7 @@ against a real VBA host.
   argument count (error 450); an omitted required argument is error 449.
   `Kind::Eager` functions are called with all arguments evaluated, which is
   also how VBA treats `IIf`, `Choose` and `Switch` (no short-circuit).
-  `Kind::Vm` (`IsMissing`) and `Kind::PrintHelper` (`Tab`, `Spc`) must be
+  `Kind::Vm` (`IsMissing`, `ObjPtr`, `StrPtr`, `VarPtr`) and `Kind::PrintHelper` (`Tab`, `Spc`) must be
   handled by the VM.
 - `host`: `Clock` (`Now`, `Timer`), `Environment` (`Environ`), `Locale`
   (explicit en-US default; every `Format`/`MonthName`/`Weekday` rule reads it)
@@ -48,6 +48,7 @@ against a real VBA host.
 | Information | `IsArray IsDate IsEmpty IsError IsNull IsNumeric IsObject TypeName VarType LBound UBound` | `IsMissing` is VM-only. |
 | Misc (`misc`) | `Partition RGB QBColor IMEStatus MacID MacScript` | `Partition` follows its Learn page (the leading blanks are **unverified**); `RGB` clamps above 255 (**doc**), a negative argument is error 5 (**unverified**); the `QBColor` palette values are the QuickBasic ones (**unverified**, the page lists only names); `IMEStatus` is 0 (`vbIMEModeNoControl`, the documented default); `MacID`/`MacScript` are Macintosh-only and raise error 5 here (a decision, **unverified**). |
 | Conversion | `CBool CByte CCur CDate CDbl CDec CInt CLng CLngLng CLngPtr CSng CStr CVar CVDate CVErr Error Fix Int Hex Oct Str Val` | `C*` delegate to `vba_value::convert`. |
+| Hidden (`ObjPtr StrPtr VarPtr`) | `ObjPtr StrPtr VarPtr` | VM-only identity tokens, see "Identity tokens" below. |
 | Financial | `DDB FV IPmt IRR MIRR NPer NPV Pmt PPmt PV Rate SLN SYD` | |
 | Interaction | `Array Choose IIf Switch Environ` and the `PrintHelper` values for `Tab`/`Spc` | `Command`, UI and `CreateObject`-style functions are out of scope. |
 
@@ -84,6 +85,37 @@ against a real VBA host.
   `VbaArray::new_empty`. A user `ReDim` to an upper bound below the lower bound
   remains error 9.
 - `Format`: locale-dependent calendars (non-Gregorian) are not supported.
+
+## Identity tokens (`ObjPtr`, `StrPtr`, `VarPtr`)
+
+Real VBA returns machine addresses from these undocumented functions, and
+code uses them as object-identity keys and as arguments of `Declare`d API
+calls. They are emulated: each returns an opaque, stable `LongPtr` (a `Long`
+on a 32-bit profile, a `LongLong` on a 64-bit one) that is **not an address and
+cannot be dereferenced**. The registry marks them `Kind::Vm` because the
+VM owns the state they read (`vba-vm`, `identity.rs`).
+
+| Function | Value |
+| --- | --- |
+| `ObjPtr(obj)` | 0 for `Nothing`; otherwise a token of the object's internal handle. Two references to one object give the same token for the whole session, different live objects give different tokens (the mapping from handle to token is one to one). A non-object `Variant` is error 13. |
+| `StrPtr(s)` | 0 for `vbNullString` **and for `""`**: this implementation does not distinguish a null string from an empty one (real VBA gives `""` a nonzero pointer; **unverified** against a real run). Any other text gives a nonzero token of its content, so equal text gives equal tokens (real VBA gives distinct buffers distinct pointers; code must not rely on either). |
+| `VarPtr(v)` | A token of the variable's storage location (module variable, local, class field, array element, user-defined-type field). A `ByRef` parameter gives the token of the caller's variable. A non-variable argument gets a token of its value. |
+
+Properties: a token is nonzero (except the cases above), its low bit is
+always 1 (so it is never mistaken for an aligned pointer), it fits a `Long` on
+32-bit profiles, and it is derived from an internal number mixed with
+`VmConfig::identity_salt`. The default salt is fixed so that runs are
+reproducible; an embedding application that wants unpredictable values sets
+its own. Hash-based tokens (`StrPtr`, `VarPtr`) can in principle collide
+between different strings or variables; object tokens cannot within 2^27
+objects on a 32-bit profile.
+
+No capability is needed (nothing is leaked) and no step is charged beyond the
+call. The tokens do not index the emulated address space of `vba-ffi`
+(`memory.rs`); a `Declare` shim receives a token as an ordinary integer and
+there is no operation in the VM that reads or writes memory at a number.
+Using a token to reach real data requires an emulated shim written by the
+embedding application that recognises its own handles.
 
 ## Rules
 

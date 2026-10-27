@@ -1061,6 +1061,9 @@ fn registry_lookup_and_arity() {
     assert_eq!(arr_fn.max_args(), None);
     assert!(arr_fn.params[0].param_array);
     assert_eq!(lookup("IsMissing").unwrap().info.kind, Kind::Vm);
+    for name in ["ObjPtr", "StrPtr", "VarPtr"] {
+        assert_eq!(lookup(name).unwrap().info.kind, Kind::Vm, "{name}");
+    }
     assert_eq!(lookup("IIf").unwrap().info.kind, Kind::Eager);
     assert_eq!(lookup("Tab").unwrap().info.kind, Kind::PrintHelper);
     assert_eq!(lookup("Replace").unwrap().info.params[3].default, Some("1"));

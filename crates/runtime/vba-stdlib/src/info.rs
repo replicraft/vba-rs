@@ -149,6 +149,13 @@ pub(crate) fn f_is_missing(_: &mut Ctx<'_>, _: &Args<'_>) -> StdResult<Variant> 
         "IsMissing needs the caller's omitted-argument state",
     ))
 }
+/// `ObjPtr`, `StrPtr` and `VarPtr` mint opaque identity tokens from state
+/// only the VM has (object handles, variable locations, the session salt).
+pub(crate) fn f_identity_token(_: &mut Ctx<'_>, _: &Args<'_>) -> StdResult<Variant> {
+    Err(StdError::VmRequired(
+        "ObjPtr, StrPtr and VarPtr mint identity tokens in the VM",
+    ))
+}
 pub(crate) fn f_type_name(_: &mut Ctx<'_>, a: &Args<'_>) -> StdResult<Variant> {
     Ok(text(type_name(a.req(0)?)?.as_str()))
 }

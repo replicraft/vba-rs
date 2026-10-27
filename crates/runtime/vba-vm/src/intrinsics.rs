@@ -63,6 +63,7 @@ const DEFAULT_IF_ANY: &[&str] = &["vartype", "isnull", "isempty", "isdate", "isn
 const RAW_OBJECT_ARGS: &[&str] = &[
     "typename",
     "vartype",
+    "objptr",
     "isobject",
     "isnull",
     "isempty",
@@ -252,6 +253,7 @@ impl Vm {
                 return Ok(RegVal::Print(h));
             }
             "lbound" | "ubound" => return self.exec_bound(lname, args).map(RegVal::V),
+            "varptr" => return self.exec_varptr(args).map(RegVal::V),
             _ => {}
         }
         let raw = RAW_OBJECT_ARGS.contains(&lname);
@@ -261,6 +263,8 @@ impl Vm {
                 Variant::Boolean(matches!(a.first(), Some(Some(v)) if is_missing_marker(v)))
             }
             "erl" => Variant::Long(self.erl as i32),
+            "objptr" => self.exec_objptr(a.first().unwrap_or(&None))?,
+            "strptr" => self.exec_strptr(a.first().unwrap_or(&None))?,
             "savesetting" | "getsetting" | "getallsettings" | "deletesetting" => {
                 self.exec_settings(lname, &a)?
             }

@@ -87,6 +87,13 @@ pub struct VmConfig {
     /// this depth the nested operation fails, see
     /// [`ReentryError::TooDeep`](crate::ReentryError::TooDeep).
     pub max_reentrancy_depth: u32,
+    /// Mixed into the opaque identity tokens `ObjPtr`, `StrPtr` and `VarPtr`
+    /// return. The tokens are not addresses and cannot be dereferenced; the
+    /// salt only keeps their values from being predictable across sessions
+    /// that choose different salts. The default is fixed, so that a run is
+    /// reproducible; an embedding application that wants unpredictable
+    /// values sets its own.
+    pub identity_salt: u64,
 }
 
 impl Default for VmConfig {
@@ -99,6 +106,7 @@ impl Default for VmConfig {
             max_native_depth: 48,
             max_native_stack_bytes: 1 << 20,
             max_reentrancy_depth: 4,
+            identity_salt: 0x9E37_79B9_7F4A_7C15,
         }
     }
 }

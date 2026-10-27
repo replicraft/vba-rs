@@ -47,6 +47,7 @@ mod eval;
 mod exec;
 mod heap;
 mod hotswap;
+mod identity;
 mod intrinsics;
 mod invoke;
 mod printfmt;
