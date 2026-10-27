@@ -30,6 +30,7 @@ impl Sema<'_> {
             self.check_properties(m);
             self.check_procedure_rules(m);
             self.check_with_events(m);
+            self.check_host_handlers(m);
         }
         for i in 0..n {
             self.check_implements(ModuleId(i as u32));
@@ -400,6 +401,101 @@ impl Sema<'_> {
         self.program.modules[m.index()].handlers = handlers;
     }
 
+    /// The procedures of a module with a described host class that are
+    /// event handlers of the class itself (`Form_Load`) or of one of its
+    /// controls (`cmdSave_Click`): the event must be described, and the
+    /// parameters must have the described types and `ByRef` flags. A
+    /// procedure that looks like a handler of an event the class does not
+    /// have is a warning: it compiles, and the host never calls it.
+    fn check_host_handlers(&mut self, m: ModuleId) {
+        let Some(scope) = self.module_hosts.get(&m).cloned() else {
+            return;
+        };
+        let procs = self.program.modules[m.index()].procs.clone();
+        for p in procs {
+            let pi = &self.program.procs[p.index()];
+            if pi.kind != ProcKind::Sub {
+                continue;
+            }
+            let pname = pi.name.to_string();
+            // `Source_Event`: the source may itself contain underscores, so
+            // try every split, left to right.
+            let mut resolved = None;
+            for (i, _) in pname.match_indices('_') {
+                let (prefix, event) = (&pname[..i], &pname[i + 1..]);
+                if prefix.is_empty() || event.is_empty() {
+                    continue;
+                }
+                let own_event_source = prefix.eq_ignore_ascii_case(&scope.event_source);
+                let source = if own_event_source {
+                    Some((scope.ty.clone(), prefix.to_owned(), true))
+                } else {
+                    match self.provider.member(&scope.ty, prefix) {
+                        Some(mem) => match mem.ty {
+                            Type::Library(ct) if mem.params.is_empty() => {
+                                Some((ct, prefix.to_owned(), false))
+                            }
+                            _ => None,
+                        },
+                        None => None,
+                    }
+                };
+                if let Some(src) = source {
+                    resolved = Some((src, event.to_owned()));
+                    break;
+                }
+            }
+            let Some(((ty, source, is_form), event)) = resolved else {
+                continue;
+            };
+            // A `WithEvents` variable of that name is checked elsewhere.
+            if let Some((Symbol::Var(g), _)) = self.program.modules[m.index()]
+                .symbols
+                .get(&Name::new(&source))
+                .copied()
+                && self.program.globals[g.index()].with_events
+            {
+                continue;
+            }
+            let Some(events) = self.provider.events(&ty) else {
+                continue;
+            };
+            let what = if is_form {
+                format!("the host class `{ty}`")
+            } else {
+                format!("control `{source}` (`{ty}`)")
+            };
+            let Some(ev) = events.iter().find(|e| e.name.eq_ignore_ascii_case(&event)) else {
+                self.report(
+                    Severity::Warning,
+                    m,
+                    codes::EVENTS,
+                    pi.name_span,
+                    format!(
+                        "{what} has no event `{event}`; `{}` is never called by the host",
+                        pi.name
+                    ),
+                );
+                continue;
+            };
+            let params: Vec<Type> = ev.params.iter().map(|p| p.ty.clone()).collect();
+            self.check_handler_signature(m, pi, &params);
+            for (a, b) in pi.params.iter().zip(&ev.params) {
+                if b.by_ref && a.by_val {
+                    self.error(
+                        m,
+                        codes::EVENTS,
+                        a.span,
+                        format!(
+                            "parameter `{}` of event `{}` is passed `ByRef`; the handler `{}` declares it `ByVal` and the host would never see the change",
+                            b.name, ev.name, pi.name
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
     /// Whether `event_name` names an event of the declared type of `gi`.
     fn handles_event(&self, gi: &GlobalInfo, event_name: &str) -> bool {
         let wanted = Name::new(event_name);
@@ -718,6 +814,17 @@ impl Sema<'_> {
                     });
                 }
                 Type::Library(lt) => {
+                    if self.provider.is_interface(lt) == Some(false) {
+                        self.error(
+                            m,
+                            codes::IMPLEMENTS,
+                            d.span,
+                            format!(
+                                "`{lt}` is a class, not an interface; only interface classes can be implemented"
+                            ),
+                        );
+                        continue;
+                    }
                     match self.provider.interface_members(lt) {
                         Some(list) => {
                             for mem in list {

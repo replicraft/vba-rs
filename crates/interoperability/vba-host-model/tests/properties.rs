@@ -58,6 +58,9 @@ fn build(names: &[String], member_names: &[Vec<String>], shape: &[Vec<ParamShape
     let mut lib = HostLibrary::new("Lib");
     for (ci, cname) in names.iter().enumerate() {
         let mut c = HostClass::new(format!("C_{cname}")).doc("doc");
+        if ci % 2 == 1 {
+            c = c.interface();
+        }
         for (mi, mname) in member_names[ci % member_names.len()].iter().enumerate() {
             let params = &shape[(ci + mi) % shape.len()];
             let mut m = if mi % 3 == 0 {
@@ -156,6 +159,36 @@ proptest! {
                     writable
                 );
             }
+        }
+    }
+
+    /// The interface flag reaches the provider, and distinct described
+    /// classes are never assignable to each other.
+    #[test]
+    fn classes_are_exact_and_interfaces_are_flagged(lib in library()) {
+        let checked = lib.clone().check().unwrap();
+        for c in &lib.classes {
+            let ty = LibraryType { library: "Lib".into(), name: c.name.clone() };
+            prop_assert_eq!(checked.is_interface(&ty), Some(c.interface));
+            prop_assert!(checked.is_exact_class(&ty));
+        }
+        if lib.classes.len() >= 2 {
+            let (a, b) = (&lib.classes[0].name, &lib.classes[1].name);
+            let src = format!(
+                "Sub P()\nDim x As Lib.{a}\nDim y As Lib.{b}\nSet x = y\nEnd Sub\n"
+            );
+            let modules = [vba_sema::SourceModule {
+                name: "M".into(),
+                kind: vba_project::ModuleKind::Standard,
+                source: src.into_bytes(),
+            }];
+            let profile = *vba_profile::find_profile("vba7.1-excel-win64").unwrap();
+            let r = vba_sema::analyze_sources(&modules, &profile, &checked, &vba_sema::Options::default());
+            let codes: Vec<_> = r.diagnostics.iter()
+                .filter(|d| d.severity == vba_diagnostics::Severity::Error)
+                .map(|d| d.code.0)
+                .collect();
+            prop_assert_eq!(codes, vec!["SEM006"]);
         }
     }
 

@@ -151,6 +151,40 @@ impl std::fmt::Display for AnalysisLimit {
     }
 }
 
+/// The described class that is the `Me` of one document, designer or class
+/// module: its controls, properties, methods and events (see
+/// [`Options::module_hosts`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleHost {
+    /// The module name.
+    pub module: String,
+    /// The class the provider describes, optionally qualified
+    /// (`Library.Class`).
+    pub class: String,
+    /// The prefix of the event handlers of the class itself (`Form` for
+    /// `Form_Load`). Handlers of members are named after the member.
+    pub event_source: String,
+}
+
+impl ModuleHost {
+    /// `module`'s `Me` is the described `class`; its own events are handled
+    /// by procedures named `Form_<Event>`.
+    pub fn new(module: &str, class: &str) -> ModuleHost {
+        ModuleHost {
+            module: module.to_owned(),
+            class: class.to_owned(),
+            event_source: "Form".to_owned(),
+        }
+    }
+
+    /// Sets the prefix of the handlers of the class's own events.
+    #[must_use]
+    pub fn event_source(mut self, prefix: &str) -> ModuleHost {
+        self.event_source = prefix.to_owned();
+        self
+    }
+}
+
 /// Analysis options.
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -168,6 +202,12 @@ pub struct Options {
     /// Matched case-insensitively. Names not listed keep the normal rules
     /// (a call, `Name(args)`, is always bound late).
     pub host_members: Vec<String>,
+    /// Per-module description of the host base: modules listed here resolve
+    /// bare names, `Me.X`, `Me!X` and the event handlers of controls
+    /// against the described class only, early bound and checked; a name
+    /// that class does not have is a diagnostic. `host_members` remains the
+    /// fallback for the other document and designer modules.
+    pub module_hosts: Vec<ModuleHost>,
     /// Report the spec-strict diagnostics as errors. These are rules added
     /// from the specification text where real-world acceptance is uncertain
     /// (see `docs/language/spec-coverage.md`); by default they are warnings
@@ -195,6 +235,7 @@ impl Default for Options {
             project_name: "VBAProject".to_owned(),
             constants: Vec::new(),
             host_members: Vec::new(),
+            module_hosts: Vec::new(),
             strict_spec: false,
             limits: AnalysisLimits::unlimited(),
             friend: None,
@@ -367,6 +408,7 @@ pub fn analyze_sources(
         .as_ref()
         .and_then(|(f, t)| Some((*ids.get(&Name::new(f))?, *ids.get(&Name::new(t))?)));
     s.module_ids = ids;
+    s.set_module_hosts(&opts.module_hosts);
     s.node_limit = opts.limits.max_nodes;
     sema::run_declaration_passes(&mut s);
     let mut bound = Vec::new();

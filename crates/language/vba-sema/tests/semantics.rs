@@ -367,3 +367,21 @@ fn file_system_and_shell_functions_are_run_time_intrinsics() {
     )]);
     assert_clean(&a);
 }
+
+#[test]
+fn a_class_for_another_class_stays_a_run_time_cast_for_ordinary_providers() {
+    // A provider that does not claim its classes are exact (type libraries
+    // have inheritance and `QueryInterface`) keeps the run-time cast.
+    let lib = StaticLibrary::new("Host")
+        .with_type("A", vec![LibMember::property("X", Type::Long)])
+        .with_type("B", vec![LibMember::property("Y", Type::Long)]);
+    let a = analyze_with(
+        &[bas(
+            "M",
+            "Sub P()\nDim a As Host.A\nDim b As Host.B\nSet b = a\nEnd Sub\n",
+        )],
+        &profile64(),
+        &lib,
+    );
+    assert_clean(&a);
+}

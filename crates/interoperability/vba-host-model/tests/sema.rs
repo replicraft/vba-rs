@@ -231,3 +231,38 @@ fn hidden_members_stay_out_of_interface_lists() {
     assert_eq!(names, ["Shown"]);
     assert!(lib.member(&ty, "Secret").is_some(), "still bindable");
 }
+
+#[test]
+fn a_described_class_for_another_described_class_is_a_compile_time_mismatch() {
+    // A Database where a Recordset is required: argument, assignment, result.
+    assert_eq!(check("Dim db As Database\ndb.Attach db\n"), ["SEM006@4"]);
+    assert_eq!(
+        check("Dim db As Database\nDim rs As Recordset\nSet rs = db\n"),
+        ["SEM006@5"]
+    );
+    assert_eq!(
+        check("Dim rs As Recordset\nSet rs = Application.CurrentDb\n"),
+        ["SEM006@4"]
+    );
+    // The right class, Nothing, Object and Variant are still fine.
+    assert!(
+        check(
+            "Dim db As Database\nDim rs As Recordset\nDim o As Object\nDim v As Variant\n\
+             Set db = Application.CurrentDb\nSet rs = db.OpenRecordset(\"t\")\n\
+             Set rs = Nothing\nSet o = db\nSet rs = o\nSet v = db\ndb.Attach rs\n"
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn for_each_uses_the_described_element_type() {
+    assert_eq!(
+        check("Dim rs As Recordset\nDim x As Database\nFor Each x In rs.Fields\nNext\n"),
+        ["SEM018@5"]
+    );
+    assert!(
+        check("Dim rs As Recordset\nDim f As Field\nFor Each f In rs.Fields\nDebug.Print f.Name\nNext\n")
+            .is_empty()
+    );
+}

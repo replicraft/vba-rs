@@ -301,6 +301,31 @@ pub trait TypeProvider {
         None
     }
 
+    /// Whether `ty` may be named in an `Implements` statement. `None`: the
+    /// provider does not say, and the statement is accepted (a type library
+    /// interface is the usual case). `Some(false)`: `ty` is a described
+    /// class that is not meant to be implemented.
+    fn is_interface(&self, _ty: &LibraryType) -> Option<bool> {
+        None
+    }
+
+    /// The element type of `For Each` over a value of `ty`, when the
+    /// provider describes it (a collection of controls enumerates
+    /// `Control`s).
+    fn enumerable_item(&self, _ty: &LibraryType) -> Option<Type> {
+        None
+    }
+
+    /// Whether `ty` is described completely and has no subtypes or
+    /// alternative interfaces beyond what the provider lists: a value of
+    /// another such type can never be used where `ty` is required, so the
+    /// analysis reports the assignment instead of leaving it to a run-time
+    /// cast. The default is `false` (type libraries have inheritance and
+    /// `QueryInterface`).
+    fn is_exact_class(&self, _ty: &LibraryType) -> bool {
+        false
+    }
+
     /// A global name of a referenced library.
     fn global(&self, _name: &str) -> Option<LibGlobal> {
         None
@@ -639,6 +664,17 @@ impl TypeProvider for Chain<'_> {
     fn events(&self, t: &LibraryType) -> Option<Vec<LibEvent>> {
         self.0.events(t).or_else(|| self.1.events(t))
     }
+    fn is_interface(&self, t: &LibraryType) -> Option<bool> {
+        self.0.is_interface(t).or_else(|| self.1.is_interface(t))
+    }
+    fn enumerable_item(&self, t: &LibraryType) -> Option<Type> {
+        self.0
+            .enumerable_item(t)
+            .or_else(|| self.1.enumerable_item(t))
+    }
+    fn is_exact_class(&self, t: &LibraryType) -> bool {
+        self.0.is_exact_class(t) || self.1.is_exact_class(t)
+    }
     fn global(&self, n: &str) -> Option<LibGlobal> {
         self.0.global(n).or_else(|| self.1.global(n))
     }
@@ -705,6 +741,15 @@ where
     }
     fn events(&self, t: &LibraryType) -> Option<Vec<LibEvent>> {
         self.0.iter().find_map(|p| p.events(t))
+    }
+    fn is_interface(&self, t: &LibraryType) -> Option<bool> {
+        self.0.iter().find_map(|p| p.is_interface(t))
+    }
+    fn enumerable_item(&self, t: &LibraryType) -> Option<Type> {
+        self.0.iter().find_map(|p| p.enumerable_item(t))
+    }
+    fn is_exact_class(&self, t: &LibraryType) -> bool {
+        self.0.iter().any(|p| p.is_exact_class(t))
     }
     fn global(&self, n: &str) -> Option<LibGlobal> {
         self.0.iter().find_map(|p| p.global(n))

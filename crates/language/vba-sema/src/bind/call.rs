@@ -310,6 +310,14 @@ impl Binder<'_, '_> {
                     Coercion::Invalid
                 }
             }
+            // Two classes the provider describes completely, with no
+            // subtypes: one is never the other, so no run-time cast can
+            // make it work.
+            (Type::Library(a), Type::Library(b))
+                if self.sema.provider.is_exact_class(a) && self.sema.provider.is_exact_class(b) =>
+            {
+                Coercion::Invalid
+            }
             (Type::Library(_), Type::Library(_)) => Coercion::RuntimeCast,
             (Type::Library(_), Type::Class(_)) => Coercion::Invalid,
             (Type::Object, Type::Class(_) | Type::Library(_)) => Coercion::RuntimeCast,

@@ -110,6 +110,7 @@ impl Binder<'_, '_> {
         }
         let name_span = match &e.kind {
             ExprKind::Member { name, .. } => Some(name.span),
+            ExprKind::Name(id) => Some(id.span),
             ExprKind::Call { callee, .. } => match &callee.kind {
                 ExprKind::Member { name, .. } => Some(name.span),
                 _ => None,
@@ -203,6 +204,26 @@ impl Binder<'_, '_> {
                     && let Some(m) = self.sema.provider.member(lt, &n.to_string_lossy())
                 {
                     match m.kind {
+                        // `Ctl = v` where `Ctl` is a read-only property that
+                        // returns an object: the assignment goes to the
+                        // default member of that object, which the caller
+                        // (the `Let` statement) binds.
+                        LibMemberKind::PropertyGet
+                            if !set
+                                && m.params.is_empty()
+                                && matches!(&m.ty, Type::Library(ct)
+                                    if self.sema.provider.default_member(ct).is_some_and(|d|
+                                        d.params.iter().all(|p| p.optional || p.param_array))) =>
+                        {
+                            return Some((
+                                BPlace::Late {
+                                    late,
+                                    ty: m.ty.clone(),
+                                    receiver_place: None,
+                                },
+                                m.ty.clone(),
+                            ));
+                        }
                         LibMemberKind::PropertyGet => {
                             self.err(
                                 codes::READ_ONLY_PROPERTY,

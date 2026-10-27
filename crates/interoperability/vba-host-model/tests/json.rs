@@ -24,6 +24,7 @@ fn the_form_is_the_documented_one() {
         .class(
             vba_host_model::HostClass::new("C")
                 .creatable()
+                .interface()
                 .enumerable("C")
                 .member(
                     vba_host_model::HostMember::function("Item", "C")
@@ -44,6 +45,7 @@ fn the_form_is_the_documented_one() {
             "classes": [{
                 "name": "C",
                 "creatable": true,
+                "interface": true,
                 "enumerable": "C",
                 "members": [{
                     "name": "Item",

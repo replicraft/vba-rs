@@ -163,6 +163,9 @@ fn class_json(c: &HostClass) -> Value {
     if c.creatable {
         m.insert("creatable".into(), true.into());
     }
+    if c.interface {
+        m.insert("interface".into(), true.into());
+    }
     if let Some(t) = &c.enumerable {
         m.insert("enumerable".into(), t.to_string().into());
     }
@@ -517,6 +520,7 @@ fn read_class(v: &Value, path: &str) -> Result<HostClass, JsonError> {
     let mut c = HostClass::new(f.str("name")?);
     c.doc = f.opt_str("doc")?.unwrap_or_default();
     c.creatable = f.flag("creatable")?;
+    c.interface = f.flag("interface")?;
     c.enumerable = f.opt_str("enumerable")?.map(|t| TypeRef::parse(&t));
     c.attributes = read_attrs(&mut f, path)?;
     for (i, m) in f.array("members")?.iter().enumerate() {

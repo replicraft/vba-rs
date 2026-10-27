@@ -3,6 +3,7 @@
 
 mod call;
 mod expr;
+mod hostscope;
 mod place;
 mod stmt;
 

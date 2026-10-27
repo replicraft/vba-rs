@@ -458,6 +458,9 @@ pub struct HostClass {
     /// Whether `New` and `CreateObject("Library.Class")` may create
     /// instances.
     pub creatable: bool,
+    /// Whether the class is an interface: only such a class can be named in
+    /// `Implements`. A class is not one by default.
+    pub interface: bool,
     /// The element type of `For Each` over an instance (a `_NewEnum`
     /// member exists); `None` when the class is not enumerable.
     pub enumerable: Option<TypeRef>,
@@ -474,6 +477,7 @@ impl HostClass {
             members: Vec::new(),
             events: Vec::new(),
             creatable: false,
+            interface: false,
             enumerable: None,
             attributes: Vec::new(),
         }
@@ -504,6 +508,13 @@ impl HostClass {
     #[must_use]
     pub fn creatable(mut self) -> HostClass {
         self.creatable = true;
+        self
+    }
+
+    /// Marks the class as an interface that `Implements` may name.
+    #[must_use]
+    pub fn interface(mut self) -> HostClass {
+        self.interface = true;
         self
     }
 

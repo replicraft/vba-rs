@@ -952,8 +952,23 @@ impl Binder<'_, '_> {
     }
 
     fn bind_for_each(&mut self, f: &vba_ast::ForEachStmt, span: Span) -> Option<BStmt> {
-        let item = self.bind_expr(&f.item);
+        let locals_before = self.locals.len();
+        let mut item = self.bind_expr(&f.item);
         let coll = self.bind_expr(&f.collection);
+        // The element type the provider describes for the collection.
+        let elem = match &coll.ty {
+            Type::Library(lt) => self.sema.provider.enumerable_item(lt),
+            _ => None,
+        };
+        // An implicitly declared control variable takes the element type.
+        if let (Some(e), BExprKind::Local(l)) = (&elem, &item.kind)
+            && l.index() >= locals_before
+            && item.ty.is_variant()
+            && self.locals[l.index()].kind == LocalKind::Implicit
+        {
+            self.locals[l.index()].ty = e.clone();
+            item.ty = e.clone();
+        }
         let place = if item.ty.is_error() {
             None
         } else {
@@ -986,6 +1001,19 @@ impl Binder<'_, '_> {
                             codes::CONTROL_VARIABLE,
                             f.item.span,
                             "the control variable of a `For Each` must be a Variant or an object",
+                        );
+                    } else if let (Some(Type::Library(want)), Type::Library(have)) =
+                        (&elem, &item.ty)
+                        && want != have
+                        && self.sema.provider.is_exact_class(want)
+                        && self.sema.provider.is_exact_class(have)
+                    {
+                        self.err(
+                            codes::CONTROL_VARIABLE,
+                            f.item.span,
+                            format!(
+                                "the elements of this collection are `{want}`; the control variable is declared `{have}`"
+                            ),
                         );
                     }
                 }

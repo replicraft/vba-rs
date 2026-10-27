@@ -85,6 +85,17 @@ impl TypeProvider for OwnedChain {
     fn events(&self, t: &vba_sema::LibraryType) -> Option<Vec<vba_sema::LibEvent>> {
         self.0.events(t).or_else(|| self.1.events(t))
     }
+    fn is_interface(&self, t: &vba_sema::LibraryType) -> Option<bool> {
+        self.0.is_interface(t).or_else(|| self.1.is_interface(t))
+    }
+    fn enumerable_item(&self, t: &vba_sema::LibraryType) -> Option<vba_sema::Type> {
+        self.0
+            .enumerable_item(t)
+            .or_else(|| self.1.enumerable_item(t))
+    }
+    fn is_exact_class(&self, t: &vba_sema::LibraryType) -> bool {
+        self.0.is_exact_class(t) || self.1.is_exact_class(t)
+    }
     fn global(&self, n: &str) -> Option<vba_sema::LibGlobal> {
         self.0.global(n).or_else(|| self.1.global(n))
     }

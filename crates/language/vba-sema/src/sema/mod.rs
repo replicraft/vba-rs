@@ -41,6 +41,13 @@ pub(crate) enum CState {
     Failed,
 }
 
+/// The described class that is `Me` of a module.
+#[derive(Debug, Clone)]
+pub(crate) struct HostScope {
+    pub ty: crate::types::LibraryType,
+    pub event_source: String,
+}
+
 /// The analyzer state shared by all passes.
 pub(crate) struct Sema<'a> {
     pub asts: &'a [AstModule],
@@ -50,6 +57,9 @@ pub(crate) struct Sema<'a> {
     pub project_name: Name,
     /// Lower-case names the host supplies to document and designer modules.
     pub host_members: std::collections::HashSet<String>,
+    /// The described host class of modules that have one (see
+    /// `Options::module_hosts`).
+    pub module_hosts: HashMap<ModuleId, HostScope>,
     /// Spec-strict diagnostics are errors.
     pub strict_spec: bool,
     /// `(friend, target)`: unqualified names in module `friend` also resolve
@@ -85,6 +95,42 @@ pub(crate) struct Sema<'a> {
 }
 
 impl<'a> Sema<'a> {
+    /// Resolves the described classes of `Options::module_hosts`. A module
+    /// that does not exist is ignored (the list may cover a larger
+    /// project); a class the provider does not know is `SEM004` on the
+    /// module, which then keeps the engine-wide fallback.
+    pub(crate) fn set_module_hosts(&mut self, hosts: &[crate::ModuleHost]) {
+        for h in hosts {
+            let Some(&m) = self.module_ids.get(&Name::new(&h.module)) else {
+                continue;
+            };
+            let (qualifier, name) = match h.class.rsplit_once('.') {
+                Some((q, n)) => (Some(q), n),
+                None => (None, h.class.as_str()),
+            };
+            match self.provider.resolve_type(qualifier, name) {
+                Some(ty) => {
+                    self.module_hosts.insert(
+                        m,
+                        HostScope {
+                            ty,
+                            event_source: h.event_source.clone(),
+                        },
+                    );
+                }
+                None => self.error(
+                    m,
+                    crate::codes::UNRESOLVED_LIBRARY_TYPE,
+                    Span::empty(0),
+                    format!(
+                        "the host class `{}` of module `{}` is not described by any provider",
+                        h.class, h.module
+                    ),
+                ),
+            }
+        }
+    }
+
     pub(crate) fn new(
         asts: &'a [AstModule],
         program: Program,
@@ -98,6 +144,7 @@ impl<'a> Sema<'a> {
             provider,
             project_name: Name::new(project_name),
             host_members: std::collections::HashSet::new(),
+            module_hosts: HashMap::new(),
             strict_spec: false,
             friend: None,
             module_ids: HashMap::new(),

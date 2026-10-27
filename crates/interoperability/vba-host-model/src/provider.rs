@@ -111,6 +111,21 @@ impl TypeProvider for CheckedLibrary {
         )
     }
 
+    fn is_interface(&self, ty: &LibraryType) -> Option<bool> {
+        let i = self.class_of(ty)?;
+        Some(self.library().classes[i].interface)
+    }
+
+    fn enumerable_item(&self, ty: &LibraryType) -> Option<Type> {
+        let i = self.class_of(ty)?;
+        let item = self.library().classes[i].enumerable.as_ref()?;
+        Some(crate::check::sema_type(self.library(), item))
+    }
+
+    fn is_exact_class(&self, ty: &LibraryType) -> bool {
+        self.class_of(ty).is_some()
+    }
+
     fn events(&self, ty: &LibraryType) -> Option<Vec<LibEvent>> {
         self.owns(ty)?;
         Some(

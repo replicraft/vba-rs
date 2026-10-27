@@ -478,6 +478,11 @@ impl Binder<'_, '_> {
                 sema.ambiguous(self.module, id.span, &id.name.to_string(), &ms);
                 self.error_expr(span)
             }
+            Found::None if self.host_has_member(id) => {
+                let lt = self.host_class().expect("host class");
+                let me = self.host_me(span);
+                self.member_of_lib(me, lt, id, args, stmt, span)
+            }
             Found::None => self.bind_library_name(id, span, args, stmt),
         }
     }
@@ -597,7 +602,11 @@ impl Binder<'_, '_> {
                 self.err(
                     codes::UNDECLARED_NAME,
                     id.span,
-                    format!("variable `{}` is not defined (Option Explicit)", id.name),
+                    format!(
+                        "variable `{}` is not defined (Option Explicit){}",
+                        id.name,
+                        self.host_scope_note()
+                    ),
                 );
                 return self.error_expr(span);
             }
@@ -620,7 +629,11 @@ impl Binder<'_, '_> {
         self.err(
             codes::UNDEFINED_NAME,
             id.span,
-            format!("`{}` is not defined (Sub or Function not defined)", id.name),
+            format!(
+                "`{}` is not defined (Sub or Function not defined){}",
+                id.name,
+                self.host_scope_note()
+            ),
         );
         if let Some(a) = args {
             for x in a {
@@ -959,6 +972,10 @@ impl Binder<'_, '_> {
                             None => self.member_of(base, &ident, Some(args), false),
                         }
                     }
+                    None if self.host_class_of(m).is_some() => {
+                        let lt = self.host_class_of(m).expect("host class");
+                        self.host_class_index(base, m, lt, args, span)
+                    }
                     None if matches!(
                         mi.kind,
                         vba_project::ModuleKind::Designer | vba_project::ModuleKind::Document
@@ -1127,6 +1144,7 @@ impl Binder<'_, '_> {
     /// An unresolved simple name in a host-backed module.
     fn is_host_name(&self, id: &Ident) -> bool {
         self.host_backed()
+            && self.host_class().is_none()
             && !id.is_missing()
             && !id.name.eq_ignore_case("Me")
             && !self.scope.contains_key(&id.name)
@@ -1447,6 +1465,10 @@ impl Binder<'_, '_> {
                         }
                         self.use_symbol(m, sym, name, span, args, stmt, Some(receiver))
                     }
+                    _ if self.host_class_of(m).is_some() => {
+                        let lt = self.host_class_of(m).expect("host class");
+                        self.host_class_member(receiver, m, lt, name, args, stmt)
+                    }
                     _ if matches!(
                         mi.kind,
                         vba_project::ModuleKind::Designer | vba_project::ModuleKind::Document
@@ -1567,7 +1589,7 @@ impl Binder<'_, '_> {
         }
     }
 
-    fn member_of_lib(
+    pub(crate) fn member_of_lib(
         &mut self,
         receiver: BExpr,
         lt: LibraryType,
