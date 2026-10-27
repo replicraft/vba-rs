@@ -372,7 +372,11 @@ impl Parser<'_> {
             self.finish();
         } else {
             self.start_at(cp, NodeKind::CallStmt);
-            if self.at_expr_start() || self.at(TokenKind::Comma) {
+            // A first argument named by a reserved word (`.Add Type:=1`) does
+            // not look like the start of an expression.
+            let keyword_name = matches!(self.cur(), Some(TokenKind::Keyword(_)))
+                && self.kind(1) == Some(TokenKind::ColonEq);
+            if self.at_expr_start() || self.at(TokenKind::Comma) || keyword_name {
                 self.parse_arg_list_bare();
             }
             self.finish();

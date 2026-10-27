@@ -75,7 +75,9 @@ impl Lowerer<'_> {
 
     pub(crate) fn attribute(&mut self, n: SyntaxNode<'_>) -> AttributeDecl {
         let t = toks(n);
-        // Names between `Attribute` and `=`, split by `.`.
+        // Names between `Attribute` and `=`, split by `.`. A member
+        // attribute such as `Proc.VB_ProcData.VB_Invoke_Func` keeps its
+        // object and first name; the rest is only in the syntax tree.
         let names: Vec<SyntaxToken<'_>> = t
             .iter()
             .skip(1)

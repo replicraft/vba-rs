@@ -79,7 +79,8 @@ impl Parser<'_> {
         self.finish();
     }
 
-    /// `Attribute [object.]name = value {, value}` (§4.2).
+    /// `Attribute [object.]name = value {, value}` (§4.2); the name of a member
+    /// attribute may contain a further dot.
     pub(crate) fn parse_attribute(&mut self) {
         self.start(NodeKind::AttributeStmt);
         self.bump();
@@ -91,12 +92,15 @@ impl Parser<'_> {
         };
         if name_ok(self.cur()) {
             self.bump();
-            if self.at(TokenKind::Dot) {
+            // `Proc.VB_ProcData.VB_Invoke_Func`: the name of a member
+            // attribute may itself contain a dot.
+            while self.at(TokenKind::Dot) {
                 self.bump();
                 if name_ok(self.cur()) {
                     self.bump();
                 } else {
                     self.error(EXPECTED, "expected attribute name");
+                    break;
                 }
             }
         } else {

@@ -129,7 +129,8 @@ impl Parser<'_> {
     /// A primary expression followed by `.name`, `!name` and `(args)`.
     /// With `spaced_paren` false a `(` preceded by whitespace is not a call
     /// (statement-level `Foo (a), b` is an implicit call whose first
-    /// argument is parenthesised).
+    /// argument is parenthesised) and a `.name` preceded by whitespace is an
+    /// argument (`MsgBox .Name`, `Err.Raise .Number`), not a member.
     pub(crate) fn parse_postfix(&mut self, spaced_paren: bool) {
         let cp = self.cp();
         self.parse_primary();
@@ -146,6 +147,10 @@ impl Parser<'_> {
                 }
             }
             match self.cur() {
+                Some(TokenKind::Dot) if !spaced_paren && self.at_spaced_with_member() => {
+                    // Statement level: `MsgBox .Name` passes `.Name`.
+                    break;
+                }
                 Some(TokenKind::Dot) => {
                     self.start_at(cp, NodeKind::MemberExpr);
                     self.bump();

@@ -408,3 +408,48 @@ fn invalid_productions_report_errors_and_stay_lossless() {
         }
     }
 }
+
+#[test]
+fn member_attribute_names_may_contain_a_dot() {
+    let p = parse_clean("Sub T()\nAttribute T.VB_ProcData.VB_Invoke_Func = \"x\\n14\"\nEnd Sub\n");
+    assert!(sexp(&p).contains("AttributeStmt"), "{}", sexp(&p));
+    parse_clean("Attribute T.VB_ProcData.VB_Invoke_Func = \" \\n20\"\n");
+}
+
+#[test]
+fn a_reserved_word_can_name_the_first_argument_of_a_call_statement() {
+    assert_eq!(
+        stmts("obj.Add Type:=1, Operator:=2"),
+        "(CallStmt (MemberExpr (NameExpr obj) . Add) (ArgList (Arg Type := (LiteralExpr 1)) , (Arg Operator := (LiteralExpr 2))))"
+    );
+    assert_eq!(
+        stmts("With x\n.Add Type:=1\nEnd With"),
+        "(WithStmt With (NameExpr x) (Block (CallStmt (MemberExpr . Add) (ArgList (Arg Type := (LiteralExpr 1))))) End With)"
+    );
+}
+
+#[test]
+fn a_dot_after_blanks_in_a_call_statement_starts_an_argument() {
+    assert_eq!(
+        stmts("MsgBox .Name"),
+        "(CallStmt (NameExpr MsgBox) (ArgList (Arg (MemberExpr . Name))))"
+    );
+    assert_eq!(
+        stmts("Err.Raise .Number"),
+        "(CallStmt (MemberExpr (NameExpr Err) . Raise) (ArgList (Arg (MemberExpr . Number))))"
+    );
+    assert_eq!(
+        stmts("Foo .A, .B"),
+        "(CallStmt (NameExpr Foo) (ArgList (Arg (MemberExpr . A)) , (Arg (MemberExpr . B))))"
+    );
+    // After a line continuation the dot continues the chain, and in an
+    // expression a spaced dot is still a member access.
+    assert_eq!(
+        stmts("x.Foo _\n    .Bar = 1"),
+        "(AssignStmt (MemberExpr (MemberExpr (NameExpr x) . Foo) . Bar) = (LiteralExpr 1))"
+    );
+    assert_eq!(
+        stmts("y = x .Foo"),
+        "(AssignStmt (NameExpr y) = (MemberExpr (NameExpr x) . Foo))"
+    );
+}

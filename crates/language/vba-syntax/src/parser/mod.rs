@@ -273,6 +273,29 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Whether the current token starts an argument that is a member of the
+    /// enclosing `With` object: blanks (not a line continuation) precede it
+    /// and it is a `.` directly followed by a name (`MsgBox .Name`).
+    pub(crate) fn at_spaced_with_member(&self) -> bool {
+        let Some(&i) = self.sig.get(self.si) else {
+            return false;
+        };
+        if self.toks[i].kind != TokenKind::Dot || i == 0 {
+            return false;
+        }
+        let mut j = i;
+        while j > 0 && self.toks[j - 1].kind == TokenKind::Whitespace {
+            j -= 1;
+        }
+        let blanks = j < i;
+        let continued = j > 0 && self.toks[j - 1].kind == TokenKind::LineContinuation;
+        let name_next = self
+            .toks
+            .get(i + 1)
+            .is_some_and(|t| !t.kind.is_trivia() && !t.kind.is_error());
+        blanks && !continued && name_next
+    }
+
     // ---- tree building -----------------------------------------------
 
     fn emit_trivia(&mut self) {
