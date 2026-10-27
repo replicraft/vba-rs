@@ -48,7 +48,7 @@ module.
 
 * [ ] `Engine::analyze(&project)` returns the diagnostics and runs nothing. Refuse (or show
   to the author) a project with `has_errors()`; `rendered()` is plain text per diagnostic.
-* [ ] Use the **same** `Engine` configuration (host globals, `host_members`) for analysis and
+* [ ] Use the **same** `Engine` configuration (host globals, `host_members`, module scopes) for analysis and
   loading, or names you provide will be reported as undeclared.
 * [ ] Decide whether warnings block anything (`Instance::warnings` after load).
 
