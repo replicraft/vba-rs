@@ -138,6 +138,9 @@ pub struct Lexer<'a> {
     in_decl_stmt: bool,
     /// Whether the previous significant token was the word `Property`.
     prev_property: bool,
+    /// Whether the source is valid UTF-8 with non-ASCII text: then the
+    /// Unicode line terminators and `Zs` spaces of §3.2 are recognised.
+    utf8: bool,
     diags: Vec<Diagnostic>,
 }
 
@@ -160,6 +163,7 @@ impl<'a> Lexer<'a> {
             decl_name_next: true,
             in_decl_stmt: false,
             prev_property: false,
+            utf8: !src.is_ascii() && std::str::from_utf8(src).is_ok(),
             diags: Vec::new(),
         }
     }
@@ -187,12 +191,33 @@ impl<'a> Lexer<'a> {
         ));
     }
 
-    fn after_terminator(&self, i: usize) -> usize {
-        if self.src[i] == b'\r' && self.byte(i + 1) == Some(b'\n') {
-            i + 2
-        } else {
-            i + 1
+    /// Length of the Unicode line terminator (U+2028, U+2029) and the
+    /// Unicode space (class `Zs`) at `i`, in UTF-8 sources only.
+    fn unicode_at(&self, i: usize) -> (usize, usize) {
+        if !self.utf8 {
+            return (0, 0);
         }
+        match self.src.get(i..i + 3) {
+            Some([0xE2, 0x80, 0xA8 | 0xA9]) => (0, 3),
+            Some([0xE2, 0x80, 0x80..=0x8A | 0xAF] | [0xE2, 0x81, 0x9F] | [0xE3, 0x80, 0x80])
+            | Some([0xE1, 0x9A, 0x80]) => (3, 0),
+            _ if self.src.get(i..i + 2) == Some(&[0xC2, 0xA0]) => (2, 0),
+            _ => (0, 0),
+        }
+    }
+
+    /// Length of the line terminator at `i`, 0 if there is none.
+    fn eol_len(&self, i: usize) -> usize {
+        match self.src.get(i) {
+            Some(b'\r') if self.byte(i + 1) == Some(b'\n') => 2,
+            Some(b'\r' | b'\n') => 1,
+            Some(&b) if b >= 0x80 => self.unicode_at(i).1,
+            _ => 0,
+        }
+    }
+
+    fn after_terminator(&self, i: usize) -> usize {
+        i + self.eol_len(i).max(1)
     }
 
     fn skip_digits(&self, mut i: usize) -> usize {
@@ -204,6 +229,16 @@ impl<'a> Lexer<'a> {
 
     fn scan(&mut self, start: usize) -> TokenKind {
         let b = self.src[start];
+        if b >= 0x80 && self.utf8 {
+            let (ws, eol) = self.unicode_at(start);
+            if eol > 0 {
+                self.pos = start + eol;
+                return TokenKind::Newline;
+            }
+            if ws > 0 {
+                return self.whitespace(start);
+            }
+        }
         let next = self.byte(start + 1);
         let one = |this: &mut Self, k: TokenKind| {
             this.pos = start + 1;
@@ -282,8 +317,14 @@ impl<'a> Lexer<'a> {
     /// `1*WSC`, or `1*WSC "_" line-terminator` (§3.2.2).
     fn whitespace(&mut self, start: usize) -> TokenKind {
         let mut i = start;
-        while i < self.src.len() && is_wsc(self.src[i]) {
-            i += 1;
+        while i < self.src.len() {
+            if is_wsc(self.src[i]) {
+                i += 1;
+            } else if self.src[i] >= 0x80 && self.unicode_at(i).0 > 0 {
+                i += self.unicode_at(i).0;
+            } else {
+                break;
+            }
         }
         if self.byte(i) == Some(b'_') {
             let j = i + 1;
@@ -291,7 +332,7 @@ impl<'a> Lexer<'a> {
                 self.pos = j;
                 return TokenKind::LineContinuation;
             }
-            if is_eol(self.src[j]) {
+            if self.eol_len(j) > 0 {
                 self.pos = self.after_terminator(j);
                 return TokenKind::LineContinuation;
             }
@@ -307,7 +348,7 @@ impl<'a> Lexer<'a> {
     fn comment_end(&self, mut i: usize, mut line_start: usize) -> usize {
         let s = self.src;
         loop {
-            while i < s.len() && !is_eol(s[i]) {
+            while i < s.len() && self.eol_len(i) == 0 {
                 i += 1;
             }
             if i >= s.len() {
@@ -338,7 +379,7 @@ impl<'a> Lexer<'a> {
                         return TokenKind::StringLiteral;
                     }
                 }
-                Some(&c) if is_eol(c) => break,
+                Some(_) if self.eol_len(i) > 0 => break,
                 Some(_) => i += 1,
                 None => break,
             }
@@ -594,6 +635,9 @@ impl<'a> Lexer<'a> {
         let mut i = start + 1;
         let mut ascii = is_ascii_byte(s[start]);
         while i < s.len() && is(s[i], ID_CONT) {
+            if s[i] >= 0x80 && self.unicode_at(i) != (0, 0) {
+                break;
+            }
             ascii &= is_ascii_byte(s[i]);
             i += 1;
         }

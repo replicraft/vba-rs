@@ -185,8 +185,8 @@ object variables without a default member are analysis errors rather than run-ti
 
 ## Gaps (known deviations, not fixed)
 
-* Lexer is byte-based: U+2028/2029 line terminators and Unicode space characters are not
-  recognised (3.2.1, 3.2.2).
+* The lexer recognises U+2028/2029 line terminators and Unicode space characters only in
+  sources that are valid UTF-8; code-page text is byte-based (3.2.1, 3.2.2).
 * Circular dependencies between modules through `Const`, `Enum`, `Type`, `Implements`, `Event`
   (5.2.3.6); forward references between Enum members; uniqueness of public type names across
   modules; reserved words as `Type` member names; `Dim a&(n)` at module level; `#ordinal`

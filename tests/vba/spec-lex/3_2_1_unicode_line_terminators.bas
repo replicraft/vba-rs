@@ -1,6 +1,5 @@
 ' INV: vbal.3.2.1
 ' SOURCE: spec ms-vbal 3.2.1 physical line grammar, U+2028 and U+2029 is a line terminator
-' XFAIL: wrong not implemented: Unicode line terminators and space characters (the lexer is byte-based)
 ' EXPECT: a
 ' EXPECT: b
 ' EXPECT: c

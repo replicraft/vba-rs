@@ -669,3 +669,71 @@ Debug.Print \"a\"\"b\"; _\r\n        i ' trailing\r\n    Rem done\r\nEnd Sub\r\n
     assert!(t.contains(&(K::FloatLiteral, "1.5E3".into())));
     assert!(t.contains(&(K::RemComment, "Rem done".into())));
 }
+
+#[test]
+fn typed_name_before_bounds_in_declaring_positions() {
+    check(&[
+        (
+            "Dim a&(2)",
+            &[
+                (K::Keyword(Kw::Dim), "Dim"),
+                (K::Ident, "a&"),
+                (K::LParen, "("),
+                (K::IntegerLiteral, "2"),
+                (K::RParen, ")"),
+            ],
+        ),
+        (
+            "Dim a&(1), b&(2)",
+            &[
+                (K::Keyword(Kw::Dim), "Dim"),
+                (K::Ident, "a&"),
+                (K::LParen, "("),
+                (K::IntegerLiteral, "1"),
+                (K::RParen, ")"),
+                (K::Comma, ","),
+                (K::Ident, "b&"),
+                (K::LParen, "("),
+                (K::IntegerLiteral, "2"),
+                (K::RParen, ")"),
+            ],
+        ),
+        // Outside a declaring position the `&` is the operator.
+        (
+            "x = a&(2)",
+            &[
+                (K::Ident, "x"),
+                (K::Eq, "="),
+                (K::Ident, "a"),
+                (K::Amp, "&"),
+                (K::LParen, "("),
+                (K::IntegerLiteral, "2"),
+                (K::RParen, ")"),
+            ],
+        ),
+    ]);
+}
+
+#[test]
+fn unicode_spaces_and_line_terminators() {
+    let src = "Dim\u{3000}x\u{2003}As\u{a0}Long\u{2028}y";
+    let out = lex(FileId(0), src.as_bytes(), LexOptions::default());
+    assert!(out.diagnostics.is_empty());
+    let toks: Vec<(K, String)> = out
+        .tokens
+        .iter()
+        .filter(|t| !t.kind.is_trivia())
+        .map(|t| (t.kind, String::from_utf8_lossy(t.text).into_owned()))
+        .collect();
+    assert_eq!(
+        toks,
+        vec![
+            (K::Keyword(Kw::Dim), "Dim".to_owned()),
+            (K::Ident, "x".to_owned()),
+            (K::Keyword(Kw::As), "As".to_owned()),
+            (K::Keyword(Kw::Long), "Long".to_owned()),
+            (K::Newline, "\u{2028}".to_owned()),
+            (K::Ident, "y".to_owned()),
+        ]
+    );
+}

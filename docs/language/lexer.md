@@ -57,8 +57,8 @@ let out = vba_lexer::lex(file_id, bytes, LexOptions::new(generation));
 
 | Section | Production | Notes |
 | --- | --- | --- |
-| 3.2.1 | line terminators | CR, LF, CRLF as `Newline`; no U+2028/2029 |
-| 3.2.2 | `line-continuation`, `WSC` | `1*WSC "_" terminator`, also at EOF |
+| 3.2.1 | line terminators | CR, LF, CRLF as `Newline`; U+2028/2029 too when the source is valid UTF-8 |
+| 3.2.2 | `line-continuation`, `WSC` | `1*WSC "_" terminator`, also at EOF; Unicode `Zs` spaces (U+00A0, U+1680, U+2000-U+200A, U+202F, U+205F, U+3000) count as `WSC` in UTF-8 sources |
 | 3.3.1 | `special-token`, `comment-body`, `EOS` | `Colon`, `Newline`; comments continue over `WSC "_"` line ends, for `'` and `Rem` |
 | 3.3.2 | `INTEGER`, `FLOAT` | decimal, `&H`, `&O`, `&`-octal, `%` `&` `^` `!` `#` `@` suffixes, `D`/`E` exponents |
 | 3.3.3 | `DATE` | full `date-or-time` shape incl. month names and am/pm |
@@ -72,7 +72,8 @@ Operators and punctuation: `+ - * / \ ^ & = < > <= >= <> := , ; . ! # ( ) : ?`.
 
 ## Not implemented
 
-- Unicode line terminators and space characters (the lexer is byte-based). Literal
+- Unicode line terminators and space characters in sources that are not valid
+  UTF-8 (the lexer is byte-based there; code-page text keeps its bytes). Literal
   range and date validity are checked in `vba-sema`/`vba-value`; see
   `docs/language/spec-coverage.md`.
 - `Attribute` lines are lexed as ordinary tokens; there is no module-header
