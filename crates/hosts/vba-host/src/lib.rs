@@ -42,9 +42,10 @@ pub use events::{EventDispatch, EventRouter};
 pub use headless::HeadlessHost;
 pub use host::{ClockPart, DeclareRequest, Host, HostResult, POLL_INTERVAL, ProjectReference};
 pub use limits::{
-    Budget, LimitExceeded, ResourceLimits, ScopeLimits, ScopeToken, UNTRUSTED_CALL_TIMEOUT,
-    UNTRUSTED_MAX_ANALYSIS_NODES, UNTRUSTED_MAX_IR_INSTRUCTIONS, UNTRUSTED_MAX_MEMORY_BYTES,
-    UNTRUSTED_MAX_MODULES, UNTRUSTED_MAX_SOURCE_BYTES, UNTRUSTED_MAX_STEPS,
+    Budget, ClockSuspension, LimitExceeded, ResourceLimits, ScopeLimits, ScopeToken,
+    UNTRUSTED_CALL_TIMEOUT, UNTRUSTED_MAX_ANALYSIS_NODES, UNTRUSTED_MAX_IR_INSTRUCTIONS,
+    UNTRUSTED_MAX_MEMORY_BYTES, UNTRUSTED_MAX_MODULES, UNTRUSTED_MAX_SOURCE_BYTES,
+    UNTRUSTED_MAX_STEPS,
 };
 pub use metadata::HostMetadata;
 pub use scripted::ScriptedHost;

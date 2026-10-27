@@ -205,8 +205,11 @@ pub struct Budget {
     work_pending: Cell<u64>,
     /// Absolute step count a call scope must not pass.
     step_ceiling: Cell<Option<u64>>,
-    /// When a call scope ends by itself.
+    /// When a call scope ends by itself, on the budget's own clock (see
+    /// [`Budget::suspend_deadline`]).
     deadline: Cell<Option<Instant>>,
+    /// Wall-clock time the budget's clock was stopped for.
+    paused: Cell<Duration>,
 }
 
 /// What a call scope narrows, see [`Budget::enter_scope`].
@@ -263,6 +266,22 @@ pub struct ScopeToken {
     deadline: Option<Instant>,
 }
 
+/// Holds a [`Budget`]'s deadline clock stopped; see
+/// [`Budget::suspend_deadline`].
+#[derive(Debug)]
+#[must_use = "the clock runs again when the guard is dropped"]
+pub struct ClockSuspension<'a> {
+    budget: &'a Budget,
+    since: Instant,
+}
+
+impl Drop for ClockSuspension<'_> {
+    fn drop(&mut self) {
+        let b = self.budget;
+        b.paused.set(b.paused.get() + self.since.elapsed());
+    }
+}
+
 /// Bytes built per step: data a program builds costs CPU as well as memory,
 /// so every this many bytes of tracked allocation (strings, arrays, objects,
 /// file buffers) are charged as one step.
@@ -285,6 +304,28 @@ impl Budget {
             work_pending: Cell::new(0),
             step_ceiling: Cell::new(None),
             deadline: Cell::new(None),
+            paused: Cell::new(Duration::ZERO),
+        }
+    }
+
+    /// The budget's own clock: wall-clock time minus the time spent in
+    /// [`suspend_deadline`](Budget::suspend_deadline) guards. Deadlines are
+    /// kept on this clock, so a stopped clock does not burn a timeout.
+    fn clock(&self) -> Instant {
+        let now = Instant::now();
+        now.checked_sub(self.paused.get()).unwrap_or(now)
+    }
+
+    /// Stops the clock deadlines are measured on until the guard is dropped.
+    /// A host that hands control to a person (a debugger paused at a
+    /// breakpoint, a modal dialog) holds the guard meanwhile, so the wait
+    /// does not count against the call's wall-clock allowance. Steps and
+    /// memory are not affected, and cancellation is still polled by the
+    /// interpreter as usual.
+    pub fn suspend_deadline(&self) -> ClockSuspension<'_> {
+        ClockSuspension {
+            budget: self,
+            since: Instant::now(),
         }
     }
 
@@ -312,7 +353,7 @@ impl Budget {
         if let Some(t) = scope.timeout {
             // A timeout too large to represent as an instant is no deadline
             // at all (never earlier than the one already in force).
-            if let Some(at) = Instant::now().checked_add(t) {
+            if let Some(at) = self.clock().checked_add(t) {
                 let at = self.deadline.get().map_or(at, |d| d.min(at));
                 self.deadline.set(Some(at));
             }
@@ -336,7 +377,7 @@ impl Budget {
     /// the timeout honoured returns an error from `poll_cancel` when this
     /// is true.
     pub fn deadline_passed(&self) -> bool {
-        self.deadline.get().is_some_and(|d| Instant::now() >= d)
+        self.deadline.get().is_some_and(|d| self.clock() >= d)
     }
 
     /// Time left before the deadline of the call scope, `None` when no
@@ -347,7 +388,7 @@ impl Budget {
     pub fn time_left(&self) -> Option<Duration> {
         self.deadline
             .get()
-            .map(|d| d.saturating_duration_since(Instant::now()))
+            .map(|d| d.saturating_duration_since(self.clock()))
     }
 
     /// The limits.
