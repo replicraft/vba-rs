@@ -877,6 +877,28 @@ impl Lw<'_> {
         Some(pick)
     }
 
+    /// An enum type by name: the module's own, then a public one of any
+    /// module (enums are project-wide names).
+    fn enum_by_name(&self, name: &str) -> Option<EnumId> {
+        let key = vba_ast::Name::new(name);
+        let program = self.cx.program;
+        if let Some((Symbol::Enum(e), _)) = program.module(self.sema.module).symbols.get(&key) {
+            return Some(*e);
+        }
+        let mut found = None;
+        for m in &program.modules {
+            if let Some((Symbol::Enum(e), _)) = m.symbols.get(&key)
+                && program.enums[e.index()].visibility != vba_ast::Visibility::Private
+            {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(*e);
+            }
+        }
+        found
+    }
+
     /// A module-scope variable or constant visible to the procedure: the
     /// module's own, or a public one of a standard module.
     fn module_symbol(&self, name: &str) -> Option<Symbol> {
@@ -2831,14 +2853,7 @@ impl Lw<'_> {
                 return Ok(Ex::Ns(Ns::Vba));
             }
             if receiver {
-                if let Some(Symbol::Enum(e)) = self
-                    .cx
-                    .program
-                    .module(self.sema.module)
-                    .symbols
-                    .get(&vba_ast::Name::new(name))
-                    .map(|(s, _)| *s)
-                {
+                if let Some(e) = self.enum_by_name(name) {
                     return Ok(Ex::Ns(Ns::Enum(e)));
                 }
                 if self
