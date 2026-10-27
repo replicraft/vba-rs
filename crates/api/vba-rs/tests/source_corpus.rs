@@ -155,7 +155,6 @@ struct Totals {
 }
 
 struct Mod {
-    path: PathBuf,
     rel: String,
     name: String,
     kind: ModuleKind,
@@ -237,7 +236,6 @@ fn load(root: &Path, totals: &mut Totals) -> BTreeMap<String, Vec<Mod>> {
                 let kind = kinds.get(&rel).copied().unwrap_or(m.kind);
                 let project = rel.rsplit_once('/').map_or("", |(d, _)| d).to_owned();
                 projects.entry(project).or_default().push(Mod {
-                    path: path.clone(),
                     rel,
                     name: m.name,
                     kind,
@@ -512,6 +510,7 @@ fn real_world_modules() {
                 .unwrap_or("Corpus")
                 .to_owned(),
             constants: vba_sema::parse_project_constants(info.next().unwrap_or("")),
+            strict_spec: std::env::var_os("VBA_SOURCE_CORPUS_STRICT_SPEC").is_some(),
             ..Options::default()
         };
         let start = Instant::now();
@@ -581,7 +580,7 @@ fn real_world_modules() {
         probe_lsp(mods, profile, &mut totals);
     }
 
-    totals.slow.sort_by(|a, b| b.0.cmp(&a.0));
+    totals.slow.sort_by_key(|(d, _)| std::cmp::Reverse(*d));
     eprintln!(
         "source corpus: {} projects, {} modules, {} lines, {} bytes; \
          {} projects lowered and verified, {} more after dropping modules with errors, \
@@ -606,7 +605,6 @@ fn real_world_modules() {
     for f in &totals.failures {
         eprintln!("FAIL {}: {}", f.module, f.what);
     }
-    let _ = &projects.values().flatten().map(|m| &m.path).count();
     assert!(
         totals.failures.is_empty(),
         "{} failures",
