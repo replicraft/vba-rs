@@ -1,12 +1,13 @@
 //! The records of the indirect table that are reachable from the code.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::cache::ModuleCache;
 use crate::decode::{Operands, decode_line};
 use crate::layout::{Bitness, VersionFamily};
 use crate::opcode::Opcode;
-use crate::records::{FunctionRecord, VariableRecord, argument_chain};
+use crate::layout::Layout;
+use crate::records::{ArgumentRecord, FunctionRecord, VariableRecord};
 
 /// Kinds of indirect-table records that code can reach.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -46,6 +47,45 @@ impl RecordKind {
     }
 }
 
+/// Longest argument chain followed.
+const MAX_ARGUMENT_CHAIN: usize = 4096;
+
+/// Walks an argument chain like `argument_chain`, but stops at a record
+/// already attributed to an argument (the rest of the chain was recorded
+/// then) and remembers the records of chains that failed, so a cycle or a
+/// bad link is paid for once. `None` when the chain is unreadable or longer
+/// than the limit.
+fn walk_arguments(
+    indirect: &[u8],
+    first: Option<u32>,
+    layout: &Layout,
+    map: &RecordMap,
+    bad: &mut HashSet<u32>,
+) -> Option<Vec<ArgumentRecord>> {
+    let mut out: Vec<ArgumentRecord> = Vec::new();
+    let mut next = first;
+    while let Some(off) = next {
+        if map.records.get(&off) == Some(&RecordKind::Argument) {
+            break;
+        }
+        if bad.contains(&off) || out.len() >= MAX_ARGUMENT_CHAIN {
+            bad.extend(out.iter().map(|a| a.offset));
+            return None;
+        }
+        match ArgumentRecord::parse(indirect, off, layout) {
+            Ok(r) => {
+                next = r.next;
+                out.push(r);
+            }
+            Err(_) => {
+                bad.extend(out.iter().map(|a| a.offset));
+                return None;
+            }
+        }
+    }
+    Some(out)
+}
+
 /// Records of the indirect table reached from instruction operands,
 /// argument chains and type fields.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -68,6 +108,12 @@ impl RecordMap {
             _ => {}
         };
         let desc = |raw: u32| raw != u32::MAX && raw >> 16 != 0xFFFF;
+        // Many instructions can name one record and many records can share
+        // an argument chain, or end in a cycle; remember what has been
+        // walked so the work is bounded by the table, not by instructions
+        // times chain length.
+        let mut seen_functions: HashSet<u32> = HashSet::new();
+        let mut bad_arguments: HashSet<u32> = HashSet::new();
         for i in 0..cache.lines.lines.len() {
             let Ok(Some(range)) = cache.lines.code_range(i, cache.bytes.len()) else {
                 continue;
@@ -79,11 +125,16 @@ impl RecordMap {
                         Operands::Rec(r),
                         Opcode::ProcHeader | Opcode::ProcHeaderAlt | Opcode::DeclareEvent,
                     ) => {
+                        if !seen_functions.insert(r.0) {
+                            continue;
+                        }
                         let Ok(f) = FunctionRecord::parse(ind, r.0, layout) else {
                             continue;
                         };
                         add(&mut map, r.0, RecordKind::Function);
-                        if let Ok(args) = argument_chain(ind, f.first_arg, layout, 4096) {
+                        if let Some(args) =
+                            walk_arguments(ind, f.first_arg, layout, &map, &mut bad_arguments)
+                        {
                             for a in args {
                                 add(&mut map, a.offset, RecordKind::Argument);
                                 if a.has_as_clause() && desc(a.type_raw) {

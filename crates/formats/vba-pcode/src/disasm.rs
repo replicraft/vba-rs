@@ -266,7 +266,16 @@ pub struct Disassembler<'a> {
     indirect: &'a [u8],
     objects: &'a [u8],
     declarations: &'a [u8],
+    /// Argument records this disassembler may still list. Many instructions
+    /// can name one procedure record, and each listing copies its argument
+    /// chain, so without a budget the output grows with instructions times
+    /// chain length.
+    arg_budget: std::cell::Cell<usize>,
 }
+
+/// Most argument records listed over all procedure operands of one
+/// [`Disassembler`].
+const MAX_LISTED_ARGS: usize = 1 << 18;
 
 impl<'a> Disassembler<'a> {
     /// Creates a disassembler for `cache` using the project identifiers.
@@ -277,6 +286,7 @@ impl<'a> Disassembler<'a> {
             indirect: &cache.bytes[cache.tables.indirect.clone()],
             objects: &cache.bytes[cache.tables.objects.clone()],
             declarations: &cache.bytes[cache.tables.declarations.clone()],
+            arg_budget: std::cell::Cell::new(MAX_LISTED_ARGS),
         }
     }
 
@@ -480,6 +490,11 @@ impl<'a> Disassembler<'a> {
         match ins.opcode {
             Opcode::ProcHeader | Opcode::ProcHeaderAlt | Opcode::DeclareEvent => {
                 match FunctionRecord::parse(self.indirect, r.0, layout) {
+                    // Out of budget: report the record as unreadable rather
+                    // than list a truncated argument chain as complete.
+                    Ok(f) if f.first_arg.is_some() && self.arg_budget.get() == 0 => {
+                        Operand::BadRecord(r.0)
+                    }
                     Ok(f) => Operand::Procedure(Box::new(self.procedure(ins, f))),
                     Err(_) => Operand::BadRecord(r.0),
                 }
@@ -511,7 +526,12 @@ impl<'a> Disassembler<'a> {
 
     fn procedure(&self, ins: &Instruction, f: FunctionRecord) -> ProcedureInfo {
         let layout = &self.cache.layout;
-        let args = argument_chain(self.indirect, f.first_arg, layout, 4096)
+        let left = self.arg_budget.get();
+        let chain = argument_chain(self.indirect, f.first_arg, layout, 4096.min(left));
+        // A failed walk cost as much as a long one: charge it in full.
+        let spent = chain.as_ref().map_or(4096.min(left), Vec::len);
+        self.arg_budget.set(left - spent.min(left));
+        let args = chain
             .unwrap_or_default()
             .iter()
             .map(|a| self.arg(a))
