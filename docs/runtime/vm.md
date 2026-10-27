@@ -110,7 +110,7 @@ session with a trust gate (see `docs/runtime/runtime.md`).
 ## Debugger, evaluation and program replacement
 
 Opt-in services for an editor (facade: `docs/architecture/embedding-guide.md`,
-section 13). With none of them in use the interpreter does one `Option` test where
+section 14). With none of them in use the interpreter does one `Option` test where
 a statement begins and nothing else: step counts and results of every corpus
 program are identical (`VBA_STEP_DIGEST` of `tests/determinism.rs`, before and after).
 
