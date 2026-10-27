@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use vba_ast::{BinaryOp, CompareMode, ExitKind, UnaryOp};
 use vba_sema::bound::*;
-use vba_sema::{Analysis, LabelId, LocalId, LocalKind, ModuleId, ProcId, Program, Type};
+use vba_sema::{Analysis, GlobalInfo, LabelId, LocalId, LocalKind, ModuleId, ProcId, Program, Type};
 use vba_source::Span;
 use vba_value::Variant;
 use vba_value::ops::{ArithOp, CompareOp, CompareOptions, LogicOp, Overflow, StringNumberRule};
@@ -13,6 +13,7 @@ use crate::ir::*;
 
 /// Why lowering was refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum LowerError {
     /// The analysis reported errors; an erroneous program has no IR.
     #[error("the program has {0} semantic or syntax error(s); fix them before lowering")]
@@ -24,10 +25,50 @@ pub enum LowerError {
     /// A construct the lowering cannot express.
     #[error("cannot lower: {0}")]
     Unsupported(String),
+    /// The program needs more instructions than
+    /// [`LowerLimits::max_instructions`] allows.
+    #[error("the program needs more than {limit} IR instructions; lowering was stopped")]
+    TooLarge {
+        /// The budget.
+        limit: u64,
+    },
+}
+
+/// Size budgets of lowering. `None` means unlimited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct LowerLimits {
+    /// Instructions over the whole program. Checked at every statement and
+    /// expression, so a hostile body stops soon after the budget is spent.
+    pub max_instructions: Option<u64>,
+}
+
+impl LowerLimits {
+    /// No budget.
+    pub const fn unlimited() -> Self {
+        LowerLimits {
+            max_instructions: None,
+        }
+    }
+
+    /// Sets [`max_instructions`](LowerLimits::max_instructions).
+    #[must_use]
+    pub const fn with_max_instructions(mut self, n: Option<u64>) -> Self {
+        self.max_instructions = n;
+        self
+    }
 }
 
 /// Lowers an analysed project.
 pub fn lower(analysis: &Analysis) -> Result<IrProgram, LowerError> {
+    lower_with_limits(analysis, &LowerLimits::unlimited())
+}
+
+/// Lowers an analysed project within size budgets.
+pub fn lower_with_limits(
+    analysis: &Analysis,
+    limits: &LowerLimits,
+) -> Result<IrProgram, LowerError> {
     let errors = analysis
         .diagnostics
         .iter()
@@ -43,13 +84,18 @@ pub fn lower(analysis: &Analysis) -> Result<IrProgram, LowerError> {
         }
     }
     let mut functions = Vec::new();
+    let mut budget = Budget::new(limits);
     for p in &program.procs {
-        functions.push(lower_proc(program, p.id)?);
+        functions.push(lower_proc(program, p.id, &mut budget)?);
+    }
+    let mut globals_of: Vec<Vec<&GlobalInfo>> = vec![Vec::new(); program.modules.len()];
+    for g in &program.globals {
+        globals_of[g.module.index()].push(g);
     }
     let mut module_init = vec![None; program.modules.len()];
     let mut classes = Vec::new();
     for m in &program.modules {
-        if let Some(f) = lower_module_init(program, m.id) {
+        if let Some(f) = lower_module_init(program, m.id, &globals_of[m.id.index()], &mut budget)? {
             let id = FuncId(functions.len() as u32);
             functions.push(f);
             module_init[m.id.index()] = Some(id);
@@ -65,12 +111,7 @@ pub fn lower(analysis: &Analysis) -> Result<IrProgram, LowerError> {
             initialize: m.initialize,
             terminate: m.terminate,
             init: module_init[m.id.index()],
-            fields: program
-                .globals
-                .iter()
-                .filter(|g| g.module == m.id)
-                .map(|g| g.id)
-                .collect(),
+            fields: globals_of[m.id.index()].iter().map(|g| g.id).collect(),
             implements: m.implements.clone(),
             handlers: m.handlers.clone(),
             events: m.events.clone(),
@@ -85,17 +126,22 @@ pub fn lower(analysis: &Analysis) -> Result<IrProgram, LowerError> {
     })
 }
 
-fn lower_module_init(program: &Program, m: ModuleId) -> Option<Function> {
+fn lower_module_init(
+    program: &Program,
+    m: ModuleId,
+    all_globals: &[&GlobalInfo],
+    budget: &mut Budget,
+) -> Result<Option<Function>, LowerError> {
     let mi = program.module(m);
-    let globals: Vec<_> = program
-        .globals
+    let globals: Vec<_> = all_globals
         .iter()
-        .filter(|g| g.module == m && g.fixed_bounds.is_some())
+        .filter(|g| g.fixed_bounds.is_some())
         .collect();
     if globals.is_empty() {
-        return None;
+        return Ok(None);
     }
     let mut b = Builder::new(program, m, None, format!("{}.$init", mi.name));
+    b.cap = budget.remaining();
     b.begin_stmt(Span::empty(0));
     for g in globals {
         let place = if mi.is_class_like() {
@@ -122,10 +168,48 @@ fn lower_module_init(program: &Program, m: ModuleId) -> Option<Function> {
     }
     b.finish_stmt_simple();
     b.terminate(Terminator::Return);
-    Some(b.finish(FuncKind::ModuleInit(m)))
+    budget.spend(b.count)?;
+    Ok(Some(b.finish(FuncKind::ModuleInit(m))))
 }
 
-fn lower_proc(program: &Program, id: ProcId) -> Result<Function, LowerError> {
+/// What is left of [`LowerLimits::max_instructions`].
+struct Budget {
+    limit: Option<u64>,
+    left: u64,
+}
+
+impl Budget {
+    fn new(limits: &LowerLimits) -> Budget {
+        Budget {
+            limit: limits.max_instructions,
+            left: limits.max_instructions.unwrap_or(u64::MAX),
+        }
+    }
+
+    fn remaining(&self) -> u64 {
+        self.left
+    }
+
+    fn spend(&mut self, n: u64) -> Result<(), LowerError> {
+        match self.left.checked_sub(n) {
+            Some(l) => {
+                self.left = l;
+                Ok(())
+            }
+            None => Err(LowerError::TooLarge {
+                limit: self.limit.unwrap_or(0),
+            }),
+        }
+    }
+
+    fn too_large(&self) -> LowerError {
+        LowerError::TooLarge {
+            limit: self.limit.unwrap_or(0),
+        }
+    }
+}
+
+fn lower_proc(program: &Program, id: ProcId, budget: &mut Budget) -> Result<Function, LowerError> {
     let p = program.proc(id);
     let mi = program.module(p.module);
     let mut b = Builder::new(
@@ -134,6 +218,7 @@ fn lower_proc(program: &Program, id: ProcId) -> Result<Function, LowerError> {
         Some(id),
         format!("{}.{}", mi.name, p.name),
     );
+    b.cap = budget.remaining();
     // Entry: allocate fixed-size local arrays.
     let entry_stmt = b.begin_stmt(p.span);
     for (i, l) in p.locals.iter().enumerate() {
@@ -157,7 +242,12 @@ fn lower_proc(program: &Program, id: ProcId) -> Result<Function, LowerError> {
     }
     let _ = entry_stmt;
     b.finish_stmt_simple();
-    b.lower_block(&p.body)?;
+    let lowered = b.lower_block(&p.body);
+    budget.spend(b.count)?;
+    lowered.map_err(|e| match e {
+        LowerError::TooLarge { .. } => budget.too_large(),
+        e => e,
+    })?;
     b.terminate(Terminator::Return);
     Ok(b.finish(FuncKind::Proc(id)))
 }
@@ -196,6 +286,10 @@ struct Builder<'p> {
     /// Registers a `For`/`For Each` initialisation defines and its head
     /// uses (see [`InstKind::Undefined`]).
     loop_witnesses: Vec<Reg>,
+    /// Instructions emitted so far.
+    count: u64,
+    /// Instructions this function may emit (the budget that is left).
+    cap: u64,
 }
 
 impl<'p> Builder<'p> {
@@ -215,6 +309,8 @@ impl<'p> Builder<'p> {
             loops: Vec::new(),
             loop_witnesses: Vec::new(),
             line: None,
+            count: 0,
+            cap: u64::MAX,
         };
         b.new_block();
         b
@@ -246,6 +342,16 @@ impl<'p> Builder<'p> {
             kind,
         };
         self.blocks[self.cur.0 as usize].insts.push(inst);
+        self.count += 1;
+    }
+
+    /// Fails once the instruction budget is spent.
+    fn check_budget(&self) -> Result<(), LowerError> {
+        if self.count > self.cap {
+            Err(LowerError::TooLarge { limit: 0 })
+        } else {
+            Ok(())
+        }
     }
 
     fn is_terminated(&self) -> bool {
@@ -425,6 +531,7 @@ impl<'p> Builder<'p> {
     }
 
     fn lower_stmt(&mut self, s: &BStmt) -> Result<(), LowerError> {
+        self.check_budget()?;
         let saved = (self.cur_stmt, self.cur_span);
         let id = self.begin_stmt(s.span);
         let mut simple = true;
@@ -1409,6 +1516,7 @@ impl<'p> Builder<'p> {
     }
 
     fn lower_expr(&mut self, e: &BExpr) -> Result<Operand, LowerError> {
+        self.check_budget()?;
         let saved = self.cur_span;
         self.cur_span = e.span;
         let r = self.lower_expr_inner(e);

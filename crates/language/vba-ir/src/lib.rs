@@ -18,6 +18,6 @@ mod print;
 mod verify;
 
 pub use ir::*;
-pub use lower::{LowerError, lower};
+pub use lower::{LowerError, LowerLimits, lower, lower_with_limits};
 pub use print::{DumpOptions, dump_function, dump_program};
 pub use verify::{VerifyError, inst_def, inst_uses, normal_successors, verify};
