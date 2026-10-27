@@ -187,6 +187,9 @@ impl Vm {
             bind_stats: BindStats::default(),
             slot: self.slot.clone(),
             pending_fatal: None,
+            proc_lines: Vec::new(),
+            debugger: None,
+            eval_compiler: None,
         }
     }
 

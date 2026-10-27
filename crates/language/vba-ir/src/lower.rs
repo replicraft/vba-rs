@@ -752,7 +752,7 @@ impl<'p> Builder<'p> {
                 }
             },
             BStmtKind::End => self.terminate_and_continue(Terminator::End),
-            BStmtKind::Stop => self.terminate_and_continue(Terminator::Stop),
+            BStmtKind::Stop => self.emit(InstKind::Stop),
             BStmtKind::ReDim { preserve, items } => {
                 for it in items {
                     let mut bounds = Vec::new();

@@ -586,6 +586,7 @@ impl Printer<'_> {
                 ErrMode::ResumeNext => "on.error resume.next".into(),
             },
             InstKind::ClearError => "clear.error".into(),
+            InstKind::Stop => "stop".into(),
             InstKind::SetLine { line } => format!("set.line {line}"),
             InstKind::RaiseEvent { event, args } => {
                 let e = &self.p.program.events[event.index()];

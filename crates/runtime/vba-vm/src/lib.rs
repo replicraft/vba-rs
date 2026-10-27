@@ -39,11 +39,14 @@
 mod callbacks;
 mod calls;
 mod config;
+mod debug;
 mod declare;
 mod embed;
+mod eval;
 mod error;
 mod exec;
 mod heap;
+mod hotswap;
 mod intrinsics;
 mod invoke;
 mod printfmt;
@@ -53,6 +56,14 @@ mod state;
 mod vm;
 
 pub use config::{BufferSink, DebugSink, NullSink, VmConfig};
+pub use debug::{
+    BreakpointInfo, DebugContext, DebugHook, FrameInfo, PauseReason, ResumeAction, Variable,
+    VariableKind,
+};
+pub use hotswap::{SwapError, SwapReport, same_layout};
+pub use eval::{
+    EVAL_MODULE, EVAL_ME, EVAL_PROC, EvalCompiler, EvalError, EvalOutput, EvalRequest,
+};
 pub use error::{ErrOrigin, LimitKind, RtErr, RuntimeError, StackFrame, VmError, describe};
 pub use printfmt::{ZONE, format_print, format_print_width, print_value};
 pub use reentry::{ReentryError, ReentrySlot, vm_error_to_disp};

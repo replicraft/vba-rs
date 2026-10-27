@@ -623,6 +623,9 @@ pub enum InstKind {
         /// The line number.
         line: u64,
     },
+    /// `Stop`: halts the run, or breaks into the host's debugger when one is
+    /// attached (and then continues with the next instruction).
+    Stop,
     /// `RaiseEvent`.
     RaiseEvent {
         /// The event.

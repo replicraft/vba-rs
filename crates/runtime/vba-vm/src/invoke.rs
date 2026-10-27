@@ -594,6 +594,10 @@ impl Vm {
                 let v = self.bound_value(b)?.ok_or(VbaError::new(449))?;
                 let v = self.value_of(v)?;
                 if !convert::to_boolean(&v)? {
+                    if self.debugger_listening() {
+                        self.debug_pause(crate::debug::PauseReason::AssertFailed)?;
+                        return Ok(Variant::Empty);
+                    }
                     self.stop_reason = Some("Debug.Assert failed".into());
                     return Err(Fault::Stop);
                 }

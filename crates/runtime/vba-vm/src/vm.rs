@@ -131,6 +131,13 @@ pub struct Vm {
     pub(crate) bind_stats: BindStats,
     /// Step count at the last poll of the host for cancellation.
     pub(crate) polled_at: u64,
+    /// First and last source line of every function (see
+    /// `set_procedure_lines`).
+    pub(crate) proc_lines: Vec<(u32, u32)>,
+    /// The debugger; `None` (the default) costs one test per statement.
+    pub(crate) debugger: Option<Box<crate::debug::DebugState>>,
+    /// Builds the program of an `eval`.
+    pub(crate) eval_compiler: Option<Rc<dyn crate::eval::EvalCompiler>>,
 }
 
 /// How member accesses on objects outside the VM were dispatched.
@@ -208,11 +215,20 @@ impl Vm {
             bind_stats: BindStats::default(),
             cascade: None,
             polled_at: 0,
+            proc_lines: Vec::new(),
+            debugger: None,
+            eval_compiler: None,
         };
         vm.index_program();
         vm.host.objects().set_link(vm.slot.clone());
         vm.reset_state().map_err(|f| vm.fault_to_error(f))?;
         Ok(vm)
+    }
+
+    /// Rebuilds the name indexes after `self.ir` changed.
+    pub(crate) fn reindex(&mut self) {
+        self.procs_by_name.clear();
+        self.index_program();
     }
 
     fn index_program(&mut self) {
@@ -262,6 +278,12 @@ impl Vm {
         if let Some(ctx) = self.declare.ctx.as_mut() {
             ctx.timers.clear();
         }
+        self.init_state()
+    }
+
+    /// Creates the built-in objects, gives every module variable its default
+    /// value and runs the standard-module initialisers.
+    pub(crate) fn init_state(&mut self) -> VResult<()> {
         let ir = self.ir.clone();
         self.objects.insert(
             ERR_ID,

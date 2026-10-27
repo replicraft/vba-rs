@@ -1027,6 +1027,7 @@ fn end_and_stop() {
             func M.P
               b0:
                 stop
+                end
         "#]],
     );
 }

@@ -195,6 +195,7 @@ pub fn inst_uses(k: &InstKind) -> Vec<Reg> {
         | InstKind::AddressOf { .. }
         | InstKind::SetErrorMode { .. }
         | InstKind::ClearError
+        | InstKind::Stop
         | InstKind::SetLine { .. }
         | InstKind::Undefined { .. } => {}
         InstKind::StoreLocal { src, .. } | InstKind::StoreGlobal { src, .. } => {

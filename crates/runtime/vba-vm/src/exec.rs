@@ -598,6 +598,9 @@ impl Vm {
             if !frame.owned.is_empty() {
                 self.release_owned()?;
             }
+            if self.debugger.is_some() {
+                self.debug_boundary(inst.stmt)?;
+            }
         }
         match &inst.kind {
             InstKind::Copy { dst, src } => {
@@ -898,6 +901,14 @@ impl Vm {
                 let fr = self.frames.last_mut().expect("frame");
                 fr.mode = *mode;
                 fr.in_handler = false;
+            }
+            InstKind::Stop => {
+                if self.debugger_listening() {
+                    self.debug_pause(crate::debug::PauseReason::Stop)?;
+                } else {
+                    self.stop_reason = Some("Stop statement".into());
+                    return Err(Fault::Stop);
+                }
             }
             InstKind::ClearError => {
                 let fr = self.frames.last_mut().expect("frame");
@@ -1230,7 +1241,12 @@ impl Vm {
         if !self.frames.last().expect("frame").owned.is_empty() {
             self.release_owned()?;
         }
-        self.frames.last_mut().expect("frame").cur_stmt = block.term_stmt.0;
+        if self.frames.last().expect("frame").cur_stmt != block.term_stmt.0 {
+            self.frames.last_mut().expect("frame").cur_stmt = block.term_stmt.0;
+            if self.debugger.is_some() {
+                self.debug_boundary(block.term_stmt)?;
+            }
+        }
         match &block.term {
             Terminator::Jump(b) => {
                 self.goto(*b);
