@@ -196,7 +196,7 @@ pub fn type_ref_area(
     let len = u32::from_le_bytes([h[4], h[5], h[6], h[7]]) as usize;
     let start = objects_end + 8;
     let end = start.checked_add(len)?;
-    (len % TYPE_REF_SIZE == 0 && end <= limit.min(bytes.len())).then_some(start..end)
+    (len.is_multiple_of(TYPE_REF_SIZE) && end <= limit.min(bytes.len())).then_some(start..end)
 }
 
 /// Reads record `slot` of the type-reference list `refs`.
@@ -205,7 +205,7 @@ pub fn type_ref_area(
 ///
 /// Bounds errors when the slot lies outside the list.
 pub fn type_ref_record(refs: &[u8], slot: usize) -> Result<TypeRefRecord> {
-    let at = slot.checked_mul(TYPE_REF_SIZE).unwrap_or(usize::MAX);
+    let at = slot.saturating_mul(TYPE_REF_SIZE);
     Ok(TypeRefRecord {
         kind: u16_at(refs, at, "type reference kind")?,
         library: u16_at(refs, at.wrapping_add(2), "type reference library")?,

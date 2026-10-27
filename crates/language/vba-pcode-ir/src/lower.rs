@@ -210,13 +210,17 @@ enum ArgEx {
     /// A variable of another type passed to a `ByRef Variant` parameter: the
     /// callee works on a `Variant` copy in a temporary that is converted
     /// back into the variable when the call returns.
-    RefCopy {
-        place: Place,
-        temp: LocalId,
-        value: Ex,
-        back: Ex,
-    },
+    RefCopy(Box<RefCopyEx>),
     Missing,
+}
+
+/// The copy-in/copy-out of a `ByRef Variant` argument.
+#[derive(Debug, Clone)]
+struct RefCopyEx {
+    place: Place,
+    temp: LocalId,
+    value: Ex,
+    back: Ex,
 }
 
 /// An argument of a late-bound call: variables travel by reference,
@@ -1149,12 +1153,12 @@ impl Lw<'_> {
                 } else {
                     self.coerce(read, &ty)
                 };
-                out.push(ArgEx::RefCopy {
+                out.push(ArgEx::RefCopy(Box::new(RefCopyEx {
                     place: t,
                     temp,
                     value,
                     back,
-                });
+                })));
                 continue;
             }
             out.push(ArgEx::Val(self.coerce_arg(ins, a, &p.ty)?));
@@ -1642,12 +1646,13 @@ impl Lw<'_> {
                 ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
                 ArgEx::Missing => CallArg::Missing,
                 ArgEx::Ref(t) => CallArg::Ref(self.emit_ref(t)),
-                ArgEx::RefCopy {
-                    place,
-                    temp,
-                    value,
-                    back,
-                } => {
+                ArgEx::RefCopy(rc) => {
+                    let RefCopyEx {
+                        place,
+                        temp,
+                        value,
+                        back,
+                    } = &**rc;
                     let v = self.emit_ex(value);
                     self.emit(InstKind::StoreLocal {
                         slot: *temp,
@@ -1766,7 +1771,7 @@ impl Lw<'_> {
                 name: None,
                 arg: match a {
                     ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
-                    ArgEx::Missing | ArgEx::RefCopy { .. } => CallArg::Missing,
+                    ArgEx::Missing | ArgEx::RefCopy(_) => CallArg::Missing,
                     ArgEx::Ref(t) => CallArg::Ref(self.emit_ref(t)),
                 },
             });

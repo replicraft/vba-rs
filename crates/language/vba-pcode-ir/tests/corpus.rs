@@ -47,7 +47,7 @@ fn lowering_over_the_corpus() {
                 let l = lp.lowered_count();
                 procs += t;
                 lowered += l;
-                let e = layouts.entry((v, p.sys_kind as u32)).or_default();
+                let e = layouts.entry((v, p.sys_kind)).or_default();
                 e.0 += 1;
                 e.1 += t;
                 e.2 += l;
