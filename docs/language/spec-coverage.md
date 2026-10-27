@@ -36,36 +36,36 @@ program exists.
 
 | Chapter | Entries | Implemented | Partial / unsupported | Not started | Programs |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 2 Computational environment | 5 | 4 | 1 | 0 | 16 |
-| 3 Lexical rules (3.1-3.3) | 9 | 6 | 3 | 0 | 87 |
-| 3.4 Conditional compilation | 3 | 3 | 0 | 0 | 22 |
-| 4 Program organisation | 3 | 1 | 0 | 2 | 7 |
-| 5.1 Module body | 1 | 0 | 1 | 0 | 2 |
-| 5.2 Declarations | 20 | 11 | 9 | 0 | 150 |
-| 5.3 Procedures | 12 | 6 | 5 | 1 | 92 |
-| 5.4 Statements | 55 | 32 | 22 | 1 | 390 |
-| 5.5 Coercion | 18 | 9 | 8 | 1 | 101 |
-| 5.6 Expressions | 53 | 22 | 26 | 5 | 225 |
+| 2 Computational environment | 5 | 5 | 0 | 0 | 16 |
+| 3 Lexical rules (3.1-3.3) | 9 | 8 | 1 | 0 | 94 |
+| 3.4 Conditional compilation | 3 | 3 | 0 | 0 | 25 |
+| 4 Program organisation | 3 | 3 | 0 | 0 | 17 |
+| 5.1 Module body | 1 | 1 | 0 | 0 | 2 |
+| 5.2 Declarations | 20 | 16 | 4 | 0 | 170 |
+| 5.3 Procedures | 12 | 11 | 1 | 0 | 110 |
+| 5.4 Statements | 55 | 45 | 10 | 0 | 405 |
+| 5.5 Coercion | 18 | 12 | 6 | 0 | 102 |
+| 5.6 Expressions | 53 | 32 | 21 | 0 | 271 |
 | 6.1.1 Predefined enums | 16 | 16 | 0 | 0 | 16 |
 | 6.1.2.1-6.1.2.2 Colour and general constants | 2 | 2 | 0 | 0 | 3 |
-| 6.1.2.3 Conversion | 21 | 16 | 5 | 0 | 52 |
+| 6.1.2.3 Conversion | 21 | 17 | 4 | 0 | 52 |
 | 6.1.2.4 DateTime | 19 | 14 | 5 | 0 | 35 |
-| 6.1.2.5 FileSystem | 17 | 14 | 3 | 0 | 28 |
+| 6.1.2.5 FileSystem | 17 | 15 | 2 | 0 | 30 |
 | 6.1.2.6 Financial | 13 | 13 | 0 | 0 | 13 |
-| 6.1.2.7 Information | 13 | 11 | 1 | 1 | 22 |
-| 6.1.2.8 Interaction | 21 | 13 | 2 | 6 | 35 |
+| 6.1.2.7 Information | 13 | 12 | 1 | 0 | 24 |
+| 6.1.2.8 Interaction | 21 | 19 | 2 | 0 | 61 |
 | 6.1.2.9, 6.1.2.12 Key code and system colour constants | 2 | 2 | 0 | 0 | 4 |
 | 6.1.2.10 Math | 12 | 12 | 0 | 0 | 20 |
-| 6.1.2.11 Strings | 43 | 25 | 5 | 13 | 55 |
-| 6.1.3 Predefined classes | 14 | 9 | 2 | 3 | 22 |
+| 6.1.2.11 Strings | 43 | 38 | 5 | 0 | 68 |
+| 6.1.3 Predefined classes | 14 | 11 | 3 | 0 | 28 |
 
-Entries marked not started are sections with no testable normative content or only host
-behaviour (4.1 projects, 4.2.1 extensibility, 5.3.1.3 names, 5.4.2.11 Stop, 5.6.1 and 5.6.4
-informative classifications, 5.6.2.3 and 5.6.16.8 implementation-defined limits, 5.6.13.2,
-`Command`, `CreateObject`, `GetObject`, `InputBox`, `AppActivate`, `SendKeys`, `IMEStatus`,
-`Load`/`Unload`) and the `$`/`B` variants of string functions that share their programs with
-the base function (the base entry covers them). `DDB` is covered by the documented formula
-(its formula in the text differs from the documented function).
+No entry is `not-started`. The sections that have no testable normative content of their own or
+that are host behaviour (4.1 projects, 4.2.1 extensibility, 5.3.1.3 names, 5.6.1 and 5.6.4
+classifications, 5.6.2.3 and 5.6.16.8 implementation-defined limits, 5.6.13.2, `Command`,
+`CreateObject`, `GetObject`, `InputBox`, `AppActivate`, `SendKeys`, `IMEStatus`) are covered by
+programs whose source is `derived` or `doc`, never `spec`: the section text was not available
+when they were written, so each program states how its expected value was worked out. `Load` and
+`Unload` stay `unsupported` (no host provides forms).
 
 ## Defects found and fixed (revision 3.0 text)
 

@@ -509,8 +509,10 @@ assert!(report.is_ok(), \"{}\\n{}\", report.summary(), report.failures().join(\"
 Semantics:
 
 * The factory is called once per program, so no state leaks between programs. The program's
-  own `STRICT_SPEC`, `GRANT`, `CLOCK` and `MAX_STEPS` headers are applied on top of the engine
-  the factory returns (they override the same settings of the factory's engine).
+  own `STRICT_SPEC`, `GRANT`, `CLOCK`, `MAX_STEPS`, `COMMAND` and `INPUTBOX` headers are applied
+  on top of the engine the factory returns (they override the same settings of the factory's
+  engine; `INPUTBOX` replaces its UI with a queue of answers, see the header list in
+  `tooling/vba-conformance/src/lib.rs`).
 * `' REQUIRES: a, b` (repeatable) names host features the program needs. A feature is an
   arbitrary token the embedding application chooses to provide (for example `host-clock`);
   the repository's programs use none yet. Every `GRANT` also implies the feature

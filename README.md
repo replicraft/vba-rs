@@ -15,11 +15,11 @@ published in [docs/tooling/conformance.md](docs/tooling/conformance.md):
 | Measure | Count |
 | --- | ---: |
 | Inventory entries (statements, functions, operators, objects, spec sections) | 708 |
-| implemented | 575 |
+| implemented | 590 |
 | partial | 111 |
-| unsupported | 5 |
-| not-started | 17 |
-| Conformance programs | 2174 |
+| unsupported | 7 |
+| not-started | 0 |
+| Conformance programs | 2240 |
 | Programs recorded as known deviations | 94 |
 | Programs whose expected value was confirmed in real VBA (`oracle`) | 0 |
 
@@ -89,7 +89,7 @@ under another engine" in [docs/tooling/conformance.md](docs/tooling/conformance.
 
 ```sh
 cargo test --workspace                          # everything, including the conformance suite
-cargo test -p vba-rs --test conformance         # only the 2174 programs under tests/vba and the generated report
+cargo test -p vba-rs --test conformance         # only the 2240 programs under tests/vba and the generated report
 cargo run --release -p vba-bench -- [filter]    # timing harness for the interpreter hot paths
 VBA_FUZZ_CASES=2000 cargo test -p vba-vm --test fuzz_programs   # more random programs
 ```

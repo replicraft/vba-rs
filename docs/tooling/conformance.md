@@ -24,11 +24,11 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 575 |
+| implemented | 590 |
 | partial | 111 |
-| unsupported | 5 |
-| not-started | 17 |
-| Conformance programs | 2174 |
+| unsupported | 7 |
+| not-started | 0 |
+| Conformance programs | 2240 |
 | Programs that are known deviations (XFAIL) | 94 |
 
 ## Entries per category and status
@@ -60,13 +60,13 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | language-element | 38 | 29 | 9 | 0 | 0 |
 | spec-environment | 5 | 5 | 0 | 0 | 0 |
 | spec-lexical | 12 | 11 | 1 | 0 | 0 |
-| spec-organization | 3 | 1 | 0 | 0 | 2 |
+| spec-organization | 3 | 3 | 0 | 0 | 0 |
 | spec-declarations | 21 | 17 | 4 | 0 | 0 |
-| spec-procedures | 12 | 10 | 1 | 0 | 1 |
+| spec-procedures | 12 | 11 | 1 | 0 | 0 |
 | spec-statements | 55 | 45 | 10 | 0 | 0 |
 | spec-coercion | 18 | 12 | 6 | 0 | 0 |
-| spec-expressions | 53 | 27 | 21 | 0 | 5 |
-| spec-library | 193 | 164 | 20 | 0 | 9 |
+| spec-expressions | 53 | 32 | 21 | 0 | 0 |
+| spec-library | 193 | 171 | 20 | 2 | 0 |
 
 ## Entries per provenance
 
@@ -74,10 +74,10 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | --- | ---: |
 | oracle | 0 |
 | spec | 435 |
-| doc | 99 |
-| derived | 57 |
-| unverified | 100 |
-| (no program) | 17 |
+| doc | 97 |
+| derived | 74 |
+| unverified | 102 |
+| (no program) | 0 |
 
 ## Programs per area and provenance
 
@@ -94,22 +94,22 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | events | 7 | 0 | 6 | 0 | 1 | 0 |
 | file-io | 48 | 0 | 19 | 19 | 3 | 7 |
 | financial | 20 | 0 | 0 | 2 | 18 | 0 |
-| host | 42 | 0 | 3 | 15 | 10 | 14 |
-| language | 20 | 0 | 6 | 6 | 0 | 8 |
+| host | 62 | 0 | 3 | 29 | 16 | 14 |
+| language | 23 | 0 | 6 | 6 | 3 | 8 |
 | logic | 11 | 0 | 7 | 3 | 1 | 0 |
 | math | 37 | 0 | 24 | 4 | 2 | 7 |
 | operators | 66 | 0 | 59 | 1 | 5 | 1 |
 | procedures | 34 | 0 | 23 | 2 | 4 | 5 |
 | spec-coerce | 188 | 0 | 187 | 0 | 1 | 0 |
 | spec-data | 289 | 0 | 279 | 0 | 8 | 2 |
-| spec-decl | 168 | 0 | 168 | 0 | 0 | 0 |
+| spec-decl | 175 | 0 | 168 | 0 | 7 | 0 |
 | spec-lex | 145 | 0 | 145 | 0 | 0 | 0 |
 | spec-lib-a | 97 | 0 | 96 | 0 | 1 | 0 |
 | spec-lib-b | 63 | 0 | 62 | 1 | 0 | 0 |
 | spec-lib-c | 58 | 0 | 58 | 0 | 0 | 0 |
 | spec-lib-d | 88 | 0 | 74 | 0 | 14 | 0 |
-| spec-ops | 132 | 0 | 132 | 0 | 0 | 0 |
-| spec-proc | 222 | 0 | 221 | 0 | 1 | 0 |
+| spec-ops | 161 | 0 | 132 | 0 | 29 | 0 |
+| spec-proc | 229 | 0 | 221 | 0 | 8 | 0 |
 | statements | 89 | 0 | 75 | 13 | 1 | 0 |
 | strings | 73 | 0 | 33 | 17 | 8 | 15 |
 
@@ -173,13 +173,10 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `cc.const` | language-element | Conditional compilation constants (#Const) | partial |  |
 | `decl.byref-byval` | language-element | ByRef and ByVal | partial |  |
 | `vbal.3.3.4` | spec-lexical | String Tokens | partial |  |
-| `vbal.4.1` | spec-organization | Projects | not-started |  |
-| `vbal.4.2.1` | spec-organization | Module Extensibility | not-started |  |
 | `vbal.5.2.3.1` | spec-declarations | Module Variable Declaration Lists | partial |  |
 | `vbal.5.2.3.3` | spec-declarations | User Defined Type Declarations | partial |  |
 | `vbal.5.2.4.1.2` | spec-declarations | Default Instance Variables Static Semantics | partial |  |
 | `vbal.5.2.4.3` | spec-declarations | Event Declaration | partial |  |
-| `vbal.5.3.1.3` | spec-procedures | Procedure Names | not-started |  |
 | `vbal.5.3.1.11` | spec-procedures | Procedure Invocation Argument Processing | partial |  |
 | `vbal.5.4.1.1` | spec-statements | Statement Labels | partial |  |
 | `vbal.5.4.2.1` | spec-statements | Call Statement | partial |  |
@@ -197,11 +194,8 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.5.1.2.9` | spec-coercion | Let-coercion to and from Error | partial |  |
 | `vbal.5.5.1.2.11` | spec-coercion | Let-coercion from Empty | partial |  |
 | `vbal.5.5.1.2.13` | spec-coercion | Let-coercion to and from a class or Object or Nothing | partial |  |
-| `vbal.5.6.1` | spec-expressions | Expression Classifications | not-started |  |
 | `vbal.5.6.2.1` | spec-expressions | Evaluation to a data value | partial |  |
 | `vbal.5.6.2.2` | spec-expressions | Evaluation to a simple data value | partial |  |
-| `vbal.5.6.2.3` | spec-expressions | Default Member Recursion Limits | not-started |  |
-| `vbal.5.6.4` | spec-expressions | Expression Binding Contexts | not-started |  |
 | `vbal.5.6.5` | spec-expressions | Literal Expressions | partial |  |
 | `vbal.5.6.6` | spec-expressions | Parenthesized Expressions | partial |  |
 | `vbal.5.6.7` | spec-expressions | TypeOf…Is Expressions | partial |  |
@@ -219,10 +213,8 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.6.10` | spec-expressions | Simple Name Expressions | partial |  |
 | `vbal.5.6.13` | spec-expressions | Index Expressions | partial |  |
 | `vbal.5.6.13.1` | spec-expressions | Argument Lists | partial |  |
-| `vbal.5.6.13.2` | spec-expressions | Argument List Queues | not-started |  |
 | `vbal.5.6.16.1` | spec-expressions | Constant Expressions | partial |  |
 | `vbal.5.6.16.2` | spec-expressions | Conditional Compilation Expressions | partial |  |
-| `vbal.5.6.16.8` | spec-expressions | AddressOf Expressions | not-started |  |
 | `vbal.6.1.2.3.1.2` | spec-library | CByte | partial |  |
 | `vbal.6.1.2.3.1.15` | spec-library | Error / Error$ | partial |  |
 | `vbal.6.1.2.3.1.17` | spec-library | Hex / Hex$ | partial |  |
@@ -234,24 +226,17 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.6.1.2.4.1.14` | spec-library | Year | partial |  |
 | `vbal.6.1.2.5.1.3` | spec-library | EOF | partial |  |
 | `vbal.6.1.2.5.1.6` | spec-library | FileLen | partial |  |
-| `vbal.6.1.2.7.1.1` | spec-library | IMEStatus | not-started |  |
 | `vbal.6.1.2.7.1.8` | spec-library | IsNumeric | partial |  |
-| `vbal.6.1.2.8.1.3` | spec-library | Command | not-started |  |
-| `vbal.6.1.2.8.1.4` | spec-library | CreateObject | not-started |  |
 | `vbal.6.1.2.8.1.7` | spec-library | GetAllSettings | partial |  |
-| `vbal.6.1.2.8.1.9` | spec-library | GetObject | not-started |  |
-| `vbal.6.1.2.8.1.12` | spec-library | InputBox | not-started |  |
 | `vbal.6.1.2.8.1.14` | spec-library | Partition | partial |  |
-| `vbal.6.1.2.8.2.1` | spec-library | AppActivate | not-started |  |
-| `vbal.6.1.2.8.2.5` | spec-library | SendKeys | not-started |  |
 | `vbal.6.1.2.11.1.5` | spec-library | ChrB / ChrB$ | partial |  |
 | `vbal.6.1.2.11.1.6` | spec-library | ChrW/ ChrW$ | partial |  |
 | `vbal.6.1.2.11.1.15` | spec-library | InStrRev | partial |  |
 | `vbal.6.1.2.11.1.37` | spec-library | StrConv | partial |  |
 | `vbal.6.1.2.11.1.38` | spec-library | String | partial |  |
 | `vbal.6.1.3.2.1.1` | spec-library | Clear | partial |  |
-| `vbal.6.1.3.3.1.1` | spec-library | Load | not-started |  |
-| `vbal.6.1.3.3.1.2` | spec-library | Unload | not-started |  |
+| `vbal.6.1.3.3.1.1` | spec-library | Load | unsupported |  |
+| `vbal.6.1.3.3.1.2` | spec-library | Unload | unsupported |  |
 
 ## Known deviations
 
@@ -379,8 +364,10 @@ assert!(report.is_ok(), "{}\n{}", report.summary(), report.failures().join("\n")
 Semantics:
 
 * The factory is called once per program, so no state leaks between programs. The program's
-  own `STRICT_SPEC`, `GRANT`, `CLOCK` and `MAX_STEPS` headers are applied on top of the engine
-  the factory returns (they override the same settings of the factory's engine).
+  own `STRICT_SPEC`, `GRANT`, `CLOCK`, `MAX_STEPS`, `COMMAND` and `INPUTBOX` headers are applied
+  on top of the engine the factory returns (they override the same settings of the factory's
+  engine; `INPUTBOX` replaces its UI with a queue of answers, see the header list in
+  `tooling/vba-conformance/src/lib.rs`).
 * `' REQUIRES: a, b` (repeatable) names host features the program needs. A feature is an
   arbitrary token the embedding application chooses to provide (for example `host-clock`);
   the repository's programs use none yet. Every `GRANT` also implies the feature
