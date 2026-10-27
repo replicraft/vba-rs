@@ -91,26 +91,26 @@ fn class_function(t: &mut Tables, name: &str, ret: u8, args: &[(&str, u8, bool)]
 #[test]
 fn a_user_type_in_a_module_variable_is_read_and_written_through_its_fields() {
     let mut t = Tables::default();
-    let (this, n, bump, count) = (t.name("This"), t.name("n"), t.name("Bump"), t.name("Count"));
-    let e = t.object("TState");
+    let (this, n, bump, count) = (t.name("Data"), t.name("n"), t.name("Bump"), t.name("Count"));
+    let e = t.object("TData");
     let d = t.named_type(e);
-    let udt = t.udt("TState", false);
+    let udt = t.udt("TData", false);
     let fld = t.variable("n", Some(T_LONG));
-    let this_v = t.variable_of("This", d);
+    let this_v = t.variable_of("Data", d);
     let mut lines = vec![
         Line::new().opm(Opcode::OptionStmt, 4),
-        // Private Type TState / n As Long / End Type
+        // Private Type TData / n As Long / End Type
         Line::new().rec(Opcode::TypeDecl, 1, udt),
         Line::new()
             .op(Opcode::DimMarkerImplicit)
             .rec(Opcode::VarDecl, 1, fld),
         Line::new().op(Opcode::TypeDeclEnd),
-        // Private This As TState
+        // Private Data As TData
         Line::new()
             .opm(Opcode::DimMarker, 16)
             .rec(Opcode::VarDecl, 1, this_v),
     ];
-    // Public Sub Bump(): This.n = This.n + 1
+    // Public Sub Bump(): Data.n = Data.n + 1
     let f = t.function("Bump", None, &[]);
     lines.extend(block(
         f,
@@ -126,7 +126,7 @@ fn a_user_type_in_a_module_variable_is_read_and_written_through_its_fields() {
                 .name(Opcode::WriteDot, n),
         ],
     ));
-    // Public Function Count() As Long: Count = This.n
+    // Public Function Count() As Long: Count = Data.n
     let g = class_function(&mut t, "Count", T_LONG, &[]);
     lines.extend(block(
         g,
