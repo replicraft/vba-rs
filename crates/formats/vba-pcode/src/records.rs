@@ -138,6 +138,10 @@ pub enum TypeRef {
     /// type-reference list that follows the object table
     /// ([`type_ref_record`]).
     Qualified(u16),
+    /// A fixed-length string (`String * n`): the length when the descriptor
+    /// holds it, 0 when the length is an expression in front of the
+    /// declaration.
+    FixedString(u16),
     /// A reference whose layout is not resolved (kept raw).
     Unknown(u32),
 }
@@ -166,6 +170,10 @@ impl ObjectEntry {
 
 /// Size of a record of the type-reference list.
 pub const TYPE_REF_SIZE: usize = 8;
+
+/// `log2` of [`TYPE_REF_SIZE`]: a qualified object entry stores the byte
+/// offset of its record in the type-reference list.
+pub(crate) const TYPE_REF_SHIFT: u16 = 3;
 
 /// A record of the type-reference list: the name and the library handle of a
 /// library-qualified type. `[obs]` (see the format document).
@@ -275,7 +283,13 @@ impl FunctionRecord {
         let base = fn_base(layout);
         // On x64 the three trailing fields sit 6 bytes further than the
         // pointer-widening shift of the leading ones.
-        let late = base + if layout.bitness == Bitness::X64 { 6 } else { 0 };
+        // `[obs]`: not so from version word 0xDF on.
+        let late = base
+            + if layout.bitness == Bitness::X64 && layout.version < crate::layout::EXTENDED_HEADER_FROM {
+                6
+            } else {
+                0
+            };
         let first_arg = u32_at(indirect, o + 36 + base, "function first argument")?;
         Ok(Self {
             offset,
@@ -655,8 +669,19 @@ pub fn type_descriptor(
     offset: u32,
     layout: &Layout,
 ) -> Result<TypeRef> {
-    let o = offset as usize;
+    // `[obs]`: descriptors are 2-aligned; bit 0 of a stored position was
+    // set once (a `String * n` variable).
+    let o = (offset & !1) as usize;
     let flags = u16_at(indirect, o, "type descriptor flags")?;
+    if flags & 0x20 != 0 && flags & 0x1F == 0 {
+        // `[obs]`: flag 0x20 marks a fixed-length string; the word at +2 is
+        // the length when it is a literal of three or more digits, else 0.
+        return Ok(TypeRef::FixedString(u16_at(
+            indirect,
+            o + 2,
+            "fixed string length",
+        )?));
+    }
     if flags & 0x1F == 0x1B {
         // `[obs]`: kind byte 0x1B is an array; 0x1D is an object type. The
         // element type id is the byte at +6, as for a simple type.
@@ -675,12 +700,12 @@ pub fn type_descriptor(
     let idx = usize::from(v >> shift);
     let e = object_entry(objects, idx * OBJECT_ENTRY_SIZE)?;
     if e.is_qualified() {
-        // `[obs]`: the word at +6 is the slot of the type-reference record,
-        // times the pointer size.
+        // `[obs]`: the word at +6 is the byte offset of the type-reference
+        // record in the list (records of 8 bytes) on x86 and on x64.
         return Ok(if e.name == 0xFFFF {
             TypeRef::Unknown(offset)
         } else {
-            TypeRef::Qualified(e.name >> shift)
+            TypeRef::Qualified(e.name >> TYPE_REF_SHIFT)
         });
     }
     if e.name == 0 || e.name == 0xFFFF {
@@ -811,7 +836,7 @@ mod tests {
     #[test]
     fn qualified_descriptor_names_a_type_reference_slot() {
         // Descriptor -> entry 1 (x64: 8 / 8), a qualified entry whose word
-        // at +6 is slot 3 times the pointer size.
+        // at +6 is the byte offset of slot 3.
         let mut ind = vec![0u8; 16];
         ind[2..4].copy_from_slice(&8u16.to_le_bytes());
         let mut obj = vec![0u8; 20];

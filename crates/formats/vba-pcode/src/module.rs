@@ -98,14 +98,18 @@ impl TableLocations {
                 // `[obs]`: the word at offset 2 is the platform kind the cache
                 // was compiled for (1 or 3) in all 492 modules seen.
                 let expected = if x64 { 3 } else { 1 };
-                if matches!(w, 1 | 3) && w != expected {
+                // `[obs]`: from version word 0xDF on, bit 0x10 of the word is
+                // set, the header is 4 bytes longer and the low nibble is 1
+                // in a project of platform kind 3, so it is not compared.
+                let ext = w & 0x10 != 0;
+                if !ext && matches!(w, 1 | 3) && w != expected {
                     return Err(PcodeError::UnsupportedLayout(
                         UnsupportedLayout::PlatformMismatch { found: w, expected },
                     ));
                 }
                 // The declaration table length sits at 0x3F in every layout
                 // observed, 64-bit ones included.
-                let declarations_len_at = 0x3F;
+                let declarations_len_at = if ext { 0x43 } else { 0x3F };
                 let declarations = table(cache, declarations_len_at, "declaration table")?;
                 let p = to_usize(
                     u32_at(cache, 0x11, "indirect base")?,

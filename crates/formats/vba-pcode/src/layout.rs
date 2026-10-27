@@ -54,6 +54,10 @@ pub const VERIFIED_VERSION: u16 = 0x0097;
 /// ([`Layout::ident_index_adjust`]); 0x88 and below use none.
 pub const IDENT_ADJUST_FROM: u16 = 0x8E;
 
+/// Lowest version word seen with the extended module header (bit 0x10 set in
+/// the word at offset 2, declaration-table length at 0x43 instead of 0x3F).
+pub const EXTENDED_HEADER_FROM: u16 = 0xDF;
+
 /// The (family, bitness, version word) combinations that were observed in
 /// real projects and verified against their source. The bitness is the
 /// `PROJECTSYSKIND` of the project, not a function of the version word: the

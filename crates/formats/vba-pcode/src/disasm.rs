@@ -37,8 +37,8 @@ use crate::names::{Name, Resolver, name_suffix};
 use crate::opcode::Opcode;
 use crate::project_stream::IdentTable;
 use crate::records::{
-    ArgumentRecord, DeclarationRecord, FunctionRecord, OBJECT_ENTRY_SIZE, ProcKind, TypeId,
-    TypeRef, UdtRecord, VariableRecord, argument_chain, object_entry, type_descriptor,
+    ArgumentRecord, DeclarationRecord, FunctionRecord, OBJECT_ENTRY_SIZE, ProcKind, TYPE_REF_SHIFT,
+    TypeId, TypeRef, UdtRecord, VariableRecord, argument_chain, object_entry, type_descriptor,
     type_ref_area, type_ref_record, variable_type,
 };
 
@@ -83,6 +83,9 @@ pub enum ResolvedType {
     Array(TypeId),
     /// A library-qualified type (`Lib.Type`): the qualifier and the type name.
     Qualified(QualifiedType),
+    /// A fixed-length string; the length, or 0 when it is an expression in
+    /// front of the declaration.
+    FixedString(u16),
     /// Unresolved reference (raw value).
     Unknown(u32),
 }
@@ -458,7 +461,7 @@ impl<'a> Disassembler<'a> {
                         .map(|e| self.resolver.resolve_symbol(e.name)),
                     qualified: entry
                         .filter(|e| e.is_qualified() && e.name != 0xFFFF)
-                        .and_then(|e| self.qualified(e.name >> self.pointer_shift())),
+                        .and_then(|e| self.qualified(e.name >> TYPE_REF_SHIFT)),
                 }]
             }
             Operands::Rec(r) => vec![self.record(ins, *r)],
@@ -537,15 +540,8 @@ impl<'a> Disassembler<'a> {
                 Some(q) => ResolvedType::Qualified(q),
                 None => ResolvedType::Unknown(u32::from(slot)),
             },
+            TypeRef::FixedString(n) => ResolvedType::FixedString(n),
             TypeRef::Unknown(u) => ResolvedType::Unknown(u),
-        }
-    }
-
-    fn pointer_shift(&self) -> u16 {
-        if self.cache.layout.bitness == Bitness::X64 {
-            3
-        } else {
-            2
         }
     }
 
@@ -715,6 +711,8 @@ impl fmt::Display for ResolvedType {
                 None => write!(f, "?type({:?})()", t.intrinsic),
             },
             ResolvedType::Qualified(q) => write!(f, "{}.{}", q.qualifier, q.name),
+            ResolvedType::FixedString(0) => f.write_str("String * ?"),
+            ResolvedType::FixedString(n) => write!(f, "String * {n}"),
             ResolvedType::Unknown(u) => write!(f, "?type({u:#x})"),
         }
     }
