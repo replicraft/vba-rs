@@ -60,6 +60,7 @@ impl ShellHook for StdShell {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use super::*;
 
     #[cfg(unix)]
