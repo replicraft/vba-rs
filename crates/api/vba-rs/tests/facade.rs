@@ -105,7 +105,7 @@ fn analyze_reports_errors_without_running() {
     assert!(!report.rendered().is_empty());
     assert_eq!(report.rendered().len(), report.diagnostics().len());
     assert!(report.codes().iter().any(|c| c.starts_with("SEM")));
-    let err = Engine::new().load(&p).err().expect("does not compile");
+    let err = Engine::new().load(&p).expect_err("does not compile");
     assert_eq!(err.kind(), "load");
 }
 

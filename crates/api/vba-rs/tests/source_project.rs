@@ -78,7 +78,7 @@ fn a_module_that_does_not_compile_is_reported_before_anything_runs() {
     .unwrap();
     let report = Engine::new().analyze(&project);
     assert!(report.has_errors());
-    let err = Engine::new().load(&project).err().expect("load must fail");
+    let err = Engine::new().load(&project).expect_err("load must fail");
     assert!(matches!(err, Error::Run(_)));
     assert_eq!(err.kind(), "load");
 }

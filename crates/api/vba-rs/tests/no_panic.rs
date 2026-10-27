@@ -104,12 +104,14 @@ fn malformed_streams_are_errors() {
         .into_iter()
         .enumerate()
     {
-        garbage.insert(path.to_owned(), noise(i as u64 + 1, 300));
+        garbage.insert(path, noise(i as u64 + 1, 300));
     }
     assert!(Project::from_streams(&garbage, &ReadLimits::default()).is_err());
-    let mut tiny = ReadLimits::default();
-    tiny.max_stream_bytes = 0;
-    tiny.max_entries = 0;
+    let tiny = ReadLimits {
+        max_stream_bytes: 0,
+        max_entries: 0,
+        ..ReadLimits::default()
+    };
     assert!(Project::from_streams(&garbage, &tiny).is_err());
 }
 
@@ -127,8 +129,10 @@ fn opening_unusable_paths_is_an_error() {
     // A file over the limit is refused without being read to the end.
     let big = dir.path().join("big.bin");
     std::fs::write(&big, vec![0u8; 4096]).unwrap();
-    let mut limits = ReadLimits::default();
-    limits.max_container_bytes = 1024;
+    let limits = ReadLimits {
+        max_container_bytes: 1024,
+        ..ReadLimits::default()
+    };
     assert!(Project::open_with(&big, &limits).is_err());
     assert!(Project::open("").is_err());
     assert!(Project::open("a\0b").is_err());

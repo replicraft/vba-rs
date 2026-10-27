@@ -277,7 +277,6 @@ impl Report {
     }
 
     /// The error diagnostics.
-    #[must_use]
     pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
         self.diagnostics
             .iter()
@@ -285,7 +284,6 @@ impl Report {
     }
 
     /// The warning diagnostics.
-    #[must_use]
     pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
         self.diagnostics
             .iter()
