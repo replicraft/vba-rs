@@ -70,6 +70,16 @@ Not supported: the binary `.frx` companion of a form, decoding of file bytes
 (callers pass text), validation of the header contents, and parsing of the VBA
 language itself.
 
+## Hostile input
+
+The model itself reads nothing from bytes. Its one text reader is
+`Module::from_source_file`: the header scan is linear in the text and does not recurse, the
+`Begin`/`End` depth counter cannot go below zero, and every failure is a
+`StandaloneError`. `crates/model/vba-project/tests/hostile.rs` feeds it random fragments
+(unbalanced blocks, byte-order marks, NULs, non-ASCII, empty and odd file names) and a
+200000-level nested header. The stream and container readers that fill the model are in
+`vba-format` (see its "Hostile input" section).
+
 ## Not in scope
 
 The model describes a project; it does not enforce `Protection`, validate

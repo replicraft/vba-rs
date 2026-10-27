@@ -172,6 +172,11 @@ the policy sees the normalized path.
   `Get` re-dimensions the target from it (an unallocated array writes the
   two-byte count alone and reads back as unallocated); random records are padded
   to `Len` (error 59 if larger). Unknown `Variant` tags are error 321.
+  **Hostile files:** a read is bounds-checked (error 62 for a short record, 321 for a
+  descriptor VBA does not write). A descriptor's element count is checked against the
+  bytes left, and, because zero-sized elements take no bytes and every decoded element is
+  much larger than its encoding, against a budget of 4194304 elements per `Get`
+  (error 7); `records.rs` has a seeded mutation test and a `fuzz_entry` hook.
 - `Dir` supports `*` and `?`, the `vbDirectory`/`vbHidden`/`vbSystem`
   attributes, and a plain name to test existence. `Kill` accepts wildcards.
 - `Lock`/`Unlock` (MS-VBAL 5.4.5.4, 5.4.5.5) keep a list of locked ranges per

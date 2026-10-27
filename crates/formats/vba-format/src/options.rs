@@ -7,7 +7,10 @@
 /// memory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Limits {
-    /// Largest accepted input file, in bytes.
+    /// Largest accepted input file, in bytes. It also bounds the sum of the
+    /// declared stream lengths of a compound file and the bytes one project
+    /// read holds on behalf of its modules (stream copies, decompressed and
+    /// decoded text), however many module records name the same stream.
     pub max_container_bytes: u64,
     /// Largest accepted size of any single stream, in bytes.
     pub max_stream_bytes: usize,

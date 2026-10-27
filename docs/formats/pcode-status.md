@@ -42,6 +42,40 @@ Every parser is bounds-checked and returns `PcodeError`; hostile input is covere
 property tests (`tests/hostile.rs`) and the layout tests use hand-built bytes
 (`tests/common/synth.rs`, `tests/synthetic.rs`).
 
+### Hostile input
+
+Byte-level entry points: `parse_identifiers`, `ProjectCache::parse`,
+`ModuleCache::parse` (and through it `TableLocations`, `LineTable`,
+`MemberTable`, `ReferenceList`), `decode_line`, the record parsers, and the
+consumers `Disassembly::of_module`, `RecordMap::collect` and `IndirectMap::build`.
+Parsing is bounds-checked with checked arithmetic on every offset; each counted
+loop (`u16` counts in the project stream walk, line count, reference list) advances
+at least one byte per iteration, so the work is bounded by the input.
+
+What the input size alone did not bound, found by the scale tests in
+`tests/hostile_scale.rs` and fixed:
+
+* Instructions that name one procedure record re-walked its argument chain every time
+  (4096 steps, also for a cyclic chain) in `RecordMap::collect`, and `Disassembler`
+  copied the chain into every listing. Cost and output grew with instructions times
+  chain length (40000 headers over a 64-record cycle took 48 s in a debug build; 200
+  headers over a 4000-record chain listed 800000 arguments). `RecordMap` now visits each
+  function record once, stops at argument records already attributed and remembers the
+  records of failed chains; `Disassembler` lists at most 262144 argument records, after
+  which a procedure operand is `Operand::BadRecord`.
+
+Tests: seeded structure-aware mutation of synthetic caches (every 2-aligned u32 of the
+cache set to boundary values, truncation, random damage) over four layouts, and of the
+project stream. With `VBA_PCODE_CORPUS` or `VBA_PCODE_PROJECT` set,
+`tests/hostile_corpus.rs` does the same to the module caches and project streams of the
+named files (about 157000 mutations of 206 modules at the time of writing); without them
+it returns at once and prints counts only. `fuzz_entry(&[u8])` in `tests/hostile_scale.rs`
+runs every entry point on one input for a coverage-guided fuzzer.
+
+Residual risks: a cache is limited only by what the caller read (the container limits of
+`vba-format`); the decoded forms are a small multiple of it. Offsets are `u32` widened to
+`usize`; on 32-bit targets sums near 4 GiB are not separately checked.
+
 ### Text format
 
 `Disassembly` renders one instruction per row,

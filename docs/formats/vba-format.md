@@ -122,6 +122,86 @@ Unicode half of a string record when present. A module's kind comes from the
 `PROJECT` stream; if it has no entry, the `dir` MODULETYPE gives standard or
 class.
 
+### Hostile input
+
+Entry points that take bytes: `read_project`, `read_project_with`,
+`read_project_from_streams`, `extract_project`, `read_document`,
+`locate_ooxml_project`, `replace_ooxml_project`, `decompress`,
+`signature::{parse_blob, read_signature_part}`, `ProjectWm::parse`,
+`LicenseKeys::parse`, `crypt::{decrypt, hex_decode}` and `codepage::decode`.
+All return `Ok` or a typed `Error`; none panics, recurses on input depth or
+loops without a bound that the input size or a limit fixes.
+
+What each limit bounds, checked against the code:
+
+| Limit | Bounds |
+| --- | --- |
+| `max_container_bytes` | the input; the sum of declared stream lengths before any stream is read; the unpacked ZIP entry; PowerPoint storage; and the *working set* of one project read (`dir` text, every module stream copied into the model, every decompressed and decoded module text are charged against it) |
+| `max_stream_bytes` | each stream, tested against the declared length and again on the bytes actually read |
+| `max_decompressed_bytes`, `max_compression_ratio` | each decompressed stream (`decompress` takes the cap as an argument and stops at it) |
+| `max_entries` | compound-file objects, stream sets, and the length of a PowerPoint user-edit chain |
+| `max_archive_entries`, `max_archive_ratio` | ZIP entries; each entry's expansion, measured on the bytes produced |
+
+Other fixed bounds: 65535 module records (a `u16`), a path of at most 4096
+bytes and 16 MiB of path text over all objects, 2^21 persist-directory entries
+over all PowerPoint user edits, and the structure of the compound file itself
+(the `cfb` crate rejects FAT cycles, sectors referenced twice, and directory
+trees with loops or colour violations).
+
+Defects found by the deterministic harness and fixed:
+
+* Directory entries may share one sector chain, so the sum of the declared
+  stream lengths could exceed the file; each stream passed its own limit and
+  all were read. The declared sum is now checked first.
+* Module records may all name one stream. Each record decompressed and copied
+  it again, so 65535 records multiplied the memory held by up to 65535.
+  Everything the model keeps on behalf of a module is now charged to
+  `max_container_bytes`.
+* A PowerPoint user-edit chain whose edits share one persist directory
+  replayed it once per edit (chain length times directory size), and a chain
+  could step back one byte at a time. Directories are replayed once, the chain
+  is limited to `max_entries` edits, and the total of replayed entries is
+  capped.
+* Nested storages make every listed path as long as the depth; listing cost
+  the square of the depth in time and memory (several gigabytes at the entry
+  limit). Paths over 4096 bytes are refused.
+* Module kinds were looked up by scanning every `PROJECT` line for every
+  module (modules times lines); they are now indexed by name.
+
+Tests (`crates/formats/vba-format/tests/hostile.rs`, deterministic: seeded
+xorshift, fixed counts, all inputs written with this crate's writer or
+assembled by hand): compound-file header words, directory-entry fields and
+FAT entries set to boundary values; FAT chains and directory siblings rewritten
+into loops; streams sharing a chain; every offset of the `dir` stream set to
+0, 1, `u32::MAX`, `u32::MAX - 1`, `0x7FFFFFFF`, `0x80000000` and `len + 1` (and
+truncated there); random splice, duplicate, delete, truncate and extend of
+containers and of the individual streams; decompression bombs and random
+chunk streams; hostile relationship parts (200000 elements, 400000 nested
+elements, entity declarations, 300000 `../`); aliased modules; edit chains.
+With `VBA_PCODE_CORPUS` or `VBA_PCODE_PROJECT` set, `tests/hostile_corpus.rs`
+mutates the named real files (about 12000 mutations over 47 files at the time
+of writing); without them it returns at once, and it prints counts only.
+
+Memory is checked on results, not with an allocator hook: the workspace forbids
+`unsafe`, which a global allocator requires. `retained()` in the harness sums
+every byte a returned project keeps and the test fails if it exceeds four times
+the container limit; the work that is discarded on error is bounded by the
+charges above and by the time budget asserted around every call.
+
+Coverage-guided fuzzing: `fuzz_entry(&[u8])` in the same file runs every
+byte-level entry point on one input. A fuzz target only needs to `include!`
+or copy that function; `cargo-fuzz` is not installed in this repository and
+is not a dependency.
+
+Residual risks: the peak is a small multiple of `max_container_bytes` (the
+stream copies, the preserved copies and the decoded text are alive together),
+so an embedding application that accepts untrusted files should lower the
+limits to its needs; the `cfb`, `zip` and `flate2` crates are trusted for
+their own structures (the harness exercises them through this crate but does
+not audit them); the compressor is quadratic in a 4096-byte chunk in the worst
+case (writer only, bounded by the chunk size); on 32-bit targets some offset
+sums in the PowerPoint reader are not checked beyond what `u32` offsets imply.
+
 ## Preservation guarantees on write
 
 `read_project` stores, in the model's `Preserved` slots, the original bytes of

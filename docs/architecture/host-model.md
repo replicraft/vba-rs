@@ -399,6 +399,19 @@ automatic `DISPID`s and for completion).
 | `vba-lsp` over stdio: file and inline descriptions, invalid ones, reload | `vba-lsp/tests/host_libraries.rs` |
 | Worked example | `cargo run -p vba-rs --example host_library` |
 
+## Hostile input
+
+`HostLibrary::from_json_str` is the one reader. `serde_json` limits nesting to 128 levels
+(deeper text is a `JsonError::Syntax`), the reader walks a fixed shape without recursion,
+unknown keys are errors, and numbers outside `Integer`/`Long` are errors. `TypeRef::parse`
+turns the text `Long()()...` into nested arrays; it used to recurse once per `()` (and
+`Display`, `Clone` and `Drop` of the result recurse per level), so a two-million-suffix
+type name overflowed the stack. It now counts the suffixes in a loop and treats more than
+32 levels as an unresolved name that validation reports.
+`vba-host-model/tests/hostile.rs` covers that case on a 256 KiB thread, 100000-level JSON,
+extreme numbers, and 3000 seeded mutations of a valid description (checked with `problems()`
+when they still read); `fuzz_entry(&[u8])` there is the hook for a coverage-guided fuzzer.
+
 ## Not covered
 
 * User-defined types (records) and aliases.

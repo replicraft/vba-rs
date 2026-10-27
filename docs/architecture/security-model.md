@@ -266,6 +266,29 @@ error, never a panic.
   `every_single_byte_corruption_is_survivable`, `huge_counts_are_rejected_cheaply`,
   `type_description_cycle_is_cut_by_the_depth_limit` (vba-typelib).
 * P-code: `mutated_valid_cache_never_panics`, `module_parse_never_panics_on_noise` (vba-pcode).
+* Binary-format readers, workspace-wide (the per-reader detail is in the "Hostile input"
+  sections of `docs/formats/vba-format.md`, `pcode-status.md`, `typelib.md`,
+  `vba-project.md`, `docs/architecture/host-model.md` and `docs/runtime/runtime.md`):
+
+  | Reader | Tests | Defects found and fixed |
+  | --- | --- | --- |
+  | Compound file, OOXML, PowerPoint, `dir`, `PROJECT`, module streams, decompression (`vba-format`) | `tests/hostile.rs`, `tests/hostile_corpus.rs` | streams sharing a sector chain were read once per entry; module records naming one stream multiplied memory; PowerPoint edit chains replayed one directory per edit; nested storages made path text quadratic; module-kind lookup was modules x lines |
+  | P-code caches and project stream (`vba-pcode`) | `tests/hostile_scale.rs`, `tests/hostile_corpus.rs` | argument chains re-walked and re-listed for every instruction naming a procedure |
+  | Lowering of decoded caches (`vba-pcode-ir`) | `tests/hostile.rs` | none; every lowered program passes the IR verifier |
+  | Type libraries (`vba-typelib`) | `tests/hostile_scale.rs` | shared type records multiplied the library; quadratic member lists; unbounded `TYPELIB` resource lists |
+  | Host description JSON and type spellings (`vba-host-model`) | `tests/hostile.rs` | `TypeRef::parse` recursed per `()` suffix (stack overflow) |
+  | `Get` records (`vba-runtime`) | `records.rs` unit tests | dynamic-array element count not bounded by a budget |
+  | Standalone module text (`vba-project`) | `tests/hostile.rs` | none |
+
+  All use seeded generators and fixed counts, run in well under a minute each in a debug
+  build, and have a `fuzz_entry(&[u8])` hook (or, for `vba-format`, the same function in the
+  harness) for pointing a coverage-guided fuzzer at the same entry points; no fuzzing tool
+  is a dependency of the repository. Real files named by `VBA_PCODE_CORPUS`,
+  `VBA_PCODE_PROJECT` and `VBA_TYPELIB_SAMPLES` are mutated when those variables are set
+  and skipped otherwise; they are never committed and only counts are printed.
+  Memory is asserted on results (what a successful read retains) and through time budgets,
+  not with an allocator hook, because the workspace forbids `unsafe`. Peak transient memory
+  is a small multiple of the input limit; for hard containment use an operating-system limit.
 * `vbars inspect DIR` bounds the sum of all streams as well as each one
   (`a_directory_of_streams_has_a_total_size_limit`).
 * Wine protocol: `hostile_counts_do_not_allocate_or_panic`, `pseudo_random_garbage_never_panics`.

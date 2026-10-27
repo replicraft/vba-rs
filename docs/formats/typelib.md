@@ -495,6 +495,39 @@ where possible:
   are assumed; a library with other gaps fails with `Malformed` or
   `OutOfRange` instead of being guessed at.
 
+## Hostile input
+
+Entry points: `parse_msft`, `msft::parse` with `Limits`, `parse_sltg`, `sltg::parse`,
+`parse_any`, `load`, `load_all`, `pe::typelib_resources` and, on the result,
+`TypeLib::describe` and `sema::TypelibProvider`. Every offset and count is checked against
+the data present (`u32_at`/`u16_at` use checked ends), type descriptions nest at most
+`max_type_depth` (32), counts of types, members and parameters are bounded by `Limits`
+(131072, 1048576, 2097152 by default) and by the bytes that exist, and the binding walks
+inherited members and aliases with a depth bound.
+
+Found by the scale tests (`tests/hostile_scale.rs`) and fixed:
+
+* Several type records naming one record (the offsets array may repeat an offset) let a
+  62 KB file produce 100000 members; with the default limits a small file could describe a
+  library of a million members. Two types sharing a record are now `Malformed`; the Wine
+  libraries still load.
+* The VBA member list of a type was built with a linear scan per member (the square of the
+  member count); it is now indexed by lower-cased name.
+* Shared resource subtables let a small PE image list an unbounded number of `TYPELIB`
+  resources (types x ids x languages). At most 256 are listed
+  (`TypelibError::LimitExceeded`), and `load_all` loads resources that share their bytes
+  once, under the first id.
+
+Tests: the existing truncation, single-byte and extreme-word sweeps (`tests/hostile.rs`,
+`tests/sltg_hostile.rs`), plus seeded splice, duplicate, delete and overwrite mutations of
+an MSFT library, an SLTG library and a PE image holding both, run through `load`, `load_all`
+and the binding. With `VBA_TYPELIB_SAMPLES` set, `mutated_real_libraries_never_panic`
+mutates the named files. `fuzz_entry(&[u8])` runs every entry point on one input.
+
+Residual risks: a library that stays inside `Limits` can still be large (the defaults allow
+about a million members); an embedding application that loads untrusted libraries should
+lower `Limits`. The SLTG reader is verified on fewer real files than the MSFT reader.
+
 ## Verification performed
 
 - Every `.tlb`, `.dll`, `.ocx` and `.exe` in the Wine bundle's `x86_64-windows`
