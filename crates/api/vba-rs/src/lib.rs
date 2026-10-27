@@ -286,6 +286,14 @@ pub mod automation {
     pub use vba_automation::{ConnectionPoint, Cookie, EventSink, EventSource};
 }
 
+/// Declarative description of an embedding application's object model: one
+/// [`HostLibrary`](host_model::HostLibrary) gives the `Dispatch` binding, the
+/// early-bound types and the language-server data. See
+/// [`Engine::host_library`] and `docs/architecture/host-model.md`.
+pub mod host_model {
+    pub use vba_host_model::*;
+}
+
 /// The runtime layer (sessions, file systems, errors) in full.
 pub mod runtime {
     pub use vba_runtime::*;

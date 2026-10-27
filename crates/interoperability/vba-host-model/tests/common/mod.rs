@@ -214,8 +214,12 @@ pub fn recordset(lib: &CheckedLibrary, data: Data) -> HostObject {
                 Ok(())
             })
             .method("MoveNext", |s, cx| {
-                s.pos.set(s.pos.get() + 1);
-                cx.raise_event("Updated", &mut [vba_automation::Arg::by_ref(0i16)])?;
+                // Handlers may cancel the move through the ByRef argument.
+                let mut args = [vba_automation::Arg::by_ref(0i16)];
+                cx.raise_event("Updated", &mut args)?;
+                if args[0].value == Variant::Integer(0) {
+                    s.pos.set(s.pos.get() + 1);
+                }
                 Ok(Variant::Empty)
             })
             .method("Close", |_, _| Ok(Variant::Empty))
@@ -238,6 +242,7 @@ pub fn recordset(lib: &CheckedLibrary, data: Data) -> HostObject {
                 let parts: Vec<String> = cx.args.rest().map(text).collect();
                 Ok(Variant::from(parts.join(&sep).as_str()))
             })
+            .reentrant()
             .on_terminate(|_, _| {})
             .holds(|_| Vec::new()),
     )

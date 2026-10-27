@@ -38,6 +38,7 @@ vba-diagnostics.workspace = true
 vba-ffi.workspace = true
 vba-format.workspace = true
 vba-host.workspace = true
+vba-host-model.workspace = true
 vba-ir.workspace = true
 vba-lexer.workspace = true
 vba-profile.workspace = true

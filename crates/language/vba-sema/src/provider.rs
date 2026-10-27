@@ -653,3 +653,66 @@ impl TypeProvider for Chain<'_> {
             .or_else(|| self.1.documentation(t, m))
     }
 }
+
+/// Any number of providers consulted in order: the first that knows the
+/// answer wins. The elements may be references, boxes or `Arc`s of
+/// providers.
+///
+/// ```
+/// use vba_sema::{Layers, NoLibraries, StaticLibrary, TypeProvider};
+///
+/// let a = StaticLibrary::new("A");
+/// let b = StaticLibrary::new("B");
+/// let layers = Layers(vec![&a as &dyn TypeProvider, &b, &NoLibraries]);
+/// assert!(layers.has_library("b"));
+/// ```
+pub struct Layers<T>(pub Vec<T>);
+
+impl<T> TypeProvider for Layers<T>
+where
+    T: std::ops::Deref,
+    T::Target: TypeProvider,
+{
+    fn resolve_type(&self, q: Option<&str>, n: &str) -> Option<LibraryType> {
+        self.0.iter().find_map(|p| p.resolve_type(q, n))
+    }
+    fn has_library(&self, n: &str) -> bool {
+        self.0.iter().any(|p| p.has_library(n))
+    }
+    fn resolve_declared(&self, q: Option<&str>, n: &str) -> Option<Type> {
+        self.0.iter().find_map(|p| p.resolve_declared(q, n))
+    }
+    fn enum_members(&self, t: &LibraryType) -> Option<Vec<(String, i64)>> {
+        self.0.iter().find_map(|p| p.enum_members(t))
+    }
+    fn record(&self, t: &LibraryType) -> Option<LibRecord> {
+        self.0.iter().find_map(|p| p.record(t))
+    }
+    fn class_info(&self, t: &LibraryType) -> Option<LibClass> {
+        self.0.iter().find_map(|p| p.class_info(t))
+    }
+    fn member(&self, t: &LibraryType, n: &str) -> Option<LibMember> {
+        self.0.iter().find_map(|p| p.member(t, n))
+    }
+    fn default_member(&self, t: &LibraryType) -> Option<LibMember> {
+        self.0.iter().find_map(|p| p.default_member(t))
+    }
+    fn describes_members(&self, t: &LibraryType) -> bool {
+        self.0.iter().any(|p| p.describes_members(t))
+    }
+    fn interface_members(&self, t: &LibraryType) -> Option<Vec<LibMember>> {
+        self.0.iter().find_map(|p| p.interface_members(t))
+    }
+    fn events(&self, t: &LibraryType) -> Option<Vec<LibEvent>> {
+        self.0.iter().find_map(|p| p.events(t))
+    }
+    fn global(&self, n: &str) -> Option<LibGlobal> {
+        self.0.iter().find_map(|p| p.global(n))
+    }
+    fn catalog(&self) -> Vec<LibEntry> {
+        self.0.iter().flat_map(|p| p.catalog()).collect()
+    }
+    fn documentation(&self, t: Option<&LibraryType>, m: Option<&str>) -> Option<String> {
+        self.0.iter().find_map(|p| p.documentation(t, m))
+    }
+}

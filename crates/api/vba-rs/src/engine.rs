@@ -7,6 +7,7 @@ use vba_automation::{Dispatch, ObjectTable};
 use vba_host::{
     Capability, HostMetadata, HostResult, Policy, ResourceLimits, UNTRUSTED_CALL_TIMEOUT, UiHooks,
 };
+use vba_host_model::HostRuntime;
 use vba_profile::{Profile, default_profile};
 use vba_runtime::{MemFs, RealFs, Session, SessionBuilder, SystemHost};
 use vba_value::Date;
@@ -95,6 +96,7 @@ pub struct Engine {
     globals: Vec<(String, Factory)>,
     constants: Vec<(String, Variant)>,
     classes: Vec<(String, Factory)>,
+    libraries: Vec<HostRuntime>,
     files: Files,
     system_environment: bool,
     command: String,
@@ -150,6 +152,7 @@ impl Engine {
             globals: Vec::new(),
             constants: Vec::new(),
             classes: Vec::new(),
+            libraries: Vec::new(),
             files: Files::Memory(Vec::new()),
             system_environment: false,
             command: String::new(),
@@ -344,6 +347,36 @@ impl Engine {
         self
     }
 
+    /// Registers a described host library: its predeclared objects, creatable
+    /// classes (as `CreateObject("Library.Class")` and `New`) and global
+    /// functions run, and the same description types the program for the
+    /// analysis (`Dim rs As Recordset`, `Nz(...)`, `Application.Name`), so
+    /// [`analyze`](Engine::analyze), [`load`](Engine::load) and a language
+    /// server fed the same library all agree. See [`host_model`](crate::host_model).
+    ///
+    /// `CreateObject` still needs [`Capability::ComCreate`]; the library
+    /// grants nothing by itself.
+    #[must_use]
+    pub fn host_library(mut self, library: HostRuntime) -> Engine {
+        let lib_name = library.library().name().to_owned();
+        for (name, make) in library.globals() {
+            let source = lib_name.clone();
+            self.globals.push((
+                name.to_lowercase(),
+                Rc::new(move |table| make(table).map_err(|e| e.into_err_info(&source))),
+            ));
+        }
+        for (class, make) in library.classes() {
+            let source = lib_name.clone();
+            self.classes.push((
+                format!("{lib_name}.{class}").to_lowercase(),
+                Rc::new(move |table| make(table).map_err(|e| e.into_err_info(&source))),
+            ));
+        }
+        self.libraries.push(library);
+        self
+    }
+
     /// Seeds the in-memory file system with a file (switches back to the
     /// in-memory file system if [`Engine::real_files`] was chosen).
     #[must_use]
@@ -430,9 +463,15 @@ impl Engine {
     #[must_use]
     pub fn analyze(&self, project: &Project) -> Report {
         let globals = self.provider();
+        let mut layers: Vec<&dyn vba_sema::TypeProvider> = self
+            .libraries
+            .iter()
+            .map(|l| l.library() as &dyn vba_sema::TypeProvider)
+            .collect();
+        layers.push(&globals);
         project.analyze_with(
             &self.profile,
-            &globals,
+            &vba_sema::Layers(layers),
             &self.host_members,
             self.strict_spec,
         )
@@ -465,6 +504,10 @@ impl Engine {
         for (n, f) in &self.classes {
             host.classes.insert(n.clone(), f.clone());
         }
+        for l in &self.libraries {
+            host.functions
+                .push((l.library().name().to_owned(), l.functions().clone()));
+        }
         let mut b = Session::builder()
             .provider(self.provider())
             .host(Rc::new(host))
@@ -473,6 +516,9 @@ impl Engine {
             .host_members(self.host_members.clone())
             .strict_spec(self.strict_spec)
             .vm_config(self.vm.clone());
+        for l in &self.libraries {
+            b = b.extra_provider(l.library().clone());
+        }
         b = match &self.files {
             Files::Memory(files) => {
                 let mut fs = MemFs::new();

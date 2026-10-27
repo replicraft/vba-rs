@@ -74,6 +74,7 @@ pub(crate) struct EngineHost {
     pub(crate) globals: BTreeMap<String, Factory>,
     pub(crate) global_cache: RefCell<BTreeMap<String, Variant>>,
     pub(crate) classes: BTreeMap<String, Factory>,
+    pub(crate) functions: Vec<(String, vba_host_model::HostFunctions)>,
     pub(crate) references: Vec<ProjectReference>,
     pub(crate) cancel: CancelToken,
     pub(crate) ui: Option<Rc<dyn UiHooks>>,
@@ -95,6 +96,7 @@ impl EngineHost {
             globals: BTreeMap::new(),
             global_cache: RefCell::default(),
             classes: BTreeMap::new(),
+            functions: Vec::new(),
             references: Vec::new(),
             cancel,
             ui: None,
@@ -143,6 +145,17 @@ impl Host for EngineHost {
         self.table.add_ref_value(&v);
         self.global_cache.borrow_mut().insert(key, v.clone());
         Ok(Some(v))
+    }
+
+    fn call_function(&self, name: &str, args: &[Option<Variant>]) -> HostResult<Option<Variant>> {
+        for (library, f) in &self.functions {
+            match f.call(&self.table, name, args) {
+                Ok(Some(v)) => return Ok(Some(v)),
+                Ok(None) => {}
+                Err(e) => return Err(e.into_err_info(library)),
+            }
+        }
+        Ok(None)
     }
 
     fn create_object_hook(&self, progid: &str, _server: Option<&str>) -> HostResult<Variant> {
