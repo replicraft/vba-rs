@@ -1340,6 +1340,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vba-host-model"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde_json",
+ "thiserror",
+ "vba-automation",
+ "vba-sema",
+ "vba-value",
+]
+
+[[package]]
 name = "vba-ir"
 version = "0.1.0"
 dependencies = [

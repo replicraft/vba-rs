@@ -1,0 +1,21 @@
+[package]
+name = "vba-host-model"
+description = "Declarative description of an embedding application's object model: one description gives the Dispatch binding, the sema TypeProvider, language-server data and documentation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+thiserror.workspace = true
+vba-automation.workspace = true
+vba-sema.workspace = true
+vba-value.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

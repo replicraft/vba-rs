@@ -31,6 +31,7 @@ vba-diagnostics = { path = "crates/foundation/vba-diagnostics" }
 vba-ffi = { path = "crates/interoperability/vba-ffi" }
 vba-format = { path = "crates/formats/vba-format" }
 vba-host = { path = "crates/hosts/vba-host" }
+vba-host-model = { path = "crates/interoperability/vba-host-model" }
 vba-ir = { path = "crates/language/vba-ir" }
 vba-lexer = { path = "crates/language/vba-lexer" }
 vba-lsp-core = { path = "crates/language/vba-lsp-core" }
