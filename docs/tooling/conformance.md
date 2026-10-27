@@ -24,12 +24,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 560 |
-| partial | 126 |
+| implemented | 575 |
+| partial | 111 |
 | unsupported | 5 |
 | not-started | 17 |
-| Conformance programs | 2154 |
-| Programs that are known deviations (XFAIL) | 127 |
+| Conformance programs | 2174 |
+| Programs that are known deviations (XFAIL) | 94 |
 
 ## Entries per category and status
 
@@ -57,12 +57,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | data-type | 18 | 18 | 0 | 0 | 0 |
 | identifier-type-character | 7 | 7 | 0 | 0 | 0 |
 | object | 13 | 10 | 0 | 3 | 0 |
-| language-element | 38 | 27 | 11 | 0 | 0 |
-| spec-environment | 5 | 4 | 1 | 0 | 0 |
-| spec-lexical | 12 | 9 | 3 | 0 | 0 |
+| language-element | 38 | 29 | 9 | 0 | 0 |
+| spec-environment | 5 | 5 | 0 | 0 | 0 |
+| spec-lexical | 12 | 11 | 1 | 0 | 0 |
 | spec-organization | 3 | 1 | 0 | 0 | 2 |
-| spec-declarations | 21 | 11 | 10 | 0 | 0 |
-| spec-procedures | 12 | 6 | 5 | 0 | 1 |
+| spec-declarations | 21 | 17 | 4 | 0 | 0 |
+| spec-procedures | 12 | 10 | 1 | 0 | 1 |
 | spec-statements | 55 | 45 | 10 | 0 | 0 |
 | spec-coercion | 18 | 12 | 6 | 0 | 0 |
 | spec-expressions | 53 | 27 | 21 | 0 | 5 |
@@ -102,14 +102,14 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | procedures | 34 | 0 | 23 | 2 | 4 | 5 |
 | spec-coerce | 188 | 0 | 187 | 0 | 1 | 0 |
 | spec-data | 289 | 0 | 279 | 0 | 8 | 2 |
-| spec-decl | 155 | 0 | 155 | 0 | 0 | 0 |
+| spec-decl | 168 | 0 | 168 | 0 | 0 | 0 |
 | spec-lex | 145 | 0 | 145 | 0 | 0 | 0 |
 | spec-lib-a | 97 | 0 | 96 | 0 | 1 | 0 |
 | spec-lib-b | 63 | 0 | 62 | 1 | 0 | 0 |
 | spec-lib-c | 58 | 0 | 58 | 0 | 0 | 0 |
 | spec-lib-d | 88 | 0 | 74 | 0 | 14 | 0 |
 | spec-ops | 132 | 0 | 132 | 0 | 0 | 0 |
-| spec-proc | 215 | 0 | 214 | 0 | 1 | 0 |
+| spec-proc | 222 | 0 | 221 | 0 | 1 | 0 |
 | statements | 89 | 0 | 75 | 13 | 1 | 0 |
 | strings | 73 | 0 | 33 | 17 | 8 | 15 |
 
@@ -172,29 +172,14 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `lex.continuation` | language-element | Line continuation | partial |  |
 | `cc.const` | language-element | Conditional compilation constants (#Const) | partial |  |
 | `decl.byref-byval` | language-element | ByRef and ByVal | partial |  |
-| `decl.withevents` | language-element | WithEvents | partial |  |
-| `decl.dim-as-new` | language-element | Dim ... As New | partial |  |
-| `vbal.2.5.1` | spec-environment | Automatic Object Instantiation | partial |  |
-| `vbal.3.2.1` | spec-lexical | Physical Line Grammar | partial |  |
-| `vbal.3.2.2` | spec-lexical | Logical Line Grammar | partial |  |
 | `vbal.3.3.4` | spec-lexical | String Tokens | partial |  |
 | `vbal.4.1` | spec-organization | Projects | not-started |  |
 | `vbal.4.2.1` | spec-organization | Module Extensibility | not-started |  |
-| `vbal.5.1` | spec-declarations | Module Body Structure | partial |  |
 | `vbal.5.2.3.1` | spec-declarations | Module Variable Declaration Lists | partial |  |
-| `vbal.5.2.3.1.1` | spec-declarations | Variable Declarations | partial |  |
-| `vbal.5.2.3.1.2` | spec-declarations | WithEvents Variable Declarations | partial |  |
 | `vbal.5.2.3.3` | spec-declarations | User Defined Type Declarations | partial |  |
-| `vbal.5.2.3.4` | spec-declarations | Enum Declarations | partial |  |
-| `vbal.5.2.3.5` | spec-declarations | External Procedure Declaration | partial |  |
-| `vbal.5.2.3.6` | spec-declarations | Circular Module Dependencies | partial |  |
 | `vbal.5.2.4.1.2` | spec-declarations | Default Instance Variables Static Semantics | partial |  |
 | `vbal.5.2.4.3` | spec-declarations | Event Declaration | partial |  |
-| `vbal.5.3.1` | spec-procedures | Procedure Declarations | partial |  |
-| `vbal.5.3.1.2` | spec-procedures | Static Procedures | partial |  |
 | `vbal.5.3.1.3` | spec-procedures | Procedure Names | not-started |  |
-| `vbal.5.3.1.5` | spec-procedures | Parameter Lists | partial |  |
-| `vbal.5.3.1.8` | spec-procedures | Event Handler Declarations | partial |  |
 | `vbal.5.3.1.11` | spec-procedures | Procedure Invocation Argument Processing | partial |  |
 | `vbal.5.4.1.1` | spec-statements | Statement Labels | partial |  |
 | `vbal.5.4.2.1` | spec-statements | Call Statement | partial |  |
@@ -318,34 +303,11 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-data/5_4_5_8_bare_print_not_in_revision3_grammar` | wrong | VBA behaviour kept where MS-VBAL text differs: the file Print statement keeps its form without a Debug./Me. prefix (revision 3.0 grammar taken as additive) |
 | `spec-data/5_4_5_8_me_print_form` | unsupported | Me.Print needs a host that provides forms |
 | `spec-data/5_4_5_8_print_number_has_surrounding_spaces` | wrong | VBA behaviour kept where MS-VBAL text differs: the sign takes the leading space of a printed number |
-| `spec-decl/5_1_declaration_after_procedure` | wrong | not implemented: a declaration after a procedure is accepted |
-| `spec-decl/5_2_3_1_1_as_new_lazy_array` | wrong | VBA behaviour kept where MS-VBAL text differs: As New is rejected for arrays and Type members |
-| `spec-decl/5_2_3_1_1_typed_name_with_array` | wrong | not implemented: Dim a&(n) at module level |
-| `spec-decl/5_2_3_1_2_withevents_class_without_events` | wrong | not implemented: static checks that a WithEvents class declares events and is not the containing class |
-| `spec-decl/5_2_3_1_2_withevents_own_class` | wrong | not implemented: static checks that a WithEvents class declares events and is not the containing class |
-| `spec-decl/5_2_3_1_variable_same_name_as_enum_type` | wrong | not implemented: a variable named like an Enum type of the module |
-| `spec-decl/5_2_3_3_udt_member_as_new` | wrong | VBA behaviour kept where MS-VBAL text differs: As New is rejected for arrays and Type members |
-| `spec-decl/5_2_3_3_udt_name_same_as_module` | wrong | not implemented: uniqueness of public Type/Enum names across modules and modules/types |
-| `spec-decl/5_2_3_3_udt_public_duplicate_across_modules` | wrong | not implemented: uniqueness of public Type/Enum names across modules and modules/types |
-| `spec-decl/5_2_3_3_udt_reserved_member_name` | wrong | not implemented: reserved words such as Date as Type member names |
-| `spec-decl/5_2_3_4_enum_forward_member_reference` | wrong | not implemented: forward references between Enum members and Global Enum in class modules |
-| `spec-decl/5_2_3_4_enum_forward_reference_later_enum` | wrong | not implemented: forward references between Enum members and Global Enum in class modules |
-| `spec-decl/5_2_3_4_enum_global_in_class_module` | wrong | not implemented: forward references between Enum members and Global Enum in class modules |
-| `spec-decl/5_2_3_4_enum_name_same_as_module` | wrong | not implemented: uniqueness of public Type/Enum names across modules and modules/types |
-| `spec-decl/5_2_3_4_enum_public_duplicate_across_modules` | wrong | not implemented: uniqueness of public Type/Enum names across modules and modules/types |
-| `spec-decl/5_2_3_5_declare_ordinal_alias_not_integer` | wrong | not implemented: validation of #ordinal aliases of Declare |
-| `spec-decl/5_2_3_5_declare_ordinal_alias_out_of_range` | wrong | not implemented: validation of #ordinal aliases of Declare |
-| `spec-decl/5_2_3_6_circular_const_dependency` | wrong | not implemented: detection of circular module dependencies |
-| `spec-decl/5_2_3_6_circular_enum_dependency` | wrong | not implemented: detection of circular module dependencies |
-| `spec-decl/5_2_3_6_circular_implements` | wrong | not implemented: detection of circular module dependencies |
+| `spec-decl/5_2_3_1_variable_same_name_as_enum_type` | wrong | not implemented: a module-level variable and an Enum of the same name are one namespace here (SEM001 duplicate declaration); VBA is believed to do the same, unconfirmed |
+| `spec-decl/5_2_3_3_udt_member_as_new` | wrong | VBA behaviour kept where MS-VBAL text differs: As New is rejected for Type members (VBA is believed to reject it; no oracle result yet) |
 | `spec-decl/5_2_4_1_2_global_namespace_class` | unsupported | VB_GlobalNameSpace classes |
 | `spec-decl/5_2_4_1_2_global_namespace_shares_default_instance` | unsupported | VB_GlobalNameSpace classes |
-| `spec-decl/5_2_4_3_event_name_same_as_member_ok` | wrong | not implemented: event name versus member names, event parameters as procedure variables |
-| `spec-decl/5_2_4_3_event_params_define_no_variables` | wrong | not implemented: event name versus member names, event parameters as procedure variables |
-| `spec-lex/2_5_1_array_elements_auto_instantiate` | unsupported | arrays declared As New |
-| `spec-lex/3_2_1_unicode_line_terminators` | wrong | not implemented: Unicode line terminators and space characters (the lexer is byte-based) |
-| `spec-lex/3_2_2_whitespace_dbcs_space_u3000` | wrong | not implemented: Unicode line terminators and space characters (the lexer is byte-based) |
-| `spec-lex/3_2_2_whitespace_unicode_zs_u2003` | wrong | not implemented: Unicode line terminators and space characters (the lexer is byte-based) |
+| `spec-decl/5_2_4_3_event_name_same_as_member_ok` | wrong | not implemented: events share the symbol table with variables, constants and procedures, so an event named like a member is a duplicate declaration (the specification text allows it; whether VBA accepts it is unconfirmed) |
 | `spec-lex/3_3_4_string_ends_at_line_continuation` | wrong | VBA behaviour kept where MS-VBAL text differs: an unterminated string literal is a lexical error |
 | `spec-lex/3_3_4_string_ends_at_line_end` | wrong | VBA behaviour kept where MS-VBAL text differs: an unterminated string literal is a lexical error |
 | `spec-lib-a/6_1_2_3_1_15_error_range` | wrong | VBA behaviour kept where MS-VBAL text differs: an argument outside 0..65535 is error 5 (the expectation of error 6 for 65536 and of success for negatives is not confirmed against real VBA) |
@@ -387,17 +349,7 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-ops/5_6_9_8_logical_error_value_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-ops/5_6_9_8_not_error_value_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-ops/5_6_9_8_or_null_table` | wrong | VBA behaviour kept where MS-VBAL text differs: Or/Imp with a Null operand yield Null |
-| `spec-proc/5_3_1_11_byref_object_param_class_arg_copy_in_out` | wrong | VBA behaviour kept where MS-VBAL text differs: ByRef arguments of a different declared type are rejected or copied |
-| `spec-proc/5_3_1_11_byref_variant_accepts_any_variable` | wrong | VBA behaviour kept where MS-VBAL text differs: ByRef arguments of a different declared type are rejected or copied |
-| `spec-proc/5_3_1_11_byref_variant_param_keeps_arg_declared_type_on_assign` | wrong | VBA behaviour kept where MS-VBAL text differs: ByRef arguments of a different declared type are rejected or copied |
-| `spec-proc/5_3_1_11_byval_object_param_scalar_arg_invalid` | wrong | not implemented: static rejection of a scalar passed to a ByVal Object parameter |
-| `spec-proc/5_3_1_2_static_trailing_keeps_locals` | wrong | not implemented: trailing Static in a procedure header |
-| `spec-proc/5_3_1_5_optional_deftype_requires_default_invalid` | wrong | not implemented: Optional parameter default rule under Def directives |
-| `spec-proc/5_3_1_8_event_handler_mechanism_mismatch_invalid` | wrong | not implemented: event handler declaration rules |
-| `spec-proc/5_3_1_8_event_handler_must_be_sub_invalid` | wrong | not implemented: event handler declaration rules |
-| `spec-proc/5_3_1_function_private_enum_type_invalid` | wrong | not implemented: private types as function result types |
-| `spec-proc/5_3_1_function_private_udt_in_class_invalid` | wrong | not implemented: private types as function result types |
-| `spec-proc/5_3_1_typed_name_with_function_type_invalid` | wrong | not implemented: a typed function name with an As clause |
-| `spec-proc/5_4_1_1_label_named_randomize_invalid` | wrong | not implemented: statement keywords as label names |
-| `spec-proc/5_4_2_1_call_object_default_property_error_450` | wrong | not implemented: error 450 for Call on an object whose default member is a property |
+| `spec-proc/5_3_1_11_byref_object_param_class_arg_copy_in_out` | wrong | VBA behaviour kept where MS-VBAL text differs: a ByRef Object parameter given a variable of a specific class is rejected (SEM026 ByRef argument type mismatch; VBA is believed to reject it at compile time, unconfirmed); only ByRef Variant parameters take a copy |
+| `spec-proc/5_4_1_1_label_named_randomize_invalid` | wrong | not implemented: Randomize is not a reserved word of the lexer, so `Randomize:` is accepted as a label (VBA may read it as the Randomize statement; unconfirmed) |
+| `spec-proc/5_4_2_1_call_object_default_property_error_450` | wrong | not implemented: Call on an object variable whose default member is a property runs the property instead of raising error 450; the behaviour of VBA is unconfirmed |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
