@@ -774,7 +774,9 @@ panics stops the thread (the instance may be half updated) and later commands
 fail with `ThreadError::Stopped`; closing or dropping the handle lets the running
 command finish, drops the queued ones and drops the instance without
 `Class_Terminate` (run `Instance::shutdown` in a last command when that
-matters); closing does not cancel the token. State that host objects share with
+matters); neither closing nor dropping cancels the token (it may be shared; dropping
+waits for the running command), and `close_and_cancel` cancels it and closes in one
+step. State that host objects share with
 other threads is your design: make the shared part `Send + Sync` (an
 `Arc<Mutex<..>>` or a channel to your own service) and keep the `Dispatch`
 wrapper on the interpreter thread.

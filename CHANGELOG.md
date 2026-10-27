@@ -46,6 +46,13 @@ entry that made it:
 
 ### Added
 
+- `vba-conformance` (`tooling/vba-conformance`): the conformance corpus runner as a reusable crate
+  with a pluggable engine (`run_corpus(dir, factory, &Options)`), a `REQUIRES` program header and an
+  implied `grant:<capability>` requirement so a restricted host skips instead of failing. See
+  `docs/tooling/conformance.md`.
+- `Instance::with_output` (borrows the print buffer; `output` still copies),
+  `InstanceThread::close_and_cancel`, `Project.Module.Proc` names in `run`/`call` (the project name
+  is ignored), and `runtime::LoadError` as the `source()` of `runtime::Error::Load`.
 - `vba-host-model` and `vba::host_model`: describe an embedding application's object model once
   (`HostLibrary`, `HostClass`, `HostMember`, `HostParam`, `HostEnum`, `HostConst`, `HostGlobal`;
   validated by `check()` with typed `ModelError`s) and derive from it the sema `TypeProvider`, the
