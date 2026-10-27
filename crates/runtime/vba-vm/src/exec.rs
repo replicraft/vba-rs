@@ -115,7 +115,7 @@ impl Vm {
 
     /// Where the error being dispatched was raised: the call stack from the
     /// innermost frame out.
-    fn capture_site(&self, ir: &IrProgram) -> Site {
+    pub(crate) fn capture_site(&self, ir: &IrProgram) -> Site {
         let frame_of = |f: &Frame| -> StackFrame {
             let func = &ir.functions[f.func];
             let (module, procedure) = match func.name.split_once('.') {
@@ -134,6 +134,7 @@ impl Vm {
                 procedure,
                 line: f.line,
                 source_line,
+                host_boundary: false,
             }
         };
         let frames: Vec<StackFrame> = self.frames.iter().rev().map(frame_of).collect();

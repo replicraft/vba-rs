@@ -178,6 +178,7 @@ impl Vm {
             polled_at: 0,
             stop_reason: None,
             last_site: None,
+            nested_failure: None,
             source_lines: Vec::new(),
             push_request: None,
             push_done: false,

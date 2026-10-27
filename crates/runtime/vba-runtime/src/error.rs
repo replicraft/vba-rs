@@ -82,9 +82,16 @@ pub struct ErrorReport {
     pub module: String,
     /// The 1-based source line of the failing statement, 0 when unknown.
     pub source_line: u32,
-    /// The call stack with lines, innermost first. Host code has no
-    /// frames: a call that went through a host object shows the VBA frames
-    /// only.
+    /// The call stack with lines, innermost first. Host code has no frames
+    /// of its own. When the error was raised by VBA code that a host member
+    /// started (a form event raised by `DoCmd.OpenForm`, a procedure called
+    /// through the host) and the member returned that error unchanged, the
+    /// frames of the nested run come first, followed by a marker frame
+    /// ([`StackFrame::host_boundary`] is `true`, rendered `[host
+    /// boundary]`) and then the frames of the run that called the member.
+    /// `procedure`, `module`, `line` and `source_line` then describe the
+    /// innermost frame. An error the member changed (another number,
+    /// description or source) or made itself has the outer frames only.
     pub frames: Vec<StackFrame>,
 }
 

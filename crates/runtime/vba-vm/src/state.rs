@@ -318,6 +318,18 @@ pub(crate) struct Site {
     pub frames: Vec<crate::error::StackFrame>,
 }
 
+/// An error a nested run (started by a host member while the VM was suspended
+/// in it) ended with: the frames above the run's base, kept so that the
+/// error, when the host member returns it, reports them with the outer ones.
+#[derive(Debug, Clone)]
+pub(crate) struct NestedFailure {
+    pub number: i32,
+    pub description: String,
+    pub source: String,
+    /// Innermost first, without the frames of the outer run.
+    pub frames: Vec<crate::error::StackFrame>,
+}
+
 /// The `Err` object's contents.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ErrState {

@@ -242,16 +242,25 @@ End Sub
     let vba::Error::Run(run) = &err else { panic!() };
     let info = run.error_info().unwrap();
     assert_eq!(info.number, 11);
-    // Known limit: the frames of the nested handler are not part of the
-    // outer report (number, description and source are).
-    let procs: Vec<String> = run
-        .report()
-        .unwrap()
-        .frames
+    // The frames of the nested handler come first (innermost first), then a
+    // marker where the error crossed the host member, then the outer frames.
+    let frames = &run.report().unwrap().frames;
+    let procs: Vec<(bool, String)> = frames
         .iter()
-        .map(|f| f.procedure.clone())
+        .map(|f| (f.host_boundary, f.procedure.clone()))
         .collect();
-    assert_eq!(procs, ["OpenOrders"]);
+    assert_eq!(
+        procs,
+        [
+            (false, "Helper".to_string()),
+            (false, "Form_Current".to_string()),
+            (true, String::new()),
+            (false, "OpenOrders".to_string()),
+        ]
+    );
+    assert_eq!(run.report().unwrap().stack[2], "[host boundary]");
+    assert_eq!(run.report().unwrap().procedure, "Form_Orders.Helper");
+    assert!(format!("{:#}", run.report().unwrap()).contains("\n  at [host boundary]\n"));
     assert!(inst.is_usable());
     // The form is half open on the host side; later events still run.
     let st = form(&db, "Orders");

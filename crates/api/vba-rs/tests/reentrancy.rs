@@ -244,8 +244,11 @@ fn a_nested_error_the_host_returns_unhandled_ends_the_outer_call() {
     assert_eq!(report.number, 6002);
     assert_eq!(report.description, "load failed");
     assert!(matches!(err, Error::Run(RunError::Host(_))), "{err:?}");
-    assert_eq!(report.frames.len(), 1);
-    assert_eq!(report.frames[0].procedure, "Go");
+    // The nested handler's frame, the host boundary, the outer frame.
+    assert_eq!(report.frames.len(), 3);
+    assert_eq!(report.frames[0].procedure, "Form_Load");
+    assert!(report.frames[1].host_boundary);
+    assert_eq!(report.frames[2].procedure, "Go");
     assert!(!inst.output().contains("not reached"));
 }
 

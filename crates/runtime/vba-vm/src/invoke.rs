@@ -897,19 +897,67 @@ impl Vm {
             self.store(l, value)?;
         }
         let applied = self.apply_foreign_refs();
+        let nested = self.nested_failure.take();
         let v = result.map_err(|e| {
             let mut r = RtErr::from(e);
             if r.origin == ErrOrigin::Vba {
                 r.origin = ErrOrigin::Host;
             }
-            Fault::from(r)
-        })?;
+            r
+        });
+        let v = match v {
+            Ok(v) => v,
+            Err(r) => {
+                if let Some(n) = nested {
+                    self.report_nested_frames(&r, n);
+                }
+                return Err(Fault::from(r));
+            }
+        };
         applied?;
         if let Some(e) = write_err {
             return Err(e);
         }
         self.drain_events()?;
         Ok(v)
+    }
+
+    /// The host member returned the error a nested run (started by that
+    /// member) ended with: records the call stack of the error as the frames
+    /// of the nested run, a host-boundary marker, then the frames of this
+    /// run. An error the member made or changed is not attributed to the
+    /// nested run.
+    fn report_nested_frames(&mut self, r: &RtErr, n: NestedFailure) {
+        let project = &self.cfg.project_name;
+        let same_source = n.source == r.source || (r.source.is_empty() && n.source == *project);
+        if n.number != r.number || n.description != r.description || !same_source {
+            return;
+        }
+        let ir = self.ir.clone();
+        let mut site = self.capture_site(&ir);
+        let mut frames = n.frames;
+        // The error was raised in the nested run: its innermost frame names
+        // the procedure and the line, as for any other error.
+        if let Some(top) = frames.first() {
+            site.module = top.module.clone();
+            site.procedure = format!("{}.{}", top.module, top.procedure);
+            site.line = top.line;
+            site.source_line = top.source_line;
+        }
+        frames.push(crate::error::StackFrame::boundary());
+        frames.append(&mut site.frames);
+        site.stack = frames
+            .iter()
+            .map(|f| {
+                if f.host_boundary {
+                    crate::error::StackFrame::HOST_BOUNDARY.to_owned()
+                } else {
+                    format!("{}.{}", f.module, f.procedure)
+                }
+            })
+            .collect();
+        site.frames = frames;
+        self.last_site = Some(site);
     }
 
     /// Starts enumerating an external object with `DISPID_NEWENUM`.

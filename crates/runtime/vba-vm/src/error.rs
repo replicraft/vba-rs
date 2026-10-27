@@ -265,10 +265,32 @@ pub struct StackFrame {
     /// frame (in the module source as it was given to the engine), 0 when
     /// unknown.
     pub source_line: u32,
+    /// `true` for the marker between the frames of a nested run and the
+    /// frames of the run that started it: the point where the error crossed
+    /// a host member (for example a form event raised by a host method).
+    /// The other fields are empty.
+    pub host_boundary: bool,
+}
+
+impl StackFrame {
+    /// The text of the marker in [`RuntimeError::stack`] and in the
+    /// rendering of the stack.
+    pub const HOST_BOUNDARY: &'static str = "[host boundary]";
+
+    /// The marker frame (see [`StackFrame::host_boundary`]).
+    pub fn boundary() -> StackFrame {
+        StackFrame {
+            host_boundary: true,
+            ..StackFrame::default()
+        }
+    }
 }
 
 impl fmt::Display for StackFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.host_boundary {
+            return f.write_str(Self::HOST_BOUNDARY);
+        }
         write!(f, "{}.{}", self.module, self.procedure)?;
         match (self.line, self.source_line) {
             (0, 0) => Ok(()),

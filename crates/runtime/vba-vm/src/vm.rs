@@ -119,6 +119,8 @@ pub struct Vm {
     pub(crate) pending_fatal: Option<Fault>,
     pub(crate) stop_reason: Option<String>,
     pub(crate) last_site: Option<Site>,
+    /// See [`NestedFailure`].
+    pub(crate) nested_failure: Option<NestedFailure>,
     /// Source line of each statement, per function (see `set_source_lines`).
     pub(crate) source_lines: Vec<Vec<u32>>,
     pub(crate) push_request: Option<Option<vba_ir::Reg>>,
@@ -207,6 +209,7 @@ impl Vm {
             pending_fatal: None,
             stop_reason: None,
             last_site: None,
+            nested_failure: None,
             source_lines: Vec::new(),
             push_request: None,
             push_done: false,
@@ -436,11 +439,13 @@ impl Vm {
         args: Vec<Arg>,
     ) -> Result<RunOutput, VmError> {
         self.last_site = None;
+        self.nested_failure = None;
         self.stop_reason = None;
+        let base = self.frames.len();
         let _meter = self.host.budget().enter();
         if let Err(f) = self.poll_now() {
             return if self.nesting > 0 {
-                self.finish_nested(Err(f), Vec::new())
+                self.finish_nested(Err(f), Vec::new(), base)
             } else {
                 Err(self.fault_to_error(f))
             };
@@ -456,7 +461,7 @@ impl Vm {
         let r = self.call_nested(proc_, me, bound);
         let byref = self.collect_byref(temp_base, outs, matches!(r, Ok(_) | Err(Fault::Stop)));
         if self.nesting > 0 {
-            return self.finish_nested(r, byref);
+            return self.finish_nested(r, byref, base);
         }
         match r {
             Ok(v) => Ok(RunOutput {
@@ -497,6 +502,7 @@ impl Vm {
         &mut self,
         r: VResult<Variant>,
         byref: Vec<Variant>,
+        base: usize,
     ) -> Result<RunOutput, VmError> {
         match r {
             Ok(value) => Ok(RunOutput {
@@ -520,7 +526,19 @@ impl Vm {
                     byref,
                 })
             }
-            Err(e @ Fault::Err(_)) => Err(self.fault_to_error(e)),
+            Err(e @ Fault::Err(_)) => {
+                let err = self.fault_to_error(e);
+                if let VmError::Runtime(rt) = &err {
+                    let keep = rt.frames.len().saturating_sub(base);
+                    self.nested_failure = Some(NestedFailure {
+                        number: rt.error.number,
+                        description: rt.error.description.clone(),
+                        source: rt.error.source.clone(),
+                        frames: rt.frames[..keep].to_vec(),
+                    });
+                }
+                Err(err)
+            }
             Err(f) => {
                 self.pending_fatal = Some(f.clone());
                 Err(self.fault_to_error(f))
