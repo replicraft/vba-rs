@@ -273,7 +273,7 @@ fn run_maps_failures_to_exit_codes() {
         "Public Sub Main()\r\nErr.Raise 77, \"src\", \"boom\"\r\nEnd Sub\r\n",
         &[],
     );
-    assert_eq!(c, 2, "{e}");
+    assert_eq!(c, 7, "{e}");
     assert!(e.contains("Run-time error '77': boom"), "{e}");
     let (c, e) = run(
         "Public Sub Main()\r\nDo\r\nLoop\r\nEnd Sub\r\n",
@@ -316,7 +316,7 @@ fn run_can_use_an_in_memory_file_system() {
         .assert()
         .failure();
     // /tmp does not exist in the empty in-memory file system.
-    assert_eq!(a.get_output().status.code(), Some(2));
+    assert_eq!(a.get_output().status.code(), Some(7));
     let f = write(
         dir.path(),
         "M2.bas",

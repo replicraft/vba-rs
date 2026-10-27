@@ -21,12 +21,16 @@ Exit codes:
   0  success; for lex, parse, check and fmt-check: no errors or findings
   1  findings (errors in the source) or bad input: unreadable or
      unrecognized files, unknown profile, a project that does not compile
-  2  command-line usage error (and, for `run` only, an unhandled VBA
-     run-time error)
+  2  command-line usage error (unknown command or option, missing argument)
   3  run: a capability that was not granted was needed
-  4  run: a resource limit was exceeded or the run was cancelled
+  4  run: a resource limit was exceeded, the time allowance ran out or the
+     run was cancelled
   5  run: a feature that is not implemented, or an internal error
   6  the project is compiled-only: modules without source text
+  7  run: an unhandled VBA run-time error (or an error reported by the host)
+
+Every code has one meaning for every command. Earlier development builds
+exited 2 for an unhandled run-time error too.
 
 Output: results go to standard output, errors to standard error prefixed
 `error:`. Colours are used only on a terminal, never when NO_COLOR is set,
@@ -165,9 +169,10 @@ enum Command {
     /// files, start programs, create objects, call native code or show UI.
     ///
     /// Exit codes: 0 success; 1 bad input or the project does not compile;
-    /// 2 unhandled run-time error; 3 permission denied; 4 resource limit or
-    /// cancelled; 5 unsupported feature or internal error; 6 the project is
-    /// compiled-only (modules without source).
+    /// 2 command-line usage error; 3 permission denied; 4 resource limit,
+    /// time allowance or cancelled; 5 unsupported feature or internal error;
+    /// 6 the project is compiled-only (modules without source); 7 unhandled
+    /// run-time error.
     Run {
         /// Source files (`.bas`, `.cls`, `.frm`) or one vbaProject.bin (`-` is
         /// standard input).

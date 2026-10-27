@@ -59,9 +59,10 @@ fish, powershell, elvish) and `man` (a roff manual page). `check`, `parse`, `fmt
 and `profiles` accept `--json`. Diagnostics are colored only on a terminal and never when
 `NO_COLOR` is set (`--color always|never` overrides).
 
-Exit codes: 0 success; 1 findings or bad input; 2 usage error (and, for `run`, an
-unhandled run-time error); 3 permission denied; 4 resource limit or cancelled; 5
-unsupported feature or internal error; 6 compiled-only project.
+Exit codes (one meaning each, for every command): 0 success; 1 findings or bad input;
+2 usage error; 3 permission denied; 4 resource limit, time allowance or cancelled; 5
+unsupported feature or internal error; 6 compiled-only project; 7 unhandled run-time error.
+Earlier development builds exited 2 for an unhandled run-time error too.
 
 To embed the engine in an application, start with the
 [embedding guide](docs/architecture/embedding-guide.md).

@@ -25,9 +25,9 @@ fn run_reads_the_program_from_standard_input() {
 }
 
 #[test]
-fn run_from_standard_input_reports_runtime_errors_with_exit_code_2() {
+fn run_from_standard_input_reports_runtime_errors_with_exit_code_7() {
     let src = "Sub Main()\n    Err.Raise 5\nEnd Sub\n";
-    vbars().args(["run", "-"]).write_stdin(src).assert().code(2);
+    vbars().args(["run", "-"]).write_stdin(src).assert().code(7);
 }
 
 #[test]
@@ -279,4 +279,28 @@ fn unknown_profiles_fail_with_exit_code_1() {
             "{sub}"
         );
     }
+}
+
+/// Each exit code has one meaning for every command: usage errors are 2,
+/// unhandled run-time errors are 7, and the documentation lists every code.
+#[test]
+fn exit_codes_are_distinct_and_documented() {
+    let help = vbars().arg("--help").assert().success();
+    let s = text(&help.get_output().stdout);
+    for code in 0..=7 {
+        assert!(
+            s.contains(&format!("\n  {code}  ")),
+            "code {code} in --help: {s}"
+        );
+    }
+    let run_help = vbars().args(["run", "--help"]).assert().success();
+    let s = text(&run_help.get_output().stdout);
+    assert!(s.contains("7 unhandled"), "{s}");
+    let man = vbars().arg("man").assert().success();
+    let man = text(&man.get_output().stdout);
+    assert!(man.contains("unhandled") && man.contains("7"), "{man}");
+    // A usage error and an unhandled run-time error differ.
+    vbars().args(["run", "--bogus-flag"]).assert().code(2);
+    let src = "Sub Main()\n    Err.Raise 5\nEnd Sub\n";
+    vbars().args(["run", "-"]).write_stdin(src).assert().code(7);
 }

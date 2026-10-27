@@ -234,9 +234,20 @@ same policy checks and scoped grants as the file statements.
 module named `Stdin`; diagnostics name it `<stdin>`). `--color auto|always|never` controls
 ANSI colours in diagnostics: `auto` colours only a terminal and never when `NO_COLOR` is set.
 The `--json` outputs carry `schema_version` 1 and 1-based `line`/`column` positions.
-`vbars --help` lists the exit codes. A command-line usage error exits 2, the same code `run`
-uses for an unhandled run-time error; scripts that need to tell them apart should run
-`vbars run` with arguments that parse.
+`vbars --help` lists the exit codes; each code has one meaning for every command (table below).
+A command-line usage error exits 2 and an unhandled run-time error of `run` exits 7 (earlier development builds
+used 2 for both, which could not be told apart).
+
+| Code | Meaning |
+| --- | --- |
+| 0 | success (also `Stop`); for `lex`, `parse`, `check`, `fmt-check`: no errors or findings |
+| 1 | findings, or bad input: unreadable or unrecognized files, unknown profile or capability, a project that does not compile |
+| 2 | command-line usage error |
+| 3 | `run`: a capability that was not granted was needed |
+| 4 | `run`: a resource limit was exceeded, the time allowance ran out, or the run was cancelled |
+| 5 | `run`: an unsupported feature, a native bridge failure or an internal error |
+| 6 | the project is compiled-only (a module without source text) |
+| 7 | `run`: an unhandled VBA run-time error, or an error reported by the host |
 
 | Command | Result |
 | --- | --- |
@@ -266,7 +277,7 @@ default limits (100000000 steps, 256 MiB, call depth 1000); `--max-steps`,
 the step, memory and time limits. The run (and the shutdown after it) may also take at most 60
 wall-clock seconds; `--timeout SECONDS` changes that and `--timeout 0` removes it. The file system is
 the real one unless `--memfs`. Exit codes: 0 success (also `Stop`), 1 bad input
-or the project does not compile, 2 unhandled run-time error (VBA or host),
+or the project does not compile, 2 usage error, 7 unhandled run-time error (VBA or host),
 3 permission denied, 4 resource limit or cancelled, 5 unsupported feature,
 bridge failure or internal error, 6 the project is compiled-only or a call
 needs a module without source (`Error::CompiledOnly`). `check` and `parse` of a

@@ -17,14 +17,13 @@ use vba_vm::{DebugSink, RunStatus};
 use crate::load;
 use crate::tools::{ToolError, profile_arg};
 
-/// Exit codes of `vbars run`.
+/// Exit codes of `vbars run`. Code 2 is not here: it is the command-line
+/// usage error that the argument parser exits with, and no run ever uses it.
 pub mod exit {
     /// The procedure ran to completion.
     pub const OK: u8 = 0;
     /// Bad input: the files cannot be read or the project does not compile.
     pub const INPUT: u8 = 1;
-    /// An unhandled VBA run-time error, or an error reported by the host.
-    pub const RUNTIME: u8 = 2;
     /// A capability that was not granted was needed.
     pub const DENIED: u8 = 3;
     /// A resource limit was exceeded or the run was cancelled.
@@ -34,6 +33,8 @@ pub mod exit {
     /// The project, or the module a call needs, has no source text
     /// (compiled-only or stripped).
     pub const COMPILED_ONLY: u8 = 6;
+    /// An unhandled VBA run-time error, or an error reported by the host.
+    pub const RUNTIME: u8 = 7;
 }
 
 /// What `vbars run` was asked to do.
@@ -182,11 +183,10 @@ pub fn run(a: RunArgs) -> u8 {
     } else {
         ResourceLimits::untrusted()
     };
-    let limits = ResourceLimits {
-        max_steps: a.max_steps.or(base.max_steps),
-        max_memory_bytes: a.max_memory.or(base.max_memory_bytes),
-        max_call_depth: a.max_call_depth.unwrap_or(base.max_call_depth),
-    };
+    let limits = base
+        .with_max_steps(a.max_steps.or(base.max_steps))
+        .with_max_memory_bytes(a.max_memory.or(base.max_memory_bytes))
+        .with_max_call_depth(a.max_call_depth.unwrap_or(base.max_call_depth));
     let host = Rc::new(
         HeadlessHost::new()
             .with_metadata(HostMetadata::new(
@@ -243,10 +243,8 @@ pub fn run(a: RunArgs) -> u8 {
     session.trust();
     let args: Vec<Variant> = a.args.iter().map(|s| guess(s)).collect();
     let scope = |t: Option<Duration>| {
-        host.budget().enter_scope(ScopeLimits {
-            timeout: t,
-            ..ScopeLimits::default()
-        })
+        host.budget()
+            .enter_scope(ScopeLimits::default().with_timeout(t))
     };
     let token = scope(timeout);
     let result = session.run_procedure(&a.entry, args);
