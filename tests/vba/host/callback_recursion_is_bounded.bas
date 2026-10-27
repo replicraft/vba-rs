@@ -1,4 +1,4 @@
-' INV: expr.addressof, stmt.declare
+' INV: expr.addressof, stmt.declare, vbal.5.6.16.8
 ' SOURCE: unverified a callback that calls the function that called it again is bounded by the call-depth and native-stack budgets
 ' ERROR: limit
 ' GRANT: native-declare

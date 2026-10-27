@@ -1,4 +1,4 @@
-' INV: expr.addressof, stmt.declare
+' INV: expr.addressof, stmt.declare, vbal.5.6.16.8
 ' SOURCE: unverified qsort of the C runtime sorts in place by the comparison procedure; the emulated msvcrt shim is not compared with Windows
 ' EXPECT: -3 0 1 5 9 9
 ' GRANT: native-declare

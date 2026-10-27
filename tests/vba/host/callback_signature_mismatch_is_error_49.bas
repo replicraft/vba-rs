@@ -1,4 +1,4 @@
-' INV: expr.addressof, stmt.declare
+' INV: expr.addressof, stmt.declare, vbal.5.6.16.8
 ' SOURCE: unverified real VBA reports a callback with the wrong parameter list as error 49 (bad DLL calling convention) when the stack is unbalanced; vba-rs checks the signature before running the procedure
 ' EXPECT: 49
 ' GRANT: native-declare

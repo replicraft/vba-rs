@@ -1,4 +1,4 @@
-' INV: expr.addressof, stmt.declare
+' INV: expr.addressof, stmt.declare, vbal.5.6.16.8
 ' SOURCE: unverified SetTimer with a TIMERPROC is delivered by the emulated message pump at DoEvents; time is the manual clock moved by Sleep
 ' EXPECT: 0
 ' EXPECT: 1

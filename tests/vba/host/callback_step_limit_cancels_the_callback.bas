@@ -1,4 +1,4 @@
-' INV: expr.addressof, stmt.declare
+' INV: expr.addressof, stmt.declare, vbal.5.6.16.8
 ' SOURCE: unverified a callback runs under the step budget of the session; the limit is not trappable
 ' ERROR: limit
 ' GRANT: native-declare

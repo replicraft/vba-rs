@@ -1,4 +1,4 @@
-' INV: expr.addressof, stmt.declare
+' INV: expr.addressof, stmt.declare, vbal.5.6.16.8
 ' SOURCE: unverified an error a callback does not handle stops the call and is raised by the Declare statement that made it (vba-rs design; real VBA has no defined behavior across native frames)
 ' EXPECT: 1234 boom 2
 ' GRANT: native-declare

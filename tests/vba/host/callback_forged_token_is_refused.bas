@@ -1,4 +1,4 @@
-' INV: expr.addressof, stmt.declare
+' INV: expr.addressof, stmt.declare, vbal.5.6.16.8
 ' SOURCE: unverified a callback pointer is an opaque session token in vba-rs; arithmetic on it, or a guessed number, is error 5 and never runs code
 ' EXPECT: 5
 ' EXPECT: 5
