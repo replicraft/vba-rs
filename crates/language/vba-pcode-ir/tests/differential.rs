@@ -413,9 +413,26 @@ fn source_program(
         for r in lp
             .procedures
             .iter()
-            .filter(|r| r.module == m.name && r.id.is_some())
+            .filter(|r| r.module == m.name && (r.id.is_some() || r.is_declare))
         {
             let comparable = !excluded.contains(&(r.module.clone(), r.procedure.clone()));
+            if r.is_declare {
+                // A lowered `Declare` is its one logical line; one that is
+                // not lowered is not part of the shell.
+                if r.outcome.is_lowered() && comparable {
+                    let mut line = strip(&dec(&lines[r.first_line]));
+                    // The analysis targets 64-bit VBA 7: a `Declare` needs
+                    // `PtrSafe` (the shell writes it for every one).
+                    if !line.to_ascii_lowercase().contains("ptrsafe")
+                        && let Some(i) = line.to_ascii_lowercase().find("declare ")
+                    {
+                        line.insert_str(i + "declare ".len(), "PtrSafe ");
+                    }
+                    text.push_str(&line);
+                    text.push('\n');
+                }
+                continue;
+            }
             if r.outcome.is_lowered() && comparable {
                 let start = text.len();
                 for l in &lines[r.first_line..=r.last_line] {

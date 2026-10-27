@@ -1189,14 +1189,46 @@ impl Lw<'_> {
         args: Vec<Ex>,
     ) -> R<Ex> {
         let callee = self.cx.program.proc(id);
-        let names: Vec<String> = callee.params.iter().map(|p| p.name.to_string()).collect();
+        let out = self.bind_params(ins, &callee.params, args, false)?;
+        let recv = match recv {
+            Some(r) => Some(Box::new(r)),
+            None => self
+                .cx
+                .program
+                .module(callee.module)
+                .is_class_like()
+                .then(|| Box::new(self.me())),
+        };
+        Ok(Ex::Call {
+            callee: Callee::Proc(id),
+            ty: if callee.has_result {
+                callee.ret.clone()
+            } else {
+                Type::Variant
+            },
+            args: out,
+            recv,
+        })
+    }
+
+    /// Binds the arguments of a call to the parameters of the callee:
+    /// conversions, `ByRef` places, omitted and `ParamArray` arguments, as
+    /// the source binding does. `buffer` is the rule of a `Declare`.
+    fn bind_params(
+        &mut self,
+        ins: &Listed,
+        params: &[vba_sema::ParamInfo],
+        args: Vec<Ex>,
+        buffer: bool,
+    ) -> R<Vec<ArgEx>> {
+        let names: Vec<String> = params.iter().map(|p| p.name.to_string()).collect();
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
         let args = self.arrange_args(ins, &name_refs, args)?;
         let given = args.len();
-        let pa = callee.params.iter().position(|p| p.param_array);
-        let fixed = pa.unwrap_or(callee.params.len());
+        let pa = params.iter().position(|p| p.param_array);
+        let fixed = pa.unwrap_or(params.len());
         if (pa.is_none() && given > fixed)
-            || callee.params[given.min(fixed)..fixed]
+            || params[given.min(fixed)..fixed]
                 .iter()
                 .any(|p| !p.optional)
         {
@@ -1209,7 +1241,7 @@ impl Lw<'_> {
             Vec::new()
         };
         let mut out = Vec::new();
-        for (p, a) in callee.params[..fixed].iter().zip(args) {
+        for (p, a) in params[..fixed].iter().zip(args) {
             if matches!(a, Ex::Missing) {
                 if !p.optional {
                     return Err(self.no(ins.opcode, "omitted argument for a required parameter"));
@@ -1218,6 +1250,26 @@ impl Lw<'_> {
                 continue;
             }
             let forced = matches!(a, Ex::Paren(_));
+            // A `ByVal String` argument of a `Declare` that is a variable is
+            // passed by reference (the library fills the buffer).
+            if buffer
+                && p.by_val
+                && p.ty.is_string()
+                && !forced
+                && a.ty().is_string()
+                && matches!(
+                    a,
+                    Ex::Local { bare: true, .. }
+                        | Ex::Global { bare: true, .. }
+                        | Ex::Field { .. }
+                        | Ex::UdtField { .. }
+                        | Ex::Index { .. }
+                )
+                && let Some(pl) = place_of(&a)
+            {
+                out.push(ArgEx::Ref(pl));
+                continue;
+            }
             if matches!(p.ty, Type::Array { .. }) && !matches!(a, Ex::Local { bare: true, .. }) {
                 return Err(self.no(ins.opcode, "array argument that is not a variable"));
             }
@@ -1236,7 +1288,9 @@ impl Lw<'_> {
                     ty,
                     bare: true,
                 } => Some((Place::Global(*gid), ty.clone())),
-                Ex::Field { .. } | Ex::UdtField { .. } => place_of(&a).map(|pl| (pl, a.ty())),
+                Ex::Field { .. } | Ex::UdtField { .. } | Ex::Index { .. } => {
+                    place_of(&a).map(|pl| (pl, a.ty()))
+                }
                 _ => None,
             };
             if let Some((t, ty)) = target {
@@ -1290,24 +1344,47 @@ impl Lw<'_> {
                 other => ArgEx::Val(self.coerce_arg(ins, other, &Type::Variant)?),
             });
         }
-        let recv = match recv {
-            Some(r) => Some(Box::new(r)),
-            None => self
-                .cx
-                .program
-                .module(callee.module)
-                .is_class_like()
-                .then(|| Box::new(self.me())),
-        };
+        Ok(out)
+    }
+
+    /// The `Declare` called `name` that is visible to the procedure: the
+    /// module's own, or the only public one of the standard modules.
+    fn declare_target(&self, name: &str) -> Option<vba_sema::DeclareId> {
+        let key = vba_ast::Name::new(name);
+        let program = self.cx.program;
+        if let Some((Symbol::Declare(d), _)) = program.module(self.sema.module).symbols.get(&key) {
+            return Some(*d);
+        }
+        let mut found = None;
+        for m in &program.modules {
+            if m.id == self.sema.module || m.is_class_like() {
+                continue;
+            }
+            if let Some((Symbol::Declare(d), _)) = m.symbols.get(&key)
+                && program.declares[d.index()].visibility != vba_ast::Visibility::Private
+            {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(*d);
+            }
+        }
+        found
+    }
+
+    /// A call of a `Declare`d procedure.
+    fn declare_call(&mut self, ins: &Listed, id: vba_sema::DeclareId, args: Vec<Ex>) -> R<Ex> {
+        let d = &self.cx.program.declares[id.index()];
+        let out = self.bind_params(ins, &d.params, args, true)?;
         Ok(Ex::Call {
-            callee: Callee::Proc(id),
-            ty: if callee.has_result {
-                callee.ret.clone()
+            callee: Callee::Declare(id),
+            ty: if d.is_function {
+                d.ret.clone()
             } else {
                 Type::Variant
             },
             args: out,
-            recv,
+            recv: None,
         })
     }
 
@@ -3022,6 +3099,12 @@ impl Lw<'_> {
                 return self.project_call(ins, pid, args);
             }
         }
+        if let Some(did) = self.declare_target(name) {
+            let d = &self.cx.program.declares[did.index()];
+            if d.is_function && d.params.is_empty() {
+                return self.declare_call(ins, did, args);
+            }
+        }
         if args.is_empty() {
             match BuiltinLibrary.global(name) {
                 Some(LibGlobal::Constant(v, ty)) => return Ok(Ex::Const(v, ty)),
@@ -3152,6 +3235,14 @@ impl Lw<'_> {
                 return Err(self.no(ins.opcode, "a Sub used as a value"));
             }
             return self.project_call(ins, pid, args);
+        }
+        if suffix.is_none()
+            && let Some(did) = self.declare_target(name)
+        {
+            if !self.cx.program.declares[did.index()].is_function {
+                return Err(self.no(ins.opcode, "a Sub used as a value"));
+            }
+            return self.declare_call(ins, did, args);
         }
         let dollar = match suffix {
             None => false,
@@ -3424,6 +3515,11 @@ impl Lw<'_> {
             && let Some(pid) = self.proc_target(name, Role::Read)
         {
             return self.project_call(ins, pid, args);
+        }
+        if suffix.is_none()
+            && let Some(did) = self.declare_target(name)
+        {
+            return self.declare_call(ins, did, args);
         }
         if suffix.is_none() && self.is_host_name(name, false) {
             return Ok(self.host_member(name, args));

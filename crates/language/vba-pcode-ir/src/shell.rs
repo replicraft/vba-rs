@@ -27,6 +27,8 @@ pub(crate) struct Shell {
     pub ir: IrProgram,
     /// `[module][proc]`: the id of an included procedure.
     pub proc_ids: Vec<Vec<Option<ProcId>>>,
+    /// `[module][proc]`: the id of an included `Declare`.
+    pub declare_ids: Vec<Vec<Option<vba_sema::DeclareId>>>,
 }
 
 /// What a byte range of a stub text was generated from.
@@ -125,6 +127,11 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
             continue;
         }
         let start = text.len();
+        if p.info.is_declare {
+            write_declare(&mut text, p);
+            ranges.push((start, text.len(), Origin::Proc(i)));
+            continue;
+        }
         let (kw, end_kw) = match p.info.kind {
             ProcKind::PropertyGet => ("Property Get", "Property"),
             ProcKind::PropertyLet => ("Property Let", "Property"),
@@ -185,6 +192,64 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
     Stub { text, ranges }
 }
 
+/// The `Declare` statement of a procedure record.
+fn write_declare(text: &mut String, p: &ProcModel) {
+    let lib = p
+        .info
+        .library
+        .as_ref()
+        .and_then(local_spelling)
+        .unwrap_or_default();
+    let entry = p
+        .info
+        .entry_point
+        .as_ref()
+        .map(|e| String::from_utf8_lossy(e).into_owned())
+        .unwrap_or_default();
+    let _ = write!(
+        text,
+        "{} Declare {}{} {} Lib \"{lib}\"",
+        if p.info.public { "Public" } else { "Private" },
+        // The target is 64-bit VBA 7 whatever produced the cache: the
+        // keyword has no other effect on the declaration.
+        "PtrSafe ",
+        if p.info.is_function { "Function" } else { "Sub" },
+        p.name
+    );
+    if entry != p.name {
+        let _ = write!(text, " Alias \"{entry}\"");
+    }
+    text.push('(');
+    for (k, a) in p.info.args.iter().enumerate() {
+        if k > 0 {
+            text.push_str(", ");
+        }
+        let ty = p
+            .arg_tys
+            .get(k)
+            .map_or_else(|| "Variant".to_owned(), |t| t.spelling());
+        let array = matches!(p.arg_tys.get(k), Some(TyRef::Array(_)));
+        let _ = write!(
+            text,
+            "{}{} {}{} As {}",
+            if a.optional { "Optional " } else { "" },
+            if a.by_val && !array { "ByVal" } else { "ByRef" },
+            local_spelling(&a.name).unwrap_or_else(|| "_".into()),
+            if array { "()" } else { "" },
+            ty
+        );
+    }
+    text.push(')');
+    if returns_value(&p.info) {
+        let ty = p
+            .ret_ty
+            .as_ref()
+            .map_or_else(|| "Variant".to_owned(), |t| t.spelling());
+        let _ = write!(text, " As {ty}");
+    }
+    text.push('\n');
+}
+
 /// The procedure of the analysed program that was generated for `p`
 /// (property procedures share a name; the kind tells them apart).
 fn find_proc(program: &vba_sema::Program, module: &str, p: &ProcModel) -> Option<ProcId> {
@@ -202,6 +267,21 @@ fn find_proc(program: &vba_sema::Program, module: &str, p: &ProcModel) -> Option
         .map(|id| program.proc(*id))
         .find(|q| q.name == n && q.kind == want)
         .map(|q| q.id)
+}
+
+/// The `Declare` of the analysed program that was generated for `p`.
+fn find_declare(
+    program: &vba_sema::Program,
+    module: &str,
+    p: &ProcModel,
+) -> Option<vba_sema::DeclareId> {
+    let m = program.module_by_name(module)?;
+    let n = vba_ast::Name::new(&p.name);
+    m.declares
+        .iter()
+        .map(|id| &program.declares[id.index()])
+        .find(|d| d.name == n)
+        .map(|d| d.id)
 }
 
 /// Builds the shell for the procedures marked in `include` (`[module][proc]`),
@@ -241,19 +321,28 @@ pub(crate) fn build_shell(
             let ir = vba_ir::lower(&analysis).map_err(|e| LowerError::Shell(e.to_string()))?;
             let mut proc_ids: Vec<Vec<Option<ProcId>>> =
                 models.iter().map(|m| vec![None; m.procs.len()]).collect();
+            let mut declare_ids: Vec<Vec<Option<vba_sema::DeclareId>>> =
+                models.iter().map(|m| vec![None; m.procs.len()]).collect();
             for &mi in &module_list {
                 if ir.program.module_by_name(&models[mi].name).is_none() {
                     continue;
                 }
                 for (pi, p) in models[mi].procs.iter().enumerate() {
-                    if include[mi][pi]
-                        && let Some(id) = find_proc(&ir.program, &models[mi].name, p)
-                    {
+                    if !include[mi][pi] {
+                        continue;
+                    }
+                    if p.info.is_declare {
+                        declare_ids[mi][pi] = find_declare(&ir.program, &models[mi].name, p);
+                    } else if let Some(id) = find_proc(&ir.program, &models[mi].name, p) {
                         proc_ids[mi][pi] = Some(id);
                     }
                 }
             }
-            return Ok(Shell { ir, proc_ids });
+            return Ok(Shell {
+                ir,
+                proc_ids,
+                declare_ids,
+            });
         }
         // Drop the procedures that own an error; if an error cannot be
         // attributed to a procedure, drop every procedure of that module.

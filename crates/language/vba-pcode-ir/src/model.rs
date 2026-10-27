@@ -1021,8 +1021,18 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv, option_base: Op
     }
     let info = &p.info;
     if info.is_declare {
-        p.signature_problem = Some(fail("Declare"));
-        return;
+        // The library and the entry point must be known, as text.
+        let lib_ok = info.library.as_ref().and_then(local_spelling).is_some_and(|l| {
+            !l.contains(['"', '\r', '\n']) && !l.starts_with(PLACEHOLDER)
+        });
+        let entry_ok = info
+            .entry_point
+            .as_ref()
+            .is_some_and(|e| e.is_ascii() && !e.is_empty() && !e.contains(&b'"'));
+        if !lib_ok || !entry_ok || info.kind != ProcKind::SubOrFunction {
+            p.signature_problem = Some(fail("Declare whose library or entry point is unknown"));
+            return;
+        }
     }
     if !matches!(
         info.kind,
@@ -1085,6 +1095,9 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv, option_base: Op
         }
     }
     p.arg_tys = arg_tys;
+    if info.is_declare {
+        return;
+    }
     // Locals.
     let mut locals = Vec::new();
     // The instructions since the last `Dim` marker: the bounds of an array

@@ -77,6 +77,8 @@ pub struct ProcedureReport {
     pub last_line: usize,
     /// The kind recorded for the procedure.
     pub kind: vba_pcode::ProcKind,
+    /// An external `Declare` statement (it has no body and no id).
+    pub is_declare: bool,
     /// Lowered or not.
     pub outcome: Outcome,
 }
@@ -350,6 +352,21 @@ pub fn lower_project_with_options(
     let mut lowered: HashMap<(usize, usize), lower::Lowered> = HashMap::new();
     for (mi, m) in models.iter().enumerate() {
         for (pi, p) in m.procs.iter().enumerate() {
+            if p.info.is_declare {
+                if include[mi][pi] && reports[mi][pi].is_none() {
+                    reports[mi][pi] = Some(if shell.declare_ids[mi][pi].is_some() {
+                        Outcome::Lowered
+                    } else {
+                        Outcome::Unsupported(Unsupported {
+                            opcode: vba_pcode::Opcode::ProcHeader,
+                            procedure: p.name.clone(),
+                            line: p.header_line,
+                            reason: "no declaration of that name in the program shell".into(),
+                        })
+                    });
+                }
+                continue;
+            }
             let Some(id) = shell.proc_ids[mi][pi] else {
                 if reports[mi][pi].is_none() && include[mi][pi] {
                     reports[mi][pi] = Some(Outcome::Unsupported(Unsupported {
@@ -520,6 +537,7 @@ pub fn lower_project_with_options(
                 first_line: p.header_line,
                 last_line: p.end_line,
                 kind: p.info.kind,
+                is_declare: p.info.is_declare,
                 outcome: reports[mi][pi].clone().unwrap_or_else(|| {
                     Outcome::Unsupported(Unsupported {
                         opcode: vba_pcode::Opcode::ProcHeader,
