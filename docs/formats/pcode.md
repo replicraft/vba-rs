@@ -17,9 +17,10 @@ shared `vba-vm`. See [compiled-projects.md](../runtime/compiled-projects.md) for
 project model does today (store, copy and re-embed the cache as opaque bytes;
 never interpret it).
 
-Priority target: VBA 7.0, 32-bit (the Office 2010 generation). VBA 7.1 and 64-bit variants
-come next, as material becomes available; layout statements are not assumed to carry over
-between them.
+Priority target: VBA 7.0, 32-bit (the Office 2010 generation), done first; VBA 6 and VBA 7
+on 32-bit and 64-bit Windows were verified afterwards on 46 further projects
+([pcode-phase3.md](pcode-phase3.md) section 9). VBA 5, VBA 3 and the Macintosh variant have
+no material yet; layout statements are not assumed to carry over to them.
 
 Test material: extracted projects are local-only and never committed, and no bytes derived
 from them (hex dumps, identifier lists) are committed either. This document contains
@@ -36,8 +37,9 @@ every module `[obs]`.
   here `0x0097` `[spec: layout; obs: value]`. The specification calls the value
   implementation-specific; mapping it to a VBA release is `[hyp]` (VBA 7.x, consistent with
   the conditional-compilation name `Win64` appearing in the project-level cache).
-* Every layout statement below was observed on VBA 7.0 x86; it must be re-verified against
-  other versions and 64-bit projects before it is trusted for them.
+* The layout statements of this section were observed on VBA 7.0 x86. The format and opcode
+  documents state which of them carry over to VBA 6 and to 64-bit (most do; the exceptions
+  are listed there) and which were corrected.
 
 ### Version identification
 
@@ -161,7 +163,7 @@ at creation time):
 | 0 | Material access, container extraction path, first structural facts, docs | done; at least one project with source and cache |
 | 1 | Header and section map: parse the header, locate every section, enumerate records without interpreting them | 100% of module caches parse into a gap-free sequence of known-size regions (no unexplained bytes in sections, tolerated in an `unknown` bucket below a stated size); property test: re-encode the region map |
 | 2 | Token/record decoder for expressions and statements on the observed material; opcode table derived by diffing against source | per-record round trip: decoded records re-render the source statements of the oracle (modulo whitespace and case) for >= 95% of statements of the observed material |
-| 3 | Same on the other versions and on 64-bit (needs new test material) | same metric, on each added version |
+| 3 | Same on the other versions and on 64-bit (needs new test material) | same metric, on each added version; done for VBA 6 and 7, x86 and x64 (31,107 statements of 46 projects, 97.6 % consistent; VBA 5 and VBA 3 have no material) |
 | 4 | Lower decoded procedures to `vba-ir`, run a small program on `vba-vm` | outputs of the compiled-only project equal the source version on a conformance subset; errors raised for unsupported records, never silent |
 | 5 | Compiled-only `.accde` with referenced libraries | the first real compiled-only database project runs end to end |
 

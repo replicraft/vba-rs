@@ -2,35 +2,39 @@
 
 Crate: `crates/formats/vba-pcode` (library only, no CLI wiring). Scope reached:
 phase 1 (structure) and phase 2 (opcode decoder and disassembler) of the gates in
-[pcode.md](pcode.md). Phase 3 (other versions and 64-bit) is not started. A lowering of the
+[pcode.md](pcode.md), and phase 3 for VBA 6 and 7 on 32-bit and 64-bit Windows
+(verified on 46 further projects, [pcode-phase3.md](pcode-phase3.md) section 9; VBA 5
+and VBA 3 have no material and stay unverified). A lowering of the
 verified subset to `vba-ir` exists in `crates/language/vba-pcode-ir`; its coverage on
-the local project (99 of the 139 standard-module procedures with a body, 71 %, and 90
+the first local project (99 of the 139 standard-module procedures with a body, 71 %, and 90
 of the 205 procedures with a body of class, document and designer modules, 44 %) is
-measured in [pcode-phase3.md](pcode-phase3.md) sections 4 and 8.
+measured in [pcode-phase3.md](pcode-phase3.md) sections 4 and 8, and on the 46 other
+projects in section 9.
 
 Specifications: [pcode-format.md](pcode-format.md), [pcode-opcodes.md](pcode-opcodes.md),
 [pcode.md](pcode.md) and the public MS-OVBA text. Tags as in those documents: `[spec]`
-stated by the documents, `[obs]` observed on VBA 7.0 x86 material (33 modules, source
-and cache side by side), `[unverified]` implemented from the text without material.
-Nothing from the observed material is committed; the tests that need it are `#[ignore]`d
-and return early when it is absent. Observed corrections to the specifications are
+stated by the documents, `[obs]` observed in compiled projects with the source of the
+same modules side by side (a first project of VBA 7.0 x86 with 33 modules, then 46
+projects of VBA 6 and 7, 32-bit and 64-bit), `[unverified]` implemented from the text
+without material. Nothing from the observed material is committed; the tests that need
+it are `#[ignore]`d and return early when it is absent. Observed corrections to the specifications are
 recorded in the specifications themselves, not here.
 
 ## What is implemented
 
 | Piece | Where | Status |
 |---|---|---|
-| Layout selection from the `_VBA_PROJECT` version word and `PROJECTSYSKIND` (`Layout::select`) | `layout.rs` | VBA 7.0 x86 (word `0x0097`) verified; VBA5, VBA6, other VBA7 words and x64 `[unverified]`. Version `0xFFFF`, 16-bit, Macintosh and unknown platform kinds are typed errors; big-endian module streams are a typed error |
-| Project-stream identifier walk (`parse_identifiers`, `ProjectCache`) | `project_stream.rs` | verified on the target |
-| Module-stream header, table locations (`TableLocations`) | `module.rs` | VBA6/7 x86 verified; x64 and VBA5 `[unverified]` |
+| Layout selection from the `_VBA_PROJECT` version word and `PROJECTSYSKIND` (`Layout::select`) | `layout.rs` | the bitness comes from `PROJECTSYSKIND` alone; verified for the (family, bitness, version word) combinations of `VERIFIED_LAYOUTS`: VBA6 x86 `0x79`, `0x88`; VBA7 x86 `0x97`, `0xAF`, `0xB2`; VBA7 x64 `0x9A`, `0xA6`, `0xB2`, `0xB5`. VBA5 and combinations not seen (for example `0xB5` on x86) are `[unverified]`. Version `0xFFFF`, 16-bit, Macintosh and unknown platform kinds are typed errors; big-endian module streams are a typed error, and so is a module whose platform word disagrees with the layout |
+| Project-stream identifier walk (`parse_identifiers`, `ProjectCache`) | `project_stream.rs` | verified (entries announced = entries read in all 46 further projects, versions `0x79` to `0xB5`) |
+| Module-stream header, table locations (`TableLocations`) | `module.rs` | VBA6/7, x86 and x64 verified; VBA5 `[unverified]` |
 | Line table (`LineTable`) and per-line code slots | `lines.rs` | verified |
-| Region map (`ModuleCache`): gap-free tiling of the whole cache with a named kind per region | `cache.rs` | verified (target layout) |
+| Region map (`ModuleCache`): gap-free tiling of the whole cache with a named kind per region | `cache.rs` | verified (gap-free tiling of 492 of 492 further modules, all layouts) |
 | Reference list and member table sections | `sections.rs` | verified (layouts in pcode-format.md 4.4) |
-| Records: function, argument, variable, user-defined type, type descriptor, declaration, object entry | `records.rs` | target layout verified; x64 offsets `[unverified]` |
-| Reachable-record map of the indirect table (`RecordMap`) | `recordmap.rs` | verified (target layout) |
-| Identifier resolution (`Resolver`, `Name`) and the confirmed built-in table | `names.rs` | user identifiers verified; built-ins: see below |
+| Records: function, argument, variable, user-defined type, type descriptor, declaration, object entry | `records.rs` | VBA6/7, x86 and x64 verified |
+| Reachable-record map of the indirect table (`RecordMap`) | `recordmap.rs` | verified (record sizes for VBA6/7, x86 and x64; the shape classifier `IndirectMap` still covers VBA7 x86 only) |
+| Identifier resolution (`Resolver`, `Name`) and the confirmed built-in table | `names.rs` | user identifiers verified for VBA6 (offset 0), VBA7 x86 (4) and x64 (7); built-ins: see below |
 | Canonical opcode table (264 entries) with operand shapes | `opcode.rs` | generated from the opcode document |
-| Opcode translation to canonical numbering | `layout.rs` | x86 VBA6/7 verified; x64, VBA5 `[unverified]`; VBA3 not implemented |
+| Opcode translation to canonical numbering | `layout.rs` | x86 VBA6/7 and x64 verified; VBA5 `[unverified]`; VBA3 not implemented |
 | Line decoder (`decode_line`) | `decode.rs` | verified |
 | Typed disassembly and its text format (`Disassembly`, `Disassembler`) | `disasm.rs` | verified |
 
@@ -104,7 +108,7 @@ test.
 
 ## Built-in names
 
-`names::CONFIRMED_BUILTINS` holds 19 index/spelling pairs; every other built-in index is
+`names::CONFIRMED_BUILTINS` holds 29 index/spelling pairs (19 from the first project, 10 from the VBA6 and 64-bit material, pcode-format.md 5.3); every other built-in index is
 `Name::UnknownBuiltin` and is never guessed. Evidence kind for all entries: in the
 observed material every instruction or type field using the index sits on a source line
 that contains the spelling as a token, and no other token is shared by all such lines
@@ -114,12 +118,12 @@ keywords `As` and `Dim` share its lines). The test
 range from 1 to 107. The indices fall in the lower part of the table and in
 alphabetical order, as the format document expected; no confirmed entry lies in the
 range where the VBA7 adjustment of format 5.2 applies, so that adjustment stays
-unverified (pcode-format.md 5.2). 11 name operands and a number of type names use unconfirmed indices.
+unverified (pcode-format.md 5.2): the only operand seen at or above it in all the material is a single member name. In the 46 further projects every built-in name operand that is not one of the 29 entries is left as `UnknownBuiltin`; none of them contradicts an entry.
 
 ## Unknowns
 
-* The built-in name table beyond the 19 entries; library-qualified type names; the type
-  name of user types declared in the same module (the descriptor has no name).
+* The built-in name table beyond the 29 entries; library-qualified type names (the object
+  entry has bit 0 of the word at +2 set and no names that were found).
 * Contents of the opaque blocks: the header between the offset fields and the
   declaration table (30 bytes), the block after the declaration table (module info,
   173 or 189 bytes plus module-dependent extras), the object-table header (138 bytes),
@@ -132,26 +136,33 @@ unverified (pcode-format.md 5.2). 11 name operands and a number of type names us
   (values 12 to 34 seen), of flag 0x40 of arguments, and of the argument records
   without a resolvable name (74 in the sample; they are the result records of
   functions and property getters in class-like modules, pcode-format.md 6.6).
-* 129 opcodes were never seen (including `PROC_CONTEXT`, `PROC_HEADER_ALT`, event,
-  `Implements`, preprocessor, file I/O and most operators on `Variant` forms); their
-  operand shapes come from the document only. The stack semantics of every opcode are
+* 97 opcodes were never seen in any layout (129 in the first project alone; the 32 more
+  seen in the 46 further projects include `Implements`, events, `Debug.Assert`,
+  conditional compilation and `ReDim` of members). Unseen include `PROC_CONTEXT`,
+  `PROC_HEADER_ALT`, the three 8-byte literals, `Single`, `Currency` and octal literals,
+  the `Bang` families, `Rem`, most file I/O, graphics and `Print` list parts, computed
+  `GoTo`/`GoSub`, `Stop`; their operand shapes come from the document only. The stack semantics of every opcode are
   those of the opcode document (inferred); nothing here verifies them.
 * Text and string handling uses the project code page bytes as stored; names are
   presented with one character per byte.
 
 ## What blocks phase 3 and phase 4
 
-1. Test material. Only VBA 7.0 x86 material was available. Phase 3 needs at least a VBA 7.1 32-bit, a 64-bit and a VBA 6 sample, each
-   with its source, to verify the x64 offsets, the opcode translations and the
-   identifier adjustments marked `[unverified]`.
+1. Test material. The first project (VBA 7.0 x86) was extended by 46 projects of VBA 6
+   and 7, 32-bit and 64-bit (pcode-phase3.md section 9), which verified the x64 and
+   VBA6 offsets, opcode translations and identifier adjustments. Still without
+   material: VBA5 and VBA3, big-endian (Macintosh) caches, 32-bit builds with version
+   words other than `0x97`, `0xAF`, `0xB2`, 64-bit builds with other words than `0x9A`,
+   `0xA6`, `0xB2`, `0xB5`, the 8-byte integer literals and `PROC_CONTEXT`, and the
+   built-in adjustment above index `0xC3`.
 2. The built-in name table. Without it, calls to many library members cannot be named;
-   the 19 confirmed entries are not enough to disassemble arbitrary programs. More
+   the 29 confirmed entries are not enough to disassemble arbitrary programs. More
    material (or an authoritative list) is needed; deriving it from limited material is slow
    because most built-ins have dedicated opcodes.
 3. Semantics for lowering. The decoder yields an operand-complete instruction stream,
    but the stack effects and the order in which the expression instructions are
    emitted are inferred. Lowering to `vba-ir` needs a differential test of the
-   lowered program against the source-derived one, which in turn needs the 129 unseen
+   lowered program against the source-derived one, which in turn needs the 97 unseen
    opcodes exercised by purpose-made projects (the test-material list in pcode.md).
 4. Declarations. Arrays (bounds), fixed-length strings, enums, `Declare` details beyond
    the entry point, event and `Implements` records, and the module-local user type
@@ -171,6 +182,10 @@ unverified (pcode-format.md 5.2). 11 name operands and a number of type names us
 cargo test -p vba-pcode                                      # synthetic and property tests
 VBA_PCODE_PROJECT=<path to an extracted project stream set> \
   cargo test -p vba-pcode --test real_project -- --ignored --nocapture
+VBA_PCODE_CORPUS=<directory of project files or documents> \
+  cargo test -p vba-pcode --test corpus -- --ignored --nocapture
+VBA_PCODE_CORPUS=<directory> cargo test -p vba-pcode-ir --test corpus --test differential \
+  -- --ignored --nocapture
 ```
 
 The second command prints the numbers above when the environment variable names a

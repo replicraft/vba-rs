@@ -4,9 +4,11 @@ Status of the third research step on the compiled-code cache. Companion to
 [pcode-status.md](pcode-status.md) (phases 1 and 2), [pcode-format.md](pcode-format.md)
 and [pcode-opcodes.md](pcode-opcodes.md). Nothing is wired into the facade or the CLI.
 
-Material: the same single local project as before (VBA 7.0, 32-bit, 33 modules with
-source and cache). Tests that need it read its path from `VBA_PCODE_PROJECT`, are
-`#[ignore]`d and return early when it is unset. Only numbers are recorded here.
+Material: sections 1 to 8 describe the first local project (VBA 7.0, 32-bit, 33 modules
+with source and cache), which remains the baseline. Tests that need it read its path
+from `VBA_PCODE_PROJECT`, are `#[ignore]`d and return early when it is unset. Section 9
+describes 46 further projects of VBA 6 and 7, 32-bit and 64-bit; their tests read a
+directory from `VBA_PCODE_CORPUS` and behave the same. Only numbers are recorded here.
 
 ## 1. Built-in names
 
@@ -79,8 +81,10 @@ language gives -1 for the same digits. New facts: the word of `LBound`/`UBound` 
 number of dimension arguments after the array (the instruction pops it plus one);
 `InStr` has one opcode per argument count (2, 3, 4).
 
-Result: 86 opcodes Verified, 49 Inferred (seen, not verified), 129 Unseen (no change
-in the seen total of 135). Left inferred although seen: `ERR_HANDLER_SET`,
+Result of the first project: 86 opcodes Verified, 49 Inferred (seen, not verified), 129
+Unseen (no change in the seen total of 135). After the 46 further projects (section 9):
+86 Verified, 81 Inferred, 97 Unseen; the 32 newly seen opcodes decode to the exact line
+length everywhere they occur, their meaning is not verified. Left inferred although seen: `ERR_HANDLER_SET`,
 `CONVERT_TO_TYPE`, member access (`READ_DOT` family), `WITH`, `For Each`, `New`,
 arrays (`ReDim`), `Set`, graphics and file statements.
 
@@ -90,7 +94,8 @@ arrays (`ReDim`), `Set`, graphics and file statements.
 `vba_ir::verify` plus one report per procedure: `Lowered`, or `Unsupported { opcode,
 procedure, line, reason }` naming the first thing outside the subset. Procedures that are
 not lowered have a body that raises an error and must not be run; a procedure calling
-one is itself unsupported. Only the verified layout (VBA 7.0 x86) is accepted.
+one is itself unsupported. Only the verified layouts (`vba_pcode::VERIFIED_LAYOUTS`: VBA 6
+and 7, 32-bit and 64-bit; section 9) are accepted.
 
 The IR refers to a `vba_sema::Program`. That program is obtained by analysing a
 declaration-only text generated from the cache records (headers, parameters, local
@@ -206,18 +211,22 @@ are separate, structural reasons).
   `Option Base` (1), `LBound` (1), indexing of a variable (1), `ParamArray` (1): each is
   one opcode family whose operand layout is inferred, with a single use in the sample.
 * Class-like modules (229): lowered in section 8; what is left there is in 8.4.
-* Other versions and bitness: see section 7.
+* Other versions and bitness: verified in section 9; the same subset is lowered there.
 
-## 7. Test material that would unblock other versions and bitness
+## 7. Test material that would still help
 
-* A project compiled by VBA 7.1 32-bit, one by VBA 7.1 64-bit and one by VBA 6, each
-  with the matching source: to verify the `[unverified]` offsets, the opcode
-  translations and the identifier adjustment. The lowering refuses every layout that is
-  not the verified one until then.
+Other versions and bitness were verified in section 9. What is still without material:
+
+* VBA 5 and VBA 3 projects (version word below 0x6B); big-endian (Macintosh) caches;
+  version words not listed in `VERIFIED_LAYOUTS` (for example a 32-bit build writing
+  0xB5, or a 2013 32-bit build).
 * Small purpose-made modules, each exercising one family with its source: `On Error`
   forms, `Optional` with defaults, module `Const`/`Static`/`Dim`, arrays, `Date` and
-  `Currency` literals, `Case Is`, `Do`/`Loop` with `Exit Do`, all `CONVERT_TO_TYPE`
-  modifiers, `With`, `For Each`, `New`, `Set`, `Property` procedures.
+  `Currency` literals, 64-bit integer literals, `Case Is`, `Do`/`Loop` with `Exit Do`,
+  all `CONVERT_TO_TYPE` modifiers, `With`, `For Each`, `New`, `Set`, `Property`
+  procedures, a procedure with `PROC_CONTEXT`.
+* Raw index 0xC3 and above of the built-in names, to settle the adjustment of
+  pcode-format.md 5.2.
 * A compiled-only project (no source) to confirm that the cache has the same structure
   when the source part is empty.
 
@@ -338,3 +347,120 @@ and the Win32 record types only occur in procedures that call `Declare`s, which
 are not lowered. Arrays (bounds, `ReDim`, indexing, `LBound`/`UBound`) would
 unlock a handful of procedures at most and need the array type descriptor
 decoded first.
+
+## 9. Other versions and 64-bit
+
+Material: 46 project files (public documents in the binary and the open document
+formats, and standalone project storages), with the source of every module in the
+same file. Counted per file: 492 modules, 2,693
+procedures. They were read with the container reader of `vba-format`; the tests are
+`vba-pcode/tests/corpus.rs`, `vba-pcode-ir/tests/corpus.rs` and
+`vba-pcode-ir/tests/differential.rs` (the last two read the same directory). Several
+files carry the same small project (the same macro in a binary and an open-format
+workbook, or the same source built by two builds); counts are per file.
+
+### 9.1 Layouts
+
+The decoder runs unchanged apart from the corrections listed in 9.4. For each layout,
+every module parsed and tiled gap-free, the source line count equalled the cache line
+count, every line with code decoded to its exact length, and the checks of
+[pcode-status.md](pcode-status.md) (name operands, literals, record names, kinds, types,
+visibility) agreed; "consistent" is the share of source statements for which every
+decoded operand is on the source line and every project identifier and literal of the
+line is among the operands.
+
+| Version word | Platform kind | Files | Modules | Procedures | Lines with code | Statements consistent |
+|---|---|---|---|---|---|---|
+| 0x79 (VBA 6) | 1 (32-bit) | 3 | 9 | 6 | 39 | 39 (100 %) |
+| 0x88 (VBA 6) | 1 | 3 | 9 | 7 | 74 | 74 (100 %) |
+| 0x97 | 1 | 4 | 34 | 77 | 1,030 | 1,030 (100 %) |
+| 0xAF | 1 | 5 | 10 | 12 | 256 | 253 (98.8 %) |
+| 0xB2 | 1 | 2 | 11 | 3 | 10 | 10 (100 %) |
+| 0x9A | 3 (64-bit) | 2 | 8 | 2 | 6 | 6 (100 %) |
+| 0xA6 | 3 | 7 | 12 | 7 | 21 | 21 (100 %) |
+| 0xB2 | 3 | 5 | 35 | 15 | 549 | 549 (100 %) |
+| 0xB5 | 3 | 15 | 364 | 2,564 | 29,122 | 28,366 (97.4 %) |
+| total | | 46 | 492 | 2,693 | 31,107 | 30,348 (97.6 %) |
+
+All 55,975 name operands, 5,617 string operands and 4,623 integer operands agree with
+the source; 3,185 variable names, 2,487 argument names, 2,083 intrinsic and 869 named
+types, and the kind, `Declare`-ness, visibility, `Friend`, `Static` and `PtrSafe` of
+2,693 procedures agree. The statements that are not consistent are the library-qualified
+type names, the `Implements` interface names (not in the operands), lines stored as
+text because the compiler did not take them (a `Declare` without `PtrSafe` on x64,
+the other branch of `#If`) and 4 forward failures.
+
+A pair of builds of one source (25 modules, 1,021 lines with code; version words 0x97 on
+32-bit and 0xB5 on 64-bit) decodes to the same opcode and modifier on every line, with
+equal literals and equal argument, variable and procedure information.
+
+### 9.2 Lowering and differential execution
+
+`lower_project_with_options` accepts all 46 projects (the verified layouts); the corpus
+differential runs the lowered procedures and the procedures of the source on `vba-vm`
+exactly as in section 5 (argument sets, one fresh instance per run for class-like
+modules, a recording host mock, whole-module sessions).
+
+| Version word, platform kind | Files | Procedures | Lowered | Executed (std + class) | Runs (std + class) | Sessions | Mismatches |
+|---|---|---|---|---|---|---|---|
+| 0x79, 1 | 3 | 6 | 1 | 0 + 1 | 0 + 1 | 4 | 0 |
+| 0x88, 1 | 3 | 7 | 2 | 1 + 1 | 1 + 1 | 8 | 0 |
+| 0x97, 1 | 4 | 77 | 12 | 2 + 10 | 6 + 14 | 32 | 0 |
+| 0xAF, 1 | 5 | 12 | 3 | 0 + 3 | 0 + 3 | 12 | 0 |
+| 0xB2, 1 | 2 | 3 | 3 | 3 + 0 | 3 + 0 | 8 | 0 |
+| 0x9A, 3 | 2 | 2 | 2 | 0 + 2 | 0 + 2 | 8 | 0 |
+| 0xA6, 3 | 7 | 7 | 7 | 0 + 7 | 0 + 7 | 28 | 0 |
+| 0xB2, 3 | 5 | 15 | 7 | 3 + 4 | 9 + 4 | 28 | 0 |
+| 0xB5, 3 | 15 | 2,564 | 242 | 24 + 218 | 84 + 319 | 360 | 0 |
+| total | 46 | 2,693 | 279 | 33 + 246 | 103 + 351 | 488 | 0 |
+
+The coverage is low in the large projects for reasons that are not about layout (as in
+section 8.4): locals, parameters and return types of object and library types (`Worksheet`,
+`Collection`, user classes: about 1,100 of 2,693), the `This As TState` idiom of module
+user types (346 procedures), `Set` (99), host objects used without being declared
+(`Application`, `ActiveSheet`, `Worksheets`), `Declare` (20), `Property Set`, `With`, and
+`Implements`.
+
+The first project still gives 189 of 430 procedures lowered, 524 + 344 runs, 112 sessions
+and 0 mismatches. It had 120 mismatches at the start of this step, all in
+procedures with `On Error Resume Next` followed by `Resume` without an error: the
+source lowering (`vba-ir`) had since kept the statement after such a `Resume`
+reachable so that `Resume Next` skips error 20, and the cache lowering had not. It does now.
+
+The corpus differential had 20 mismatches in its first run, for a different reason:
+the name of another module of the project (a form, `frmConsole.Show`) was lowered as a
+member of the host base object while the source side binds it to the module. A name that is
+the name of a module is now never a host member, and the procedure is not lowered.
+
+### 9.3 What is verified now, and what is not
+
+Verified (the numbers above): the module header and the tables for VBA 6 and VBA 7, 32-bit
+and 64-bit; the record layouts of function, argument, variable, type descriptor, user type,
+object entry and declaration records on both bitnesses; the opcode numbering of
+both; the identifier adjustment for VBA6 (0), VBA7 x86 (4) and x64 (7); 29 built-in names;
+the line table, including the cases where the code area has gaps; the lowering and its
+differential checks on all of the above.
+
+Not verified: VBA5 and VBA3 (no material), big-endian caches, version words not in
+`VERIFIED_LAYOUTS`, `PROC_CONTEXT` and its second operand on x64, the 8-byte integer
+literals, the built-in adjustment above 0xC3, 97 opcodes never seen, the meaning of the
+first word of `Implements`, library-qualified type names, and the `Static`, `ParamArray`
+and `Optional` forms on x64 beyond what the differential run covers.
+
+### 9.4 Corrections made to the earlier text and code
+
+* Bitness is the platform kind, not the version word: `0xB2` is written by both
+  builds, `0xD7`, `0xA3` and `0xD9` were not seen.
+* The declaration table length is at 0x3F on x64 as well (not 0x43).
+* x64 function record: the option, count and flag bytes are 6 bytes later than the
+  widening of the leading fields; the argument `next` pointer shifts with the other
+  fields; the function record has 88 bytes.
+* The identifier adjustment has no step above 0xBE; x64 subtracts 7.
+* Type descriptor and `obj` operands are the entry index times the pointer size (4
+  or 8), and index 0 is a valid entry (the former rule of "byte offset, a multiple of 10"
+  was wrong on x86, too).
+* The result record name sentinel is 0xFFFF on x64 (0xFFFE on x86).
+* `Implements` has two words, not four.
+* `Attribute` lines have no cache line wherever they stand.
+* The module platform word at offset 2 equals PROJECTSYSKIND.
+* `LongLong` has type id 20; `LongPtr` on x64 is id 20 with the pointer flag.

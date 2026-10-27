@@ -288,8 +288,8 @@ Offsets for lines need not be monotonic or contiguous; bound-check against the s
 ## 9. Known limitations and unknowns
 
 * The VBA3 layout is not distinguished by the version-based selection in 2.2; the VBA3 opcode mapping in the opcodes document is low confidence. **[L]**
-* Library-qualified type names (`Excel.Range`, `MSXML2.DOMDocument60`) and the type of a variable declared with one are not resolved: the object entry has bit 0 of the word at +2 set and does not hold the names. `ParamArray` on x64 was not seen.
-* The first word of `IMPLEMENTS_STMT` (a multiple of 4 on x86, of 8 on x64, different for each interface) names the interface through a table that has not been identified; it is not an object-table reference.
+* Library-qualified type names (`Lib.Type`) and the type of a variable declared with one are not resolved: the object entry has bit 0 of the word at +2 set and does not hold the names. `ParamArray` on x64 was not seen.
+* The first word of `IMPLEMENTS_STMT` (a multiple of 8 on x64, different for each interface; the 32-bit form was not seen) names the interface through a table that has not been identified; it is not an object-table reference.
 * Never seen on any layout: `PROC_CONTEXT` (so the second operand dword on x64 is unverified), the three 8-byte integer literals, VBA5, VBA3, big-endian streams.
 * Project-stream structures (reference records, form tables, module descriptors) are skipped, not decoded.
 * Alternative locations of line data, "reserved" module headers and Mac-specific details are untested.

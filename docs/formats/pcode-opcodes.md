@@ -7,7 +7,7 @@ Conventions used throughout:
 * All multi-byte quantities are little-endian on PC projects (see the format document for the Mac big-endian case).
 * **W** = one 16-bit operand word. **D** = one 32-bit operand (two words). **V** = variable-length trailer (see 1.3).
 * "name" operand = a W that is an identifier reference (format document, section 5).
-* "obj" operand = a W that is a byte offset into the module's object table (format document, section 6.1); the type/class name is the identifier reference found 6 bytes into the 10-byte entry at that offset.
+* "obj" operand = a W that references an entry of the module's object table (format document, section 6.1): the entry index times the pointer size (4 on x86, 8 on x64); the type/class name is the identifier reference found 6 bytes into the 10-byte entry (byte offset index times 10).
 * "rec" operand = a D that is a byte offset into the module's indirect table (format document, section 6.2).
 * Stack effects and semantics in the tables are the implementer-facing meaning in VBA terms. **Operand layouts and numbering are the established facts; stack effects and semantics are largely inferred from VBA language knowledge, and entries marked "inferred", "unverified" or "unknown" are guesses.** Operand layouts and numbering are high confidence unless said otherwise.
 * Names below are this document's own labels (upper-case, category-first); they have no official standing and are not stored anywhere in the data.
@@ -33,7 +33,7 @@ A line's instructions run from the line start offset until exactly the line's by
 |---|---|---|
 | name | 2 | identifier reference; MOD supplies a type-suffix character (3.1) |
 | W (plain) | 2 | number: counts, flags, raw literal words |
-| obj | 2 | offset into object table |
+| obj | 2 | object-table reference: entry index times the pointer size |
 | rec | 4 | offset into indirect table |
 | ctx | 4 (x86) / 8 (x64) | see PROC_CONTEXT |
 
@@ -43,7 +43,7 @@ After all fixed operands: a 16-bit byte length N, then N bytes of data, then one
 
 ## 2. Opcode numbering
 
-The tables in section 4 use a **canonical numbering** 0-263, which is the numbering stored in the module by the x64 build of VBA7. All other builds store a different numbering and must be translated to canonical before table lookup.
+The tables in section 4 use a **canonical numbering** 0-263, which is the numbering stored in the module by the x64 build of VBA7. All other builds store a different numbering and must be translated to canonical before table lookup. The build is the project's platform kind (format document 2.1), not its version word.
 
 | Producer (see format doc for how to detect) | Stored value `s` to canonical `c` |
 |---|---|
@@ -56,7 +56,7 @@ Consequences, derived from the above:
 
 * Canonical 174, 177 and 181 (the three 8-byte integer literals) **never occur** in x86 builds of any version.
 * Canonical 116-119 (event declaration and raise) and 159 (Implements) never occur in VBA5 or VBA3 output; 73-74 (address-of) and 69 (assert) also never occur there.
-* The x64 and x86 numberings differ only by the three 8-byte literal slots. That the VBA6 and VBA7 x86 numberings are identical is assumed, not independently proven (medium confidence). VBA3 is the least certain mapping (low confidence).
+* The x64 and x86 numberings differ only by the three 8-byte literal slots. **Verified**: a 32-bit and a 64-bit build of the same 25-module source decode to the same canonical opcode and modifier on all 1,021 lines with code, and 153 distinct opcodes (47 of them at or above 174) were decoded from 64-bit projects, 90 (21 at or above 174) from VBA7 32-bit ones, every line to its exact length. That the VBA6 and VBA7 x86 numberings are identical holds for the 21 distinct opcodes seen in VBA6 projects (6 of them in the shifted range 179-260: 185, 186, 212, 227, 248, 260); the +1 and +2 ranges (174-178) were not seen in VBA6. The VBA5 and VBA3 mappings are unverified (no project below version word 0x6B was available); VBA3 is the least certain (low confidence). The three 8-byte literals (174, 177, 181) were not seen in any 64-bit project.
 
 ## 3. MOD field usage
 
@@ -353,7 +353,7 @@ Multi-word literals are stored low word first (plain little-endian bytes of the 
 | 208 | OPTION_STMT | - | MOD selects option (3.2) |
 | 209 | OPTION_BASE_MARKER | - | `Option Base` marker (relation to OPTION_STMT base values unknown) |
 | 92 | DEFTYPE_RANGE | W, W | `DefInt A-Z` family: MOD = type; the two W are the first and last letters (inferred) |
-| 159 | IMPLEMENTS_STMT | W,W,W,W | `Implements`; four words unidentified |
+| 159 | IMPLEMENTS_STMT | W,W | `Implements Interface`: two words (226 uses, all on x64, each line decodes to its exact length); the first is a multiple of 8 and differs for each interface (it references the interface through a table that is not identified; it is not an object-table reference), the second was 0 in every use. The 32-bit form was not seen |
 | 194 | REDIM_DOT | name, W, rec | `ReDim obj.name(...)`; W = dimension count (inferred), rec type record |
 | 195 | REDIM_DOT_WITH | name, W, rec | same inside With |
 | 196 | REDIM_DOT_TYPED | name, W, rec | with `As Type` |
@@ -485,8 +485,8 @@ Canonical numbers; everything not listed has no operands.
 | name | 31, 32, 33, 34, 39, 40, 41, 46, 47, 48, 53, 54, 57, 58, 61, 62, 73, 74, 153, 154, 163, 168, 204, 212, 232, 251, 261 |
 | name, W | 36, 37, 38, 43, 44, 45, 50, 51, 52, 55, 56, 59, 60, 63, 64, 65, 66, 67, 68, 117, 118, 119 |
 | one W | 35, 42, 49, 70, 85, 86, 114, 138, 145, 165, 172, 175, 179, 207, 225, 235 |
-| two W | 92, 173, 176, 180, 182, 241 |
-| four W | 159, 169, 170, 174, 177, 181, 183 |
+| two W | 92, 159, 173, 176, 180, 182, 241 |
+| four W | 169, 170, 174, 177, 181, 183 |
 | one obj (W) | 102, 148, 157, 158, 201, 238 |
 | one rec (D) | 116, 150, 151, 243 |
 | rec (D), plus one W when MOD & 0x10 | 245 |
@@ -500,4 +500,4 @@ Canonical numbers; everything not listed has no operands.
 * Numbers of operands and their widths: high confidence for all tabulated shapes (VBA6/7 x86 and x64), medium for VBA5 (opcode existence differs; operand shapes assumed shared), low for VBA3.
 * Which canonical opcodes exist in which build: high confidence for the translation tables as they are algebraic.
 * Semantics/stack effects: inferred, medium at best; entries marked "inferred", "unknown" or "unverified" are guesses.
-* Unknown: purpose of RESERVED_A and RESERVED_B, CONST_SMALL_INT value location, the extra W of VAR_DECL with MOD 0x10, the four words of IMPLEMENTS_STMT, the second D of PROC_CONTEXT on x64, difference between PROC_HEADER and PROC_HEADER_ALT, between CONVERT_TO_TYPE and CONVERT_TO_TYPE_VARIANT, OPTION_STMT vs OPTION_BASE_MARKER, PP_MARKER.
+* Unknown: purpose of RESERVED_A and RESERVED_B, CONST_SMALL_INT value location, the extra W of VAR_DECL with MOD 0x10, the meaning of the two words of IMPLEMENTS_STMT, the second D of PROC_CONTEXT on x64, difference between PROC_HEADER and PROC_HEADER_ALT, between CONVERT_TO_TYPE and CONVERT_TO_TYPE_VARIANT, OPTION_STMT vs OPTION_BASE_MARKER, PP_MARKER.
