@@ -478,8 +478,54 @@ fn summary(entries: &[Entry], progs: &[Program]) -> String {
             why.replace('|', "\\|")
         );
     }
+    s.push_str(RUNNING_UNDER_ANOTHER_ENGINE);
     s
 }
+
+/// The static closing section of the generated document.
+const RUNNING_UNDER_ANOTHER_ENGINE: &str = "
+## Running the corpus under another engine
+
+The programs, the header format and the runner live in the `vba-conformance` crate
+(`tooling/vba-conformance`), not in the facade. This is deliberate: a `conformance` feature on
+the `vba` facade would put test tooling (file walking, header parsing) in the public API
+surface that embedding applications depend on, while a dev-only crate costs them nothing and
+can change freely. The repository's own test (`crates/api/vba-rs/tests/conformance.rs`) uses it
+with `Engine::new` and owns the inventory and this document, which stay byte-identical for the
+default engine.
+
+An embedding application adds `vba-conformance` as a path or git dev-dependency and runs the
+corpus (a checkout of `tests/vba/`) with its own engine configuration:
+
+```rust
+let options = vba_conformance::Options {
+    filter: vec![\"strings/\".into()],                       // optional: ids containing any of these
+    provides: Some([\"host-clock\".to_owned()].into()),     // optional: what this host provides
+};
+let report = vba_conformance::run_corpus(corpus_dir, || my_engine(), &options)?;
+assert!(report.is_ok(), \"{}\\n{}\", report.summary(), report.failures().join(\"\\n\"));
+```
+
+Semantics:
+
+* The factory is called once per program, so no state leaks between programs. The program's
+  own `STRICT_SPEC`, `GRANT`, `CLOCK` and `MAX_STEPS` headers are applied on top of the engine
+  the factory returns (they override the same settings of the factory's engine).
+* `' REQUIRES: a, b` (repeatable) names host features the program needs. A feature is an
+  arbitrary token the embedding application chooses to provide (for example `host-clock`);
+  the repository's programs use none yet. Every `GRANT` also implies the feature
+  `grant:<capability>` (for example `grant:file-write`).
+* With `provides: None` (the default, used by the repository test) every feature is
+  provided and nothing is skipped. With `provides: Some(set)`, a program that needs a
+  feature outside the set is skipped and reported as `Outcome::Skipped` with the missing
+  features; it is neither a pass nor a failure. A skipped program is never run, so it cannot
+  fail under a restricted host.
+* A program with `XFAIL` must still fail, and one that now passes is reported as
+  `Outcome::UnexpectedPass`, exactly as in the repository test. Skipping takes precedence.
+* The expected values were produced for the default engine. An embedding application that
+  changes language behavior (not just host features) can see real differences; those are
+  reported as failures, not hidden.
+";
 
 #[test]
 fn conformance_doc_is_current() {

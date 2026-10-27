@@ -353,3 +353,45 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-proc/5_4_1_1_label_named_randomize_invalid` | wrong | not implemented: Randomize is not a reserved word of the lexer, so `Randomize:` is accepted as a label (VBA may read it as the Randomize statement; unconfirmed) |
 | `spec-proc/5_4_2_1_call_object_default_property_error_450` | wrong | not implemented: Call on an object variable whose default member is a property runs the property instead of raising error 450; the behaviour of VBA is unconfirmed |
 | `strings/strconv_unicode_roundtrip` | unsupported | StrConv(..., vbFromUnicode) of an odd number of bytes: 'a string with an odd number of bytes cannot be represented as UTF-16' |
+
+## Running the corpus under another engine
+
+The programs, the header format and the runner live in the `vba-conformance` crate
+(`tooling/vba-conformance`), not in the facade. This is deliberate: a `conformance` feature on
+the `vba` facade would put test tooling (file walking, header parsing) in the public API
+surface that embedding applications depend on, while a dev-only crate costs them nothing and
+can change freely. The repository's own test (`crates/api/vba-rs/tests/conformance.rs`) uses it
+with `Engine::new` and owns the inventory and this document, which stay byte-identical for the
+default engine.
+
+An embedding application adds `vba-conformance` as a path or git dev-dependency and runs the
+corpus (a checkout of `tests/vba/`) with its own engine configuration:
+
+```rust
+let options = vba_conformance::Options {
+    filter: vec!["strings/".into()],                       // optional: ids containing any of these
+    provides: Some(["host-clock".to_owned()].into()),     // optional: what this host provides
+};
+let report = vba_conformance::run_corpus(corpus_dir, || my_engine(), &options)?;
+assert!(report.is_ok(), "{}\n{}", report.summary(), report.failures().join("\n"));
+```
+
+Semantics:
+
+* The factory is called once per program, so no state leaks between programs. The program's
+  own `STRICT_SPEC`, `GRANT`, `CLOCK` and `MAX_STEPS` headers are applied on top of the engine
+  the factory returns (they override the same settings of the factory's engine).
+* `' REQUIRES: a, b` (repeatable) names host features the program needs. A feature is an
+  arbitrary token the embedding application chooses to provide (for example `host-clock`);
+  the repository's programs use none yet. Every `GRANT` also implies the feature
+  `grant:<capability>` (for example `grant:file-write`).
+* With `provides: None` (the default, used by the repository test) every feature is
+  provided and nothing is skipped. With `provides: Some(set)`, a program that needs a
+  feature outside the set is skipped and reported as `Outcome::Skipped` with the missing
+  features; it is neither a pass nor a failure. A skipped program is never run, so it cannot
+  fail under a restricted host.
+* A program with `XFAIL` must still fail, and one that now passes is reported as
+  `Outcome::UnexpectedPass`, exactly as in the repository test. Skipping takes precedence.
+* The expected values were produced for the default engine. An embedding application that
+  changes language behavior (not just host features) can see real differences; those are
+  reported as failures, not hidden.
