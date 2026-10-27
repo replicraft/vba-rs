@@ -85,11 +85,17 @@ pub(crate) struct TypeEnv {
     pub public: std::collections::HashMap<String, (TyKind, String)>,
     /// Class-like modules by lower-case name.
     pub classes: std::collections::HashMap<String, String>,
+    /// Lower-case name of the project itself: a type qualified with it is a
+    /// type of the project.
+    pub project: Option<String>,
 }
 
 impl TypeEnv {
-    pub fn build(models: &[ModuleModel]) -> Self {
-        let mut env = TypeEnv::default();
+    pub fn build(models: &[ModuleModel], project_name: Option<&str>) -> Self {
+        let mut env = TypeEnv {
+            project: project_name.map(str::to_ascii_lowercase),
+            ..TypeEnv::default()
+        };
         for m in models {
             let mut own = std::collections::HashMap::new();
             for t in &m.types {
@@ -125,10 +131,25 @@ impl TypeEnv {
                     Err("array, pointer or unlisted intrinsic type".to_owned())
                 }
             }
-            ResolvedType::Named(n) => {
+            ResolvedType::Named(_) | ResolvedType::Qualified(_) => {
+                let (n, qualifier) = match t {
+                    ResolvedType::Qualified(q) => (&q.name, Some(&q.qualifier)),
+                    ResolvedType::Named(n) => (n, None),
+                    _ => unreachable!(),
+                };
                 let Some(name) = n.spelling() else {
                     return Err("type name does not resolve".to_owned());
                 };
+                if let Some(q) = qualifier {
+                    let own = q.spelling().is_some_and(|q| {
+                        self.project
+                            .as_deref()
+                            .is_some_and(|p| p.eq_ignore_ascii_case(q))
+                    });
+                    if !own {
+                        return Err(format!("library-qualified type `{name}`"));
+                    }
+                }
                 let key = name.to_ascii_lowercase();
                 if let Some((k, canon)) =
                     self.own[module].get(&key).or_else(|| self.public.get(&key))
@@ -143,7 +164,7 @@ impl TypeEnv {
                 }
                 Err(format!("library or unresolved type `{name}`"))
             }
-            ResolvedType::Unknown(_) => Err("library-qualified type".to_owned()),
+            ResolvedType::Unknown(_) => Err("unresolved type reference".to_owned()),
             ResolvedType::None => Ok(TyRef::Scalar(vba_sema::Type::Variant)),
         }
     }
@@ -209,7 +230,18 @@ pub(crate) struct ModuleModel {
     pub explicit: bool,
     pub decls: Vec<ModuleDecl>,
     pub types: Vec<TypeDef>,
+    /// `Implements` statements: line, the stored interface type and, once
+    /// resolved, the class it names.
+    pub implements: Vec<ImplementsDecl>,
     pub procs: Vec<ProcModel>,
+}
+
+/// An `Implements` statement of a class-like module.
+#[derive(Debug, Clone)]
+pub(crate) struct ImplementsDecl {
+    pub line: usize,
+    pub raw: ResolvedType,
+    pub class: Result<String, String>,
 }
 
 impl ModuleModel {
@@ -333,6 +365,7 @@ pub(crate) fn extract_module(
         explicit: false,
         decls: Vec::new(),
         types: Vec::new(),
+        implements: Vec::new(),
         procs: Vec::new(),
     };
     let mut cur: Option<ProcModel> = None;
@@ -376,6 +409,15 @@ pub(crate) fn extract_module(
                         7 => CompareStored::Database,
                         _ => model.compare,
                     };
+                }
+                Opcode::ImplementsStmt => {
+                    if let Some(Operand::Interface(t)) = ins.operands.get(1) {
+                        model.implements.push(ImplementsDecl {
+                            line,
+                            raw: t.clone(),
+                            class: Err("not resolved".into()),
+                        });
+                    }
                 }
                 Opcode::ProcHeader | Opcode::ProcHeaderAlt => {
                     let mut info = match ins.operands.first() {
@@ -722,6 +764,13 @@ fn default_values(
 /// Resolves the types of the declarations, types and procedures of module
 /// `mi` against the type names of the whole project.
 pub(crate) fn resolve_module(m: &mut ModuleModel, mi: usize, env: &TypeEnv) {
+    for i in &mut m.implements {
+        i.class = match env.resolve(&i.raw, mi) {
+            Ok(TyRef::Class(n)) => Ok(n),
+            Ok(_) => Err("interface that is not a class module of the project".to_owned()),
+            Err(e) => Err(e),
+        };
+    }
     for t in &mut m.types {
         if t.problem.is_some() {
             continue;

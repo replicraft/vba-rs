@@ -175,6 +175,10 @@ pub struct LowerOptions {
     /// one of these names, and every call, statement or member access on an
     /// unresolved name, is bound late on the instance's host base object.
     pub host_members: Vec<String>,
+    /// The name of the project: a type qualified with it (`Project.Class`)
+    /// is a type of the project. The compiled code stores the qualifier but
+    /// not what it stands for.
+    pub project_name: Option<String>,
 }
 
 /// Like [`lower_project`], with the settings of the embedding application.
@@ -211,11 +215,12 @@ pub fn lower_project_with_options(
                 explicit: false,
                 decls: Vec::new(),
                 types: Vec::new(),
+                implements: Vec::new(),
                 procs: Vec::new(),
             }),
         }
     }
-    let env = model::TypeEnv::build(&models);
+    let env = model::TypeEnv::build(&models, options.project_name.as_deref());
     for (mi, m) in models.iter_mut().enumerate() {
         model::resolve_module(m, mi, &env);
     }
@@ -467,7 +472,15 @@ pub fn lower_project_with_options(
                 is_const: false,
                 unsupported: t.problem.clone(),
             });
-            vars.chain(types)
+            let impls = m.implements.iter().map(|i| DeclarationReport {
+                module: m.name.clone(),
+                name: "Implements".to_owned(),
+                line: i.line,
+                last_line: i.line,
+                is_const: false,
+                unsupported: i.class.clone().err(),
+            });
+            vars.chain(types).chain(impls)
         })
         .collect::<Vec<_>>();
     Ok(LoweredProject {

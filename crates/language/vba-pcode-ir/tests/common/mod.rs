@@ -22,6 +22,7 @@ pub struct Mod {
 }
 
 pub struct Project {
+    pub name: String,
     pub sys_kind: u32,
     pub project_stream: Vec<u8>,
     pub modules: Vec<Mod>,
@@ -86,6 +87,7 @@ pub fn load_path(path: &std::path::Path) -> Option<Project> {
         })
         .collect();
     Some(Project {
+        name: p.name.clone(),
         sys_kind: p.sys_kind.value(),
         project_stream,
         modules,

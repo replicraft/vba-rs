@@ -260,6 +260,35 @@ fn run_session(
     )
 }
 
+/// Removes the project name used as a qualifier (`Project.Type`) from source
+/// text: the compiled code does not keep the qualifier of a type of the
+/// project itself, and the source analysis does not resolve it for an enum
+/// declared in a class module.
+fn strip_project_qualifier(text: &str, project: &str) -> String {
+    if project.is_empty() {
+        return text.to_owned();
+    }
+    let lower = text.to_ascii_lowercase();
+    let needle = format!("{}.", project.to_ascii_lowercase());
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        let at_boundary = i == 0 || {
+            let c = bytes[i - 1];
+            !(c.is_ascii_alphanumeric() || c == b'_' || c == b'.')
+        };
+        if at_boundary && lower[i..].starts_with(&needle) {
+            i += needle.len();
+        } else {
+            let ch = text[i..].chars().next().unwrap_or(' ');
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
 /// Source program with only the lowered procedures of the project, and the
 /// module-level declarations that the cache side generated.
 fn source_program(
@@ -294,17 +323,27 @@ fn source_program(
         for r in lp
             .procedures
             .iter()
-            .filter(|r| r.module == m.name && r.outcome.is_lowered())
+            .filter(|r| r.module == m.name && r.id.is_some())
         {
-            for l in &lines[r.first_line..=r.last_line] {
-                text.push_str(&String::from_utf8_lossy(l));
-                text.push('\n');
+            if r.outcome.is_lowered() {
+                for l in &lines[r.first_line..=r.last_line] {
+                    text.push_str(&String::from_utf8_lossy(l));
+                    text.push('\n');
+                }
+            } else {
+                // In the shell but not lowered (so never run): header and
+                // end only, so that the module has the same members and
+                // `Implements` can be satisfied.
+                for l in [&lines[r.first_line], &lines[r.last_line]] {
+                    text.push_str(&String::from_utf8_lossy(l));
+                    text.push('\n');
+                }
             }
         }
         mods.push(SourceModule {
             name: m.name.clone(),
             kind: common::role(m),
-            source: text.into_bytes(),
+            source: strip_project_qualifier(&text, &p.name).into_bytes(),
         });
     }
     let a = vba_sema::analyze_sources(
@@ -313,6 +352,7 @@ fn source_program(
         &vba_sema::NoLibraries,
         &vba_sema::Options {
             host_members: host_members.to_vec(),
+            project_name: p.name.clone(),
             ..vba_sema::Options::default()
         },
     );
@@ -447,6 +487,7 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
         .collect();
     let options = LowerOptions {
         host_members: common::host_member_names(p),
+        project_name: Some(p.name.clone()),
     };
     let lp = lower_project_with_options(&p.project_stream, p.sys_kind, &inputs, &options)
         .map_err(|e| format!("lowering: {e}"))?;

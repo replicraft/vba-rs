@@ -35,6 +35,7 @@ enum Origin {
     Proc(usize),
     Decl(usize),
     Type(usize),
+    Implements(usize),
 }
 
 struct Stub {
@@ -53,6 +54,13 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
         CompareStored::Binary => {}
         CompareStored::Text => text.push_str("Option Compare Text\n"),
         CompareStored::Database => text.push_str("Option Compare Database\n"),
+    }
+    for (ii, i) in m.implements.iter().enumerate() {
+        if let Ok(n) = &i.class {
+            let istart = text.len();
+            let _ = writeln!(text, "Implements {n}");
+            ranges.push((istart, text.len(), Origin::Implements(ii)));
+        }
     }
     for (ti, t) in m.types.iter().enumerate() {
         if t.problem.is_some() {
@@ -250,6 +258,14 @@ pub(crate) fn build_shell(
                     if decl.problem.is_none() {
                         decl.problem =
                             Some("rejected by the analysis of the generated declarations".into());
+                        changed = true;
+                    }
+                }
+                Some(Origin::Implements(ii)) => {
+                    let imp = &mut models[mi].implements[ii];
+                    if imp.class.is_ok() {
+                        imp.class =
+                            Err("rejected by the analysis of the generated declarations".into());
                         changed = true;
                     }
                 }

@@ -35,6 +35,7 @@ fn lower_kind(
     let cache = build_cache(lines, &t.ind);
     let options = LowerOptions {
         host_members: host_members.iter().map(|s| (*s).to_owned()).collect(),
+        project_name: None,
     };
     let lp = lower_project_with_options(
         &project,

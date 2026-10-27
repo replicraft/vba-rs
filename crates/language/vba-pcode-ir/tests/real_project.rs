@@ -22,6 +22,7 @@ fn lowering_summary() {
         .collect();
     let options = LowerOptions {
         host_members: common::host_member_names(&p),
+        project_name: Some(p.name.clone()),
     };
     let lp = lower_project_with_options(&p.project_stream, p.sys_kind, &inputs, &options)
         .expect("lowers");
