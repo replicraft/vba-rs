@@ -486,6 +486,40 @@ fn source_program(
     Ok(Rc::new(ir))
 }
 
+/// Prints, per opcode, how many instructions of it and how many procedures
+/// that completed a compared run contain (`OPC <name> <instructions>
+/// <procedures>`).
+fn print_opcodes(p: &common::Project, ranges: &[(String, usize, usize)]) {
+    use vba_pcode::{Disassembler, ModuleCache, ProjectCache};
+    let Ok(pc) = ProjectCache::parse(&p.project_stream, p.sys_kind) else {
+        return;
+    };
+    let mut counts: std::collections::BTreeMap<&'static str, (usize, usize)> =
+        std::collections::BTreeMap::new();
+    for m in &p.modules {
+        let Ok(cache) = ModuleCache::parse(&m.cache, &pc.layout) else {
+            continue;
+        };
+        let dis = Disassembler::new(&cache, &pc.idents);
+        for (_, first, last) in ranges.iter().filter(|r| r.0 == m.name) {
+            let mut seen: std::collections::BTreeSet<&'static str> = Default::default();
+            for line in *first..=*last {
+                for ins in dis.line(line).instructions {
+                    let e = counts.entry(ins.opcode.label()).or_default();
+                    e.0 += 1;
+                    seen.insert(ins.opcode.label());
+                }
+            }
+            for s in seen {
+                counts.entry(s).or_default().1 += 1;
+            }
+        }
+    }
+    for (k, (n, procs)) in counts {
+        println!("OPC {k} {n} {procs}");
+    }
+}
+
 /// What one differential run covered.
 #[derive(Debug, Default, Clone, Copy)]
 struct Summary {
@@ -659,6 +693,9 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
     // `[std, class-like]`
     let (mut ran, mut runs, mut mismatches, mut errors_both) = ([0usize; 2], [0usize; 2], 0, 0);
     let mut ok_procs = 0usize;
+    // `(module, first line, last line)` of the compared procedures that
+    // completed a run.
+    let mut ok_ranges: Vec<(String, usize, usize)> = Vec::new();
     let mut lowered_by = [0usize; 2];
     for r in lp.procedures.iter().filter(|r| {
         r.outcome.is_lowered() && !excluded.contains(&(r.module.clone(), r.procedure.clone()))
@@ -707,6 +744,9 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
         }
         ran[cl] += usize::from(any);
         ok_procs += usize::from(completed);
+        if completed {
+            ok_ranges.push((r.module.clone(), r.first_line, r.last_line));
+        }
     }
     // Sessions: every lowered procedure of a module, one after the other on
     // one VM and instance, so that state written by one is read by the next.
@@ -759,6 +799,9 @@ fn differential(p: &common::Project) -> Result<Summary, String> {
                 );
             }
         }
+    }
+    if std::env::var_os("SHOW_OPCODES").is_some() {
+        print_opcodes(p, &ok_ranges);
     }
     Ok(Summary {
         procedures: total,

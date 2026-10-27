@@ -18,6 +18,7 @@ fn lowering_over_the_corpus() {
     let mut layouts: BTreeMap<(u16, u32), (usize, usize, usize)> = BTreeMap::new();
     let mut roots: BTreeMap<String, usize> = BTreeMap::new();
     let mut roots_raw: BTreeMap<String, usize> = BTreeMap::new();
+    let mut var_roots: BTreeMap<String, usize> = BTreeMap::new();
     let mut decl_reasons: BTreeMap<String, usize> = BTreeMap::new();
     let (mut decls, mut decls_ok) = (0usize, 0usize);
     let (mut procs, mut lowered, mut files, mut refused) = (0, 0, 0, 0);
@@ -109,6 +110,32 @@ fn lowering_over_the_corpus() {
                     *roots_raw
                         .entry(format!("{} | {}", u.opcode.label(), u.reason))
                         .or_default() += 1;
+                    // A module-level variable of a user-defined type that
+                    // is not generated: why its type is not.
+                    if u.reason.starts_with("name `")
+                        && let Some(var) = u.reason.split('`').nth(1)
+                        && let Some(d) = lp.declarations.iter().find(|d| {
+                            d.module.to_lowercase() == module && d.name == var && d.unsupported.is_some()
+                        })
+                    {
+                        let ty = d
+                            .unsupported
+                            .as_deref()
+                            .and_then(|r| r.split('`').nth(1))
+                            .and_then(|t| {
+                                lp.declarations.iter().find(|x| {
+                                    x.module.to_lowercase() == module && x.name == t && x.unsupported.is_some()
+                                })
+                            });
+                        if let Some(t) = ty {
+                            *var_roots
+                                .entry(format!(
+                                    "variable `{var}`: type {}",
+                                    shape(t.unsupported.as_deref().unwrap_or(""))
+                                ))
+                                .or_default() += 1;
+                        }
+                    }
                 }
                 let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
                 for r in &lp.procedures {
@@ -171,6 +198,13 @@ fn lowering_over_the_corpus() {
     top.sort_by_key(|x| std::cmp::Reverse(x.1));
     for (k, n) in &top {
         println!("{n:5} {k}");
+    }
+    if std::env::var_os("SHOW_RAW_ROOTS").is_some() {
+        let mut top: Vec<_> = var_roots.into_iter().collect();
+        top.sort_by_key(|x| std::cmp::Reverse(x.1));
+        for (k, n) in &top {
+            println!("VARROOT {n:5} {k}");
+        }
     }
     println!("-- refusal reasons (raw), top 40");
     let mut top: Vec<_> = total_reasons.into_iter().collect();
