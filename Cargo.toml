@@ -8,6 +8,12 @@ edition = "2024"
 rust-version = "1.99"
 license = "Apache-2.0"
 repository = "https://github.com/replicraft/vba-rs"
+# Distributed as a git dependency (or by path), not through a registry; see
+# docs/architecture/dependencies.md. Flip this when a release is published.
+publish = false
+readme = "README.md"
+keywords = ["vba", "interpreter", "embeddable", "office", "scripting"]
+categories = ["parser-implementations", "development-tools"]
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

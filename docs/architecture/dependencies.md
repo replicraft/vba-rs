@@ -62,3 +62,74 @@ listings) must never depend on hash order or on thread scheduling.
 | `binrw` | Out of scope for this pass (vba-format has its own owner). |
 | `windows-bindgen` output, the `windows` crate | Generated bindings and COM wrappers (`IDispatch`, `VARIANT`, `BSTR` wrappers) would put Windows-only types on the portable path. vba-automation models Automation without COM; VBA-visible types (`VarType`, `VbaError` numbers) keep VBA semantics defined in our crates. Only constants are taken from windows-sys. |
 | `windows-result`, `windows-strings` | `apps/vba-wine-host` has no HRESULT or wide-string/BSTR code (it calls `LoadLibraryA` with `CString` and reads `GetLastError` codes), so there is nothing for them to replace. |
+
+## What an embedding application pulls in
+
+Measured with a throwaway crate outside the repository that depends on `vba-rs` by
+path and uses only the documented facade API (Rust 1.99, macOS, dev profile without
+debug info, `-j 3`, registry already cached). The consumer resolves its own lock file;
+the lock file of this workspace is not used by dependents, so pin the versions that
+matter to you in your own `Cargo.lock`.
+
+| Features | Third-party crates | Duplicate versions | Cold build of the consumer | Needs besides `rustc` |
+| --- | --- | --- | --- | --- |
+| none (default) | 38 | none | about 11 s | nothing: no C compiler, no system library |
+| `winapi` | 38 | none | about 4 s more | nothing |
+| `wine` (implies `winapi`) | 38 | none | about 2 s more | nothing (the helper executable is a separate package, `apps/vba-wine-host`) |
+| `native-call` | 44 (adds `libffi`, `libffi-sys`, `libloading`, `cc`, `shlex`, `find-msvc-tools`) | none | about 51 s more | a C compiler for `libffi-sys` (the only build step outside `rustc`) |
+
+* The default build has build scripts only in well-known crates (`libc`, `rustix`,
+  `getrandom`, `nix`, `crc32fast`, `proc-macro2`, `quote`, `thiserror`, `encoding_rs`,
+  `rustversion`); none reaches the network or probes for system libraries.
+* Fetching the crates from the registry needs network access once (or a vendored
+  source or an offline registry cache); nothing is downloaded at build or run time.
+* `serde`, `clap`, `lsp-*`, `tempfile`, `proptest` and the other tool and test
+  dependencies are not in the graph of an embedding application: they belong to the
+  `vbars` and language-server packages and to dev-dependencies.
+* `unsafe` appears in the workspace only in `vba-ffi` behind `native-call`; every
+  other crate forbids it. Dependencies have their own `unsafe` (`libc`, `rustix`,
+  `windows-sys`...), as usual.
+
+## Distribution policy
+
+Every package in the workspace has `publish = false` (set once in
+`[workspace.package]`; the two development tools set it themselves). vba-rs is consumed
+as a git dependency pinned to a revision, or by path; it is not published to crates.io.
+All packages share one version (`0.1.0`) and `rust-version = "1.99"`, edition 2024, and
+are licensed Apache-2.0. Publishing later means removing `publish = false`, adding a
+version to the path dependencies in `[workspace.dependencies]` and publishing in
+dependency order; nothing else in the manifests needs to change (descriptions, license,
+repository, readme, keywords and categories are already set).
+
+## Licence audit
+
+Method: the `license` field of the manifest of every package in `Cargo.lock`
+(`cargo metadata --all-features`, so it includes dev-dependencies and the packages of
+every target platform, 157 third-party packages), read from the local registry cache.
+`cargo-deny` and `cargo-audit` are **not installed** in the environment that produced
+this section, so the following were **not checked**: security advisories (RUSTSEC),
+yanked releases, the license text actually shipped in each package (a manifest can
+disagree with its files), and `deny.toml`-style bans. Re-run them in continuous
+integration; the results below are a manual reading, valid for the lock file of the
+commit that introduced this section.
+
+| License expression (as declared) | Packages | Note |
+| --- | ---: | --- |
+| `MIT OR Apache-2.0` and the same options in other spellings (`Apache-2.0 OR MIT`, `MIT/Apache-2.0`, `Apache-2.0 / MIT`) | 124 | permissive, dual |
+| `MIT` | 16 | includes `cfb`, `zip`, `quick-xml`, `nix`, `lsp-types` |
+| `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | 5 | `rustix`, `linux-raw-sys`, WASI crates |
+| `Unlicense OR MIT` | 4 | `memchr`, `jiff*` |
+| `Apache-2.0` | 2 | `borsh-derive`, `dissimilar` (test or tool graph only) |
+| `MIT OR Apache-2.0 OR LGPL-2.1-or-later` | 2 | `r-efi` (UEFI targets only); the permissive options apply |
+| `BSD-2-Clause OR Apache-2.0 OR MIT` | 2 | `zerocopy*` |
+| `(Apache-2.0 OR MIT) AND BSD-3-Clause` | 1 | `encoding_rs`: the BSD-3-Clause part is mandatory, so binary redistributions must reproduce its notice |
+| `ISC` | 1 | `libloading` (feature `native-call`) |
+| `0BSD OR MIT OR Apache-2.0`, `MIT OR Zlib OR Apache-2.0`, `Zlib`, `(MIT OR Apache-2.0) AND Unicode-3.0` | 4 | `adler2`, `miniz_oxide`, `zlib-rs`, `unicode-ident` |
+
+Result: no copyleft licence is *required* by any package (the only copyleft appearance is
+an optional alternative of `r-efi`); no package without a license field; every package
+comes from the crates.io registry (no git or unknown-registry dependency). The
+obligations that remain are attribution ones: keep the license notices of the crates you
+redistribute in binary form (`encoding_rs` additionally carries the BSD-3-Clause and
+Unicode-3.0 texts). `THIRD-PARTY-NOTICES.md` records the one body of data derived into
+this repository (the Win32 function inventory).
