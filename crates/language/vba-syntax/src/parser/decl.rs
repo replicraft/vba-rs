@@ -392,7 +392,11 @@ impl Parser<'_> {
     /// [As type] Block End Sub|Function|Property` (§5.3.1).
     pub(crate) fn parse_proc(&mut self) {
         self.start(NodeKind::ProcDecl);
-        self.bump_modifiers();
+        let mut leading_static = false;
+        while is_modifier(self.cur()) {
+            leading_static |= self.at_kw(Keyword::Static);
+            self.bump();
+        }
         let mut expect_end = Term::ENDPROC;
         if self.at_kw(Keyword::Sub) {
             self.bump();
@@ -412,6 +416,16 @@ impl Parser<'_> {
         }
         if self.at_kw(Keyword::As) {
             self.parse_as_clause();
+        }
+        // A trailing `Static` gives the locals module extent (§5.3.1.2).
+        if self.at_kw(Keyword::Static) {
+            if leading_static {
+                self.error(
+                    MISPLACED,
+                    "a procedure cannot be `Static` both before and after its name",
+                );
+            }
+            self.bump();
         }
         if !self.at_eos() {
             self.unexpected_line(false);

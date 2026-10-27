@@ -395,10 +395,9 @@ impl Lowerer<'_> {
         ProcDecl {
             span: n.span(),
             visibility: t.iter().take(kind_pos.unwrap_or(0)).find_map(visibility_of),
-            is_static: t
-                .iter()
-                .take(kind_pos.unwrap_or(0))
-                .any(|x| is_kw(x, Keyword::Static)),
+            // Leading or trailing `Static` (the block's own tokens are in
+            // child nodes, not among these).
+            is_static: t.iter().any(|x| is_kw(x, Keyword::Static)),
             kind,
             name,
             params: self.params(n),

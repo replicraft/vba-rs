@@ -385,6 +385,12 @@ impl Binder<'_, '_> {
                 if from.is_variant() {
                     return self.mk_convert(e, to.clone());
                 }
+                // MS-VBAL 5.3.1.11: a scalar cannot be passed to an
+                // object-typed parameter.
+                if ctx == Ctx::Arg && (from.is_numeric() || from.is_string()) {
+                    mismatch(self);
+                    return self.error_expr(span);
+                }
                 match self.object_coercion(&from, t) {
                     Coercion::Identity => e,
                     Coercion::RuntimeCast => self.mk_convert(e, to.clone()),
