@@ -77,6 +77,9 @@ impl Sema<'_> {
         if let Some((sym, _)) = self.program.modules[cur.index()].symbols.get(name) {
             return Found::Sym(cur, *sym);
         }
+        if let Some(found) = self.friend_symbol(cur, name) {
+            return found;
+        }
         let mut hits: Vec<(ModuleId, Symbol)> = Vec::new();
         for m in &self.program.modules {
             if m.id == cur {
@@ -99,6 +102,24 @@ impl Sema<'_> {
         Found::None
     }
 
+    /// The declaration of the friend target (see `Options::friend`) that
+    /// `name` stands for in module `cur`.
+    fn friend_symbol(&self, cur: ModuleId, name: &Name) -> Option<Found> {
+        let (friend, target) = self.friend?;
+        if cur != friend {
+            return None;
+        }
+        let (sym, _) = self.program.modules[target.index()].symbols.get(name)?;
+        let usable = match self.program.modules[target.index()].kind {
+            ModuleKind::Standard => true,
+            _ => matches!(
+                sym,
+                Symbol::Const(_) | Symbol::Enum(_) | Symbol::EnumMember(..) | Symbol::Udt(_)
+            ),
+        };
+        usable.then_some(Found::Sym(target, *sym))
+    }
+
     /// Looks a name up in the type namespace.
     pub(crate) fn lookup_type_name(&self, cur: ModuleId, name: &Name) -> TypeFound {
         let as_type = |s: Symbol| match s {
@@ -107,6 +128,13 @@ impl Sema<'_> {
             _ => None,
         };
         if let Some((sym, _)) = self.program.modules[cur.index()].symbols.get(name)
+            && let Some(t) = as_type(*sym)
+        {
+            return t;
+        }
+        if let Some((friend, target)) = self.friend
+            && cur == friend
+            && let Some((sym, _)) = self.program.modules[target.index()].symbols.get(name)
             && let Some(t) = as_type(*sym)
         {
             return t;

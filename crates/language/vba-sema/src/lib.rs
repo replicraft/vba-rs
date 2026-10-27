@@ -175,6 +175,16 @@ pub struct Options {
     pub strict_spec: bool,
     /// Size budgets; unlimited by default.
     pub limits: AnalysisLimits,
+    /// `(friend, target)` module names. Unqualified names used in module
+    /// `friend` also resolve among the declarations of module `target`,
+    /// private ones included, before the project's public names. Meant for
+    /// code evaluated in the context of a module (an immediate window):
+    /// the declarations visible are the constants, enums and types of any
+    /// target, and additionally the variables, procedures and declarations
+    /// of a standard-module target. A class-like target contributes only
+    /// constants, enums and types, because its other members need an
+    /// instance.
+    pub friend: Option<(String, String)>,
 }
 
 impl Default for Options {
@@ -186,6 +196,7 @@ impl Default for Options {
             host_members: Vec::new(),
             strict_spec: false,
             limits: AnalysisLimits::unlimited(),
+            friend: None,
         }
     }
 }
@@ -350,6 +361,9 @@ pub fn analyze_sources(
         .map(|n| n.to_ascii_lowercase())
         .collect();
     s.strict_spec = opts.strict_spec;
+    s.friend = opts.friend.as_ref().and_then(|(f, t)| {
+        Some((*ids.get(&Name::new(f))?, *ids.get(&Name::new(t))?))
+    });
     s.module_ids = ids;
     s.node_limit = opts.limits.max_nodes;
     sema::run_declaration_passes(&mut s);

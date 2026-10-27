@@ -52,6 +52,10 @@ pub(crate) struct Sema<'a> {
     pub host_members: std::collections::HashSet<String>,
     /// Spec-strict diagnostics are errors.
     pub strict_spec: bool,
+    /// `(friend, target)`: unqualified names in module `friend` also resolve
+    /// among the declarations of module `target`, private ones included (see
+    /// `Options::friend`).
+    pub friend: Option<(ModuleId, ModuleId)>,
     pub module_ids: HashMap<Name, ModuleId>,
     pub proc_src: Vec<&'a ProcDecl>,
     pub global_src: Vec<Option<&'a Declarator>>,
@@ -95,6 +99,7 @@ impl<'a> Sema<'a> {
             project_name: Name::new(project_name),
             host_members: std::collections::HashSet::new(),
             strict_spec: false,
+            friend: None,
             module_ids: HashMap::new(),
             proc_src: Vec::new(),
             global_src: Vec::new(),
