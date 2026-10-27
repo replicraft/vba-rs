@@ -189,6 +189,15 @@ enum Place {
 enum ArgEx {
     Val(Ex),
     Ref(Place),
+    /// A variable of another type passed to a `ByRef Variant` parameter: the
+    /// callee works on a `Variant` copy in a temporary that is converted
+    /// back into the variable when the call returns.
+    RefCopy {
+        place: Place,
+        temp: LocalId,
+        value: Ex,
+        back: Ex,
+    },
     Missing,
 }
 
@@ -241,6 +250,10 @@ impl Ex {
 
 #[derive(Debug)]
 enum Frame {
+    /// A `With` block: the temporary that holds the object.
+    With { temp: LocalId },
+    /// A `For Each` loop.
+    ForEach { head: BlockId, exit: BlockId },
     If {
         end: BlockId,
         else_b: BlockId,
@@ -309,6 +322,8 @@ pub(crate) struct ProcCtx<'a> {
 pub(crate) struct Lowered {
     pub function: Function,
     pub callees: Vec<ProcId>,
+    /// Types of the temporaries added after the procedure's own locals.
+    pub temps: Vec<Type>,
 }
 
 struct Lw<'a> {
@@ -341,6 +356,12 @@ struct Lw<'a> {
     /// A `Set` keyword marker was seen and not yet consumed by the
     /// reference assignment that follows it.
     set_marker: bool,
+    /// Temporaries added to the function (the sema program has none for
+    /// the lowered body): slots after the template's.
+    extra_slots: Vec<Slot>,
+    n_base: usize,
+    /// The objects of the open `With` blocks.
+    with_stack: Vec<Ex>,
 }
 
 type R<T> = Result<T, Unsupported>;
@@ -381,6 +402,20 @@ fn is_layout_only(op: Opcode) -> bool {
             | Opcode::StmtBegin
             | Opcode::StmtBeginImplicit
     )
+}
+
+/// The ordinary member form that a `With` member form stands for.
+fn with_dot_equivalent(op: Opcode) -> Option<Opcode> {
+    Some(match op {
+        Opcode::ReadWithDot => Opcode::ReadDot,
+        Opcode::ReadWithDotParams => Opcode::ReadDotParams,
+        Opcode::WriteWithDot => Opcode::WriteDot,
+        Opcode::WriteWithDotParams => Opcode::WriteDotParams,
+        Opcode::WriteRefWithDot => Opcode::WriteRefDot,
+        Opcode::WriteRefWithDotParams => Opcode::WriteRefDotParams,
+        Opcode::InvokeWithDot => Opcode::InvokeDot,
+        _ => return None,
+    })
 }
 
 fn var_type_to_type(v: VarType) -> Type {
@@ -452,6 +487,9 @@ pub(crate) fn lower_body(
         defined: Vec::new(),
         local_consts: HashMap::new(),
         set_marker: false,
+        extra_slots: Vec::new(),
+        n_base: kind_template.slots.len(),
+        with_stack: Vec::new(),
     };
     lw.begin_stmt();
     let mut last_op = Opcode::ProcHeader;
@@ -610,6 +648,11 @@ impl Lw<'_> {
                     SlotRole::Temp => SlotRole::Temp,
                 },
             })
+            .chain(self.extra_slots.iter().map(|s| Slot {
+                name: s.name.clone(),
+                ty: s.ty.clone(),
+                role: SlotRole::Temp,
+            }))
             .collect();
         Lowered {
             function: Function {
@@ -621,6 +664,7 @@ impl Lw<'_> {
                 stmts: self.stmts,
             },
             callees: self.callees,
+            temps: self.extra_slots.iter().map(|s| s.ty.clone()).collect(),
         }
     }
 
@@ -1035,13 +1079,40 @@ impl Lw<'_> {
                 _ => None,
             };
             if let Some((t, ty)) = target {
-                if ty == p.ty {
+                let same = ty == p.ty
+                    || matches!(
+                        (&ty, &p.ty),
+                        (Type::Enum(_), Type::Long) | (Type::Long, Type::Enum(_))
+                    );
+                if same {
                     out.push(ArgEx::Ref(t));
                     continue;
                 }
-                if p.ty != Type::Variant {
+                if p.ty != Type::Variant
+                    || matches!(ty, Type::Udt(_) | Type::Array { .. } | Type::FixedString(_))
+                {
                     return Err(self.no(ins.opcode, "ByRef argument of a different type"));
                 }
+                // MS-VBAL 5.3.1.11: the callee works on a `Variant` copy.
+                let value = self.coerce_arg(ins, a.clone(), &Type::Variant)?;
+                let temp = self.new_temp(Type::Variant);
+                let read = Ex::Local {
+                    id: temp,
+                    ty: Type::Variant,
+                    bare: false,
+                };
+                let back = if ty.is_object() {
+                    self.coerce_object(ins, read, &ty, true)?
+                } else {
+                    self.coerce(read, &ty)
+                };
+                out.push(ArgEx::RefCopy {
+                    place: t,
+                    temp,
+                    value,
+                    back,
+                });
+                continue;
             }
             out.push(ArgEx::Val(self.coerce_arg(ins, a, &p.ty)?));
         }
@@ -1363,7 +1434,24 @@ impl Lw<'_> {
     }
 
     fn local_ty(&self, l: LocalId) -> Type {
-        self.sema.locals[l.index()].ty.clone()
+        match self.sema.locals.get(l.index()) {
+            Some(li) => li.ty.clone(),
+            None => self
+                .extra_slots
+                .get(l.index() - self.n_base)
+                .map_or(Type::Variant, |s| s.ty.clone()),
+        }
+    }
+
+    /// A new temporary slot.
+    fn new_temp(&mut self, ty: Type) -> LocalId {
+        let id = LocalId((self.n_base + self.extra_slots.len()) as u32);
+        self.extra_slots.push(Slot {
+            name: vba_ast::Name::new(""),
+            ty,
+            role: SlotRole::Temp,
+        });
+        id
     }
 
     fn emit_global_load(&mut self, g: GlobalId, dst: Reg) {
@@ -1505,11 +1593,32 @@ impl Lw<'_> {
     ) -> Option<Reg> {
         let receiver = recv.map(|r| self.emit_ex(r));
         let mut out = Vec::new();
+        let mut writebacks: Vec<(Place, LocalId, Ex)> = Vec::new();
         for a in args {
             out.push(match a {
                 ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
                 ArgEx::Missing => CallArg::Missing,
                 ArgEx::Ref(t) => CallArg::Ref(self.emit_ref(t)),
+                ArgEx::RefCopy {
+                    place,
+                    temp,
+                    value,
+                    back,
+                } => {
+                    let v = self.emit_ex(value);
+                    self.emit(InstKind::StoreLocal {
+                        slot: *temp,
+                        src: v,
+                        mode: StoreMode::Let,
+                    });
+                    let r = self.reg(Type::Variant);
+                    self.emit(InstKind::MakeRef {
+                        dst: r,
+                        place: RefPlace::Local(*temp),
+                    });
+                    writebacks.push((place.clone(), *temp, back.clone()));
+                    CallArg::Ref(r)
+                }
             });
         }
         let dst = result.map(|t| self.reg(t.clone()));
@@ -1519,6 +1628,17 @@ impl Lw<'_> {
             receiver,
             args: out,
         });
+        // After a normal return: assign the variables from their copies and
+        // release what the copies hold.
+        for (place, temp, back) in writebacks {
+            let v = self.emit_ex(&back);
+            self.store_place(&place, v, StoreMode::Let);
+            self.emit(InstKind::StoreLocal {
+                slot: temp,
+                src: IrOperand::Const(Constant::Value(Variant::Empty)),
+                mode: StoreMode::Let,
+            });
+        }
         dst
     }
 
@@ -1603,7 +1723,7 @@ impl Lw<'_> {
                 name: None,
                 arg: match a {
                     ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
-                    ArgEx::Missing => CallArg::Missing,
+                    ArgEx::Missing | ArgEx::RefCopy { .. } => CallArg::Missing,
                     ArgEx::Ref(t) => CallArg::Ref(self.emit_ref(t)),
                 },
             });
@@ -1670,7 +1790,24 @@ impl Lw<'_> {
 
     /// Processes the instruction at `i`; returns how many were consumed.
     fn step(&mut self, body: &[(usize, Listed)], i: usize) -> R<usize> {
-        let ins = &body[i].1;
+        // The member forms of a `With` block are the ordinary member forms
+        // with the object of the block as receiver.
+        let mapped;
+        let ins = match with_dot_equivalent(body[i].1.opcode) {
+            Some(plain) => {
+                let Some(w) = self.with_stack.last() else {
+                    return Err(self.no(body[i].1.opcode, "member form outside a With block"));
+                };
+                let w = w.clone();
+                self.stack.push(w);
+                mapped = Listed {
+                    opcode: plain,
+                    ..body[i].1.clone()
+                };
+                &mapped
+            }
+            None => &body[i].1,
+        };
         let op = ins.opcode;
         if is_layout_only(op) {
             // A statement marker starts a new statement of its own (needed
@@ -2140,7 +2277,7 @@ impl Lw<'_> {
             }
             Opcode::LeaveFor => {
                 let exit = self.frames.iter().rev().find_map(|f| match f {
-                    Frame::For { exit, .. } => Some(*exit),
+                    Frame::For { exit, .. } | Frame::ForEach { exit, .. } => Some(*exit),
                     _ => None,
                 });
                 let Some(exit) = exit else {
@@ -2162,6 +2299,10 @@ impl Lw<'_> {
                 self.for_var = self.stack.pop();
             }
             Opcode::ForCounted | Opcode::ForCountedStep => self.for_open(ins)?,
+            Opcode::ForCollection => self.for_each_open(ins)?,
+            Opcode::WithExprOpen => {}
+            Opcode::WithOpen => self.with_open(ins)?,
+            Opcode::WithClose => self.with_close(ins)?,
             Opcode::ForAdvance | Opcode::ForAdvanceNamed => self.for_next(ins)?,
             Opcode::DoOpen => {
                 let head = self.new_block();
@@ -2400,6 +2541,9 @@ impl Lw<'_> {
             Opcode::SetKeywordMarker
             | Opcode::WriteRefSimple
             | Opcode::NewObject
+            | Opcode::ForCollection
+            | Opcode::WithExprOpen
+            | Opcode::WithOpen
             | Opcode::TypeTest
             | Opcode::DebugAssert
             | Opcode::ArgNamed => true,
@@ -3590,7 +3734,120 @@ impl Lw<'_> {
                 self.switch_to(exit);
                 Ok(())
             }
+            Some(Frame::ForEach { head, exit }) => {
+                self.terminate(Terminator::Jump(head));
+                self.switch_to(exit);
+                Ok(())
+            }
             _ => Err(self.no(op, "Next without For")),
+        }
+    }
+
+    /// `For Each item In collection` (the loop header).
+    fn for_each_open(&mut self, ins: &Listed) -> R<()> {
+        let op = ins.opcode;
+        let coll = self.pop(ins)?;
+        self.expect_empty(ins)?;
+        let Some(var) = self.for_var.take() else {
+            return Err(self.no(op, "For Each without an item variable"));
+        };
+        let item_ty = var.ty();
+        let Some(place) = place_of(&var) else {
+            return Err(self.no(op, "For Each item is not a variable"));
+        };
+        if matches!(
+            item_ty,
+            Type::Udt(_) | Type::Array { .. } | Type::FixedString(_)
+        ) {
+            return Err(self.no(op, "For Each item of this type"));
+        }
+        // A class may be enumerated through an attribute that the compiled
+        // code does not record; only collections and late-bound values are
+        // lowered.
+        if !matches!(coll.ty(), Type::Library(_) | Type::Object | Type::Variant) {
+            return Err(self.no(op, "For Each over a value of this type"));
+        }
+        let c = self.emit_ex(&coll);
+        let it = self.reg(Type::Variant);
+        self.emit(InstKind::IterInit { dst: it, src: c });
+        let head = self.new_block();
+        let body_b = self.new_block();
+        let exit = self.new_block();
+        self.resume_at(body_b);
+        self.jump_to(head);
+        let elem = self.reg(Type::Variant);
+        self.terminate(Terminator::ForEachNext {
+            iter: it,
+            item: elem,
+            body: body_b,
+            done: exit,
+        });
+        self.switch_to(body_b);
+        let mut v = IrOperand::Reg(elem);
+        if !(item_ty.is_variant() || item_ty == Type::Object) {
+            let conv = self.reg(item_ty.clone());
+            self.emit(InstKind::Convert {
+                dst: conv,
+                src: v,
+                to: item_ty.clone(),
+            });
+            v = IrOperand::Reg(conv);
+        }
+        let mode = if item_ty.is_object() {
+            StoreMode::Set
+        } else {
+            StoreMode::Let
+        };
+        self.store_place(&place, v, mode);
+        self.frames.push(Frame::ForEach { head, exit });
+        Ok(())
+    }
+
+    /// `With object` (after the object expression).
+    fn with_open(&mut self, ins: &Listed) -> R<()> {
+        let obj = self.pop(ins)?;
+        self.expect_empty(ins)?;
+        let ty = obj.ty();
+        if !(ty.is_object() || ty.is_variant()) {
+            return Err(self.no(ins.opcode, "With on a value that is not an object"));
+        }
+        let temp = self.new_temp(ty.clone());
+        let o = self.emit_ex(&obj);
+        self.emit(InstKind::StoreLocal {
+            slot: temp,
+            src: o,
+            mode: if ty.is_object() {
+                StoreMode::Set
+            } else {
+                StoreMode::Let
+            },
+        });
+        let here = self.here();
+        self.stmts[self.cur_stmt.0 as usize].resume_next = Some(here);
+        self.frames.push(Frame::With { temp });
+        self.with_stack.push(Ex::Local {
+            id: temp,
+            ty,
+            bare: false,
+        });
+        Ok(())
+    }
+
+    fn with_close(&mut self, ins: &Listed) -> R<()> {
+        match self.frames.pop() {
+            Some(Frame::With { temp }) => {
+                self.with_stack.pop();
+                self.begin_stmt();
+                self.emit(InstKind::StoreLocal {
+                    slot: temp,
+                    src: IrOperand::Const(Constant::Value(Variant::Object(
+                        vba_value::ObjectRef::Nothing,
+                    ))),
+                    mode: StoreMode::Set,
+                });
+                Ok(())
+            }
+            _ => Err(self.no(ins.opcode, "End With without With")),
         }
     }
 

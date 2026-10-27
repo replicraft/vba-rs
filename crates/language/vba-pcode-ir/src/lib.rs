@@ -446,6 +446,19 @@ pub fn lower_project_with_options(
                 ir.functions[id.index()] = match lowered.remove(&(mi, pi)) {
                     Some(l) => {
                         *report = Some(Outcome::Lowered);
+                        // The temporaries are locals of the procedure.
+                        for ty in l.temps {
+                            ir.program.procs[id.index()]
+                                .locals
+                                .push(vba_sema::LocalInfo {
+                                    name: vba_ast::Name::new(""),
+                                    ty,
+                                    kind: vba_sema::LocalKind::Temp,
+                                    fixed_bounds: None,
+                                    auto_new: false,
+                                    span: vba_source::Span::empty(0),
+                                });
+                        }
                         l.function
                     }
                     None => trap_function(&template),
