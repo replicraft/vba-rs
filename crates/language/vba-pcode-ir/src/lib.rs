@@ -254,6 +254,8 @@ pub fn lower_project_with_options(
                 kind: m.kind,
                 compare: model::CompareStored::Binary,
                 explicit: false,
+                option_base: None,
+                has_deftype: false,
                 decls: Vec::new(),
                 types: Vec::new(),
                 implements: Vec::new(),

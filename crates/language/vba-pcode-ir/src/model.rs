@@ -25,6 +25,9 @@ pub(crate) enum CompareStored {
 pub(crate) struct LocalDecl {
     pub name: String,
     pub ty: TyRef,
+    /// For an array: the text between the parentheses (empty for a dynamic
+    /// array, `0 To 30, 1 To 2` for fixed bounds).
+    pub dims: Option<String>,
 }
 
 /// A type as the shell declares it: a plain scalar, the generic `Object`, or
@@ -41,12 +44,17 @@ pub(crate) enum TyRef {
     Class(String),
     Enum(String),
     Udt(String),
+    /// An array of a scalar element type (a local, a parameter or a result;
+    /// never a module-level declaration or a field).
+    Array(Box<TyRef>),
 }
 
 impl TyRef {
-    /// The VBA spelling in a generated `As` clause.
+    /// The VBA spelling in a generated `As` clause (the element type for an
+    /// array: the parentheses go with the name).
     pub fn spelling(&self) -> String {
         match self {
+            TyRef::Array(e) => e.spelling(),
             TyRef::Scalar(t) => type_spelling(t).to_owned(),
             TyRef::Object => "Object".to_owned(),
             TyRef::Builtin(n) | TyRef::LibEnum(n) => n.clone(),
@@ -122,6 +130,18 @@ impl TypeEnv {
             }
         }
         env
+    }
+
+    /// Like [`TypeEnv::resolve`], for a local, a parameter or a result: an
+    /// array of a scalar element type is accepted.
+    pub fn resolve_slot(&self, t: &ResolvedType, module: usize) -> Result<TyRef, String> {
+        if let ResolvedType::Array(id) = t {
+            return match scalar_type(&ResolvedType::Intrinsic(*id)) {
+                Some(e) => Ok(TyRef::Array(Box::new(TyRef::Scalar(e)))),
+                None => Err("array of an element type that is not a plain scalar".to_owned()),
+            };
+        }
+        self.resolve(t, module)
     }
 
     /// Resolves a stored type of module `module`.
@@ -253,6 +273,11 @@ pub(crate) struct ModuleModel {
     /// `Option Explicit`: undeclared names are errors, so (in document-like
     /// modules) members of the host.
     pub explicit: bool,
+    /// `Option Base 0` or `1` when the module has the statement.
+    pub option_base: Option<u8>,
+    /// The module has a `DefType` statement (the default type of implicit
+    /// variables is then not `Variant`).
+    pub has_deftype: bool,
     pub decls: Vec<ModuleDecl>,
     pub types: Vec<TypeDef>,
     /// `Implements` statements: line, the stored interface type and, once
@@ -363,6 +388,75 @@ pub(crate) fn returns_value(info: &ProcedureInfo) -> bool {
     }
 }
 
+/// Instructions that leave nothing on the expression stack and carry no
+/// meaning in front of a declaration.
+fn is_layout_marker(op: Opcode) -> bool {
+    matches!(
+        op,
+        Opcode::StmtBegin
+            | Opcode::StmtBeginImplicit
+            | Opcode::CommentQuote
+            | Opcode::CommentRemKeyword
+            | Opcode::LineContinuation
+    )
+}
+
+/// The text between the parentheses of an array declaration from the
+/// instructions in front of its `VAR_DECL`: empty for a dynamic array, else
+/// `lower To upper` per dimension (just `upper` where the lower bound is the
+/// `Option Base` one, announced by a marker). `None` when a bound is not an
+/// expression of literals and names.
+fn array_dims(bounds: &[Listed], option_base: Option<u8>) -> Option<String> {
+    if bounds.is_empty() {
+        return Some(String::new());
+    }
+    // Trees and markers in stack order.
+    enum Item {
+        Marker,
+        Tree(String),
+    }
+    let mut items = Vec::new();
+    let mut seg: Vec<Listed> = Vec::new();
+    let flush = |seg: &mut Vec<Listed>, items: &mut Vec<Item>| -> Option<()> {
+        for t in expr_texts(seg)? {
+            items.push(Item::Tree(t));
+        }
+        seg.clear();
+        Some(())
+    };
+    for ins in bounds {
+        if ins.opcode == Opcode::OptionBaseMarker {
+            flush(&mut seg, &mut items)?;
+            items.push(Item::Marker);
+        } else {
+            seg.push(ins.clone());
+        }
+    }
+    flush(&mut seg, &mut items)?;
+    let mut out = Vec::new();
+    let mut it = items.into_iter();
+    while let Some(first) = it.next() {
+        match first {
+            Item::Marker => {
+                // The lower bound is the `Option Base` one; without a
+                // statement it is 0, which the stub gets by default.
+                let Some(Item::Tree(u)) = it.next() else {
+                    return None;
+                };
+                let _ = option_base;
+                out.push(u);
+            }
+            Item::Tree(l) => {
+                let Some(Item::Tree(u)) = it.next() else {
+                    return None;
+                };
+                out.push(format!("{l} To {u}"));
+            }
+        }
+    }
+    Some(out.join(", "))
+}
+
 fn unsup(opcode: Opcode, procedure: &str, line: usize, reason: impl Into<String>) -> Unsupported {
     Unsupported {
         opcode,
@@ -392,6 +486,8 @@ pub(crate) fn extract_module(
         kind,
         compare: CompareStored::Binary,
         explicit: false,
+        option_base: None,
+        has_deftype: false,
         decls: Vec::new(),
         types: Vec::new(),
         implements: Vec::new(),
@@ -431,8 +527,12 @@ pub(crate) fn extract_module(
                 continue;
             }
             match ins.opcode {
+                Opcode::DeftypeRange => model.has_deftype = true,
                 Opcode::OptionStmt => {
                     model.explicit |= ins.modifier == 4;
+                    if ins.modifier <= 1 {
+                        model.option_base = Some(ins.modifier);
+                    }
                     model.compare = match ins.modifier {
                         2 => CompareStored::Text,
                         3 => CompareStored::Binary,
@@ -885,13 +985,14 @@ pub(crate) fn resolve_module(m: &mut ModuleModel, mi: usize, env: &TypeEnv) {
             Err(e) => d.problem = Some(e),
         }
     }
+    let option_base = m.option_base;
     for p in &mut m.procs {
-        finish_signature(p, mi, env);
+        finish_signature(p, mi, env, option_base);
     }
 }
 
 /// Checks the signature and collects the declared locals.
-fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv) {
+fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv, option_base: Option<u8>) {
     let line = p.header_line;
     let name = p.name.clone();
     let fail = |reason: &str| unsup(Opcode::ProcHeader, &name, line, reason);
@@ -922,10 +1023,21 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv) {
         return;
     }
     let mut arg_tys = Vec::new();
-    for a in &info.args {
+    let n_args = info.args.len();
+    for (k, a) in info.args.iter().enumerate() {
         if a.param_array {
-            p.signature_problem = Some(fail("ParamArray parameter"));
-            return;
+            // Only the last parameter, an array of `Variant`.
+            let ok = k + 1 == n_args
+                && !a.optional
+                && !a.has_default
+                && matches!(
+                    env.resolve_slot(&a.ty, mi),
+                    Ok(TyRef::Array(e)) if *e == TyRef::Scalar(vba_sema::Type::Variant)
+                );
+            if !ok {
+                p.signature_problem = Some(fail("ParamArray parameter"));
+                return;
+            }
         }
         if a.has_default && !a.optional {
             p.signature_problem = Some(fail("default value on a required parameter"));
@@ -935,7 +1047,7 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv) {
             p.signature_problem = Some(fail("parameter whose name does not resolve"));
             return;
         }
-        match env.resolve(&a.ty, mi) {
+        match env.resolve_slot(&a.ty, mi) {
             Ok(t) => arg_tys.push(t),
             Err(e) => {
                 p.signature_problem = Some(fail(&format!("parameter of {e}")));
@@ -944,7 +1056,7 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv) {
         }
     }
     if returns_value(info) {
-        match env.resolve(&info.return_type, mi) {
+        match env.resolve_slot(&info.return_type, mi) {
             Ok(t) => p.ret_ty = Some(t),
             Err(e) => {
                 p.signature_problem = Some(fail(&format!("return of {e}")));
@@ -955,10 +1067,21 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv) {
     p.arg_tys = arg_tys;
     // Locals.
     let mut locals = Vec::new();
+    // The instructions since the last `Dim` marker: the bounds of an array
+    // declaration precede its `VAR_DECL`.
+    let mut pending: Vec<Listed> = Vec::new();
     for (l, ins) in &p.body {
-        if ins.opcode != Opcode::VarDecl {
+        if matches!(ins.opcode, Opcode::DimMarker | Opcode::DimMarkerImplicit) {
+            pending.clear();
             continue;
         }
+        if ins.opcode != Opcode::VarDecl {
+            if !is_layout_marker(ins.opcode) {
+                pending.push(ins.clone());
+            }
+            continue;
+        }
+        let bounds = std::mem::take(&mut pending);
         let v = match ins.operands.first() {
             Some(Operand::Variable(v)) => v,
             _ => {
@@ -999,7 +1122,7 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv) {
             p.signature_problem = Some(unsup(ins.opcode, &name, *l, "local name does not resolve"));
             return;
         };
-        let ty = match env.resolve(&v.ty, mi) {
+        let ty = match env.resolve_slot(&v.ty, mi) {
             Ok(t) => t,
             Err(e) => {
                 p.signature_problem = Some(unsup(ins.opcode, &name, *l, format!("local of {e}")));
@@ -1010,7 +1133,32 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv) {
             p.signature_problem = Some(unsup(ins.opcode, &name, *l, "As New"));
             return;
         }
-        locals.push(LocalDecl { name: n, ty });
+        let dims = if matches!(ty, TyRef::Array(_)) {
+            match array_dims(&bounds, option_base) {
+                Some(d) => Some(d),
+                None => {
+                    p.signature_problem = Some(unsup(
+                        ins.opcode,
+                        &name,
+                        *l,
+                        "array bounds that are not constant expressions",
+                    ));
+                    return;
+                }
+            }
+        } else if !bounds.is_empty() {
+            // Bound-like expressions in front of a scalar declaration:
+            // `String * n` and the like are not understood.
+            p.signature_problem = Some(unsup(ins.opcode, &name, *l, "unexpected declaration form"));
+            return;
+        } else {
+            None
+        };
+        locals.push(LocalDecl {
+            name: n,
+            ty,
+            dims,
+        });
     }
     // A `Dim` marker with a scope flag other than the plain local one means
     // `Static`/`Public`/`Private` inside a procedure.

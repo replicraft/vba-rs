@@ -150,6 +150,15 @@ enum Ex {
         e: Box<Ex>,
         ty: Type,
     },
+    /// An element of an array.
+    Index {
+        base: Box<Ex>,
+        indices: Vec<Ex>,
+        ty: Type,
+    },
+    /// The marker for a lower bound that is the `Option Base` one; only
+    /// valid in front of the upper bound of a `ReDim`.
+    BaseBound,
 }
 
 /// The sub-libraries of the `VBA` library: `Strings.Left` names a function
@@ -199,6 +208,12 @@ enum Place {
         base: Box<Place>,
         udt: UdtId,
         index: u32,
+        ty: Type,
+    },
+    /// An element of an array variable.
+    Elem {
+        base: Box<Place>,
+        indices: Vec<Ex>,
         ty: Type,
     },
 }
@@ -256,11 +271,12 @@ impl Ex {
             | Ex::UdtField { ty, .. }
             | Ex::New { ty, .. }
             | Ex::Emitted(_, ty)
+            | Ex::Index { ty, .. }
             | Ex::Global { ty, .. } => ty.clone(),
             Ex::Me(m) | Ex::DefaultInstance(m) => Type::Class(*m),
             Ex::Named(_, e) => e.ty(),
             Ex::Ns(_) => Type::Error,
-            Ex::Late { .. } | Ex::Missing => Type::Variant,
+            Ex::Late { .. } | Ex::Missing | Ex::BaseBound => Type::Variant,
             Ex::Convert { to, .. } => to.clone(),
             Ex::Paren(e) => e.ty(),
             Ex::LibObj { lt, .. } => Type::Library(lt.clone()),
@@ -384,6 +400,10 @@ struct Lw<'a> {
     n_base: usize,
     /// The objects of the open `With` blocks.
     with_stack: Vec<Ex>,
+    /// Stack depth at the last `Dim` marker: the bounds of an array
+    /// declaration, which the shell has already declared, are dropped at
+    /// its `VAR_DECL`.
+    dim_depth: usize,
 }
 
 type R<T> = Result<T, Unsupported>;
@@ -407,6 +427,11 @@ fn place_of(e: &Ex) -> Option<Place> {
             base: Box::new(place_of(base)?),
             udt: *udt,
             index: *index,
+            ty: ty.clone(),
+        }),
+        Ex::Index { base, indices, ty } => Some(Place::Elem {
+            base: Box::new(place_of(base)?),
+            indices: indices.clone(),
             ty: ty.clone(),
         }),
         _ => None,
@@ -515,8 +540,11 @@ pub(crate) fn lower_body(
         extra_slots: Vec::new(),
         n_base: kind_template.slots.len(),
         with_stack: Vec::new(),
+        dim_depth: 0,
     };
     lw.begin_stmt();
+    lw.alloc_fixed_arrays();
+    lw.close_stmt();
     let mut last_op = Opcode::ProcHeader;
     let mut i = 0;
     while i < body.len() {
@@ -881,6 +909,18 @@ impl Lw<'_> {
         Some(pick)
     }
 
+    /// The first procedure of the project with this name that is visible
+    /// to the procedure being lowered, without recording a call.
+    fn proc_target_visible(&self, name: &str) -> Option<ProcId> {
+        self.cx
+            .index
+            .by_name
+            .get(&name.to_ascii_lowercase())?
+            .iter()
+            .find(|(m, _, _)| *m == self.cx.module || !self.cx.class_like[*m])
+            .map(|(_, _, id)| *id)
+    }
+
     /// Whether a procedure of the project with this name is visible to the
     /// procedure being lowered (its own module's, or one of a standard
     /// module). A library name that is shadowed this way is bound by the
@@ -1106,15 +1146,23 @@ impl Lw<'_> {
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
         let args = self.arrange_args(ins, &name_refs, args)?;
         let given = args.len();
-        if given > callee.params.len()
-            || callee.params[given..]
+        let pa = callee.params.iter().position(|p| p.param_array);
+        let fixed = pa.unwrap_or(callee.params.len());
+        if (pa.is_none() && given > fixed)
+            || callee.params[given.min(fixed)..fixed]
                 .iter()
-                .any(|p| !p.optional || p.param_array)
+                .any(|p| !p.optional)
         {
             return Err(self.no(ins.opcode, "argument count differs from the parameter list"));
         }
+        let mut args = args;
+        let extras = if args.len() > fixed {
+            args.split_off(fixed)
+        } else {
+            Vec::new()
+        };
         let mut out = Vec::new();
-        for (p, a) in callee.params.iter().zip(args) {
+        for (p, a) in callee.params[..fixed].iter().zip(args) {
             if matches!(a, Ex::Missing) {
                 if !p.optional {
                     return Err(self.no(ins.opcode, "omitted argument for a required parameter"));
@@ -1123,6 +1171,9 @@ impl Lw<'_> {
                 continue;
             }
             let forced = matches!(a, Ex::Paren(_));
+            if matches!(p.ty, Type::Array { .. }) && !matches!(a, Ex::Local { bare: true, .. }) {
+                return Err(self.no(ins.opcode, "array argument that is not a variable"));
+            }
             if p.by_val || forced {
                 out.push(ArgEx::Val(self.coerce_arg(ins, a, &p.ty)?));
                 continue;
@@ -1146,6 +1197,11 @@ impl Lw<'_> {
                     || matches!(
                         (&ty, &p.ty),
                         (Type::Enum(_), Type::Long) | (Type::Long, Type::Enum(_))
+                    )
+                    || matches!(
+                        (&ty, &p.ty),
+                        (Type::Array { elem: a, rank: ra }, Type::Array { elem: b, rank: rb })
+                            if a == b && (ra == rb || ra.is_none() || rb.is_none())
                     );
                 if same {
                     out.push(ArgEx::Ref(t));
@@ -1179,7 +1235,14 @@ impl Lw<'_> {
             }
             out.push(ArgEx::Val(self.coerce_arg(ins, a, &p.ty)?));
         }
-        out.resize(callee.params.len(), ArgEx::Missing);
+        out.resize(fixed, ArgEx::Missing);
+        for a in extras {
+            out.push(match a {
+                Ex::Named(..) => return Err(self.no(ins.opcode, "named argument in a ParamArray")),
+                Ex::Missing => ArgEx::Missing,
+                other => ArgEx::Val(self.coerce_arg(ins, other, &Type::Variant)?),
+            });
+        }
         let recv = match recv {
             Some(r) => Some(Box::new(r)),
             None => self
@@ -1462,6 +1525,18 @@ impl Lw<'_> {
                 });
                 IrOperand::Reg(dst)
             }
+            Ex::Index { base, indices, ty } => {
+                let b = self.emit_ex(base);
+                let idx: Vec<IrOperand> = indices.iter().map(|i| self.emit_ex(i)).collect();
+                let dst = self.reg(ty.clone());
+                self.emit(InstKind::Index {
+                    dst,
+                    array: b,
+                    indices: idx,
+                });
+                IrOperand::Reg(dst)
+            }
+            Ex::BaseBound => IrOperand::Const(Constant::Value(Variant::Empty)),
             Ex::Emitted(o, _) => o.clone(),
             Ex::Named(_, e) => self.emit_ex(e),
             Ex::DefaultInstance(m) => {
@@ -1600,6 +1675,19 @@ impl Lw<'_> {
                 });
                 r
             }
+            Place::Elem { base, indices, ty } => {
+                let b = self.emit_ref(base);
+                let idx: Vec<IrOperand> = indices.iter().map(|i| self.emit_ex(i)).collect();
+                let r = self.reg(ty.clone());
+                self.emit(InstKind::MakeRef {
+                    dst: r,
+                    place: RefPlace::Elem {
+                        base: b,
+                        indices: idx,
+                    },
+                });
+                r
+            }
         }
     }
 
@@ -1637,7 +1725,7 @@ impl Lw<'_> {
                     mode,
                 });
             }
-            Place::Udt { .. } => {
+            Place::Udt { .. } | Place::Elem { .. } => {
                 let r = self.emit_ref(p);
                 self.emit(InstKind::StoreRef { r, src: v, mode });
             }
@@ -1756,7 +1844,11 @@ impl Lw<'_> {
         self.emit(InstKind::Invoke {
             dst,
             receiver,
-            member: Member::Named(name.to_owned()),
+            member: if name.is_empty() {
+                Member::Default
+            } else {
+                Member::Named(name.to_owned())
+            },
             kind,
             args: out,
             static_receiver: None,
@@ -2250,7 +2342,53 @@ impl Lw<'_> {
                 self.terminate_and_continue(Terminator::Jump(b));
             }
             Opcode::VarDecl if ins.modifier & 0x23 == 2 => self.local_const(ins)?,
-            Opcode::DimMarker | Opcode::VarDecl | Opcode::OptionStmt => {}
+            Opcode::DimMarker => self.dim_depth = self.stack.len(),
+            Opcode::VarDecl => self.stack.truncate(self.dim_depth),
+            Opcode::OptionStmt => {}
+            Opcode::OptionBaseMarker => self.stack.push(Ex::BaseBound),
+            Opcode::WriteSimpleParams => {
+                self.assign_indexed(ins)?;
+                self.close_stmt();
+            }
+            Opcode::IntrinsicUpperBound | Opcode::IntrinsicLowerBound => {
+                let argc = match ins.operands.first() {
+                    Some(Operand::Count(c)) => usize::from(*c),
+                    _ => return Err(self.no(op, "missing argument count")),
+                };
+                if argc > 1 {
+                    return Err(self.no(op, "more than a dimension argument"));
+                }
+                let args = self.pop_n(ins, argc + 1)?;
+                let name = if op == Opcode::IntrinsicUpperBound {
+                    "UBound"
+                } else {
+                    "LBound"
+                };
+                let c = self.intrinsic_call(ins, name, false, args)?;
+                self.stack.push(c);
+            }
+            Opcode::RedimSimple | Opcode::RedimSimpleTyped => {
+                self.redim(ins)?;
+                self.close_stmt();
+            }
+            Opcode::EraseArrays => {
+                self.erase(ins)?;
+                self.close_stmt();
+            }
+            Opcode::ArrayElementParams => {
+                let (name, suffix) = self.name_of(ins)?;
+                let argc = match ins.operands.get(1) {
+                    Some(Operand::Count(c)) => usize::from(*c),
+                    _ => return Err(self.no(op, "missing argument count")),
+                };
+                let args = self.pop_n(ins, argc)?;
+                let e = if name.eq_ignore_ascii_case("Array") && self.proc_target_visible("Array").is_none() {
+                    self.paramarray_call(ins, &name, suffix, args)?
+                } else {
+                    self.read_name_call(ins, &name, suffix, args)?
+                };
+                self.stack.push(e);
+            }
             Opcode::InvokeSimple => {
                 let (name, suffix) = self.name_of(ins)?;
                 let argc = match ins.operands.get(1) {
@@ -2629,6 +2767,13 @@ impl Lw<'_> {
                 matches!(self.stack.last(), Some(Ex::Me(_) | Ex::Late { .. }))
                     || self.stack.last().is_some_and(|e| self.member_receiver(e))
             }
+            // Array element assignment, `ReDim`, `Erase`, the `Option Base`
+            // marker and `Array(...)`: pinned by the differential run.
+            Opcode::WriteSimpleParams
+            | Opcode::EraseArrays
+            | Opcode::OptionBaseMarker
+            | Opcode::ArrayElementParams => true,
+            Opcode::RedimSimple | Opcode::RedimSimpleTyped => matches!(ins.modifier, 0 | 16),
             // `Set` statements, `New`.
             Opcode::SetKeywordMarker
             | Opcode::WriteRefSimple
@@ -2762,6 +2907,7 @@ impl Lw<'_> {
                 Ex::Local { bare: true, .. }
                 | Ex::Global { bare: true, .. }
                 | Ex::Field { .. }
+                | Ex::Index { .. }
                 | Ex::UdtField { .. } => match place_of(&a) {
                     Some(p) => LateEx::Ref(p),
                     None => LateEx::Val(a),
@@ -2899,9 +3045,32 @@ impl Lw<'_> {
         suffix: Option<char>,
         args: Vec<Ex>,
     ) -> R<Ex> {
-        if self.local_by_name(name).is_some()
-            || self.local_consts.contains_key(&name.to_ascii_lowercase())
-        {
+        if let Some((id, ty)) = self.local_by_name(name) {
+            if suffix.is_none() && matches!(ty, Type::Array { .. }) {
+                let base = Ex::Local {
+                    id,
+                    ty,
+                    bare: false,
+                };
+                return self.array_index(ins, base, args);
+            }
+            if suffix.is_none() && (ty.is_variant() || ty == Type::Object) && !args.is_empty() {
+                // The default member of a `Variant` or `Object`: the run time
+                // decides between an array index and a member invocation.
+                let recv = Ex::Local {
+                    id,
+                    ty,
+                    bare: false,
+                };
+                return Ok(Ex::Late {
+                    recv: Box::new(recv),
+                    name: String::new(),
+                    args: Self::late_args(args),
+                });
+            }
+            return Err(self.no(ins.opcode, "indexing of a variable"));
+        }
+        if self.local_consts.contains_key(&name.to_ascii_lowercase()) {
             return Err(self.no(ins.opcode, "indexing of a variable"));
         }
         if self.is_result_name(name) && suffix.is_none() {
@@ -2942,6 +3111,237 @@ impl Lw<'_> {
             return Ok(self.host_member(name, args));
         }
         self.intrinsic_call(ins, name, dollar, args)
+    }
+
+    /// `array(i, j)`: an element of an array value, with the subscripts
+    /// converted to `Long` unless they are integral, as the source binding
+    /// does.
+    fn array_index(&mut self, ins: &Listed, base: Ex, args: Vec<Ex>) -> R<Ex> {
+        let Type::Array { elem, rank } = base.ty() else {
+            return Err(self.no(ins.opcode, "indexing of a value that is not an array"));
+        };
+        if args.is_empty()
+            || args
+                .iter()
+                .any(|a| matches!(a, Ex::Named(..) | Ex::Missing | Ex::BaseBound))
+        {
+            return Err(self.no(ins.opcode, "array subscripts that are not plain values"));
+        }
+        if rank.is_some_and(|r| usize::from(r) != args.len()) {
+            return Err(self.no(ins.opcode, "wrong number of subscripts"));
+        }
+        let indices = args.into_iter().map(|a| self.coerce_index(a)).collect();
+        Ok(Ex::Index {
+            base: Box::new(base),
+            indices,
+            ty: *elem,
+        })
+    }
+
+    /// A subscript or bound: integral values are used as they are, the rest
+    /// is converted to `Long`.
+    fn coerce_index(&self, e: Ex) -> Ex {
+        match e.ty() {
+            Type::Byte | Type::Integer | Type::Long | Type::Enum(_) | Type::LibEnum(_) => e,
+            _ => self.coerce(e, &Type::Long),
+        }
+    }
+
+    /// `array(i, j) = value`: the value, then the subscripts, are on the
+    /// stack.
+    fn assign_indexed(&mut self, ins: &Listed) -> R<()> {
+        let (name, suffix) = self.name_of(ins)?;
+        let argc = match ins.operands.get(1) {
+            Some(Operand::Count(c)) => usize::from(*c),
+            _ => return Err(self.no(ins.opcode, "missing argument count")),
+        };
+        let args = self.pop_n(ins, argc)?;
+        let v = self.pop(ins)?;
+        self.expect_empty(ins)?;
+        if self.set_marker {
+            return Err(self.no(ins.opcode, "reference assignment to an element"));
+        }
+        let Some((id, ty)) = self.local_by_name(&name) else {
+            return Err(self.no(
+                ins.opcode,
+                "assignment to an element of a name that is not a local array",
+            ));
+        };
+        if suffix.is_some() || !matches!(ty, Type::Array { .. }) {
+            return Err(self.no(
+                ins.opcode,
+                "assignment to an element of a variable that is not an array",
+            ));
+        }
+        let base = Ex::Local {
+            id,
+            ty,
+            bare: false,
+        };
+        let Ex::Index {
+            base,
+            indices,
+            ty: elem,
+        } = self.array_index(ins, base, args)?
+        else {
+            return Err(self.no(ins.opcode, "array element expected"));
+        };
+        let Some(base_place) = place_of(&base) else {
+            return Err(self.no(ins.opcode, "array place"));
+        };
+        let place = Place::Elem {
+            base: Box::new(base_place),
+            indices,
+            ty: elem.clone(),
+        };
+        self.assign_to_place(ins, place, elem, v, false)
+    }
+
+    /// `ReDim [Preserve] a(bounds)` of a local or parameter array.
+    fn redim(&mut self, ins: &Listed) -> R<()> {
+        let (name, suffix) = self.name_of(ins)?;
+        let dims = match ins.operands.get(1) {
+            Some(Operand::Count(c)) => usize::from(*c),
+            _ => return Err(self.no(ins.opcode, "missing dimension count")),
+        };
+        if dims == 0 {
+            return Err(self.no(ins.opcode, "ReDim without dimensions"));
+        }
+        let items = self.pop_n(ins, dims * 2)?;
+        self.expect_empty(ins)?;
+        let preserve = ins.modifier & 16 != 0;
+        let Some((id, ty)) = self.local_by_name(&name) else {
+            return Err(self.no(ins.opcode, "ReDim of a name that is not a local array"));
+        };
+        let Type::Array { elem, rank } = ty else {
+            return Err(self.no(ins.opcode, "ReDim of a variable that is not an array"));
+        };
+        if suffix.is_some() || rank.is_some() {
+            return Err(self.no(ins.opcode, "ReDim of a fixed-size or suffixed array"));
+        }
+        let mut bounds = Vec::new();
+        let mut it = items.into_iter();
+        while let (Some(lo), Some(hi)) = (it.next(), it.next()) {
+            if matches!(hi, Ex::BaseBound) {
+                return Err(self.no(ins.opcode, "malformed ReDim bounds"));
+            }
+            let lo = match lo {
+                Ex::BaseBound => None,
+                other => Some(self.coerce_index(other)),
+            };
+            let hi = self.coerce_index(hi);
+            let lo = lo.map(|l| self.emit_ex(&l));
+            let hi = self.emit_ex(&hi);
+            bounds.push((lo, hi));
+        }
+        let r = self.emit_ref(&Place::Local(id));
+        self.emit(InstKind::ReDim {
+            r,
+            preserve,
+            bounds,
+            elem: *elem,
+        });
+        Ok(())
+    }
+
+    /// `Erase a, b`: arrays on the stack.
+    fn erase(&mut self, ins: &Listed) -> R<()> {
+        let n = match ins.operands.first() {
+            Some(Operand::Count(c)) => usize::from(*c),
+            _ => return Err(self.no(ins.opcode, "missing count")),
+        };
+        if n == 0 {
+            return Err(self.no(ins.opcode, "Erase without arrays"));
+        }
+        let items = self.pop_n(ins, n)?;
+        self.expect_empty(ins)?;
+        let mut places = Vec::new();
+        for e in &items {
+            match (e, place_of(e)) {
+                (
+                    Ex::Local {
+                        ty: Type::Array { .. },
+                        ..
+                    },
+                    Some(p),
+                ) => places.push(p),
+                _ => {
+                    return Err(self.no(ins.opcode, "Erase of something other than a local array"));
+                }
+            }
+        }
+        for p in &places {
+            let r = self.emit_ref(p);
+            self.emit(InstKind::Erase { r });
+        }
+        Ok(())
+    }
+
+    /// The fixed-size local arrays are allocated on entry, as the source
+    /// lowering does.
+    fn alloc_fixed_arrays(&mut self) {
+        let sema = self.sema;
+        for (i, l) in sema.locals.iter().enumerate() {
+            let Some(bounds) = &l.fixed_bounds else {
+                continue;
+            };
+            let r = self.reg(l.ty.clone());
+            self.emit(InstKind::MakeRef {
+                dst: r,
+                place: RefPlace::Local(LocalId(i as u32)),
+            });
+            let elem = match &l.ty {
+                Type::Array { elem, .. } => (**elem).clone(),
+                t => t.clone(),
+            };
+            self.emit(InstKind::DimFixed {
+                r,
+                bounds: bounds.clone(),
+                elem,
+            });
+        }
+    }
+
+    /// A call that the compiler marks as taking an argument array:
+    /// `Array(...)` of the library.
+    fn paramarray_call(
+        &mut self,
+        ins: &Listed,
+        name: &str,
+        suffix: Option<char>,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
+        if !name.eq_ignore_ascii_case("Array")
+            || suffix.is_some()
+            || self.local_by_name(name).is_some()
+            || self.local_consts.contains_key(&name.to_ascii_lowercase())
+            || self.is_result_name(name)
+            || self.module_symbol(name).is_some()
+            || self.shadowed_by_project(name)
+            || self.is_host_name(name, false)
+        {
+            return Err(self.no(
+                ins.opcode,
+                "call of an argument-array procedure other than Array",
+            ));
+        }
+        let mut out = Vec::new();
+        for a in args {
+            out.push(match a {
+                Ex::Named(..) => return Err(self.no(ins.opcode, "named argument of Array")),
+                Ex::Missing => ArgEx::Missing,
+                other => ArgEx::Val(self.coerce_arg(ins, other, &Type::Variant)?),
+            });
+        }
+        Ok(Ex::Call {
+            callee: Callee::Intrinsic {
+                name: "Array".to_owned(),
+                dollar: false,
+            },
+            ty: Type::Variant,
+            args: out,
+            recv: None,
+        })
     }
 
     fn statement_call(

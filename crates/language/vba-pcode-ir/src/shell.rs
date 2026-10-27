@@ -18,7 +18,7 @@ use crate::error::LowerError;
 use vba_pcode::ProcKind;
 
 use crate::model::{
-    CompareStored, DeclScope, ModuleModel, ProcModel, local_spelling, returns_value,
+    CompareStored, DeclScope, ModuleModel, ProcModel, TyRef, local_spelling, returns_value,
 };
 
 /// The analysed shell.
@@ -57,6 +57,9 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
         CompareStored::Binary => {}
         CompareStored::Text => text.push_str("Option Compare Text\n"),
         CompareStored::Database => text.push_str("Option Compare Database\n"),
+    }
+    if m.option_base == Some(1) {
+        text.push_str("Option Base 1\n");
     }
     for (ii, i) in m.implements.iter().enumerate() {
         if let Ok(n) = &i.class {
@@ -138,12 +141,20 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
                 .arg_tys
                 .get(k)
                 .map_or_else(|| "Variant".to_owned(), |t| t.spelling());
+            let array = matches!(p.arg_tys.get(k), Some(TyRef::Array(_)));
             let _ = write!(
                 text,
-                "{}{} {} As {}",
+                "{}{} {}{} As {}",
                 if a.optional { "Optional " } else { "" },
-                if a.by_val { "ByVal" } else { "ByRef" },
+                if a.param_array {
+                    "ParamArray"
+                } else if a.by_val && !array {
+                    "ByVal"
+                } else {
+                    "ByRef"
+                },
                 local_spelling(&a.name).unwrap_or_else(|| "_".into()),
+                if array { "()" } else { "" },
                 ty
             );
             if let Some(Some(d)) = p.defaults.get(k) {
@@ -156,11 +167,17 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
                 .ret_ty
                 .as_ref()
                 .map_or_else(|| "Variant".to_owned(), |t| t.spelling());
-            let _ = write!(text, " As {ty}");
+            let array = if matches!(p.ret_ty, Some(TyRef::Array(_))) {
+                "()"
+            } else {
+                ""
+            };
+            let _ = write!(text, " As {ty}{array}");
         }
         text.push('\n');
         for l in &p.locals {
-            let _ = writeln!(text, "Dim {} As {}", l.name, l.ty.spelling());
+            let dims = l.dims.as_ref().map_or_else(String::new, |d| format!("({d})"));
+            let _ = writeln!(text, "Dim {}{dims} As {}", l.name, l.ty.spelling());
         }
         let _ = writeln!(text, "End {end_kw}");
         ranges.push((start, text.len(), Origin::Proc(i)));
