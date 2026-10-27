@@ -573,8 +573,9 @@ fn decompress_random_chunks_never_panics() {
         let mut remaining = n;
         while remaining > 0 {
             let len = (1 + rng.below(remaining.min(200))).min(remaining);
-            let hdr =
-                0x3000u16 | if rng.below(4) != 0 { 0x8000 } else { 0 } | (len as u16 + 1) % 0x1000;
+            let hdr = 0x3000u16
+                | if rng.below(4) != 0 { 0x8000 } else { 0 }
+                | ((len as u16 + 1) % 0x1000);
             v.extend(hdr.to_le_bytes());
             v.extend((0..len).map(|_| rng.next() as u8));
             remaining -= len;
