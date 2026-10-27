@@ -196,12 +196,24 @@ fn encode_scalar(vt: VarType, v: &Variant, out: &mut Vec<u8>) -> Result<(), FsEr
 pub struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
+    /// Dynamic-array elements this reader may still produce.
+    elements_left: u64,
 }
+
+/// Most dynamic-array elements one [`Reader`] decodes. A record holds at least
+/// one byte per element, so the size of the file already bounds the count,
+/// but each element is decoded into a value many times larger than its
+/// encoding; this keeps a hostile descriptor from multiplying the file size.
+pub const MAX_DYNAMIC_ELEMENTS: u64 = 1 << 22;
 
 impl<'a> Reader<'a> {
     /// Starts reading at `pos`.
     pub fn new(data: &'a [u8], pos: usize) -> Reader<'a> {
-        Reader { data, pos }
+        Reader {
+            data,
+            pos,
+            elements_left: MAX_DYNAMIC_ELEMENTS,
+        }
     }
 
     /// The current offset.
@@ -274,6 +286,11 @@ pub fn decode(shape: &Shape, r: &mut Reader<'_>, random: bool) -> Result<RecordV
             if total > r.remaining() as u64 {
                 return Err(FsError::Vba(62));
             }
+            // Out of memory: more elements than one record may hold.
+            if total > r.elements_left {
+                return Err(FsError::Vba(7));
+            }
+            r.elements_left -= total;
             let elems = (0..total)
                 .map(|_| decode(elem, r, random))
                 .collect::<Result<_, _>>()?;
@@ -487,5 +504,79 @@ mod tests {
             decode(&Shape::Scalar(VarType::Long), &mut r, false),
             Err(FsError::Vba(62))
         );
+    }
+}
+
+#[cfg(test)]
+mod hostile_tests {
+    use super::*;
+
+    /// Zero-sized elements take no bytes, so the file size cannot bound the
+    /// count; the per-reader element budget must.
+    #[test]
+    fn zero_sized_elements_cannot_multiply_memory() {
+        let shape = Shape::DynArray {
+            elem: Box::new(Shape::Udt(Vec::new())),
+        };
+        let mut data = vec![1, 0];
+        data.extend_from_slice(&(MAX_DYNAMIC_ELEMENTS as u32 + 1).to_le_bytes());
+        data.extend_from_slice(&0i32.to_le_bytes());
+        // Pad so the "one byte per element" check cannot be what refuses it.
+        data.resize(2 + 8 + (MAX_DYNAMIC_ELEMENTS as usize + 8), 0);
+        let mut r = Reader::new(&data, 0);
+        assert_eq!(decode(&shape, &mut r, false), Err(FsError::Vba(7)));
+        // The budget is shared by the arrays of one record.
+        let mut small = vec![1, 0];
+        small.extend_from_slice(&3u32.to_le_bytes());
+        small.extend_from_slice(&0i32.to_le_bytes());
+        small.extend_from_slice(&[0; 8]);
+        let mut r = Reader::new(&small, 0);
+        r.elements_left = 2;
+        assert_eq!(decode(&shape, &mut r, false), Err(FsError::Vba(7)));
+    }
+
+    /// Seeded mutation of valid records never panics.
+    #[test]
+    fn mutated_records_never_panic() {
+        let shapes = [
+            Shape::Udt(vec![
+                Shape::Scalar(VarType::Variant),
+                Shape::VarString { current_len: 3 },
+                Shape::Scalar(VarType::Decimal),
+                Shape::Scalar(VarType::Date),
+                Shape::DynArray {
+                    elem: Box::new(Shape::Scalar(VarType::Variant)),
+                },
+            ]),
+            Shape::DynArray {
+                elem: Box::new(Shape::DynArray {
+                    elem: Box::new(Shape::FixedString(3)),
+                }),
+            },
+        ];
+        let mut seed = 0x5EED_0020u64;
+        let mut next = move || {
+            seed ^= seed >> 12;
+            seed ^= seed << 25;
+            seed ^= seed >> 27;
+            seed.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        };
+        for round in 0..20_000 {
+            let n = (next() % 96) as usize;
+            let mut data: Vec<u8> = (0..n).map(|_| next() as u8).collect();
+            // Make variant tags and descriptors plausible now and then.
+            if round % 3 == 0 && data.len() >= 4 {
+                data[0] = [0, 2, 3, 5, 6, 7, 8, 10, 11, 14, 17][(next() % 11) as usize];
+                data[1] = 0;
+                data[2] = (next() % 4) as u8;
+                data[3] = 0;
+            }
+            for shape in &shapes {
+                for random in [false, true] {
+                    let mut r = Reader::new(&data, (next() % 4) as usize);
+                    let _ = decode(shape, &mut r, random);
+                }
+            }
+        }
     }
 }
