@@ -2969,7 +2969,7 @@ impl Lw<'_> {
             | Opcode::ArrayElementParams => true,
             Opcode::RedimSimple | Opcode::RedimSimpleTyped => matches!(ins.modifier, 0 | 16),
             // `Open path For mode As #n`: the mode words 1, 2, 4, 8 and 32.
-            Opcode::FileOpen => matches!(ins.modifier, 1 | 2 | 4 | 8 | 32),
+            Opcode::FileOpen => matches!(ins.operands.first(), Some(Operand::Word(1 | 2 | 4 | 8 | 32))),
             // `Set` statements, `New`.
             Opcode::SetKeywordMarker
             | Opcode::WriteRefSimple
@@ -3353,10 +3353,15 @@ impl Lw<'_> {
     }
 
     /// `Open path For mode As #file [Len = n]` with no `Access` or `Lock`
-    /// clause.
+    /// clause; the mode is the word operand (1 `Input`, 2 `Output`,
+    /// 4 `Random`, 8 `Append`, 32 `Binary`).
     fn file_open(&mut self, ins: &Listed) -> R<()> {
         use vba_ast::OpenMode;
-        let mode = match ins.modifier {
+        let word = match ins.operands.first() {
+            Some(Operand::Word(w)) => *w,
+            _ => return Err(self.no(ins.opcode, "missing Open mode")),
+        };
+        let mode = match word {
             1 => OpenMode::Input,
             2 => OpenMode::Output,
             4 => OpenMode::Random,

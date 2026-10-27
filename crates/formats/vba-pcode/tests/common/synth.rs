@@ -25,6 +25,9 @@ pub struct CacheSpec {
     /// Build the 64-bit arrangement (the indirect-table length sits two
     /// bytes further from its base).
     pub x64: bool,
+    /// Build the extended header of the newest builds: bit 0x10 set in the
+    /// word at offset 2 and the declaration table length at 0x43.
+    pub ext: bool,
 }
 
 impl Default for CacheSpec {
@@ -38,6 +41,7 @@ impl Default for CacheSpec {
             references: vec!["*\\Rtest".into()],
             members: None,
             x64: false,
+            ext: false,
         }
     }
 }
@@ -52,8 +56,15 @@ fn utf16(s: &str) -> Vec<u8> {
 
 /// Builds a module cache in the VBA 7.0 x86 arrangement.
 pub fn build_cache(spec: &CacheSpec) -> Vec<u8> {
-    let mut v = vec![0u8; 0x3F];
-    v[..5].copy_from_slice(&[0x01, 0x16, if spec.x64 { 3 } else { 1 }, 0x00, 0x06]);
+    let mut v = vec![0u8; if spec.ext { 0x43 } else { 0x3F }];
+    let platform = if spec.x64 { 3 } else { 1 };
+    v[..5].copy_from_slice(&[
+        0x01,
+        0x16,
+        if spec.ext { platform | 0x10 } else { platform },
+        0x00,
+        0x06,
+    ]);
     // Declaration table.
     v.extend_from_slice(&(spec.decl.len() as u32).to_le_bytes());
     v.extend_from_slice(&spec.decl);

@@ -37,6 +37,8 @@ pub struct Tables {
     pub objects: Vec<[u8; 10]>,
     /// Records of the type-reference list after the object table.
     pub type_refs: Vec<[u8; 8]>,
+    /// Declaration-table contents (`Declare` records).
+    pub decl: Vec<u8>,
 }
 
 impl Default for Tables {
@@ -48,6 +50,7 @@ impl Default for Tables {
             ind: vec![0; 8],
             objects: Vec::new(),
             type_refs: Vec::new(),
+            decl: Vec::new(),
         }
     }
 }
@@ -179,7 +182,7 @@ impl Tables {
         self.type_refs.push(r);
         let mut e = [0u8; 10];
         e[2..4].copy_from_slice(&0x3C01u16.to_le_bytes());
-        e[6..8].copy_from_slice(&(slot * 4).to_le_bytes());
+        e[6..8].copy_from_slice(&(slot * 8).to_le_bytes());
         self.objects.push(e);
         self.objects.len() - 1
     }
@@ -229,6 +232,48 @@ impl Tables {
             at = u32::from_le_bytes(self.ind[at + 20..at + 24].try_into().unwrap()) as usize;
         }
         self.ind[at + 12..at + 16].copy_from_slice(&ty.to_le_bytes());
+    }
+
+    /// Adds a `Declare` function record (and its declaration-table record
+    /// with the library and the entry point); returns the record offset.
+    pub fn declare(
+        &mut self,
+        name: &str,
+        lib: &str,
+        entry: &str,
+        ret: Option<u8>,
+        args: &[(&str, u8, bool)],
+    ) -> u32 {
+        let off = self.function(name, ret, args);
+        // 20-byte header, the entry point text, padded to 4.
+        let lw = self.name(lib);
+        let at = self.decl.len();
+        let mut rec = vec![0u8; 20];
+        rec[2..4].copy_from_slice(&lw.to_le_bytes());
+        rec[4..6].copy_from_slice(&20u16.to_le_bytes());
+        rec.extend_from_slice(entry.as_bytes());
+        rec.push(0);
+        while !rec.len().is_multiple_of(4) {
+            rec.push(0);
+        }
+        self.decl.extend_from_slice(&rec);
+        let f = off as usize;
+        self.ind[f + 48..f + 50].copy_from_slice(&(at as u16).to_le_bytes());
+        // A `Declare` has no `0x80`/`0x10` option bits.
+        self.ind[f + 58] = 0x0C;
+        off
+    }
+
+    /// Adds a variable record of an array of the element type `elem`
+    /// (the descriptor has kind 0x1B); returns the variable offset.
+    pub fn array_variable(&mut self, name: &str, elem: u8) -> u32 {
+        self.pad8();
+        let desc = self.ind.len() as u32;
+        let mut d = vec![0u8; 8];
+        d[0..2].copy_from_slice(&0x001Bu16.to_le_bytes());
+        d[6] = elem;
+        self.ind.extend_from_slice(&d);
+        self.variable_of(name, desc)
     }
 
     /// Adds a variable record; returns its offset.
@@ -291,6 +336,22 @@ impl Line {
         self
     }
 
+    /// An instruction with one plain word operand.
+    pub fn opw(mut self, op: Opcode, modifier: u16, w: u16) -> Self {
+        self.word(op, modifier);
+        self.0.extend_from_slice(&w.to_le_bytes());
+        self
+    }
+
+    /// An instruction with a name, a count and a record offset.
+    pub fn name_args_rec(mut self, op: Opcode, modifier: u16, name: u16, argc: u16, off: u32) -> Self {
+        self.word(op, modifier);
+        self.0.extend_from_slice(&name.to_le_bytes());
+        self.0.extend_from_slice(&argc.to_le_bytes());
+        self.0.extend_from_slice(&off.to_le_bytes());
+        self
+    }
+
     pub fn rec(mut self, op: Opcode, modifier: u16, off: u32) -> Self {
         self.word(op, modifier);
         self.0.extend_from_slice(&off.to_le_bytes());
@@ -333,10 +394,15 @@ impl Line {
         self
     }
 
-    pub fn text(mut self, s: &str) -> Self {
+    pub fn text(self, s: &str) -> Self {
+        self.text_bytes(s.as_bytes())
+    }
+
+    /// A text literal given as the bytes of the project code page.
+    pub fn text_bytes(mut self, s: &[u8]) -> Self {
         self.word(Opcode::ConstText, 0);
         self.0.extend_from_slice(&(s.len() as u16).to_le_bytes());
-        self.0.extend_from_slice(s.as_bytes());
+        self.0.extend_from_slice(s);
         if !s.len().is_multiple_of(2) {
             self.0.push(0);
         }
@@ -364,7 +430,7 @@ pub fn build_cache(lines: &[Line], indirect: &[u8]) -> Vec<u8> {
 /// Like [`build_cache`], with the object table and the type-reference list
 /// of `t`.
 pub fn build_cache_t(lines: &[Line], t: &Tables) -> Vec<u8> {
-    build_cache_with(lines, &t.ind, &t.objects, &t.type_refs)
+    build_cache_full(lines, &t.ind, &t.objects, &t.type_refs, &t.decl)
 }
 
 /// Assembles a module cache with object-table entries and type references.
@@ -374,12 +440,24 @@ pub fn build_cache_with(
     objects: &[[u8; 10]],
     type_refs: &[[u8; 8]],
 ) -> Vec<u8> {
+    build_cache_full(lines, indirect, objects, type_refs, &[])
+}
+
+/// Assembles a module cache with a declaration table as well.
+pub fn build_cache_full(
+    lines: &[Line],
+    indirect: &[u8],
+    objects: &[[u8; 10]],
+    type_refs: &[[u8; 8]],
+    decl: &[u8],
+) -> Vec<u8> {
     fn put32(v: &mut [u8], at: usize, x: u32) {
         v[at..at + 4].copy_from_slice(&x.to_le_bytes());
     }
     let mut v = vec![0u8; 0x3F];
     v[..5].copy_from_slice(&[0x01, 0x16, 0x01, 0x00, 0x06]);
-    v.extend_from_slice(&0u32.to_le_bytes());
+    v.extend_from_slice(&(decl.len() as u32).to_le_bytes());
+    v.extend_from_slice(decl);
     let decl_end = v.len();
     v.extend_from_slice(&[0u8; 20]);
     let q = v.len();
