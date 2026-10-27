@@ -129,6 +129,10 @@ pub enum TypeRef {
     /// A class or user type named through the object table; the value is the
     /// identifier reference word of the type name.
     Named(u16),
+    /// A library-qualified type (`Lib.Type`): the slot of its record in the
+    /// type-reference list that follows the object table
+    /// ([`type_ref_record`]).
+    Qualified(u16),
     /// A reference whose layout is not resolved (kept raw).
     Unknown(u32),
 }
@@ -153,6 +157,55 @@ impl ObjectEntry {
     pub fn is_qualified(&self) -> bool {
         self.attrs & 1 != 0
     }
+}
+
+/// Size of a record of the type-reference list.
+pub const TYPE_REF_SIZE: usize = 8;
+
+/// A record of the type-reference list: the name and the library handle of a
+/// library-qualified type. `[obs]` (see the format document).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TypeRefRecord {
+    /// The word at +0 (kind of reference; 2, 8 and 0x18 are seen).
+    pub kind: u16,
+    /// The word at +2: a handle that is the same for all types of one
+    /// library within a project (its meaning beyond that is not known).
+    pub library: u16,
+    /// Identifier reference of the type name (word at +4).
+    pub name: u16,
+}
+
+/// Locates the type-reference records that follow the object table: a header
+/// of 8 bytes (a word, the bytes `01 01` and the byte length of the records as
+/// a dword), then the records. `None` when the header does not have that form
+/// or the records do not fit before `limit`.
+pub fn type_ref_area(
+    bytes: &[u8],
+    objects_end: usize,
+    limit: usize,
+) -> Option<std::ops::Range<usize>> {
+    let h = bytes.get(objects_end..objects_end.checked_add(8)?)?;
+    if h[2] != 1 || h[3] != 1 {
+        return None;
+    }
+    let len = u32::from_le_bytes([h[4], h[5], h[6], h[7]]) as usize;
+    let start = objects_end + 8;
+    let end = start.checked_add(len)?;
+    (len % TYPE_REF_SIZE == 0 && end <= limit.min(bytes.len())).then_some(start..end)
+}
+
+/// Reads record `slot` of the type-reference list `refs`.
+///
+/// # Errors
+///
+/// Bounds errors when the slot lies outside the list.
+pub fn type_ref_record(refs: &[u8], slot: usize) -> Result<TypeRefRecord> {
+    let at = slot.checked_mul(TYPE_REF_SIZE).unwrap_or(usize::MAX);
+    Ok(TypeRefRecord {
+        kind: u16_at(refs, at, "type reference kind")?,
+        library: u16_at(refs, at.wrapping_add(2), "type reference library")?,
+        name: u16_at(refs, at.wrapping_add(4), "type reference name")?,
+    })
 }
 
 /// Reads the object-table entry at byte offset `offset` of `objects`.
@@ -610,7 +663,16 @@ pub fn type_descriptor(
     let shift = if layout.bitness == Bitness::X64 { 3 } else { 2 };
     let idx = usize::from(v >> shift);
     let e = object_entry(objects, idx * OBJECT_ENTRY_SIZE)?;
-    if e.is_qualified() || e.name == 0 || e.name == 0xFFFF {
+    if e.is_qualified() {
+        // `[obs]`: the word at +6 is the slot of the type-reference record,
+        // times the pointer size.
+        return Ok(if e.name == 0xFFFF {
+            TypeRef::Unknown(offset)
+        } else {
+            TypeRef::Qualified(e.name >> shift)
+        });
+    }
+    if e.name == 0 || e.name == 0xFFFF {
         return Ok(TypeRef::Unknown(offset));
     }
     Ok(TypeRef::Named(e.name))
@@ -713,6 +775,57 @@ mod tests {
             type_descriptor(&ind, &obj, 0, &l()).unwrap(),
             TypeRef::Named(0x0456)
         );
+    }
+
+    #[test]
+    fn qualified_descriptor_names_a_type_reference_slot() {
+        // Descriptor -> entry 1 (x64: 8 / 8), a qualified entry whose word
+        // at +6 is slot 3 times the pointer size.
+        let mut ind = vec![0u8; 16];
+        ind[2..4].copy_from_slice(&8u16.to_le_bytes());
+        let mut obj = vec![0u8; 20];
+        obj[12..14].copy_from_slice(&0x3C01u16.to_le_bytes());
+        obj[16..18].copy_from_slice(&24u16.to_le_bytes());
+        let l64 = Layout::select(0xB5, 3).unwrap();
+        assert_eq!(
+            type_descriptor(&ind, &obj, 0, &l64).unwrap(),
+            TypeRef::Qualified(3)
+        );
+        // A slot word of 0xFFFF names nothing.
+        obj[16..18].copy_from_slice(&0xFFFFu16.to_le_bytes());
+        assert_eq!(
+            type_descriptor(&ind, &obj, 0, &l64).unwrap(),
+            TypeRef::Unknown(0)
+        );
+    }
+
+    #[test]
+    fn type_reference_list_is_located_and_read() {
+        // A word, `01 01`, the byte length, then two records.
+        let mut b = vec![0u8; 4];
+        b.extend_from_slice(&[0, 0, 1, 1]);
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&[2, 0, 0x1E, 0, 0x34, 0x02, 0, 0]);
+        b.extend_from_slice(&[8, 0, 0x40, 0, 0x28, 0x03, 0, 0]);
+        let area = type_ref_area(&b, 4, b.len()).unwrap();
+        assert_eq!(area, 12..28);
+        let refs = &b[area];
+        assert_eq!(
+            type_ref_record(refs, 1).unwrap(),
+            TypeRefRecord {
+                kind: 8,
+                library: 0x40,
+                name: 0x328
+            }
+        );
+        assert!(type_ref_record(refs, 2).is_err());
+        // Wrong marker, ragged length, or a list that does not fit.
+        b[6] = 0;
+        assert!(type_ref_area(&b, 4, b.len()).is_none());
+        b[6] = 1;
+        assert!(type_ref_area(&b, 4, b.len() - 1).is_none());
+        b[8] = 15;
+        assert!(type_ref_area(&b, 4, b.len()).is_none());
     }
 
     #[test]

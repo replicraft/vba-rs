@@ -38,7 +38,8 @@ use crate::opcode::Opcode;
 use crate::project_stream::IdentTable;
 use crate::records::{
     ArgumentRecord, DeclarationRecord, FunctionRecord, OBJECT_ENTRY_SIZE, ProcKind, TypeId,
-    TypeRef, UdtRecord, VariableRecord, argument_chain, object_entry, variable_type,
+    TypeRef, UdtRecord, VariableRecord, argument_chain, object_entry, type_descriptor,
+    type_ref_area, type_ref_record, variable_type,
 };
 
 /// Radix an integer literal was written in.
@@ -78,8 +79,23 @@ pub enum ResolvedType {
     Intrinsic(TypeId),
     /// A class or user type.
     Named(Name),
+    /// A library-qualified type (`Lib.Type`): the qualifier and the type name.
+    Qualified(QualifiedType),
     /// Unresolved reference (raw value).
     Unknown(u32),
+}
+
+/// A library-qualified type reference with the name resolved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QualifiedType {
+    /// Library handle of the type-reference record: the identifier
+    /// reference of the qualifier (`[obs]`, equal for the types of one
+    /// library within a project).
+    pub library: u16,
+    /// The qualifier as an identifier (the project or library name).
+    pub qualifier: Name,
+    /// The type name.
+    pub name: Name,
 }
 
 /// A resolved procedure header record.
@@ -173,8 +189,10 @@ pub enum Operand {
         /// The operand as stored: the entry index times the pointer size
         /// (4 on x86, 8 on x64).
         offset: u16,
-        /// Class name, when the entry is in range.
+        /// Class name, when the entry is in range and not library-qualified.
         class: Option<Name>,
+        /// The type, when the entry names a library-qualified type.
+        qualified: Option<QualifiedType>,
     },
     /// A procedure header record.
     Procedure(Box<ProcedureInfo>),
@@ -195,6 +213,10 @@ pub enum Operand {
     Context(u32, Option<u32>),
     /// Several plain words (shapes without a known meaning).
     Words(Vec<u16>),
+    /// The interface of an `Implements` statement: the first word of the
+    /// statement is the position of the interface record in the indirect
+    /// table plus 8, and the record starts with a type descriptor.
+    Interface(ResolvedType),
 }
 
 /// One instruction with resolved operands.
@@ -265,6 +287,7 @@ pub struct Disassembler<'a> {
     resolver: Resolver<'a>,
     indirect: &'a [u8],
     objects: &'a [u8],
+    type_refs: &'a [u8],
     declarations: &'a [u8],
     /// Argument records this disassembler may still list. Many instructions
     /// can name one procedure record, and each listing copies its argument
@@ -285,6 +308,12 @@ impl<'a> Disassembler<'a> {
             resolver: Resolver::new(idents, cache.layout),
             indirect: &cache.bytes[cache.tables.indirect.clone()],
             objects: &cache.bytes[cache.tables.objects.clone()],
+            type_refs: type_ref_area(
+                cache.bytes,
+                cache.tables.objects.end,
+                cache.tables.indirect.start,
+            )
+            .map_or(&[][..], |r| &cache.bytes[r]),
             declarations: &cache.bytes[cache.tables.declarations.clone()],
             arg_budget: std::cell::Cell::new(MAX_LISTED_ARGS),
         }
@@ -377,6 +406,21 @@ impl<'a> Disassembler<'a> {
                     let bits = u32::from(w[0]) | (u32::from(w[1]) << 16);
                     vec![Operand::Float32(f32::from_bits(bits))]
                 }
+                Opcode::ImplementsStmt => {
+                    let ty = match u32::from(w[0]).checked_sub(8) {
+                        Some(pos) => match type_descriptor(
+                            self.indirect,
+                            self.objects,
+                            pos,
+                            &self.cache.layout,
+                        ) {
+                            Ok(t) => self.resolve_type(t),
+                            Err(_) => ResolvedType::Unknown(pos),
+                        },
+                        None => ResolvedType::Unknown(0),
+                    };
+                    vec![Operand::Words(w.to_vec()), Operand::Interface(ty)]
+                }
                 _ => vec![Operand::Words(w.to_vec())],
             },
             Operands::Words4(w) => {
@@ -403,13 +447,18 @@ impl<'a> Disassembler<'a> {
                     _ => vec![Operand::Words(w.to_vec())],
                 }
             }
-            Operands::Obj(o) => vec![Operand::Object {
-                offset: o.0,
-                class: object_entry(self.objects, self.object_entry_offset(o.0))
-                    .ok()
-                    .filter(|e| !e.is_qualified())
-                    .map(|e| self.resolver.resolve_symbol(e.name)),
-            }],
+            Operands::Obj(o) => {
+                let entry = object_entry(self.objects, self.object_entry_offset(o.0)).ok();
+                vec![Operand::Object {
+                    offset: o.0,
+                    class: entry
+                        .filter(|e| !e.is_qualified())
+                        .map(|e| self.resolver.resolve_symbol(e.name)),
+                    qualified: entry
+                        .filter(|e| e.is_qualified() && e.name != 0xFFFF)
+                        .and_then(|e| self.qualified(e.name >> self.pointer_shift())),
+                }]
+            }
             Operands::Rec(r) => vec![self.record(ins, *r)],
             Operands::VarDecl(r, extra) => {
                 let mut v = vec![self.record(ins, *r)];
@@ -481,8 +530,30 @@ impl<'a> Disassembler<'a> {
             TypeRef::None => ResolvedType::None,
             TypeRef::Intrinsic(i) => ResolvedType::Intrinsic(i),
             TypeRef::Named(w) => ResolvedType::Named(self.resolver.resolve_symbol(w)),
+            TypeRef::Qualified(slot) => match self.qualified(slot) {
+                Some(q) => ResolvedType::Qualified(q),
+                None => ResolvedType::Unknown(u32::from(slot)),
+            },
             TypeRef::Unknown(u) => ResolvedType::Unknown(u),
         }
+    }
+
+    fn pointer_shift(&self) -> u16 {
+        if self.cache.layout.bitness == Bitness::X64 {
+            3
+        } else {
+            2
+        }
+    }
+
+    /// The library-qualified type at `slot` of the type-reference list.
+    fn qualified(&self, slot: u16) -> Option<QualifiedType> {
+        let r = type_ref_record(self.type_refs, usize::from(slot)).ok()?;
+        Some(QualifiedType {
+            library: r.library,
+            qualifier: self.resolver.resolve_symbol(r.library),
+            name: self.resolver.resolve_symbol(r.name),
+        })
     }
 
     fn record(&self, ins: &Instruction, r: RecRef) -> Operand {
@@ -636,6 +707,7 @@ impl fmt::Display for ResolvedType {
                 None => write!(f, "?type({:?})", t.intrinsic),
             },
             ResolvedType::Named(n) => write!(f, "{n}"),
+            ResolvedType::Qualified(q) => write!(f, "{}.{}", q.qualifier, q.name),
             ResolvedType::Unknown(u) => write!(f, "?type({u:#x})"),
         }
     }
@@ -712,9 +784,14 @@ impl fmt::Display for Operand {
                 }
                 f.write_str("]")
             }
-            Operand::Object { offset, class } => match class {
-                Some(c) => write!(f, "obj@{offset}({c})"),
-                None => write!(f, "obj@{offset}(?)"),
+            Operand::Object {
+                offset,
+                class,
+                qualified,
+            } => match (class, qualified) {
+                (Some(c), _) => write!(f, "obj@{offset}({c})"),
+                (None, Some(q)) => write!(f, "obj@{offset}({}.{})", q.qualifier, q.name),
+                (None, None) => write!(f, "obj@{offset}(?)"),
             },
             Operand::Procedure(p) => write!(f, "proc{{{}}}", ProcText(p)),
             Operand::Variable(v) => {
@@ -740,6 +817,7 @@ impl fmt::Display for Operand {
                 let v: Vec<String> = w.iter().map(|x| format!("{x}")).collect();
                 write!(f, "w=[{}]", v.join(","))
             }
+            Operand::Interface(t) => write!(f, "interface({t})"),
         }
     }
 }

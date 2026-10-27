@@ -34,8 +34,8 @@ pub use decode::{
     DecodeError, DecodedLine, Instruction, NameRef, ObjRef, Operands, RecRef, decode_line,
 };
 pub use disasm::{
-    ArgInfo, Disassembler, Disassembly, LineListing, Listed, Operand, ProcedureInfo, Radix,
-    ResolvedType, VariableInfo,
+    ArgInfo, Disassembler, Disassembly, LineListing, Listed, Operand, ProcedureInfo, QualifiedType,
+    Radix, ResolvedType, VariableInfo,
 };
 pub use error::{PcodeError, Result, UnsupportedLayout};
 pub use indirect::{IndirectCoverage, IndirectKind, IndirectMap};
@@ -53,7 +53,7 @@ pub use recordmap::{RecordCoverage, RecordKind, RecordMap};
 pub use records::{
     ArgumentRecord, DeclarationRecord, FunctionRecord, IntrinsicType, OBJECT_ENTRY_SIZE,
     ObjectEntry, ProcKind, TypeId, TypeRef, UdtRecord, VariableRecord, argument_chain,
-    object_entry, type_descriptor, type_from_field, variable_type,
+    object_entry, type_descriptor, type_from_field, type_ref_area, type_ref_record, variable_type,
 };
 pub use sections::{
     MEMBER_RECORD_SIZE, MemberRecord, MemberTable, REFERENCE_LIST_END, REFERENCE_LIST_MAGIC,

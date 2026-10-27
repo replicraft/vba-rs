@@ -283,6 +283,7 @@ fn x64_arrangement_end_to_end() {
         Operand::Object {
             offset: 8,
             class: Some(Name::User("Widget".into())),
+            qualified: None,
         }
     );
 }

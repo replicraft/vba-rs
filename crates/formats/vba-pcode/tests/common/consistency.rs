@@ -130,21 +130,9 @@ fn collect(op: &Operand, out: &mut Vec<Operand>) {
                     suffix: None,
                     bracketed: false,
                 });
-                if let ResolvedType::Named(n) = &a.ty {
-                    out.push(Operand::Name {
-                        name: n.clone(),
-                        suffix: None,
-                        bracketed: false,
-                    });
-                }
+                push_type(&a.ty, out);
             }
-            if let ResolvedType::Named(n) = &p.return_type {
-                out.push(Operand::Name {
-                    name: n.clone(),
-                    suffix: None,
-                    bracketed: false,
-                });
-            }
+            push_type(&p.return_type, out);
         }
         Operand::Variable(v) => {
             out.push(Operand::Name {
@@ -152,14 +140,10 @@ fn collect(op: &Operand, out: &mut Vec<Operand>) {
                 suffix: None,
                 bracketed: false,
             });
-            if let ResolvedType::Named(n) = &v.ty {
-                out.push(Operand::Name {
-                    name: n.clone(),
-                    suffix: None,
-                    bracketed: false,
-                });
-            }
+            push_type(&v.ty, out);
         }
+        Operand::Words(_) => {}
+        Operand::Interface(t) => push_type(t, out),
         Operand::UserType { name, .. } => out.push(Operand::Name {
             name: name.clone(),
             suffix: None,
@@ -170,6 +154,9 @@ fn collect(op: &Operand, out: &mut Vec<Operand>) {
             suffix: None,
             bracketed: false,
         }),
+        Operand::Object {
+            qualified: Some(q), ..
+        } => push_type(&ResolvedType::Qualified(q.clone()), out),
         Operand::NameList(v) => {
             for n in v {
                 out.push(Operand::Name {
@@ -323,4 +310,22 @@ pub fn score_module(
         }
     }
     sc
+}
+
+/// The names a resolved type contributes: the type, and the qualifier of a
+/// library-qualified one.
+fn push_type(t: &ResolvedType, out: &mut Vec<Operand>) {
+    let name = |n: &Name| Operand::Name {
+        name: n.clone(),
+        suffix: None,
+        bracketed: false,
+    };
+    match t {
+        ResolvedType::Named(n) => out.push(name(n)),
+        ResolvedType::Qualified(q) => {
+            out.push(name(&q.qualifier));
+            out.push(name(&q.name));
+        }
+        _ => {}
+    }
 }
