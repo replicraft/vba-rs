@@ -1,6 +1,5 @@
 ' INV: vbal.5.6.13, expr.index, expr.default-member
 ' SOURCE: spec ms-vbal 5.6.13 a default member that takes no parameters is applied first, then the arguments go to its result
-' XFAIL: wrong not implemented: recursive default member resolution for index expressions
 ' EXPECT: deep-5
 '#MODULE Inner class
 Public Property Get Item(ByVal i As Long) As String

@@ -164,6 +164,16 @@ impl Binder<'_, '_> {
             }
             ExprKind::AddressOf(inner) => self.bind_address_of(inner, span),
             ExprKind::TypeOfIs { expr, ty } => {
+                // MS-VBAL 5.6.7: the operand is a variable, function, property
+                // or member, not a literal such as `Nothing`.
+                if matches!(expr.kind, ExprKind::Literal(_)) {
+                    self.err(
+                        codes::TYPE_MISMATCH,
+                        expr.span,
+                        "`TypeOf` requires a variable or member, not a literal",
+                    );
+                    return self.error_expr(span);
+                }
                 let b = self.bind_expr(expr);
                 let t = self.sema.resolve_type_ref(self.module, ty, false);
                 if !(b.ty.is_object() || b.ty.is_variant() || b.ty.is_error()) {
@@ -913,13 +923,26 @@ impl Binder<'_, '_> {
                 let mi = &self.sema.program.modules[m.index()];
                 match mi.default_member.clone() {
                     Some(name) => {
+                        // MS-VBAL 5.6.13: a default member that takes fewer
+                        // parameters than there are arguments and returns an
+                        // object is applied first; the surplus arguments go
+                        // to the default member of its result.
+                        let own = self
+                            .default_member_arity(m, &name)
+                            .filter(|&n| args.len() > n && args.iter().all(|a| a.name.is_none()));
                         let ident = Ident {
                             name,
                             suffix: None,
                             kind: vba_ast::IdentKind::Plain,
                             span,
                         };
-                        self.member_of(base, &ident, Some(args), false)
+                        match own {
+                            Some(n) => {
+                                let first = self.member_of(base, &ident, Some(&args[..n]), false);
+                                self.apply_args(first, &args[n..], span)
+                            }
+                            None => self.member_of(base, &ident, Some(args), false),
+                        }
                     }
                     None if matches!(
                         mi.kind,
@@ -984,6 +1007,27 @@ impl Binder<'_, '_> {
                 self.error_expr(span)
             }
         }
+    }
+
+    /// The number of parameters of the default member `name` of class `m`
+    /// when it is a procedure or property getter whose result can be an
+    /// object (so that surplus arguments may go to the result's default
+    /// member).
+    fn default_member_arity(&self, m: ModuleId, name: &Name) -> Option<usize> {
+        let sema = self.sema;
+        let (sym, _) = sema.program.modules[m.index()].symbols.get(name).copied()?;
+        let p = match sym {
+            Symbol::Proc(p) => p,
+            Symbol::Property(g) => g.get?,
+            _ => return None,
+        };
+        let info = &sema.program.procs[p.index()];
+        let object_like = matches!(
+            info.ret,
+            Type::Class(_) | Type::Object | Type::Variant | Type::Library(_)
+        );
+        (info.has_result && object_like && !info.params.iter().any(|q| q.param_array))
+            .then_some(info.params.len())
     }
 
     // ---- member access ------------------------------------------------------
@@ -1348,6 +1392,43 @@ impl Binder<'_, '_> {
                                 }
                             }
                             return self.error_expr(span);
+                        }
+                        if let Some(sfx) = name.suffix {
+                            let declared = match sym {
+                                Symbol::Var(g) => Some(sema.program.globals[g.index()].ty.clone()),
+                                Symbol::Proc(p) => {
+                                    let i = &sema.program.procs[p.index()];
+                                    i.has_result.then(|| i.ret.clone())
+                                }
+                                Symbol::Property(g) => {
+                                    g.get.map(|p| sema.program.procs[p.index()].ret.clone())
+                                }
+                                _ => None,
+                            };
+                            // MS-VBAL 5.6.12: a type character must match the
+                            // declared type of the member.
+                            if let Some(d) = declared
+                                && !d.is_error()
+                                && !d.is_variant()
+                                && d != sema.suffix_type(sfx)
+                            {
+                                self.spec(
+                                    codes::TYPE_MISMATCH,
+                                    name.span,
+                                    format!(
+                                        "the type character does not match the declared type of `{}`",
+                                        name.name
+                                    ),
+                                );
+                                if sema.strict_spec {
+                                    for a in args.unwrap_or(&[]) {
+                                        if let Some(v) = &a.value {
+                                            let _ = self.bind_expr(v);
+                                        }
+                                    }
+                                    return self.error_expr(span);
+                                }
+                            }
                         }
                         self.use_symbol(m, sym, name, span, args, stmt, Some(receiver))
                     }
