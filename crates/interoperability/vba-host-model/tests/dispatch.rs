@@ -130,7 +130,7 @@ fn byref_parameters_write_back_only_for_byref_variables() {
     assert_eq!(
         a.positional[1].value,
         Variant::Boolean(true),
-        "written back"
+        "written back, converted to the declared Boolean"
     );
 
     // A by-value argument is never changed.

@@ -133,3 +133,73 @@ End Sub
         "TrueFalseTrueFalse\nTrueFalse 8  1 \nTextBoxTrue\nFalse 9 FalseFalse\n"
     );
 }
+
+/// An object whose methods write a fixed value into their `ByRef` argument.
+fn out_engine() -> Engine {
+    use vba::automation::ParamInfo;
+    fn writer(o: MemObject, name: &str, v: Variant) -> MemObject {
+        o.method(name, vec![ParamInfo::required("v")], move |_, c| {
+            c.args[0].value = v.clone();
+            Ok(Variant::Empty)
+        })
+    }
+    Engine::new().dispatch_global("Out", || {
+        let o = writer(MemObject::new("Out"), "Str", Variant::from("12"));
+        let o = writer(o, "Bad", Variant::from("abc"));
+        let o = writer(o, "Big", Variant::Long(70000));
+        writer(o, "Dbl", Variant::Double(2.5))
+    })
+}
+
+#[test]
+fn byref_write_back_converts_to_the_declared_type_of_the_variable() {
+    let out = run(
+        &out_engine(),
+        "\
+Option Explicit
+Private Type Rec
+  n As Long
+End Type
+Dim modLong As Long
+Dim arr(1 To 2) As Long
+Public Sub Main()
+  Dim n As Long, s As String, i As Integer, v As Variant, r As Rec
+  Out.Str n
+  Debug.Print TypeName(n); n
+  Out.Dbl s
+  Debug.Print TypeName(s); s
+  Out.Dbl i
+  Debug.Print TypeName(i); i
+  Out.Str v
+  Debug.Print TypeName(v); v
+  Out.Str modLong
+  Debug.Print TypeName(modLong); modLong
+  Out.Str arr(2)
+  Debug.Print TypeName(arr(2)); arr(2)
+  Out.Str r.n
+  Debug.Print TypeName(r.n); r.n
+  On Error Resume Next
+  Out.Bad n
+  Debug.Print Err.Number; TypeName(n); n
+  Err.Clear
+  Out.Big i
+  Debug.Print Err.Number; i
+  Err.Clear
+  Out.Bad arr(1)
+  Debug.Print Err.Number; arr(1)
+  Err.Clear
+  Out.Bad r.n
+  Debug.Print Err.Number; r.n
+  Err.Clear
+  Out.Bad modLong
+  Debug.Print Err.Number; modLong
+End Sub
+",
+    );
+    // A value that does not convert is error 13 (6 for an overflow) at the
+    // call, trappable, and leaves the variable as it was.
+    assert_eq!(
+        out,
+        "Long 12 \nString2.5\nInteger 2 \nString12\nLong 12 \nLong 12 \nLong 12 \n 13 Long 12 \n 6  2 \n 13  0 \n 13  12 \n 13  12 \n"
+    );
+}

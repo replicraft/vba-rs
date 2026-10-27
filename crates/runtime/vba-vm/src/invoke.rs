@@ -42,7 +42,13 @@ impl Vm {
         for a in args {
             let b = match &a.arg {
                 CallArg::Val(op) => BoundArg::Val(self.val(op)?),
-                CallArg::Ref(r) => BoundArg::Ref(self.reg_loc(*r)?),
+                CallArg::Ref(r) => {
+                    let loc = self.reg_loc(*r)?;
+                    match self.byref_declared_type(*r) {
+                        Some(t) => BoundArg::TypedRef(loc, t),
+                        None => BoundArg::Ref(loc),
+                    }
+                }
                 CallArg::Missing => BoundArg::Missing,
             };
             out.push((a.name.clone(), b));
@@ -50,10 +56,21 @@ impl Vm {
         Ok(out)
     }
 
+    /// The declared type of the variable a register refers to, unless it is
+    /// a `Variant` (which takes any value).
+    fn byref_declared_type(&self, r: vba_ir::Reg) -> Option<vba_sema::Type> {
+        let f = self.frames.last()?;
+        let t = self.ir.functions.get(f.func)?.regs.get(r.0 as usize)?;
+        match t {
+            vba_sema::Type::Variant | vba_sema::Type::Any | vba_sema::Type::Error => None,
+            t => Some(t.clone()),
+        }
+    }
+
     fn bound_value(&self, b: &BoundArg) -> VResult<Option<Variant>> {
         Ok(match b {
             BoundArg::Val(v) => Some(v.clone()),
-            BoundArg::Ref(l) => Some(self.load(l)?),
+            BoundArg::Ref(l) | BoundArg::TypedRef(l, _) => Some(self.load(l)?),
             BoundArg::Missing => None,
         })
     }
@@ -759,20 +776,29 @@ impl Vm {
         let mut ca = CallArgs::none();
         let mut positional_locs: Vec<Option<Loc>> = Vec::new();
         let mut named_locs: Vec<Option<Loc>> = Vec::new();
+        let mut positional_tys: Vec<Option<vba_sema::Type>> = Vec::new();
+        let mut named_tys: Vec<Option<vba_sema::Type>> = Vec::new();
         for (n, b) in &args {
-            let (arg, loc) = match b {
-                BoundArg::Val(v) => (AutoArg::val(v.clone()), None),
-                BoundArg::Ref(l) => (AutoArg::by_ref(self.load(l)?), Some(l.clone())),
-                BoundArg::Missing => (AutoArg::missing(), None),
+            let (arg, loc, ty) = match b {
+                BoundArg::Val(v) => (AutoArg::val(v.clone()), None, None),
+                BoundArg::Ref(l) => (AutoArg::by_ref(self.load(l)?), Some(l.clone()), None),
+                BoundArg::TypedRef(l, t) => (
+                    AutoArg::by_ref(self.load(l)?),
+                    Some(l.clone()),
+                    Some(t.clone()),
+                ),
+                BoundArg::Missing => (AutoArg::missing(), None, None),
             };
             match n {
                 None => {
                     ca.positional.push(arg);
                     positional_locs.push(loc);
+                    positional_tys.push(ty);
                 }
                 Some(n) => {
                     ca.named.push((n.clone(), arg));
                     named_locs.push(loc);
+                    named_tys.push(ty);
                 }
             }
         }
@@ -835,15 +861,40 @@ impl Vm {
         // the call ran out or the run was cancelled meanwhile: the overshoot
         // is one host call, not the rest of the poll interval.
         self.poll_now()?;
-        for (arg, loc) in ca.positional.iter().zip(&positional_locs) {
-            if let (true, Some(l)) = (arg.by_ref, loc) {
-                self.store(l, arg.value.clone())?;
-            }
-        }
-        for ((_, arg), loc) in ca.named.iter().zip(&named_locs) {
-            if let (true, Some(l)) = (arg.by_ref, loc) {
-                self.store(l, arg.value.clone())?;
-            }
+        // A value the member wrote into a ByRef argument is converted to the
+        // declared type of the caller's variable exactly as an assignment
+        // would (13 or 6 when it does not fit). The first conversion error
+        // is raised after the other arguments were written back and loses
+        // against an error of the member itself.
+        let mut write_err: Option<Fault> = None;
+        let writes = ca
+            .positional
+            .iter()
+            .zip(&positional_locs)
+            .zip(&positional_tys)
+            .map(|((a, l), t)| (a, l, t))
+            .chain(
+                ca.named
+                    .iter()
+                    .zip(&named_locs)
+                    .zip(&named_tys)
+                    .map(|(((_, a), l), t)| (a, l, t)),
+            );
+        for (arg, loc, ty) in writes {
+            let (true, Some(l)) = (arg.by_ref, loc) else {
+                continue;
+            };
+            let value = match ty {
+                Some(t) => match self.convert_value(arg.value.clone(), t) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        write_err.get_or_insert(e);
+                        continue;
+                    }
+                },
+                None => arg.value.clone(),
+            };
+            self.store(l, value)?;
         }
         let applied = self.apply_foreign_refs();
         let v = result.map_err(|e| {
@@ -854,6 +905,9 @@ impl Vm {
             Fault::from(r)
         })?;
         applied?;
+        if let Some(e) = write_err {
+            return Err(e);
+        }
         self.drain_events()?;
         Ok(v)
     }

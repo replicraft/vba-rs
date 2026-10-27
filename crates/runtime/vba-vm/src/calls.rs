@@ -18,6 +18,10 @@ use crate::vm::Vm;
 pub(crate) enum BoundArg {
     Val(Variant),
     Ref(Loc),
+    /// A late-bound `ByRef` argument whose variable has a declared type other
+    /// than `Variant`: a value a host member writes back is converted to it
+    /// like an assignment.
+    TypedRef(Loc, Type),
     Missing,
 }
 
@@ -128,7 +132,7 @@ impl Vm {
                     let v = self.coerce_arg(v, &param.ty)?;
                     Slot::Val(self.adopt(v)?)
                 }
-                BoundArg::Ref(loc) => {
+                BoundArg::Ref(loc) | BoundArg::TypedRef(loc, _) => {
                     if param.by_val {
                         let v = self.load(&loc)?;
                         let v = self.coerce_arg(v, &param.ty)?;
@@ -160,7 +164,7 @@ impl Vm {
             for a in extras {
                 vals.push(match a {
                     BoundArg::Val(v) => v.clone(),
-                    BoundArg::Ref(l) => self.load(l)?,
+                    BoundArg::Ref(l) | BoundArg::TypedRef(l, _) => self.load(l)?,
                     BoundArg::Missing => missing_marker(),
                 });
             }

@@ -131,6 +131,33 @@ End Sub
 }
 
 #[test]
+fn byref_write_back_into_a_typed_variable_is_converted_or_fails_with_13() {
+    let db = orders_db();
+    let out = run(
+        &db,
+        "\
+Option Explicit
+Public Sub Main()
+  Dim n As Long, ok As Boolean
+  n = 7
+  On Error Resume Next
+  ok = Application.TryGetOption(\"Theme\", n)
+  Debug.Print Err.Number; n; TypeName(n)
+  Err.Clear
+  On Error GoTo 0
+  On Error GoTo trap
+  ok = Application.TryGetOption(\"Theme\", n)
+  Debug.Print \"not reached\"
+  Exit Sub
+trap:
+  Debug.Print \"trapped\"; Err.Number
+End Sub
+",
+    );
+    assert_eq!(out, " 13  7 Long\ntrapped 13 \n");
+}
+
+#[test]
 fn msgbox_and_inputbox_go_through_the_ui_hooks() {
     let db = orders_db();
     db.answers.borrow_mut().extend([6, 7]); // vbYes, vbNo

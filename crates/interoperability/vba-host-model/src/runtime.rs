@@ -808,9 +808,15 @@ pub(crate) fn run_member(
     let mut bound = cx.args.bound;
     // Only parameters the implementation assigned flow back; an untouched
     // one keeps the caller's own value, not its converted copy.
-    for (i, slot) in bound.slots.iter_mut().enumerate() {
+    // One it did assign is converted to the declared type of the parameter,
+    // as an assignment to a parameter of that type would be (13 or 6 when
+    // the value does not fit).
+    let declared = sig.params.iter().filter(|p| !p.param_array);
+    for ((i, slot), p) in bound.slots.iter_mut().enumerate().zip(declared) {
         if slot.value == coerced[i] {
             slot.value = original[i].clone();
+        } else if p.by_ref && !slot.is_missing() {
+            slot.value = coerce(table, &p.ty, p.class.as_deref(), &slot.value)?;
         }
     }
     bound.write_back(params);
