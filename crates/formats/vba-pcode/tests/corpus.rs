@@ -632,13 +632,11 @@ fn corpus_structure() {
                 sc.int_ops_ok, sc.int_ops
             ));
         }
-        if sc.statements >= 20 {
-            if sc.consistent * 10 < sc.statements * 9 {
-                fails.push(format!(
-                    "#{n} {desc}: {} of {} statements consistent",
-                    sc.consistent, sc.statements
-                ));
-            }
+        if sc.statements >= 20 && sc.consistent * 10 < sc.statements * 9 {
+            fails.push(format!(
+                "#{n} {desc}: {} of {} statements consistent",
+                sc.consistent, sc.statements
+            ));
         }
     }
     for (k, v) in &totals {

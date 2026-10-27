@@ -211,11 +211,10 @@ fn write_declare(text: &mut String, p: &ProcModel) {
         .unwrap_or_default();
     let _ = write!(
         text,
-        "{} Declare {}{} {} Lib \"{lib}\"",
+        // The target is 64-bit VBA 7 whatever produced the cache: `PtrSafe`
+        // has no other effect on the declaration.
+        "{} Declare PtrSafe {} {} Lib \"{lib}\"",
         if p.info.public { "Public" } else { "Private" },
-        // The target is 64-bit VBA 7 whatever produced the cache: the
-        // keyword has no other effect on the declaration.
-        "PtrSafe ",
         if p.info.is_function {
             "Function"
         } else {
