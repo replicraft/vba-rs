@@ -213,6 +213,39 @@ object variables without a default member are analysis errors rather than run-ti
 * Financial functions: the text gives no formulas (DDB's differs from the documented one), so
   only definitional cases are checked.
 
+## Open questions (need a real-VBA run)
+
+* **Evaluation order of named arguments.** This implementation evaluates the arguments of a call in
+  the order of the *parameters* of the callee, whatever order they are written in. Real VBA may
+  evaluate them in the order *written*; neither the language text nor the reference pages say
+  which, and no change has been made without evidence. The program that tells the two apart is
+  `tests/vba/procedures/named_argument_evaluation_order.bas`:
+
+  ```vb
+  Private Function Trace(ByVal s As String) As String
+      Debug.Print "eval " & s
+      Trace = s
+  End Function
+  Private Sub Show(ByVal a As String, ByVal b As String, ByVal c As String)
+      Debug.Print a & b & c
+  End Sub
+  Public Sub Main()
+      Show c:=Trace("c"), a:=Trace("a"), b:=Trace("b")
+  End Sub
+  ```
+
+  | Order | Output |
+  | --- | --- |
+  | Parameter order (this implementation, the program's current expectation, provenance `unverified`) | `eval a`, `eval b`, `eval c`, `abc` |
+  | Written order | `eval c`, `eval a`, `eval b`, `abc` |
+
+  The program uses only `Debug.Print`, so the oracle preparer classifies it as capturable and the
+  next oracle run includes it with no extra step (see [differential testing](../tooling/differential-testing.md)).
+  If the real output is the second one, the expectation and the VM's argument evaluation both
+  change (calls with named arguments to user procedures, and the same question for library and
+  late-bound calls, which the one program does not cover; add one program per call kind then).
+  Until then the program stays `unverified` and the order is a documented deviation risk.
+
 ## Ambiguities and slips in the text
 
 Noted while testing (not tested where they matter): the radix-literal table has typos in its
