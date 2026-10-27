@@ -119,6 +119,7 @@ fn kw(label: &str) -> CompletionItem {
         label: label.to_string(),
         kind: CompletionKind::Keyword,
         detail: None,
+        documentation: None,
     }
 }
 
@@ -230,6 +231,7 @@ impl View<'_> {
                         SymKind::EnumMember => CompletionKind::EnumMember,
                     },
                     detail: Some(s.detail.clone()),
+                    documentation: None,
                 });
             }
         };
@@ -242,6 +244,7 @@ impl View<'_> {
                     label: f.name.to_string(),
                     kind: CompletionKind::Function,
                     detail: Some(std_signature(f).label),
+                    documentation: None,
                 });
             }
         };
@@ -284,6 +287,7 @@ impl View<'_> {
                                     label: s.name.clone(),
                                     kind: CompletionKind::EnumMember,
                                     detail: Some(s.detail.clone()),
+                                    documentation: None,
                                 });
                             }
                         }
@@ -292,10 +296,13 @@ impl View<'_> {
                             label: q.to_string(),
                             kind: CompletionKind::Module,
                             detail: None,
+                            documentation: None,
                         }));
                         add_functions(&mut items, None);
                     } else if QUALIFIERS.iter().any(|q| q.eq_ignore_ascii_case(&name)) {
                         add_functions(&mut items, Some(&name));
+                    } else if let Some(lib) = self.lib_qualified_items(&name) {
+                        items.extend(lib);
                     }
                 }
             }
@@ -319,6 +326,7 @@ impl View<'_> {
                             label: s.name.clone(),
                             kind: CompletionKind::Variable,
                             detail: Some(s.detail.clone()),
+                            documentation: None,
                         });
                     }
                 }

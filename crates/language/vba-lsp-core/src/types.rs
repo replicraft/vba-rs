@@ -218,6 +218,9 @@ pub struct CompletionItem {
     pub kind: CompletionKind,
     /// Signature or description.
     pub detail: Option<String>,
+    /// Longer documentation text, when the candidate has some (members and
+    /// names of an embedding application's described libraries).
+    pub documentation: Option<String>,
 }
 
 /// The completion list and the range the typed prefix occupies.

@@ -218,7 +218,11 @@ impl View<'_> {
             });
         }
 
-        let info = vba_stdlib::lookup(&name)?.info;
+        let Some(resolved) = vba_stdlib::lookup(&name) else {
+            // A global function of an embedding application's library.
+            return self.lib_global_signature(&name, site.arg, site.named.as_deref());
+        };
+        let info = resolved.info;
         let sig = std_signature(info);
         let n = info.params.len();
         let idx = match &site.named {

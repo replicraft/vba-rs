@@ -24,6 +24,7 @@ vba-value.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+vba-host-model.workspace = true
 
 [lints]
 workspace = true

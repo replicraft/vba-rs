@@ -672,7 +672,10 @@ impl View<'_> {
         Some(crate::types::SignatureHelp {
             signatures: vec![crate::types::SignatureInfo {
                 label,
-                documentation: Some(format!("Member of `{owner}`.")),
+                documentation: Some(match sem.proj.lib_doc(Some(&owner), Some(&m.name)) {
+                    Some(d) => format!("{d}\n\nMember of `{owner}`."),
+                    None => format!("Member of `{owner}`."),
+                }),
                 parameters: spans
                     .into_iter()
                     .map(|(start, end)| crate::types::ParameterInfo { start, end })
@@ -680,6 +683,22 @@ impl View<'_> {
             }],
             active_parameter: active,
         })
+    }
+
+    /// Signature help for a call of a global function of a described
+    /// library (`Nz(`).
+    pub(crate) fn lib_global_signature(
+        &self,
+        name: &str,
+        arg: u32,
+        named: Option<&str>,
+    ) -> Option<crate::types::SignatureHelp> {
+        self.sem()?.proj.lib_global_signature(name, arg, named)
+    }
+
+    /// The names a described library offers after `Library.`.
+    pub(crate) fn lib_qualified_items(&self, library: &str) -> Option<Vec<CompletionItem>> {
+        self.sem()?.proj.lib_qualified_items(library)
     }
 
     /// Type-aware hover for names bound by the project: the declaration
@@ -737,13 +756,15 @@ impl View<'_> {
         fence: impl Fn(String, Vec<String>) -> Option<Hover>,
     ) -> Option<Hover> {
         let node = t.parent();
-        if node.kind() != NodeKind::MemberExpr {
-            return None;
-        }
         let name = String::from_utf8_lossy(t.text()).into_owned();
+        if node.kind() != NodeKind::MemberExpr {
+            return proj.lib_global_hover(&name, node.kind() == NodeKind::TypeRef, fence);
+        }
         let (owner, m) = ctx.lib_member(&ctx.receiver_ty(node), &name)?;
         let (label, _) = proj.lib_member_sig(&owner, &m);
-        let mut extra = vec![format!("Member of `{owner}`.")];
+        let mut extra = Vec::new();
+        extra.extend(proj.lib_doc(Some(&owner), Some(&m.name)));
+        extra.push(format!("Member of `{owner}`."));
         if m.is_default {
             extra.push("Default member.".to_string());
         }
@@ -789,6 +810,7 @@ impl View<'_> {
                     label: name.to_string(),
                     kind,
                     detail: Some(code.lines().next().unwrap_or_default().to_string()),
+                    documentation: None,
                 });
             };
         match recv {
@@ -821,6 +843,7 @@ impl View<'_> {
                         label: f.name.to_string_lossy(),
                         kind: CompletionKind::Field,
                         detail: Some(proj.describe(&d).0),
+                        documentation: None,
                     });
                 }
                 Some(items)
@@ -832,6 +855,7 @@ impl View<'_> {
                         label: n.to_string_lossy(),
                         kind: CompletionKind::EnumMember,
                         detail: Some(proj.describe(&d).0),
+                        documentation: None,
                     });
                 }
                 Some(items)
@@ -843,6 +867,7 @@ impl View<'_> {
                         label: m.name.to_string_lossy(),
                         kind: CompletionKind::Module,
                         detail: None,
+                        documentation: None,
                     });
                 }
                 Some(items)
@@ -858,6 +883,7 @@ impl View<'_> {
                         label: m.name.clone(),
                         kind,
                         detail: Some(proj.lib_member_sig(&lt, &m).0),
+                        documentation: proj.lib_doc(Some(&lt), Some(&m.name)),
                     });
                 }
                 Some(items)
@@ -875,7 +901,7 @@ impl View<'_> {
         };
         let proj = &sem.proj;
         let prog = &proj.sema.program;
-        let mut items = Vec::new();
+        let mut items = proj.lib_catalog_items(types_only);
         for (i, m) in prog.modules.iter().enumerate().take(proj.mods.len()) {
             if i == sem.m {
                 continue;
@@ -890,6 +916,7 @@ impl View<'_> {
                         CompletionKind::Module
                     },
                     detail: None,
+                    documentation: None,
                 });
             }
             if m.kind == ModuleKind::Standard && m.options.private_module && !types_only {
@@ -933,6 +960,7 @@ impl View<'_> {
                             .unwrap_or_default()
                             .to_string(),
                     ),
+                    documentation: None,
                 });
             }
         }

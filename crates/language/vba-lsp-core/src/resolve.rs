@@ -240,6 +240,19 @@ impl<'a> Ctx<'a> {
         })
     }
 
+    /// The type of a predeclared global object of a described library
+    /// (`Application`), or `Unknown`.
+    fn lib_global_ty(&self, name: &[u8]) -> Ty {
+        let Some(p) = self.proj.provider.as_deref() else {
+            return Ty::Unknown;
+        };
+        match p.global(&String::from_utf8_lossy(name)) {
+            Some(vba_sema::LibGlobal::Object(t)) => Ty::Known(t),
+            Some(vba_sema::LibGlobal::Constant(_, t)) => Ty::Known(t),
+            _ => Ty::Unknown,
+        }
+    }
+
     /// Every member of a library type the provider can enumerate.
     pub fn lib_members(&self, lt: &LibraryType) -> Vec<LibMember> {
         let Some(p) = self.proj.provider.as_deref() else {
@@ -303,7 +316,7 @@ impl<'a> Ctx<'a> {
                 match self.resolve_simple(&norm, t.span().start, false) {
                     Some(d) => self.decl_ty(&d),
                     None if norm == normalize(self.proj.project_name.as_bytes()) => Ty::Project,
-                    None => Ty::Unknown,
+                    None => self.lib_global_ty(t.text()),
                 }
             }
             NodeKind::ParenExpr => node
