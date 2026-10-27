@@ -215,6 +215,7 @@ mod state;
 
 pub mod prelude;
 pub mod raw;
+pub mod thread;
 
 pub use call::{Arg, CallLimits, CallResult, CallTarget};
 pub use context::HostContext;
