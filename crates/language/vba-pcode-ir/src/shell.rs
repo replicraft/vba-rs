@@ -183,7 +183,10 @@ fn stub_of(m: &ModuleModel, include: &[bool]) -> Stub {
         }
         text.push('\n');
         for l in &p.locals {
-            let dims = l.dims.as_ref().map_or_else(String::new, |d| format!("({d})"));
+            let dims = l
+                .dims
+                .as_ref()
+                .map_or_else(String::new, |d| format!("({d})"));
             let _ = writeln!(text, "Dim {}{dims} As {}", l.name, l.ty.spelling());
         }
         let _ = writeln!(text, "End {end_kw}");
@@ -213,7 +216,11 @@ fn write_declare(text: &mut String, p: &ProcModel) {
         // The target is 64-bit VBA 7 whatever produced the cache: the
         // keyword has no other effect on the declaration.
         "PtrSafe ",
-        if p.info.is_function { "Function" } else { "Sub" },
+        if p.info.is_function {
+            "Function"
+        } else {
+            "Sub"
+        },
         p.name
     );
     if entry != p.name {

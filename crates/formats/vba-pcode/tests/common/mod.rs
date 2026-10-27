@@ -97,7 +97,10 @@ fn load_streams(dir: &std::path::Path) -> Option<Project> {
         let mut set = vba_format::ProjectStreams::new();
         for e in std::fs::read_dir(&vba).ok()?.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            set.insert(format!("VBA/{}", unescape(&name)), std::fs::read(e.path()).ok()?);
+            set.insert(
+                format!("VBA/{}", unescape(&name)),
+                std::fs::read(e.path()).ok()?,
+            );
         }
         set.insert("PROJECT", std::fs::read(dir.join("PROJECT")).ok()?);
         let p = vba_format::read_project_from_streams(
@@ -174,7 +177,11 @@ pub fn load_path(path: &std::path::Path) -> Option<Project> {
     Some(project_of(&p, project_stream, false))
 }
 
-fn project_of(p: &vba_project::VbaProject, project_stream: Vec<u8>, compiled_only: bool) -> Project {
+fn project_of(
+    p: &vba_project::VbaProject,
+    project_stream: Vec<u8>,
+    compiled_only: bool,
+) -> Project {
     let modules = p
         .modules
         .iter()

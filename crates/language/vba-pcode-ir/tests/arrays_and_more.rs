@@ -78,7 +78,10 @@ fn function(
 #[test]
 fn fixed_and_dynamic_local_arrays() {
     let mut t = Tables::default();
-    let (fixed, dynamic) = (t.array_variable("fx", T_LONG), t.array_variable("dy", T_LONG));
+    let (fixed, dynamic) = (
+        t.array_variable("fx", T_LONG),
+        t.array_variable("dy", T_LONG),
+    );
     let (fx, dy) = (t.name("fx"), t.name("dy"));
     let calc = t.name("Calc");
     let lines = function(
@@ -98,14 +101,20 @@ fn fixed_and_dynamic_local_arrays() {
                 .op(Opcode::DimMarker)
                 .rec(Opcode::VarDecl, 1, dynamic),
             // fx(2) = 5
-            Line::new().i16(5).i16(2).name_args(Opcode::WriteSimpleParams, 0, fx, 1),
+            Line::new()
+                .i16(5)
+                .i16(2)
+                .name_args(Opcode::WriteSimpleParams, 0, fx, 1),
             // ReDim dy(2): the lower bound is the Option Base one.
             Line::new()
                 .op(Opcode::OptionBaseMarker)
                 .i16(2)
                 .name_args_rec(Opcode::RedimSimple, 0, dy, 1, 0),
             // dy(0) = 7
-            Line::new().i16(7).i16(0).name_args(Opcode::WriteSimpleParams, 0, dy, 1),
+            Line::new()
+                .i16(7)
+                .i16(0)
+                .name_args(Opcode::WriteSimpleParams, 0, dy, 1),
             // ReDim Preserve dy(4)
             Line::new()
                 .op(Opcode::OptionBaseMarker)
@@ -216,7 +225,11 @@ fn resume_and_resume_next() {
         &[("z", T_LONG, false)],
         vec![
             Line::new().name(Opcode::ErrHandlerSet, h),
-            Line::new().i16(100).read(z).op(Opcode::NumIntDivide).write(calc),
+            Line::new()
+                .i16(100)
+                .read(z)
+                .op(Opcode::NumIntDivide)
+                .write(calc),
             Line::new().op(Opcode::LeaveFunction),
             Line::new().name(Opcode::LabelNamed, h),
             Line::new().i16(4).write(z),
@@ -232,7 +245,11 @@ fn resume_and_resume_next() {
         &[("z", T_LONG, true)],
         vec![
             Line::new().name(Opcode::ErrHandlerSet, h2),
-            Line::new().i16(100).read(z).op(Opcode::NumIntDivide).write(skip),
+            Line::new()
+                .i16(100)
+                .read(z)
+                .op(Opcode::NumIntDivide)
+                .write(skip),
             Line::new().i16(7).write(skip),
             Line::new().op(Opcode::LeaveFunction),
             Line::new().name(Opcode::LabelNamed, h2),
@@ -320,7 +337,9 @@ fn open_print_and_close_lower_to_file_statements() {
         T_LONG,
         &[],
         vec![
-            Line::new().op(Opcode::DimMarker).rec(Opcode::VarDecl, 1, vf),
+            Line::new()
+                .op(Opcode::DimMarker)
+                .rec(Opcode::VarDecl, 1, vf),
             // f = 1 : Open "x.txt" For Output As #f
             Line::new().i16(1).write(f),
             Line::new()

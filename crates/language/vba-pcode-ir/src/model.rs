@@ -401,7 +401,9 @@ pub(crate) fn decode_text(bytes: &[u8], code_page: Option<u16>) -> Option<String
         949 => encoding_rs::EUC_KR,
         950 => encoding_rs::BIG5,
         10000 => encoding_rs::MACINTOSH,
-        n @ (874 | 1250..=1258) => encoding_rs::Encoding::for_label(format!("windows-{n}").as_bytes())?,
+        n @ (874 | 1250..=1258) => {
+            encoding_rs::Encoding::for_label(format!("windows-{n}").as_bytes())?
+        }
         _ => return None,
     };
     let (text, _, bad) = enc.decode(bytes);
@@ -1022,9 +1024,11 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv, option_base: Op
     let info = &p.info;
     if info.is_declare {
         // The library and the entry point must be known, as text.
-        let lib_ok = info.library.as_ref().and_then(local_spelling).is_some_and(|l| {
-            !l.contains(['"', '\r', '\n']) && !l.starts_with(PLACEHOLDER)
-        });
+        let lib_ok = info
+            .library
+            .as_ref()
+            .and_then(local_spelling)
+            .is_some_and(|l| !l.contains(['"', '\r', '\n']) && !l.starts_with(PLACEHOLDER));
         let entry_ok = info
             .entry_point
             .as_ref()
@@ -1187,11 +1191,7 @@ fn finish_signature(p: &mut ProcModel, mi: usize, env: &TypeEnv, option_base: Op
         } else {
             None
         };
-        locals.push(LocalDecl {
-            name: n,
-            ty,
-            dims,
-        });
+        locals.push(LocalDecl { name: n, ty, dims });
     }
     // A `Dim` marker with a scope flag other than the plain local one means
     // `Static`/`Public`/`Private` inside a procedure.

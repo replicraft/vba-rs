@@ -170,8 +170,10 @@ fn records(
                         && let Some(w) = ty.intrinsic.name().map(str::to_lowercase)
                     {
                         // `LongLong` with the pointer flag is `LongPtr`.
-                        let w = if matches!(ty.intrinsic, IntrinsicType::LongLong | IntrinsicType::Long)
-                            && ty.flags & 0x80 != 0
+                        let w = if matches!(
+                            ty.intrinsic,
+                            IntrinsicType::LongLong | IntrinsicType::Long
+                        ) && ty.flags & 0x80 != 0
                         {
                             "longptr".to_string()
                         } else {
@@ -451,7 +453,11 @@ fn corpus_structure() {
         println!(
             "#{n}{} {desc} modules {} parsed {} tiled {} unclaimed-code-bytes {} line-count {} \
              decoded {}/{} procedures {} tables-only {}",
-            if p.compiled_only { " (compiled-only)" } else { "" },
+            if p.compiled_only {
+                " (compiled-only)"
+            } else {
+                ""
+            },
             t.modules,
             t.parsed,
             t.tiled,
@@ -540,16 +546,51 @@ fn corpus_structure() {
             t.modules,
             "#{n} {desc}: line counts"
         );
-        chk_eq!(fails, t.lines_decoded, t.lines_with_code, "#{n} {desc}: decoding");
+        chk_eq!(
+            fails,
+            t.lines_decoded,
+            t.lines_with_code,
+            "#{n} {desc}: decoding"
+        );
         if p.compiled_only {
             continue;
         }
-        chk_eq!(fails, t.rec_name_ok, t.rec_procs, "#{n} {desc}: procedure names");
-        chk_eq!(fails, t.rec_kind_ok, t.rec_procs, "#{n} {desc}: procedure kinds");
-        chk_eq!(fails, t.rec_declare_ok, t.rec_procs, "#{n} {desc}: declares");
-        chk_eq!(fails, t.rec_args_ok, t.rec_args, "#{n} {desc}: argument names");
-        chk_eq!(fails, t.rec_vars_ok, t.rec_vars, "#{n} {desc}: variable names");
-        chk_eq!(fails, t.rec_types_ok, t.rec_types, "#{n} {desc}: intrinsic types");
+        chk_eq!(
+            fails,
+            t.rec_name_ok,
+            t.rec_procs,
+            "#{n} {desc}: procedure names"
+        );
+        chk_eq!(
+            fails,
+            t.rec_kind_ok,
+            t.rec_procs,
+            "#{n} {desc}: procedure kinds"
+        );
+        chk_eq!(
+            fails,
+            t.rec_declare_ok,
+            t.rec_procs,
+            "#{n} {desc}: declares"
+        );
+        chk_eq!(
+            fails,
+            t.rec_args_ok,
+            t.rec_args,
+            "#{n} {desc}: argument names"
+        );
+        chk_eq!(
+            fails,
+            t.rec_vars_ok,
+            t.rec_vars,
+            "#{n} {desc}: variable names"
+        );
+        chk_eq!(
+            fails,
+            t.rec_types_ok,
+            t.rec_types,
+            "#{n} {desc}: intrinsic types"
+        );
         // Type names that are built-in keywords (`Module`, `Property`) have no
         // confirmed spelling; they must not resolve to a wrong name.
         chk_eq!(
@@ -558,12 +599,32 @@ fn corpus_structure() {
             t.named,
             "#{n} {desc}: named types"
         );
-        chk_eq!(fails, t.attr_public_rec, t.attr_procs, "#{n} {desc}: visibility");
+        chk_eq!(
+            fails,
+            t.attr_public_rec,
+            t.attr_procs,
+            "#{n} {desc}: visibility"
+        );
         chk_eq!(fails, t.attr_friend, t.attr_procs, "#{n} {desc}: Friend");
         chk_eq!(fails, t.attr_static, t.attr_procs, "#{n} {desc}: Static");
-        chk_eq!(fails, t.attr_ptrsafe, t.attr_declares, "#{n} {desc}: PtrSafe");
-        chk_eq!(fails, sc.name_ops_ok, sc.name_ops, "#{n} {desc}: name operands");
-        chk_eq!(fails, sc.text_ops_ok, sc.text_ops, "#{n} {desc}: string operands");
+        chk_eq!(
+            fails,
+            t.attr_ptrsafe,
+            t.attr_declares,
+            "#{n} {desc}: PtrSafe"
+        );
+        chk_eq!(
+            fails,
+            sc.name_ops_ok,
+            sc.name_ops,
+            "#{n} {desc}: name operands"
+        );
+        chk_eq!(
+            fails,
+            sc.text_ops_ok,
+            sc.text_ops,
+            "#{n} {desc}: string operands"
+        );
         // The graphics `Line` statement carries a synthetic zero argument.
         if sc.int_ops_ok * 1000 < sc.int_ops * 999 {
             fails.push(format!(

@@ -176,7 +176,10 @@ fn extended_header_moves_the_declaration_table() {
         lines: vec![synth::word(150, 6).to_vec()],
         ..CacheSpec::default()
     };
-    let ext = CacheSpec { ext: true, ..plain.clone() };
+    let ext = CacheSpec {
+        ext: true,
+        ..plain.clone()
+    };
     let a = synth::build_cache(&plain);
     let b = synth::build_cache(&ext);
     // The platform word is 3 in one and 0x13 in the other: only the second

@@ -285,7 +285,9 @@ impl FunctionRecord {
         // pointer-widening shift of the leading ones.
         // `[obs]`: not so from version word 0xDF on.
         let late = base
-            + if layout.bitness == Bitness::X64 && layout.version < crate::layout::EXTENDED_HEADER_FROM {
+            + if layout.bitness == Bitness::X64
+                && layout.version < crate::layout::EXTENDED_HEADER_FROM
+            {
                 6
             } else {
                 0

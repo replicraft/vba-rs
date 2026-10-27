@@ -344,7 +344,14 @@ impl Line {
     }
 
     /// An instruction with a name, a count and a record offset.
-    pub fn name_args_rec(mut self, op: Opcode, modifier: u16, name: u16, argc: u16, off: u32) -> Self {
+    pub fn name_args_rec(
+        mut self,
+        op: Opcode,
+        modifier: u16,
+        name: u16,
+        argc: u16,
+        off: u32,
+    ) -> Self {
         self.word(op, modifier);
         self.0.extend_from_slice(&name.to_le_bytes());
         self.0.extend_from_slice(&argc.to_le_bytes());

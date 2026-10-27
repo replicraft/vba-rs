@@ -1231,9 +1231,7 @@ impl Lw<'_> {
         let pa = params.iter().position(|p| p.param_array);
         let fixed = pa.unwrap_or(params.len());
         if (pa.is_none() && given > fixed)
-            || params[given.min(fixed)..fixed]
-                .iter()
-                .any(|p| !p.optional)
+            || params[given.min(fixed)..fixed].iter().any(|p| !p.optional)
         {
             return Err(self.no(ins.opcode, "argument count differs from the parameter list"));
         }
@@ -2509,14 +2507,20 @@ impl Lw<'_> {
                 self.expect_empty(ins)?;
                 let file = self.file_number(ins, file)?;
                 if !matches!(target.ty(), Type::String | Type::Variant) {
-                    return Err(self.no(op, "Line Input into something other than a String or Variant"));
+                    return Err(self.no(
+                        op,
+                        "Line Input into something other than a String or Variant",
+                    ));
                 }
                 let Some(place) = place_of(&target) else {
                     return Err(self.no(op, "Line Input target is not a variable"));
                 };
                 let fo = self.emit_ex(&file);
                 let t = self.emit_ref(&place);
-                self.emit(InstKind::Io(IoOp::LineInput { file: fo, target: t }));
+                self.emit(InstKind::Io(IoOp::LineInput {
+                    file: fo,
+                    target: t,
+                }));
                 self.close_stmt();
             }
             Opcode::OutChannel => {
@@ -2566,7 +2570,9 @@ impl Lw<'_> {
                     _ => return Err(self.no(op, "missing argument count")),
                 };
                 let args = self.pop_n(ins, argc)?;
-                let e = if name.eq_ignore_ascii_case("Array") && self.proc_target_visible("Array").is_none() {
+                let e = if name.eq_ignore_ascii_case("Array")
+                    && self.proc_target_visible("Array").is_none()
+                {
                     self.paramarray_call(ins, &name, suffix, args)?
                 } else {
                     self.read_name_call(ins, &name, suffix, args)?
@@ -2969,7 +2975,10 @@ impl Lw<'_> {
             | Opcode::ArrayElementParams => true,
             Opcode::RedimSimple | Opcode::RedimSimpleTyped => matches!(ins.modifier, 0 | 16),
             // `Open path For mode As #n`: the mode words 1, 2, 4, 8 and 32.
-            Opcode::FileOpen => matches!(ins.operands.first(), Some(Operand::Word(1 | 2 | 4 | 8 | 32))),
+            Opcode::FileOpen => matches!(
+                ins.operands.first(),
+                Some(Operand::Word(1 | 2 | 4 | 8 | 32))
+            ),
             // `Set` statements, `New`.
             Opcode::SetKeywordMarker
             | Opcode::WriteRefSimple
@@ -3810,10 +3819,7 @@ impl Lw<'_> {
             Some(_) => return Err(self.no(ins.opcode, "type-suffixed name")),
         };
         if self.shadowed_by_project(name) {
-            return Err(self.no(
-                ins.opcode,
-                "library name shadowed by a project procedure",
-            ));
+            return Err(self.no(ins.opcode, "library name shadowed by a project procedure"));
         }
         if args.is_empty() && !dollar {
             match BuiltinLibrary.global(name) {

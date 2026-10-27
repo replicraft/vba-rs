@@ -79,7 +79,12 @@ fn corpus_builtin_evidence() {
         let user: BTreeSet<String> = idents
             .names
             .iter()
-            .map(|n| n.iter().map(|&b| char::from(b)).collect::<String>().to_lowercase())
+            .map(|n| {
+                n.iter()
+                    .map(|&b| char::from(b))
+                    .collect::<String>()
+                    .to_lowercase()
+            })
             .collect();
         for m in &p.modules {
             let Ok(cache) = ModuleCache::parse(&m.cache, &layout) else {
