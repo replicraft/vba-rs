@@ -42,6 +42,9 @@ pub enum TypeRef {
     Array(Box<TypeRef>),
 }
 
+/// Deepest array nesting [`TypeRef::parse`] accepts.
+const MAX_ARRAY_NESTING: usize = 32;
+
 impl TypeRef {
     /// A class or enumeration of the library.
     pub fn named(name: impl Into<String>) -> TypeRef {
@@ -57,11 +60,21 @@ impl TypeRef {
     /// the library, or either followed by `()` for an array. The result of
     /// an unknown name is `Named`; validation reports it when it dangles.
     pub fn parse(text: &str) -> TypeRef {
-        let t = text.trim();
-        if let Some(inner) = t.strip_suffix("()") {
-            return TypeRef::array_of(TypeRef::parse(inner));
+        let mut t = text.trim();
+        // Count the `()` suffixes iteratively: hostile text may hold
+        // millions of them, and a recursive parse (or a deeply nested
+        // result) would overflow the stack.
+        let mut rank = 0usize;
+        while let Some(inner) = t.strip_suffix("()") {
+            rank += 1;
+            t = inner.trim_end();
         }
-        match t.to_ascii_lowercase().as_str() {
+        if rank > MAX_ARRAY_NESTING {
+            // Not a type any library declares; validation reports it as an
+            // unresolved name.
+            return TypeRef::Named(text.trim().to_owned());
+        }
+        let mut ty = match t.to_ascii_lowercase().as_str() {
             "boolean" => TypeRef::Boolean,
             "byte" => TypeRef::Byte,
             "integer" => TypeRef::Integer,
@@ -75,7 +88,11 @@ impl TypeRef {
             "variant" => TypeRef::Variant,
             "object" => TypeRef::Object,
             _ => TypeRef::Named(t.to_owned()),
+        };
+        for _ in 0..rank {
+            ty = TypeRef::array_of(ty);
         }
+        ty
     }
 
     /// The intrinsic type names, which a class or enumeration may not use.
