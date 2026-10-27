@@ -268,6 +268,14 @@ impl Sema<'_> {
         {
             return Some(Type::Class(m));
         }
+        if q.name == self.project_name {
+            // `Project.Enum` and `Project.Type`: public in any module.
+            return match self.project_symbol(&n.name) {
+                Some((_, crate::program::Symbol::Enum(e))) => Some(Type::Enum(e)),
+                Some((_, crate::program::Symbol::Udt(u))) => Some(Type::Udt(u)),
+                _ => None,
+            };
+        }
         None
     }
 

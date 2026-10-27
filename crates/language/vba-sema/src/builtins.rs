@@ -592,7 +592,39 @@ const VBA_ENUM_TYPES: &[&str] = &[
     "VbVarType",
 ];
 
+/// Whether `name` is an enumeration type of the VBA library
+/// (`VbVarType`, `VbMsgBoxStyle`), whose members can be qualified by it.
+pub fn is_vba_enum_type(name: &str) -> bool {
+    VBA_ENUM_TYPES.iter().any(|e| e.eq_ignore_ascii_case(name))
+}
+
+/// Whether `name` is one of the standard modules of the VBA library
+/// (`VBA.Strings.Left`, `VBA.Interaction.MsgBox`).
+pub fn is_vba_module(name: &str) -> bool {
+    [
+        "Strings",
+        "Conversion",
+        "DateTime",
+        "FileSystem",
+        "Information",
+        "Interaction",
+        "Math",
+        "Constants",
+        "Financial",
+        "Globals",
+        "ColorConstants",
+        "SystemColorConstants",
+        "KeyCodeConstants",
+    ]
+    .iter()
+    .any(|m| m.eq_ignore_ascii_case(name))
+}
+
 impl TypeProvider for BuiltinLibrary {
+    fn has_library(&self, name: &str) -> bool {
+        name.eq_ignore_ascii_case(VBA_LIBRARY)
+    }
+
     fn resolve_declared(&self, qualifier: Option<&str>, name: &str) -> Option<Type> {
         let vba_scope = qualifier.is_none_or(|q| q.eq_ignore_ascii_case(VBA_LIBRARY));
         if vba_scope && VBA_ENUM_TYPES.iter().any(|e| e.eq_ignore_ascii_case(name)) {

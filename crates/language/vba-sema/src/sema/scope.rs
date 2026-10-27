@@ -43,10 +43,18 @@ impl Sema<'_> {
             Symbol::Var(g) => self.program.globals[g.index()].visibility,
             Symbol::Const(c) => self.program.consts[c.index()].visibility,
             Symbol::Proc(p) => self.program.procs[p.index()].visibility,
-            Symbol::Property(g) => {
-                let p = g.get.or(g.let_).or(g.set)?;
-                self.program.procs[p.index()].visibility
-            }
+            // The accessors of a property may differ (`Private Get` with a
+            // `Public Let`): the name is as visible as its widest accessor.
+            Symbol::Property(g) => [g.get, g.let_, g.set]
+                .into_iter()
+                .flatten()
+                .map(|p| self.program.procs[p.index()].visibility)
+                .max_by_key(|v| match v {
+                    Visibility::Global => 3,
+                    Visibility::Public => 2,
+                    Visibility::Friend => 1,
+                    Visibility::Private => 0,
+                })?,
             Symbol::Declare(d) => self.program.declares[d.index()].visibility,
             Symbol::Enum(e) | Symbol::EnumMember(e, _) => self.program.enums[e.index()].visibility,
             Symbol::Udt(u) => self.program.udts[u.index()].visibility,
@@ -69,6 +77,18 @@ impl Sema<'_> {
                 Symbol::Enum(_) | Symbol::EnumMember(..) | Symbol::Udt(_)
             ),
         }
+    }
+
+    /// The one public declaration called `name` in the whole project, the
+    /// target of a `Project.Name` qualification. `None` when there is none
+    /// or when several modules declare it.
+    pub(crate) fn project_symbol(&self, name: &Name) -> Option<(ModuleId, Symbol)> {
+        let mut hits = self.program.modules.iter().filter_map(|m| {
+            let (sym, _) = m.symbols.get(name)?;
+            self.is_global_symbol(m.id, *sym).then_some((m.id, *sym))
+        });
+        let first = hits.next()?;
+        hits.next().is_none().then_some(first)
     }
 
     /// Looks `name` up in the scope of module `cur`: its own symbols, then

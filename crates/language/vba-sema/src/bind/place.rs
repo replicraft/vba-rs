@@ -322,6 +322,17 @@ impl Binder<'_, '_> {
                     _ => return None,
                 }
             }
+            ExprKind::Member { target: None, name } => {
+                // `.Name` inside a `With` block.
+                let recv = self.withs.last()?.receiver.clone();
+                let Type::Class(m) = recv.ty.clone() else {
+                    return None;
+                };
+                match sema.program.modules[m.index()].symbols.get(&name.name) {
+                    Some((Symbol::Property(g), _)) if g.get.is_none() => (*g, Some(recv), name),
+                    _ => return None,
+                }
+            }
             _ => return None,
         };
         let chosen = if set { group.set } else { group.let_ };

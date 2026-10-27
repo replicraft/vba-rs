@@ -240,7 +240,8 @@ impl<'a> Sema<'a> {
                     }
                 }
                 Item::Implements(i) => {
-                    declared_any = true;
+                    // A directive, not a declaration: `Option` statements
+                    // may follow it.
                     if !class_like {
                         self.error(
                             m,

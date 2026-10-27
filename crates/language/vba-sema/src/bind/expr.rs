@@ -1204,6 +1204,10 @@ impl Binder<'_, '_> {
                             sema.provider.resolve_declared(None, &text)
                         {
                             Some(Namespace::LibEnum(lt))
+                        } else if crate::builtins::is_vba_enum_type(&text) {
+                            // `VbVarType.vbString`: the constants live in
+                            // the library's global scope.
+                            Some(Namespace::Library(crate::builtins::VBA_LIBRARY.to_owned()))
                         } else if sema.provider.has_library(&text) {
                             Some(Namespace::Library(text))
                         } else {
@@ -1216,10 +1220,13 @@ impl Binder<'_, '_> {
                 target: Some(inner),
                 name,
             } => match self.try_namespace(inner)? {
-                Namespace::Project => sema
-                    .module_ids
-                    .get(&name.name)
-                    .map(|m| Namespace::Module(*m)),
+                Namespace::Project => match sema.module_ids.get(&name.name) {
+                    Some(m) => Some(Namespace::Module(*m)),
+                    None => match sema.project_symbol(&name.name) {
+                        Some((_, Symbol::Enum(e))) => Some(Namespace::Enum(e)),
+                        _ => None,
+                    },
+                },
                 Namespace::Module(m) => {
                     match sema.program.modules[m.index()].symbols.get(&name.name) {
                         Some((Symbol::Enum(e), _)) => Some(Namespace::Enum(*e)),
@@ -1227,6 +1234,16 @@ impl Binder<'_, '_> {
                     }
                 }
                 Namespace::Library(q) => {
+                    let member = name.name.to_string_lossy();
+                    if q.eq_ignore_ascii_case(crate::builtins::VBA_LIBRARY)
+                        && (crate::builtins::is_vba_module(&member)
+                            || crate::builtins::is_vba_enum_type(&member))
+                    {
+                        // `VBA.Strings.Left`, `VBA.VbVarType.vbString`: the
+                        // modules and enumerations add nothing to the
+                        // library's global scope.
+                        return Some(Namespace::Library(q));
+                    }
                     match sema
                         .provider
                         .resolve_declared(Some(&q), &name.name.to_string_lossy())
@@ -1252,10 +1269,18 @@ impl Binder<'_, '_> {
         let sema = self.sema;
         match ns {
             Namespace::Project => {
+                // `Project.Module` (the default instance of a predeclared
+                // class) or `Project.Name` for a public name of any module.
+                if let Some(m) = sema.module_ids.get(&name.name) {
+                    return self.module_as_value(*m, name, span, args);
+                }
+                if let Some((m, _)) = sema.project_symbol(&name.name) {
+                    return self.bind_in_namespace(Namespace::Module(m), name, span, args, stmt);
+                }
                 self.err(
                     codes::NO_SUCH_MEMBER,
                     name.span,
-                    format!("project has no module `{}`", name.name),
+                    format!("project has no module or public name `{}`", name.name),
                 );
                 self.error_expr(span)
             }
@@ -1294,7 +1319,7 @@ impl Binder<'_, '_> {
             }
             Namespace::Library(q) => {
                 let text = name.name.to_string_lossy();
-                if sema.provider.global(&text).is_some() {
+                if sema.provider.global(&text).is_some() || lookup_intrinsic(name).is_some() {
                     return self.bind_library_name(name, span, args, stmt);
                 }
                 self.err(

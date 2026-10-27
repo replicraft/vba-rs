@@ -583,6 +583,94 @@ const CASES: &[Case] = &[
         )],
         expect: &["SEM009@7", "SEM009@8"],
     },
+    // ---- qualified names found in real projects --------------------------
+    Case {
+        name: "the project name qualifies modules, enums, types and public procedures",
+        mods: &[
+            (
+                "Cls",
+                Class,
+                "Attribute VB_PredeclaredId = True\nPublic Enum Mode\nA\nB\nEnd Enum\nPublic Type Pt\nx As Long\nEnd Type\n",
+            ),
+            ("N", Standard, "Public Function Helper() As Long\nHelper = 1\nEnd Function\n"),
+            (
+                "M",
+                Standard,
+                "Sub F()\nDim o As Object\nDim m As VBAProject.Mode\nDim p As VBAProject.Pt\nSet o = VBAProject.Cls\nm = VBAProject.Mode.B\nm = VBAProject.Cls.Mode.A\np.x = VBAProject.Helper()\nEnd Sub\n",
+            ),
+        ],
+        expect: &[],
+    },
+    Case {
+        name: "the project name does not reach private or missing names",
+        mods: &[
+            ("N", Standard, "Private Function Hidden() As Long\nEnd Function\n"),
+            (
+                "M",
+                Standard,
+                "Sub F()\nDim x As Long\nx = VBAProject.Hidden()\nx = VBAProject.Nothing1\nEnd Sub\n",
+            ),
+        ],
+        expect: &["SEM019@3", "SEM019@4"],
+    },
+    Case {
+        name: "the VBA library name qualifies functions, constants, modules and enums",
+        mods: &[(
+            "M",
+            Standard,
+            "Sub F()\nDim s As String\ns = VBA.vbNullString\ns = VBA.Left$(\"abc\", 1)\ns = VBA.Strings.Mid(\"abc\", 2)\nIf VarType(s) = VbVarType.vbString Then s = \"\"\nIf VarType(s) = VBA.VbVarType.vbString Then s = \"\"\nVBA.Interaction.MsgBox s\nWith Err\n.Raise .Number\nEnd With\nEnd Sub\n",
+        )],
+        expect: &[],
+    },
+    Case {
+        name: "a name the VBA library does not have",
+        mods: &[("M", Standard, "Sub F()\nDim s As String\ns = VBA.NoSuchFunction(1)\nEnd Sub\n")],
+        expect: &["SEM019@3"],
+    },
+    Case {
+        name: "Implements may precede Option statements",
+        mods: &[
+            ("I", Class, "Public Sub M()\nEnd Sub\n"),
+            (
+                "C",
+                Class,
+                "Implements I\nOption Explicit\nPrivate Sub I_M()\nEnd Sub\n",
+            ),
+        ],
+        expect: &[],
+    },
+    Case {
+        name: "a property with a private Get and a public Let is writable from outside",
+        mods: &[
+            (
+                "C",
+                Class,
+                "Private mV As Long\nPrivate Property Get V() As Long\nV = mV\nEnd Property\nPublic Property Let V(ByVal x As Long)\nmV = x\nEnd Property\n",
+            ),
+            (
+                "M",
+                Standard,
+                "Sub F()\nDim c As C\nSet c = New C\nc.V = 3\nEnd Sub\n",
+            ),
+        ],
+        expect: &[],
+    },
+    Case {
+        name: "Set on a write-only property through a With block",
+        mods: &[
+            (
+                "W",
+                Class,
+                "Private mO As Object\nPublic Property Set Thing(ByVal v As Object)\nSet mO = v\nEnd Property\nPublic Function Make(ByVal v As Object) As W\nWith New W\nSet .Thing = v\nSet Make = .Self\nEnd With\nEnd Function\nPublic Function Self() As W\nSet Self = Me\nEnd Function\n",
+            ),
+            (
+                "M",
+                Standard,
+                "Sub F(ByVal v As Object)\nDim w As W\nSet w = New W\nWith w\nSet .Thing = v\nEnd With\nEnd Sub\n",
+            ),
+        ],
+        expect: &[],
+    },
 ];
 
 #[test]
