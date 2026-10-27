@@ -63,6 +63,8 @@ test = true
 # The corpus runner used by tests/conformance.rs (a dev-dependency cycle with
 # this crate, which cargo allows for tests).
 vba-conformance.workspace = true
+# The language-server core, for the local real-world source corpus test.
+vba-lsp-core.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 

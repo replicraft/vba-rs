@@ -1488,6 +1488,7 @@ dependencies = [
  "vba-host-model",
  "vba-ir",
  "vba-lexer",
+ "vba-lsp-core",
  "vba-profile",
  "vba-project",
  "vba-runtime",

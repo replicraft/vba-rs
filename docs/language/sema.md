@@ -76,7 +76,12 @@ with `VB_PredeclaredId` or a document/designer module is its default
 instance), then the library layer: `vba-stdlib` intrinsics, built-in VBA
 names, provider globals. Public types and enums of class modules are visible
 project-wide. Qualified names: `Module.Name`, `Project.Module.Name`,
-`Enum.Member`, `VBA.Left`, and member access on typed values. An unresolved
+`Project.Name` (a module, or any public enum, type, procedure or constant),
+`Enum.Member`, `VBA.Left`, `VBA.Strings.Left`, `VBA.vbNullString`,
+`VbVarType.vbString`, and member access on typed values. The accessors of a
+property may differ in visibility (`Private Get`, `Public Let`); the name is
+as visible as the widest one. `Implements` is a directive, so `Option`
+statements may follow it. An unresolved
 name is `SEM002` under `Option Explicit` and otherwise an implicit local
 (type from the suffix or `Def<Type>`); an unresolved name that is called or used
 as a statement is always `SEM003`. `Option Base`, `Option Compare`
