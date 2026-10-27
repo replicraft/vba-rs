@@ -1,6 +1,6 @@
 ' INV: vbal.5.3.1.8
 ' SOURCE: spec ms-vbal 5.3.1.8 an event handler must be a subroutine declaration
-' XFAIL: wrong not implemented: event handler declaration rules
+' STRICT_SPEC: true
 ' ERROR: load
 '#MODULE Src class
 Public Event Fire()

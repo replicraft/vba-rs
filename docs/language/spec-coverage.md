@@ -118,6 +118,11 @@ program that checks the default behaviour (warn and run).
 | Enum member value referring to a following member of the same enum or a member of a later enum of the module (5.2.3.4) | warning | The member is evaluated lazily and resolves; real VBA's behaviour is unconfirmed. |
 | `Global Enum` in a class module (5.2.3.4) | warning | Treated as `Public Enum`. |
 | `Declare` alias `#n` whose remainder is not an integer from 0 to 32767 (5.2.3.5) | warning | The alias is kept as written; nothing here calls the library. |
+| `WithEvents` variable of its own class or of a class that declares no event (5.2.3.1.2) | warning | The variable is usable; it just never receives an event. |
+| Event handler that is not a `Sub`, or whose parameter mechanism differs from the event's (5.3.1.8) | warning | A non-`Sub` is not wired as a handler; each handler keeps its own mechanism. |
+| Non-private function whose type is a private enum, or a private user-defined type in a class module (5.3.1) | warning | Callers in other modules cannot name the type; nothing else depends on it. |
+| Function name with a type character and an `As` clause (5.3.1) | warning | The `As` clause wins. |
+| `Optional` parameter typed only by a Def directive without a default value (5.3.1.5) | warning | The parameter is optional and takes the type's default when omitted. |
 
 These stay errors in every mode because real VBA rejects them (or the program has no
 meaning): syntax errors, undefined names under `Option Explicit`, type mismatches, duplicate

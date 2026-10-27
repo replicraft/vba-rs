@@ -1,6 +1,6 @@
 ' INV: vbal.5.3.1
 ' SOURCE: spec ms-vbal 5.3.1 declared type of function may not be a private enum
-' XFAIL: wrong not implemented: private types as function result types
+' STRICT_SPEC: true
 ' ERROR: load
 Private Enum Color
     Red = 1

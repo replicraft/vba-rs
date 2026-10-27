@@ -256,6 +256,28 @@ impl Sema<'_> {
                     "a `WithEvents` variable cannot be declared `As New`",
                 );
             }
+            // MS-VBAL 5.2.3.1.2: the class must declare at least one event and
+            // may not be the containing class.
+            if let Type::Class(c) = &gi.ty {
+                if *c == m {
+                    self.spec_strict(
+                        m,
+                        codes::EVENTS,
+                        gi.span,
+                        "a `WithEvents` variable cannot have the type of its own class",
+                    );
+                } else if self.program.modules[c.index()].events.is_empty() {
+                    self.spec_strict(
+                        m,
+                        codes::EVENTS,
+                        gi.span,
+                        format!(
+                            "class `{}` declares no events",
+                            self.program.modules[c.index()].name
+                        ),
+                    );
+                }
+            }
         }
         if we.is_empty() {
             return;
@@ -264,10 +286,26 @@ impl Sema<'_> {
         let procs = self.program.modules[m.index()].procs.clone();
         for p in procs {
             let pi = &self.program.procs[p.index()];
+            let pname = pi.name.to_string();
             if pi.kind != ProcKind::Sub {
+                // MS-VBAL 5.3.1.8: an event handler is a subroutine.
+                for g in &we {
+                    let gi = &self.program.globals[g.index()];
+                    let prefix = format!("{}_", gi.name);
+                    if pname.len() > prefix.len()
+                        && pname[..prefix.len()].eq_ignore_ascii_case(&prefix)
+                        && self.handles_event(gi, &pname[prefix.len()..])
+                    {
+                        self.spec_strict(
+                            m,
+                            codes::EVENTS,
+                            pi.name_span,
+                            format!("the event handler `{}` must be a `Sub`", pi.name),
+                        );
+                    }
+                }
                 continue;
             }
-            let pname = pi.name.to_string();
             for g in &we {
                 let gi = &self.program.globals[g.index()];
                 let prefix = format!("{}_", gi.name);
@@ -284,6 +322,18 @@ impl Sema<'_> {
             }
         }
         self.program.modules[m.index()].handlers = handlers;
+    }
+
+    /// Whether `event_name` names an event of the declared type of `gi`.
+    fn handles_event(&self, gi: &GlobalInfo, event_name: &str) -> bool {
+        let wanted = Name::new(event_name);
+        match &gi.ty {
+            Type::Class(c) => self.program.modules[c.index()]
+                .events
+                .iter()
+                .any(|e| self.program.events[e.index()].name == wanted),
+            _ => false,
+        }
     }
 
     fn match_handler(
@@ -320,6 +370,21 @@ impl Sema<'_> {
                     pi,
                     &ev.params.iter().map(|p| p.ty.clone()).collect::<Vec<_>>(),
                 );
+                // MS-VBAL 5.3.1.8: each handler parameter is passed the way
+                // the event's parameter is.
+                for (a, b) in pi.params.iter().zip(&ev.params) {
+                    if a.by_val != b.by_val {
+                        self.spec_strict(
+                            m,
+                            codes::EVENTS,
+                            a.span,
+                            format!(
+                                "parameter `{}` of the handler is passed differently than in the event `{}`",
+                                a.name, ev.name
+                            ),
+                        );
+                    }
+                }
                 Some(EventHandler {
                     var,
                     event: EventRef::Project(ev.id),

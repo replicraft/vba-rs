@@ -515,6 +515,22 @@ impl Sema<'_> {
                     "an `Optional` parameter cannot be a user-defined type or an array",
                 );
             }
+            // MS-VBAL 5.3.1.5: an optional parameter whose type comes only from
+            // a Def directive needs a default value.
+            if p.optional
+                && p.default.is_none()
+                && p.as_clause.is_none()
+                && p.name.suffix.is_none()
+                && !elem.is_variant()
+                && !elem.is_error()
+            {
+                self.spec_strict(
+                    module,
+                    codes::PARAMETER_RULE,
+                    p.span,
+                    "an `Optional` parameter typed only by a Def directive needs a default value",
+                );
+            }
             let mut default = None;
             if let Some(d) = &p.default {
                 if !p.optional {
@@ -562,6 +578,35 @@ impl Sema<'_> {
             });
         }
         out
+    }
+
+    /// MS-VBAL 5.3.1: the declared type of a function may not be a private
+    /// enum, nor a private user-defined type in a class module.
+    fn check_result_type_visibility(&self, module: ModuleId, p: &vba_ast::ProcDecl, t: &Type) {
+        if p.visibility == Some(vba_ast::Visibility::Private) {
+            return;
+        }
+        let class_like = self.program.modules[module.index()].is_class_like();
+        let what = match t {
+            Type::Enum(e)
+                if self.program.enums[e.index()].visibility == vba_ast::Visibility::Private =>
+            {
+                "private enum"
+            }
+            Type::Udt(u)
+                if class_like
+                    && self.program.udts[u.index()].visibility == vba_ast::Visibility::Private =>
+            {
+                "private user-defined type"
+            }
+            _ => return,
+        };
+        self.spec_strict(
+            module,
+            codes::PROCEDURE_RULE,
+            p.name.span,
+            format!("the type of a non-private function cannot be a {what}"),
+        );
     }
 
     pub(crate) fn resolve_signatures(&mut self) {
@@ -681,9 +726,18 @@ impl Sema<'_> {
             let params = self.build_params(module, &p.params, ParamCtx::Proc);
             let (ret, has_result) = match p.kind {
                 ProcKind::Function | ProcKind::PropertyGet => {
+                    if p.return_type.is_some() && p.name.suffix.is_some() {
+                        self.spec_strict(
+                            module,
+                            codes::PROCEDURE_RULE,
+                            p.name.span,
+                            "a function name with a type character cannot also have an `As` clause",
+                        );
+                    }
                     let t = match &p.return_type {
                         Some(a) => {
                             let t = self.resolve_as_clause(module, a, false);
+                            self.check_result_type_visibility(module, p, &t);
                             if a.is_array && !t.is_error() {
                                 Type::Array {
                                     elem: Box::new(t),

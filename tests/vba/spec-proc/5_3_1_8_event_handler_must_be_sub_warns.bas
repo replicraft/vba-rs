@@ -1,0 +1,16 @@
+' INV: vbal.5.3.1.8
+' SOURCE: spec ms-vbal 5.3.1.8 an event handler must be a subroutine declaration (spec-strict: a warning by default, the program runs)
+' EXPECT: ok
+'#MODULE Src class
+Public Event Fire()
+Public Sub Go()
+    RaiseEvent Fire
+End Sub
+'#MODULE Sink class
+Private WithEvents w As Src
+Private Function w_Fire() As Long
+End Function
+'#MODULE Module1 standard
+Public Sub Main()
+    Debug.Print "ok"
+End Sub
