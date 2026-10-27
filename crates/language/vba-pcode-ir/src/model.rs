@@ -34,8 +34,10 @@ pub(crate) enum TyRef {
     Scalar(vba_sema::Type),
     Object,
     /// A class of the built-in library that `vba-sema` describes
-    /// (`Collection`).
-    Builtin(&'static str),
+    /// (`Collection`, `ErrObject`).
+    Builtin(String),
+    /// An enumeration of the built-in library (`VbVarType`): a `Long`.
+    LibEnum(String),
     Class(String),
     Enum(String),
     Udt(String),
@@ -47,7 +49,7 @@ impl TyRef {
         match self {
             TyRef::Scalar(t) => type_spelling(t).to_owned(),
             TyRef::Object => "Object".to_owned(),
-            TyRef::Builtin(n) => (*n).to_owned(),
+            TyRef::Builtin(n) | TyRef::LibEnum(n) => n.clone(),
             TyRef::Class(n) | TyRef::Enum(n) | TyRef::Udt(n) => n.clone(),
         }
     }
@@ -144,15 +146,22 @@ impl TypeEnv {
                 let Some(name) = n.spelling() else {
                     return Err("type name does not resolve".to_owned());
                 };
-                let builtin = name.eq_ignore_ascii_case("Collection")
-                    && !self.classes.contains_key("collection")
-                    && !self.public.contains_key("collection")
-                    && !self.own[module].contains_key("collection")
-                    && qualifier.is_none_or(|q| {
-                        q.spelling().is_some_and(|q| q.eq_ignore_ascii_case("VBA"))
-                    });
-                if builtin {
-                    return Ok(TyRef::Builtin("Collection"));
+                let key0 = name.to_ascii_lowercase();
+                let shadowed = self.classes.contains_key(&key0)
+                    || self.public.contains_key(&key0)
+                    || self.own[module].contains_key(&key0);
+                if !shadowed {
+                    use vba_sema::TypeProvider;
+                    let q = qualifier.and_then(vba_pcode::Name::spelling);
+                    if let Some(t) = vba_sema::builtins::BuiltinLibrary.resolve_declared(q, name) {
+                        match t {
+                            vba_sema::Type::Long => return Ok(TyRef::LibEnum(name.to_owned())),
+                            vba_sema::Type::Library(lt) => {
+                                return Ok(TyRef::Builtin(lt.name.clone()));
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 if let Some(q) = qualifier {
                     let own = q.spelling().is_some_and(|q| {

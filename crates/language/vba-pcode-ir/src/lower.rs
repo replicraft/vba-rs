@@ -18,6 +18,7 @@ use vba_pcode::{Evidence, Listed, Opcode, Operand};
 use vba_sema::bound::Constant;
 use vba_sema::bound::NewTarget;
 use vba_sema::builtins::BuiltinLibrary;
+use vba_sema::builtins::collection_type;
 use vba_sema::{
     EnumId, GlobalId, LocalId, LocalKind, ModuleId, ProcId, ProcInfo, Program, Symbol, Type, UdtId,
 };
@@ -134,14 +135,27 @@ enum Ex {
         name: String,
         lt: LibraryType,
     },
-    /// A property read on a library object (`Err.Number`).
-    Member {
+    /// A member of a built-in library object, early bound (`Err.Number`,
+    /// `Collection.Add`).
+    LibCall {
         recv: Box<Ex>,
         name: String,
+        args: Vec<ArgEx>,
         ty: Type,
         lt: LibraryType,
         dispid: Option<i32>,
     },
+    /// `TypeOf e Is T`.
+    TypeOfIs {
+        e: Box<Ex>,
+        ty: Type,
+    },
+}
+
+/// The class an object-table operand names.
+enum ObjClass {
+    Module(ModuleId),
+    Builtin(LibraryType),
 }
 
 /// What a qualifying name stands for.
@@ -150,6 +164,8 @@ enum Ns {
     Project,
     Module(ModuleId),
     Enum(EnumId),
+    /// The `VBA` library and its sub-libraries (`VBA.Strings`).
+    Vba,
 }
 
 /// A location that can be passed by reference or assigned to.
@@ -217,7 +233,8 @@ impl Ex {
             Ex::Convert { to, .. } => to.clone(),
             Ex::Paren(e) => e.ty(),
             Ex::LibObj { lt, .. } => Type::Library(lt.clone()),
-            Ex::Member { ty, .. } => ty.clone(),
+            Ex::LibCall { ty, .. } => ty.clone(),
+            Ex::TypeOfIs { .. } => Type::Boolean,
         }
     }
 }
@@ -1199,23 +1216,17 @@ impl Lw<'_> {
                 });
                 IrOperand::Reg(dst)
             }
-            Ex::Member {
-                recv,
-                name,
-                ty,
-                lt,
-                dispid,
-            } => {
-                let r = self.emit_ex(recv);
-                let dst = self.reg(ty.clone());
-                self.emit(InstKind::Invoke {
-                    dst: Some(dst),
-                    receiver: r,
-                    member: Member::Named(name.clone()),
-                    kind: InvokeKind::Get,
-                    args: Vec::new(),
-                    static_receiver: Some(lt.clone()),
-                    dispid: *dispid,
+            Ex::LibCall { .. } => {
+                let dst = self.emit_lib_call(e, true);
+                IrOperand::Reg(dst.unwrap_or(Reg(0)))
+            }
+            Ex::TypeOfIs { e: inner, ty } => {
+                let o = self.emit_ex(inner);
+                let dst = self.reg(Type::Boolean);
+                self.emit(InstKind::TypeOfIs {
+                    dst,
+                    src: o,
+                    ty: ty.clone(),
                 });
                 IrOperand::Reg(dst)
             }
@@ -1570,9 +1581,52 @@ impl Lw<'_> {
         dst
     }
 
+    /// Emits a member of a built-in library object; the result register,
+    /// when wanted, is allocated after the receiver and the arguments.
+    fn emit_lib_call(&mut self, e: &Ex, want: bool) -> Option<Reg> {
+        let Ex::LibCall {
+            recv,
+            name,
+            args,
+            ty,
+            lt,
+            dispid,
+            ..
+        } = e
+        else {
+            return None;
+        };
+        let receiver = self.emit_ex(recv);
+        let mut out = Vec::new();
+        for a in args {
+            out.push(LateArg {
+                name: None,
+                arg: match a {
+                    ArgEx::Val(v) => CallArg::Val(self.emit_ex(v)),
+                    ArgEx::Missing => CallArg::Missing,
+                    ArgEx::Ref(t) => CallArg::Ref(self.emit_ref(t)),
+                },
+            });
+        }
+        let dst = want.then(|| self.reg(ty.clone()));
+        self.emit(InstKind::Invoke {
+            dst,
+            receiver,
+            member: Member::Named(name.clone()),
+            kind: InvokeKind::Get,
+            args: out,
+            static_receiver: Some(lt.clone()),
+            dispid: *dispid,
+        });
+        dst
+    }
+
     /// Emits a statement-level call: the result, if any, is discarded.
     fn emit_call_stmt(&mut self, e: &Ex) {
         match e {
+            Ex::LibCall { .. } => {
+                self.emit_lib_call(e, false);
+            }
             Ex::Call {
                 callee, args, recv, ..
             } => {
@@ -1833,6 +1887,32 @@ impl Lw<'_> {
                 let e = self.new_object(ins)?;
                 self.stack.push(e);
             }
+            Opcode::TypeTest => {
+                let ty = match self.object_class(ins)? {
+                    ObjClass::Module(m) => Type::Class(m),
+                    ObjClass::Builtin(lt) => Type::Library(lt),
+                };
+                let e = self.pop(ins)?;
+                if !(e.ty().is_object() || e.ty().is_variant()) {
+                    return Err(self.no(op, "TypeOf needs an object"));
+                }
+                self.stack.push(Ex::TypeOfIs { e: Box::new(e), ty });
+            }
+            Opcode::DebugAssert => {
+                let c = self.pop(ins)?;
+                self.expect_empty(ins)?;
+                let Some(LibGlobal::Object(Type::Library(lt))) = BuiltinLibrary.global("Debug")
+                else {
+                    return Err(self.no(op, "no Debug object"));
+                };
+                let recv = Ex::LibObj {
+                    name: "Debug".to_owned(),
+                    lt: lt.clone(),
+                };
+                let call = self.lib_member(ins, recv, lt, "Assert", vec![c])?;
+                self.emit_call_stmt(&call);
+                self.close_stmt();
+            }
             Opcode::CompareObjectIdentity => {
                 let r = self.pop(ins)?;
                 let l = self.pop(ins)?;
@@ -1882,31 +1962,31 @@ impl Lw<'_> {
                 self.close_stmt();
             }
             Opcode::ReadDot => {
-                let (name, _) = self.name_of(ins)?;
+                let (name, suffix) = self.name_of(ins)?;
                 let recv = self.pop_receiver(ins)?;
-                let e = self.dot_member(ins, recv, &name, Vec::new())?;
+                let e = self.dot_member(ins, recv, &name, suffix, Vec::new())?;
                 self.stack.push(e);
             }
             Opcode::ReadDotParams => {
-                let (name, _) = self.name_of(ins)?;
+                let (name, suffix) = self.name_of(ins)?;
                 let argc = match ins.operands.get(1) {
                     Some(Operand::Count(c)) => usize::from(*c),
                     _ => return Err(self.no(op, "missing argument count")),
                 };
                 let recv = self.pop_receiver(ins)?;
                 let args = self.pop_n(ins, argc)?;
-                let e = self.dot_member(ins, recv, &name, args)?;
+                let e = self.dot_member(ins, recv, &name, suffix, args)?;
                 self.stack.push(e);
             }
             Opcode::InvokeDot => {
-                let (name, _) = self.name_of(ins)?;
+                let (name, suffix) = self.name_of(ins)?;
                 let argc = match ins.operands.get(1) {
                     Some(Operand::Count(c)) => usize::from(*c),
                     _ => return Err(self.no(op, "missing argument count")),
                 };
                 let recv = self.pop_receiver(ins)?;
                 let args = self.pop_n(ins, argc)?;
-                let call = self.dot_member(ins, recv, &name, args)?;
+                let call = self.dot_member(ins, recv, &name, suffix, args)?;
                 self.expect_empty(ins)?;
                 self.emit_call_stmt(&call);
                 self.close_stmt();
@@ -2320,6 +2400,8 @@ impl Lw<'_> {
             Opcode::SetKeywordMarker
             | Opcode::WriteRefSimple
             | Opcode::NewObject
+            | Opcode::TypeTest
+            | Opcode::DebugAssert
             | Opcode::ArgNamed => true,
             _ => false,
         }
@@ -2337,6 +2419,27 @@ impl Lw<'_> {
 
     /// `New T`: a class of the project, or the built-in `Collection`.
     fn new_object(&mut self, ins: &Listed) -> R<Ex> {
+        match self.object_class(ins)? {
+            ObjClass::Module(id) => {
+                let m = self.cx.program.module(id);
+                for p in [m.initialize, m.terminate].into_iter().flatten() {
+                    self.note_callee(p);
+                }
+                Ok(Ex::New {
+                    target: NewTarget::Class(id),
+                    ty: Type::Class(id),
+                })
+            }
+            ObjClass::Builtin(lt) => Ok(Ex::New {
+                target: NewTarget::Library(lt.clone()),
+                ty: Type::Library(lt),
+            }),
+        }
+    }
+
+    /// The class an object-table operand names: a class module of the
+    /// project, or the built-in `Collection`.
+    fn object_class(&mut self, ins: &Listed) -> R<ObjClass> {
         let (name, qualifier) = match ins.operands.first() {
             Some(Operand::Object { class: Some(n), .. }) => (n.spelling(), None),
             Some(Operand::Object {
@@ -2358,23 +2461,12 @@ impl Lw<'_> {
         if let Some(m) = program.module_by_name(name)
             && m.is_class_like()
         {
-            let id = m.id;
-            for p in [m.initialize, m.terminate].into_iter().flatten() {
-                self.note_callee(p);
-            }
-            return Ok(Ex::New {
-                target: NewTarget::Class(id),
-                ty: Type::Class(id),
-            });
+            return Ok(ObjClass::Module(m.id));
         }
         if name.eq_ignore_ascii_case("Collection") {
-            let lt = vba_sema::builtins::collection_type();
-            return Ok(Ex::New {
-                target: NewTarget::Library(lt.clone()),
-                ty: Type::Library(lt),
-            });
+            return Ok(ObjClass::Builtin(collection_type()));
         }
-        Err(self.no(ins.opcode, "New of a class that is not part of the project"))
+        Err(self.no(ins.opcode, "class that is not part of the project"))
     }
 
     fn expect_empty(&self, ins: &Listed) -> R<()> {
@@ -2524,6 +2616,9 @@ impl Lw<'_> {
                     return Ok(Ex::Ns(Ns::Module(id)));
                 }
             }
+            if receiver && name.eq_ignore_ascii_case("VBA") {
+                return Ok(Ex::Ns(Ns::Vba));
+            }
             if receiver {
                 if let Some(Symbol::Enum(e)) = self
                     .cx
@@ -2630,7 +2725,14 @@ impl Lw<'_> {
     /// `receiver.name(args)` for the receivers the lowering knows: the
     /// `Err` object (properties only), `Me` (members of the module, then
     /// members of the host base) and late-bound values.
-    fn dot_member(&mut self, ins: &Listed, recv: Ex, name: &str, args: Vec<Ex>) -> R<Ex> {
+    fn dot_member(
+        &mut self,
+        ins: &Listed,
+        recv: Ex,
+        name: &str,
+        suffix: Option<char>,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
         match recv {
             Ex::Me(_) => self.me_member(ins, name, args),
             Ex::Late { .. } => Ok(Ex::Late {
@@ -2638,29 +2740,11 @@ impl Lw<'_> {
                 name: name.to_owned(),
                 args: Self::late_args(args),
             }),
-            Ex::LibObj { ref lt, .. } if args.is_empty() => {
-                let lt = lt.clone();
-                let Some(m) = BuiltinLibrary.member(&lt, name) else {
-                    return Err(self.no(ins.opcode, format!("`{name}` is not a known member")));
-                };
-                if !matches!(m.kind, LibMemberKind::Property | LibMemberKind::PropertyGet)
-                    || !m.params.is_empty()
-                    || m.ty.is_object()
-                {
-                    return Err(self.no(ins.opcode, "member is not a plain property"));
-                }
-                Ok(Ex::Member {
-                    recv: Box::new(recv),
-                    name: m.name.clone(),
-                    ty: m.ty.clone(),
-                    lt,
-                    dispid: m.dispid,
-                })
-            }
-            Ex::Ns(ns) => self.ns_member(ins, ns, name, args),
+            Ex::Ns(ns) => self.ns_member(ins, ns, name, suffix, args),
             other => match other.ty() {
                 Type::Class(m) => self.class_member(ins, other, m, name, args),
                 Type::Udt(u) => self.udt_member(ins, other, u, name, args),
+                Type::Library(lt) => self.lib_member(ins, other, lt, name, args),
                 Type::Object | Type::Variant => Ok(Ex::Late {
                     recv: Box::new(other),
                     name: name.to_owned(),
@@ -2677,10 +2761,40 @@ impl Lw<'_> {
     /// `Qualifier.name[(args)]`: a member of a standard module, of the
     /// default instance of a class, a member of an enum, a module of the
     /// project.
-    fn ns_member(&mut self, ins: &Listed, ns: Ns, name: &str, args: Vec<Ex>) -> R<Ex> {
+    fn ns_member(
+        &mut self,
+        ins: &Listed,
+        ns: Ns,
+        name: &str,
+        suffix: Option<char>,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
         let program = self.cx.program;
         let key = vba_ast::Name::new(name);
         match ns {
+            Ns::Vba => {
+                const SUBLIBRARIES: [&str; 9] = [
+                    "Strings",
+                    "Conversion",
+                    "Information",
+                    "Interaction",
+                    "DateTime",
+                    "FileSystem",
+                    "Math",
+                    "Constants",
+                    "Financial",
+                ];
+                if args.is_empty()
+                    && (SUBLIBRARIES.iter().any(|s| s.eq_ignore_ascii_case(name))
+                        || matches!(
+                            vba_sema::TypeProvider::resolve_declared(&BuiltinLibrary, None, name),
+                            Some(Type::Long)
+                        ))
+                {
+                    return Ok(Ex::Ns(Ns::Vba));
+                }
+                self.library_name(ins, name, suffix, args)
+            }
             Ns::Project => match program.module_by_name(name) {
                 Some(m) if args.is_empty() => Ok(self.module_ns(m.id)),
                 _ => Err(self.no(ins.opcode, "project has no such module")),
@@ -2740,6 +2854,35 @@ impl Lw<'_> {
         }
     }
 
+    /// A name of the built-in library, as `VBA.name` or bare: a constant, a
+    /// global object, a function.
+    fn library_name(
+        &mut self,
+        ins: &Listed,
+        name: &str,
+        suffix: Option<char>,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
+        let dollar = match suffix {
+            None => false,
+            Some('$') => true,
+            Some(_) => return Err(self.no(ins.opcode, "type-suffixed name")),
+        };
+        if args.is_empty() && !dollar {
+            match BuiltinLibrary.global(name) {
+                Some(LibGlobal::Constant(v, ty)) => return Ok(Ex::Const(v, ty)),
+                Some(LibGlobal::Object(Type::Library(lt))) if name.eq_ignore_ascii_case("err") => {
+                    return Ok(Ex::LibObj {
+                        name: "Err".to_owned(),
+                        lt,
+                    });
+                }
+                _ => {}
+            }
+        }
+        self.intrinsic_call(ins, name, dollar, args)
+    }
+
     /// A module name as a value or qualifier: a class with a default
     /// instance is that instance, a standard module qualifies.
     fn module_ns(&self, m: ModuleId) -> Ex {
@@ -2748,6 +2891,66 @@ impl Lw<'_> {
         } else {
             Ex::Ns(Ns::Module(m))
         }
+    }
+
+    /// `receiver.name[(args)]` for a built-in library object: the member is
+    /// early bound with the arguments in parameter order, converted to the
+    /// declared types, as the source binding does.
+    fn lib_member(
+        &mut self,
+        ins: &Listed,
+        recv: Ex,
+        lt: LibraryType,
+        name: &str,
+        args: Vec<Ex>,
+    ) -> R<Ex> {
+        let Some(m) = BuiltinLibrary.member(&lt, name) else {
+            return Err(self.no(ins.opcode, format!("`{name}` is not a known member")));
+        };
+        if m.kind == LibMemberKind::PropertyPut {
+            return Err(self.no(ins.opcode, "write-only member read"));
+        }
+        if m.params.iter().any(|p| p.param_array || p.by_ref) {
+            return Err(self.no(ins.opcode, "ByRef or ParamArray library member"));
+        }
+        let names: Vec<&str> = m.params.iter().map(|p| p.name.as_str()).collect();
+        let args = self.arrange_args(ins, &names, args)?;
+        if args.len() > m.params.len() {
+            return Err(self.no(ins.opcode, "more arguments than the member declares"));
+        }
+        let mut given = args.into_iter();
+        let mut out = Vec::new();
+        for p in &m.params {
+            match given.next() {
+                None | Some(Ex::Missing) => {
+                    if !p.optional {
+                        return Err(
+                            self.no(ins.opcode, "omitted argument for a required parameter")
+                        );
+                    }
+                    match &p.default {
+                        Some(v) if !matches!(v, Variant::Empty) => {
+                            let c = Ex::Const(v.clone(), var_type_to_type(v.vartype()));
+                            out.push(ArgEx::Val(self.coerce_arg(ins, c, &p.ty)?));
+                        }
+                        _ => out.push(ArgEx::Missing),
+                    }
+                }
+                Some(a) => out.push(ArgEx::Val(self.coerce_arg(ins, a, &p.ty)?)),
+            }
+        }
+        Ok(Ex::LibCall {
+            recv: Box::new(recv),
+            name: m.name.clone(),
+            args: out,
+            ty: if m.is_sub {
+                Type::Variant
+            } else {
+                m.ty.clone()
+            },
+            lt,
+            dispid: m.dispid,
+        })
     }
 
     /// Records a call dependency: a procedure whose callee is not lowered is
@@ -2801,7 +3004,13 @@ impl Lw<'_> {
                 None => Err(self.no(ins.opcode, "property without a Get")),
             },
             Some(_) => Err(self.no(ins.opcode, "member of the class that is not callable")),
-            None => Err(self.no(ins.opcode, "member of the class that is not available")),
+            None => Err(self.no(
+                ins.opcode,
+                format!(
+                    "member `{}.{name}` of the class is not available",
+                    program.module(m).name
+                ),
+            )),
         }
     }
 

@@ -276,12 +276,22 @@ fn run_session(
 /// project itself, and the source analysis does not resolve it for an enum
 /// declared in a class module.
 fn strip_project_qualifier(text: &str, project: &str) -> String {
-    if project.is_empty() {
-        return text.to_owned();
-    }
     let lower = text.to_ascii_lowercase();
-    let needle = format!("{}.", project.to_ascii_lowercase());
     let bytes = text.as_bytes();
+    let proj = (!project.is_empty()).then(|| format!("{}.", project.to_ascii_lowercase()));
+    // The library `VBA`, its sub-libraries and its enums: the source
+    // analysis resolves `VBA.Left` but not `VBA.Strings.Left`.
+    const SUB: [&str; 9] = [
+        "strings.",
+        "conversion.",
+        "information.",
+        "interaction.",
+        "datetime.",
+        "filesystem.",
+        "math.",
+        "constants.",
+        "financial.",
+    ];
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < text.len() {
@@ -289,13 +299,35 @@ fn strip_project_qualifier(text: &str, project: &str) -> String {
             let c = bytes[i - 1];
             !(c.is_ascii_alphanumeric() || c == b'_' || c == b'.')
         };
-        if at_boundary && lower[i..].starts_with(&needle) {
-            i += needle.len();
-        } else {
-            let ch = text[i..].chars().next().unwrap_or(' ');
-            out.push(ch);
-            i += ch.len_utf8();
+        if at_boundary {
+            if let Some(p) = &proj
+                && lower[i..].starts_with(p.as_str())
+            {
+                i += p.len();
+                continue;
+            }
+            if lower[i..].starts_with("vba.") {
+                i += 4;
+                let rest = &lower[i..];
+                if let Some(s) = SUB.iter().find(|s| rest.starts_with(**s)) {
+                    i += s.len();
+                } else if rest.starts_with("vb")
+                    && let Some(dot) = rest.find('.')
+                    && rest[..dot].chars().all(|c| c.is_ascii_alphanumeric())
+                    && text[i..i + dot]
+                        .chars()
+                        .next()
+                        .is_some_and(char::is_uppercase)
+                {
+                    // `VBA.VbVarType.vbString`
+                    i += dot + 1;
+                }
+                continue;
+            }
         }
+        let ch = text[i..].chars().next().unwrap_or(' ');
+        out.push(ch);
+        i += ch.len_utf8();
     }
     out
 }
