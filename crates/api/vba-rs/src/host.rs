@@ -174,6 +174,10 @@ impl Host for EngineHost {
             return f(&self.table);
         }
         let what = path.or(class).unwrap_or_default();
+        if path.is_none() {
+            // A class-only lookup with no running instance.
+            return Err(ErrInfo::standard(429).with_source(format!("vba: no running '{what}'")));
+        }
         Err(ErrInfo::standard(432).with_source(format!("vba: cannot get '{what}'")))
     }
 

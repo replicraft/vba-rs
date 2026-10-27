@@ -119,6 +119,12 @@ impl Host for HeadlessHost {
 
     fn get_object_hook(&self, path: Option<&str>, class: Option<&str>) -> HostResult<Variant> {
         let what = path.or(class).unwrap_or_default();
+        if path.is_none() {
+            // A class-only lookup with no running instance.
+            return Err(
+                ErrInfo::standard(429).with_source(format!("vba-host: no running '{what}'"))
+            );
+        }
         Err(ErrInfo::standard(432).with_source(format!("vba-host: cannot get '{what}'")))
     }
 

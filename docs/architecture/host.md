@@ -24,7 +24,7 @@ embedding-application types).
 | Limits | `Budget::reset_steps`, `Budget::reset` | A fresh step allowance, or a fresh allowance and call depth after a session discarded its state (memory is given back as the values that own it are dropped). |
 | UI | `UiHooks`, `HeadlessUi` | `MsgBox`/`InputBox` as an optional trait; the headless default fails with error 70 and a description naming the missing UI. It never fabricates an answer. The facade installs a real one with `Engine::ui`. |
 | Events | `EventDispatch`, `EventRouter` | Source/event names are opaque strings, case-insensitive; handlers run in registration order; ByRef arguments written back; no handler is not an error. |
-| Hosts | `HeadlessHost` | Grants nothing, creates nothing (429), gets nothing (432), no `Declare` (48), UI fails; configurable globals, metadata, policy, limits, references. |
+| Hosts | `HeadlessHost` | Grants nothing, creates nothing (429), gets nothing (432 for a path, 429 for a class-only lookup with no running instance), no `Declare` (48), UI fails; configurable globals, metadata, policy, limits, references. |
 | Hosts | `ScriptedHost` | Configurable: factories per ProgID, named objects for `GetObject`, `Declare` implementations, queued MsgBox/InputBox answers (error 5 when exhausted), idle cancellation (error 18), hook-call log. |
 
 Error choices that have no exact VBA analogue: the headless UI uses 70; an

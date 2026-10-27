@@ -139,6 +139,7 @@ fn headless_host_fails_explicitly() {
     let h = HeadlessHost::new().with_policy(Policy::allow_all());
     assert_eq!(num(h.create_object("X.Y", None)), 429);
     assert_eq!(num(h.get_object(Some("a"), None)), 432);
+    assert_eq!(num(h.get_object(None, Some("No.Such"))), 429);
     assert_eq!(num(h.call_declare(&mut decl())), 48);
     assert_eq!(num(h.get_object(None, None)), 5);
     let req = MsgBoxRequest {

@@ -94,7 +94,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | events | 7 | 0 | 6 | 0 | 1 | 0 |
 | file-io | 48 | 0 | 19 | 19 | 3 | 7 |
 | financial | 20 | 0 | 0 | 2 | 18 | 0 |
-| host | 62 | 0 | 3 | 29 | 16 | 14 |
+| host | 62 | 0 | 3 | 28 | 17 | 14 |
 | language | 23 | 0 | 6 | 6 | 3 | 8 |
 | logic | 11 | 0 | 7 | 3 | 1 | 0 |
 | math | 37 | 0 | 24 | 4 | 2 | 7 |

@@ -247,6 +247,7 @@ impl Host for ScriptedHost {
         self.note(format!("GetObject:{key}"));
         match self.objects_by_name.get(&key.to_lowercase()) {
             Some(f) => f(&self.table),
+            None if path.is_none() => Err(ErrInfo::standard(429)),
             None => Err(ErrInfo::standard(432)),
         }
     }
