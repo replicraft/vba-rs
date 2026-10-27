@@ -52,7 +52,8 @@ still behind a capability and a host-issued permission) and `wine` (implies
 
 **Stability.** Items exported by the facade (`vba::*`, `vba::automation`,
 `vba::runtime`, `vba::prelude`) follow semver for the `0.x` series: a breaking
-change bumps the minor version and is listed in the commit history. Result and
+change bumps the minor version and is listed in `CHANGELOG.md` under "Breaking
+changes" (the list of everything so far is there). Result and
 error structs and enums are `#[non_exhaustive]`: match enums with a wildcard arm
 and build structs with the constructors, not literals. `vba::raw::*` re-exports
 the lower crates and carries the promises of those crates only. Behavior marked

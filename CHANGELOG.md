@@ -6,7 +6,75 @@ All notable changes are recorded here. The format follows
 
 ## Unreleased
 
+### Stability of the 0.x series
+
+vba-rs is at `0.1.0` and is distributed as a source dependency pinned to a revision (every package
+has `publish = false`). Until `1.0`:
+
+* The `vba` facade (`vba::*`, `vba::automation`, `vba::runtime`, `vba::prelude`, `vba::thread`)
+  is the supported surface. A breaking change of it bumps the **minor** version and is listed
+  here under "Breaking changes", in the entry that makes it. Patch versions add and fix without
+  breaking it.
+* `vba::raw::*` and the individual `vba-*` crates carry no promise of their own: they change
+  with the release they are pinned to.
+* Result, error and description types are `#[non_exhaustive]` (`Error`, `RunStatus`, `LimitKind`,
+  `Capability`, `ModuleKind`, `ResourceLimits`, `ErrInfo`, `MemberInfo`, `ParamInfo`, ...): match
+  enums with a wildcard arm and build structs with constructors, so that adding a variant or a
+  field is not a break.
+* Behavior marked **(unverified)** in the documentation was not compared with a real host and may
+  change in any release; the measured state of the language is `docs/tooling/conformance.md`.
+* The deny-by-default security posture (no ambient authority, `trust()` before any run, finite
+  default limits) is not relaxed in 0.x; defaults may become stricter, which is listed here.
+
+### Breaking changes
+
+All breaking changes of the facade made so far in the `0.x` series; each is also described in the
+entry that made it:
+
+* `Error::Io` holds a `std::io::Error` (was `String`), so `source()` leads to the cause. Match
+  `Error::Io(e)` and use `e.kind()`; `to_string()` is unchanged.
+* `ResourceLimits`, `ScopeLimits`, `ErrInfo`, `MemberInfo`, `ParamInfo`, `ModuleKind`, `VfsError`
+  and `LowerError` are `#[non_exhaustive]`: use their constructors and `with_*` methods, and a
+  wildcard arm when matching.
+* `Instance::from_session` applies the 60-second `UNTRUSTED_CALL_TIMEOUT` per call
+  (`default_call_timeout(None)` opts out).
+* `Engine::new()` starts from `ResourceLimits::untrusted()` (100 million steps, 256 MiB, call depth
+  1000) and a 60-second allowance per call; code that relied on no limits calls `.unlimited()`.
+* `vbars run` exits 7 (was 2) for an unhandled VBA run-time error.
+* `Policy::grant_prefixes` scopes are matched per capability (whole path segments, exact ProgID or
+  `Namespace.*`, `library!procedure`, ...); a scope of another form matches nothing.
+
 ### Added
+
+- `vba`: `thread::InstanceThread`, an `Instance` on a dedicated thread driven through a command
+  channel (`spawn`, `call`, `submit` and `Reply`, `cancel_token`, `close`; `std` only, commands run
+  in submission order, a panicking command stops the thread), with `ThreadError`. This is the pattern
+  for an application with a multi-threaded runtime, documented in the embedding guide.
+- `vba`: `VERSION`, `Project::open_with` (size-limited reading), `Debug` for `Engine`, `Instance`
+  and `HostContext`, `#[must_use]` on builders and queries, `source()` for `Error::Format`,
+  `Error::Model` and `Error::Io`.
+- `docs/architecture/adapter-checklist.md` and the tested example `adapter_skeleton`: an ordered
+  checklist and a skeleton for the adapter between an embedding application and vba-rs.
+- Packages carry `publish = false`, `readme`, `keywords` and `categories`; `dependencies.md` gains the
+  measured dependency graph of an embedding application (38 crates by default, no duplicate versions,
+  no C compiler unless `native-call`) and a licence audit.
+- Language and semantic analysis: declarations after procedures, forward references to enums,
+  `Global Enum` in classes, ordinal aliases, arrays declared `As New` instantiating their elements on
+  use, `ByRef` `Variant` parameters writing back to variables of other types, trailing `Static` on
+  procedures, Unicode line terminators and space characters in UTF-8 sources, and further spec-strict
+  rules (`WithEvents`, event handlers, function result types, optional parameters, module cycles,
+  public type name uniqueness; warnings unless `Engine::strict_spec(true)`).
+- Run time: `Error` without argument and `Err.Raise` with an uncleared `Err`, the `MidB` statement,
+  `LSet` between user-defined types, `Get`/`Put` of dynamic arrays, `Len` of a user-defined type with a
+  dynamic array member, `For Each` over a class with an enumerator member, calls through a library
+  interface type, assignment to an element of an array nested in an array, error 9 for indexing a
+  scalar Variant, error 10 for `ReDim`/`Erase` of an array locked by a `ByRef` element.
+- Standard library: `StrConv` with `vbLinguisticCasing`, `DateValue`/`IsDate` for dates without a
+  year, `DDB` with a fractional period, `Like` ranges in text mode with accented letters.
+- Compiled code (p-code): the verified layouts of VBA 6 and 7, 32 and 64 bits are lowered and checked
+  against the platform kind, and more statements lower to IR (`On Error`, `Resume`, `GoTo`, optional
+  parameters, `End`, Date and hexadecimal literals, class-like modules). The compiled cache is read for
+  analysis only; it is never executed.
 
 - `vbars`: every file argument accepts `-` for standard input.
 - `vbars`: `--json` for `check`, `parse`, `fmt-check` and `profiles` (schema version 1).
@@ -59,6 +127,20 @@ All notable changes are recorded here. The format follows
 
 ### Fixed
 
+- A call timeout too large to be an `Instant` (for example `Duration::MAX` in `CallLimits::timeout`)
+  is no deadline instead of a panic. The facade is exercised against malformed project bytes and
+  streams, absurd names, arguments and limits, forged object handles and calls after a fatal error
+  (`tests/no_panic.rs`): all return errors.
+- `vba`: the output of a call is cut from the shared buffer without cloning it twice per call and
+  without slicing at a stale offset.
+- Rustdoc builds without warnings for the whole workspace.
+- Performance, with unchanged results: Collection keys are indexed, class members are found by module
+  and name, frames are reused, plain-value operators and loops run in place, number and date formats
+  avoid copies (numbers in `docs/runtime/vm.md`).
+- `Like` with an invalid pattern raises only when matching reaches it; `Variant` comparisons with
+  `Decimal`, `Currency` and numeric text follow the effective type; `Date` and `Single` overflow
+  promote to `Double` when a `Variant` operand allows it; blanks between a sign and the digits of a
+  numeric string are accepted; a `Byte` array converts to a fixed-length `String`.
 - Unix: `stat`, `Dir`, `FileLen`, `FileDateTime`, `GetAttr` and directory listings of the real file
   system read through a verified directory handle, like `Open`, `Kill`, `MkDir` and `Name`, so a
   directory swapped for a link after the policy check cannot show metadata outside the grant.
