@@ -12,7 +12,7 @@ use vba_profile::{Profile, default_profile};
 use vba_runtime::{MemFs, RealFs, Session, SessionBuilder, SystemHost};
 use vba_value::Date;
 use vba_value::{ObjectRef, Variant};
-use vba_vm::{BufferSink, RunStatus, VmConfig};
+use vba_vm::{BufferSink, DebugSink, RunStatus, VmConfig};
 
 use crate::Error;
 use crate::call::{Arg, CallLimits, CallResult, CallTarget, split_args};
@@ -65,6 +65,21 @@ impl vba_sema::TypeProvider for EngineGlobals {
     }
 }
 
+/// Writes to the instance's buffer and, when set, to the embedder's sink.
+struct Tee {
+    buffer: BufferSink,
+    other: Option<Box<dyn DebugSink>>,
+}
+
+impl DebugSink for Tee {
+    fn write(&mut self, text: &str) {
+        self.buffer.write(text);
+        if let Some(o) = self.other.as_mut() {
+            o.write(text);
+        }
+    }
+}
+
 #[derive(Clone)]
 enum Files {
     Memory(Vec<(String, Vec<u8>)>),
@@ -104,6 +119,7 @@ pub struct Engine {
     strict_spec: bool,
     fixed_clock: Option<Date>,
     ui: Option<Rc<dyn UiHooks>>,
+    debug_sinks: Option<Rc<dyn Fn() -> Box<dyn DebugSink>>>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -160,6 +176,7 @@ impl Engine {
             strict_spec: false,
             fixed_clock: None,
             ui: None,
+            debug_sinks: None,
         }
     }
 
@@ -484,6 +501,38 @@ impl Engine {
         }
     }
 
+    /// Also sends everything `Debug.Print` writes to a sink of your own, one
+    /// per instance (`make` is called when an instance is built). The
+    /// in-memory buffer behind [`Instance::output`] and [`Outcome::output`]
+    /// keeps receiving the text too, so existing code is unaffected. The
+    /// sink sees raw text as the program writes it: a `Debug.Print` statement
+    /// ends with `\n` unless its list ends with `;` or `,`.
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    /// use std::rc::Rc;
+    /// use vba::{DebugSink, Engine, Project};
+    ///
+    /// struct Lines(Rc<RefCell<Vec<String>>>);
+    /// impl DebugSink for Lines {
+    ///     fn write(&mut self, text: &str) {
+    ///         self.0.borrow_mut().push(text.to_owned());
+    ///     }
+    /// }
+    ///
+    /// let seen = Rc::new(RefCell::new(Vec::new()));
+    /// let sink = seen.clone();
+    /// let engine = Engine::new().debug_sink(move || Box::new(Lines(sink.clone())));
+    /// let project = Project::from_source("M", "Sub Main()\n  Debug.Print 1\nEnd Sub\n");
+    /// engine.run(&project, "Main", vec![]).unwrap();
+    /// assert_eq!(seen.borrow().concat(), " 1 \n");
+    /// ```
+    #[must_use]
+    pub fn debug_sink(mut self, make: impl Fn() -> Box<dyn DebugSink> + 'static) -> Engine {
+        self.debug_sinks = Some(Rc::new(make));
+        self
+    }
+
     /// A session builder configured like this engine, plus the sink that
     /// collects `Debug.Print` text. Use it to add what the engine does not
     /// expose (a `Shell` hook, a custom `TypeProvider`...) and build the
@@ -511,7 +560,10 @@ impl Engine {
         let mut b = Session::builder()
             .provider(self.provider())
             .host(Rc::new(host))
-            .debug_sink(sink.clone())
+            .debug_sink(Tee {
+                buffer: sink.clone(),
+                other: self.debug_sinks.as_ref().map(|make| make()),
+            })
             .command_line(&self.command)
             .host_members(self.host_members.clone())
             .strict_spec(self.strict_spec)
@@ -618,6 +670,7 @@ pub struct Instance {
     cancel: CancelToken,
     call_timeout: Option<Duration>,
     poisoned: Option<String>,
+    pub(crate) step_armed: bool,
 }
 
 impl std::fmt::Debug for Instance {
@@ -644,6 +697,7 @@ impl Instance {
             cancel,
             call_timeout,
             poisoned: None,
+            step_armed: false,
         }
     }
 
@@ -703,6 +757,7 @@ impl Instance {
         f: impl FnOnce(&mut Session) -> Result<T, vba_runtime::Error>,
     ) -> Result<T, Error> {
         self.guard()?;
+        self.prepare_debugger();
         let budget = self.session.host().budget();
         // The default allowance applies to a call that no scope bounded in
         // time, and only to the outermost one.

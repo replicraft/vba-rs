@@ -216,6 +216,7 @@
 
 mod call;
 mod context;
+mod dev;
 mod engine;
 mod host;
 mod objects;
@@ -232,6 +233,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub use call::{Arg, CallLimits, CallResult, CallTarget};
 pub use context::HostContext;
+pub use dev::{EvalResult, EvalScope};
 pub use engine::{Engine, Instance, Outcome};
 pub use host::{CancelToken, Factory};
 pub use objects::EventOutcome;
@@ -256,12 +258,16 @@ pub use vba_project::{
 pub use vba_diagnostics::{Diagnostic, Severity};
 
 // Sessions and runtime.
+pub use vba_runtime::{CallableProcedure, EditReport, ModuleEdit};
 pub use vba_runtime::{
     Error as RunError, ErrorReport, MemFs, ModuleSummary, NoShell, ParamSummary, ProcedureSummary,
     RealFs, Session, SessionBuilder, ShellHook, StackFrame, StdShell, SystemHost, VariableSummary,
     VbaErrorInfo, Vfs,
 };
-pub use vba_vm::{BufferSink, DebugSink, LimitKind, RunStatus, VmConfig};
+pub use vba_vm::{
+    BreakpointInfo, BufferSink, DebugContext, DebugHook, DebugSink, FrameInfo, LimitKind,
+    PauseReason, ResumeAction, RunStatus, SwapReport, Variable, VariableKind, VmConfig,
+};
 
 // Values.
 pub use vba_value::{Currency, Date, Decimal, VarType, Variant, VbaArray, VbaString};

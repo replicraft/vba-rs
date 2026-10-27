@@ -361,9 +361,10 @@ pub fn analyze_sources(
         .map(|n| n.to_ascii_lowercase())
         .collect();
     s.strict_spec = opts.strict_spec;
-    s.friend = opts.friend.as_ref().and_then(|(f, t)| {
-        Some((*ids.get(&Name::new(f))?, *ids.get(&Name::new(t))?))
-    });
+    s.friend = opts
+        .friend
+        .as_ref()
+        .and_then(|(f, t)| Some((*ids.get(&Name::new(f))?, *ids.get(&Name::new(t))?)));
     s.module_ids = ids;
     s.node_limit = opts.limits.max_nodes;
     sema::run_declaration_passes(&mut s);
