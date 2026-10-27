@@ -37,7 +37,7 @@ listings) must never depend on hash order or on thread scheduling.
 | `assert_cmd` | End-to-end tests of the `vbars` binary | vba-cli |
 | `expect-test` | Snapshot tests | vba-ast, vba-ir, vba-syntax |
 | `proptest` | Property tests | most crates |
-| `tempfile` | Temporary directories | vba-cli, vba-runtime |
+| `tempfile` | Temporary directories | vba-cli, vba-runtime, vba-conformance |
 | `rust_decimal`, `jiff` | Independent oracles for `Currency`/`Decimal` and date arithmetic. Dev-dependencies only; never shipped | vba-value |
 
 ## Evaluated and not adopted
@@ -101,13 +101,41 @@ version to the path dependencies in `[workspace.dependencies]` and publishing in
 dependency order; nothing else in the manifests needs to change (descriptions, license,
 repository, readme, keywords and categories are already set).
 
+## Reproducible builds and toolchain
+
+Findings of the hygiene pass (Rust 1.99.0, the lock file of the commit that introduced
+this section):
+
+* `rust-toolchain.toml` pins `1.99.0` with `rustfmt` and `clippy`. It equals the workspace
+  `rust-version = "1.99"`, so the pinned compiler is also the minimum supported one; raise
+  both together. The file only affects builds inside this repository, not embedding
+  applications.
+* `Cargo.lock` is committed (it is not in `.gitignore`). `cargo build --locked`,
+  `cargo metadata --locked`, `cargo clippy --locked` and `cargo doc --locked` succeed and
+  leave the lock file unchanged; CI uses `--locked` everywhere, so a manifest change
+  without a lock update fails the build. A dependent resolves its own lock file.
+* Every package comes from crates.io (no repository or alternative-registry source) and no
+  forbidden crate (`rayon`, `tokio`, `rowan`) is in the lock file; `deny.toml` enforces both.
+* Duplicate versions among the 157 third-party packages, none in the graph of an embedding
+  application with the default features (see the table above):
+  `bitflags` 1.3.2 (via `fluent-uri` and `lsp-types`; language server only) next to 2.x;
+  `syn` 2 and 3 (`jiff-static`, a dev-only test oracle, still uses 2);
+  `getrandom` 0.2/0.3/0.4, `rand` 0.8/0.9/0.10, `rand_core` 0.6/0.9/0.10 and `rand_chacha`
+  0.3/0.9 (all from `proptest` and `tempfile`, dev-dependencies); `r-efi` 5/6 (UEFI
+  targets only). They cost build time only; `deny.toml` reports them as warnings.
+* `cargo-deny` and `cargo-audit` were still **not** run locally (not installed, no
+  network). `deny.toml` and `.github/workflows/audit.yml` run them weekly and on lock-file
+  changes. The licence list in `deny.toml` was written from the audit below and
+  cross-checked against `cargo metadata --all-features`, but the first CI run is the real
+  validation of the file syntax and of the advisory check.
+
 ## Licence audit
 
 Method: the `license` field of the manifest of every package in `Cargo.lock`
 (`cargo metadata --all-features`, so it includes dev-dependencies and the packages of
 every target platform, 157 third-party packages), read from the local registry cache.
 `cargo-deny` and `cargo-audit` are **not installed** in the environment that produced
-this section, so the following were **not checked**: security advisories (RUSTSEC),
+this section (they run in CI, see above), so the following were **not checked**: security advisories (RUSTSEC),
 yanked releases, the license text actually shipped in each package (a manifest can
 disagree with its files), and `deny.toml`-style bans. Re-run them in continuous
 integration; the results below are a manual reading, valid for the lock file of the

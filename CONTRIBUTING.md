@@ -12,8 +12,15 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-CI runs `cargo fmt --all -- --check`, the clippy command above and `cargo test --workspace`
-on Linux, macOS and Windows. Run all three before you push. Warnings are errors.
+The toolchain is pinned by `rust-toolchain.toml` (1.99.0, the workspace `rust-version`);
+`rustup` installs it on first use. `Cargo.lock` is committed and CI builds with `--locked`: commit
+the lock file with any dependency change.
+
+CI (`.github/workflows/ci.yml`) runs `cargo fmt --all -- --check`, clippy with `-D warnings`,
+`cargo doc --workspace --no-deps` with `RUSTDOCFLAGS="-D warnings"`, and `cargo test --workspace`
+on Linux and macOS; Windows is build-only. `.github/workflows/audit.yml` runs `cargo deny`
+(`deny.toml`: licenses, bans, sources, advisories) and `cargo audit` weekly and when the lock file
+changes. Run fmt, clippy, doc and test before you push. Warnings are errors.
 
 Rules the workspace enforces or expects:
 
@@ -60,7 +67,9 @@ End Sub
 * `EXPECT` lines are the exact `Debug.Print` output. Other directives (`ERROR`, `GRANT`,
   `MAX_STEPS`, `CLOCK`, `STRICT_SPEC`, `ENTRY`, `XFAIL`) and the `'#MODULE` syntax for
   multi-module programs are listed at the top of
-  `crates/api/vba-rs/tests/conformance.rs`.
+  `tooling/vba-conformance/src/lib.rs`. A program that needs a host feature a restricted
+  embedding may not provide declares it with `REQUIRES:` (it is skipped, not failed, when the
+  run does not provide it).
 * A known deviation is recorded with `XFAIL: wrong|unsupported <why>`; the program must keep
   failing until the behavior is fixed, then the `XFAIL` line is removed.
 

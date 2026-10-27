@@ -1,9 +1,11 @@
 # vba-rs
 
-A cross-platform implementation of Visual Basic for Applications (VBA) in Rust, focused on
-full compatibility. It reads VBA projects (`vbaProject.bin`, exported `.bas`/`.cls`/`.frm`
-files), analyses and runs the code, and can be embedded in other applications through a
-host contract. It does not depend on, or know about, any particular embedding application.
+A strict, embeddable implementation of Visual Basic for Applications (VBA) in Rust, aiming
+at compatibility with the language as Microsoft documents it. It reads VBA projects
+(`vbaProject.bin`, exported `.bas`/`.cls`/`.frm` files), analyses and runs the code, and can be
+embedded in other applications through a host contract and the `vba` facade crate. It does
+not depend on, or know about, any particular embedding application. It is not Microsoft's
+VBA and not a drop-in replacement for it: see the status below.
 
 ## Status
 
@@ -13,12 +15,13 @@ published in [docs/tooling/conformance.md](docs/tooling/conformance.md):
 | Measure | Count |
 | --- | ---: |
 | Inventory entries (statements, functions, operators, objects, spec sections) | 708 |
-| implemented | 507 |
-| partial | 161 |
-| unsupported | 6 |
-| not-started | 34 |
-| Conformance programs | 2082 |
-| Programs recorded as known deviations | 177 |
+| implemented | 575 |
+| partial | 111 |
+| unsupported | 5 |
+| not-started | 17 |
+| Conformance programs | 2174 |
+| Programs recorded as known deviations | 94 |
+| Programs whose expected value was confirmed in real VBA (`oracle`) | 0 |
 
 How to read this honestly:
 
@@ -64,8 +67,35 @@ Exit codes (one meaning each, for every command): 0 success; 1 findings or bad i
 unsupported feature or internal error; 6 compiled-only project; 7 unhandled run-time error.
 Earlier development builds exited 2 for an unhandled run-time error too.
 
-To embed the engine in an application, start with the
-[embedding guide](docs/architecture/embedding-guide.md).
+## Embedding
+
+Depend on the `crates/api/vba-rs` package (library name `vba`) by path or as a pinned
+repository dependency; nothing is published to crates.io. The flow is: build a `Project`, an
+`Engine` (limits, grants, host objects), `load` it into an `Instance` (nothing runs yet),
+`trust()` it, then `run` procedures. Read, in this order:
+
+1. [embedding guide](docs/architecture/embedding-guide.md): the whole flow with compiled
+   examples (forms, events, re-entrancy, errors, limits, threads).
+2. [adapter checklist](docs/architecture/adapter-checklist.md): the ordered checklist for the
+   adapter between an embedding application and vba-rs, with a tested skeleton
+   (`cargo test -p vba-rs --examples`).
+3. [public API](docs/architecture/public-api.md) and [host](docs/architecture/host.md): the
+   stable surface and the contract an embedder implements.
+
+To check your own engine configuration against the conformance programs, see "Running the corpus
+under another engine" in [docs/tooling/conformance.md](docs/tooling/conformance.md).
+
+## Tests, benchmarks, fuzzing
+
+```sh
+cargo test --workspace                          # everything, including the conformance suite
+cargo test -p vba-rs --test conformance         # only the 2174 programs under tests/vba and the generated report
+cargo run --release -p vba-bench -- [filter]    # timing harness for the interpreter hot paths
+VBA_FUZZ_CASES=2000 cargo test -p vba-vm --test fuzz_programs   # more random programs
+```
+
+The fuzz-style tests are `proptest` properties inside the normal test suite (no separate fuzzing
+tool is used). Contributor details are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security model in brief
 
@@ -97,7 +127,7 @@ and the list of what is not guaranteed, is in
 | `crates/windows/` | `vba-winapi`, `vba-wine` (behind cargo features) |
 | `crates/api/` | `vba-rs` (the `vba` facade embedders depend on) |
 | `apps/` | `vba-cli` (`vbars`), `vba-lsp`, `vba-wine-host` |
-| `tooling/` | `vba-winapi-gen`, `vba-bench` |
+| `tooling/` | `vba-winapi-gen`, `vba-bench`, `vba-conformance` |
 
 The [architecture overview](docs/architecture/overview.md) explains the dependency
 direction.
