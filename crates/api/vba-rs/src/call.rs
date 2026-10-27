@@ -37,21 +37,25 @@ pub enum Arg {
 
 impl Arg {
     /// A by-value argument.
+    #[must_use]
     pub fn val(v: impl Into<Variant>) -> Arg {
         Arg::Val(v.into())
     }
 
     /// A `ByRef` slot holding `v`.
+    #[must_use]
     pub fn by_ref(v: impl Into<Variant>) -> Arg {
         Arg::ByRef(v.into())
     }
 
     /// An omitted argument.
+    #[must_use]
     pub fn missing() -> Arg {
         Arg::Missing
     }
 
     /// `name:=arg`.
+    #[must_use]
     pub fn named(name: &str, arg: Arg) -> Arg {
         Arg::Named(name.to_owned(), Box::new(arg))
     }
@@ -121,12 +125,14 @@ pub struct CallLimits {
 
 impl CallLimits {
     /// No allowance beyond the engine's.
+    #[must_use]
     pub fn new() -> CallLimits {
         CallLimits::default()
     }
 
     /// At most `steps` interpreter steps from the start of the scope. When
     /// exhausted the call ends with `Error::Run(Limit(Steps))`.
+    #[must_use]
     pub fn max_steps(mut self, steps: u64) -> CallLimits {
         self.steps = Some(steps);
         self
@@ -134,32 +140,37 @@ impl CallLimits {
 
     /// At most `bytes` of VBA-visible memory more than is in use when the
     /// scope starts. When exceeded the call ends with `Error::Run(Limit(Memory))`.
+    #[must_use]
     pub fn max_memory(mut self, bytes: u64) -> CallLimits {
         self.memory = Some(bytes);
         self
     }
 
     /// At most this much wall-clock time, checked cooperatively every
-    /// [`CANCEL_POLL_INTERVAL`](vba_host::POLL_INTERVAL) steps and at
+    /// [`POLL_INTERVAL`](vba_host::POLL_INTERVAL) steps and at
     /// `DoEvents`. When exceeded the call ends with `Error::Run(Cancelled)`;
     /// the [`CancelToken`](crate::CancelToken) is not touched. A host member
     /// that blocks is not interrupted.
+    #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> CallLimits {
         self.timeout = Some(timeout);
         self
     }
 
     /// The step allowance, if set.
+    #[must_use]
     pub fn steps(&self) -> Option<u64> {
         self.steps
     }
 
     /// The memory allowance in bytes, if set.
+    #[must_use]
     pub fn memory(&self) -> Option<u64> {
         self.memory
     }
 
     /// The time allowance, if set.
+    #[must_use]
     pub fn time(&self) -> Option<Duration> {
         self.timeout
     }

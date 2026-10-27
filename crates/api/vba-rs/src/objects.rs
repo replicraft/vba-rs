@@ -132,6 +132,7 @@ impl Instance {
     /// Whether the instance defines a `Sub`, `Function` or `Property Get`
     /// called `name`, public or private: how a host discovers the event
     /// handlers (`Form_Current`, `Command1_Click`) of a form.
+    #[must_use]
     pub fn has_procedure(&self, object: ObjectRef, name: &str) -> bool {
         self.session.has_procedure(&object, name)
     }
@@ -167,7 +168,7 @@ impl Instance {
         event: &str,
         args: Vec<Arg>,
     ) -> Result<EventOutcome, Error> {
-        let before = self.sink.contents().len();
+        let before = self.output_mark();
         let (positional, named) = split_args(args).map_err(|why| {
             Error::Run(vba_runtime::Error::NotCallable(
                 format!("{source}_{event}"),
@@ -176,7 +177,7 @@ impl Instance {
         })?;
         let originals = by_ref_values(&positional, &named);
         let r = self.guarded(|s| s.raise_event_on(&object, source, event, positional, named));
-        let output = self.sink.contents()[before..].to_owned();
+        let output = self.output_since(before);
         Ok(match r? {
             Some(out) => EventOutcome {
                 handled: true,

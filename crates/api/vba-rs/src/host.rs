@@ -25,7 +25,7 @@ pub type Factory = Rc<dyn Fn(&ObjectTable) -> HostResult<Variant>>;
 /// * before every call into the session (`Instance::call`, `run`,
 ///   `raise_event_on`... and every nested run);
 /// * at every `DoEvents`;
-/// * every [`CANCEL_POLL_INTERVAL`](vba_host::CANCEL_POLL_INTERVAL)
+/// * every [`POLL_INTERVAL`](vba_host::POLL_INTERVAL)
 ///   interpreter steps (basic blocks) of running code.
 ///
 /// It cannot interrupt a single long operation inside the interpreter (a
@@ -39,6 +39,7 @@ pub struct CancelToken(Arc<AtomicBool>);
 
 impl CancelToken {
     /// A token that is not cancelled.
+    #[must_use]
     pub fn new() -> CancelToken {
         CancelToken::default()
     }
@@ -55,6 +56,7 @@ impl CancelToken {
     }
 
     /// Whether cancellation was requested.
+    #[must_use]
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }

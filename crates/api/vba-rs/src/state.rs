@@ -59,6 +59,7 @@ impl Instance {
     /// it, so compare against a call's own result rather than assuming it
     /// belongs to the last call. An unhandled error is reported in the
     /// `Err` of the failed call instead (see [`Error`](crate::Error)).
+    #[must_use]
     pub fn last_error(&self) -> Option<ErrorReport> {
         self.session.last_error()
     }
@@ -67,12 +68,14 @@ impl Instance {
     /// project, whatever its visibility. Event handlers such as
     /// `Form_Current` are private, so this is how a host finds them; see
     /// also [`modules_defining`](Instance::modules_defining).
+    #[must_use]
     pub fn modules(&self) -> Vec<ModuleSummary> {
         self.session.modules()
     }
 
     /// The public surface: [`modules`](Instance::modules) without private
     /// procedures and variables.
+    #[must_use]
     pub fn list_public_members(&self) -> Vec<ModuleSummary> {
         self.session.list_public_members()
     }
@@ -80,6 +83,7 @@ impl Instance {
     /// The class-like modules (class, document and designer modules) that
     /// define a procedure called `name`, public or private: which forms
     /// define `Form_Current`.
+    #[must_use]
     pub fn modules_defining(&self, name: &str) -> Vec<String> {
         self.session.modules_defining(name)
     }

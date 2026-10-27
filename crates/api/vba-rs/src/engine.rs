@@ -74,6 +74,32 @@ pub struct Engine {
     fixed_clock: Option<Date>,
 }
 
+impl std::fmt::Debug for Engine {
+    /// Shows the configuration; the registered factories are closures and
+    /// appear by name only.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Engine")
+            .field("profile", &self.profile)
+            .field("policy", &self.policy)
+            .field("limits", &self.limits)
+            .field("call_timeout", &self.call_timeout)
+            .field("vm", &self.vm)
+            .field("cancelled", &self.cancel.is_cancelled())
+            .field(
+                "globals",
+                &self.globals.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            )
+            .field(
+                "classes",
+                &self.classes.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            )
+            .field("real_files", &matches!(self.files, Files::Real))
+            .field("system_environment", &self.system_environment)
+            .field("strict_spec", &self.strict_spec)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for Engine {
     fn default() -> Self {
         Engine::new()
@@ -82,6 +108,7 @@ impl Default for Engine {
 
 impl Engine {
     /// An engine with the default profile and no authority at all.
+    #[must_use]
     pub fn new() -> Engine {
         Engine {
             profile: *default_profile(),
@@ -183,6 +210,7 @@ impl Engine {
     }
 
     /// The wall-clock allowance per call this engine gives its instances.
+    #[must_use]
     pub fn configured_call_timeout(&self) -> Option<Duration> {
         self.call_timeout
     }
@@ -195,6 +223,7 @@ impl Engine {
     }
 
     /// A token that stops sessions of this engine at their next `DoEvents`.
+    #[must_use]
     pub fn cancel_token(&self) -> CancelToken {
         self.cancel.clone()
     }
@@ -331,6 +360,7 @@ impl Engine {
     }
 
     /// Analyses the project with this engine's profile; nothing runs.
+    #[must_use]
     pub fn analyze(&self, project: &Project) -> Report {
         let globals = EngineGlobals(self.globals.iter().map(|(n, _)| n.clone()).collect());
         project.analyze_with(
@@ -345,6 +375,7 @@ impl Engine {
     /// collects `Debug.Print` text. Use it to add what the engine does not
     /// expose (a `Shell` hook, a custom `TypeProvider`...) and build the
     /// session yourself.
+    #[must_use]
     pub fn session_builder(&self) -> (SessionBuilder, BufferSink) {
         let sink = BufferSink::new();
         let mut host = EngineHost::new(
@@ -470,6 +501,17 @@ pub struct Instance {
     poisoned: Option<String>,
 }
 
+impl std::fmt::Debug for Instance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Instance")
+            .field("trusted", &self.is_trusted())
+            .field("usable", &self.is_usable())
+            .field("poisoned", &self.poisoned)
+            .field("call_timeout", &self.call_timeout)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Instance {
     pub(crate) fn new(
         session: Session,
@@ -499,12 +541,14 @@ impl Instance {
     /// value is the default and the unlimited one is an explicit choice.
     /// Change it with [`Instance::default_call_timeout`]
     /// (`Some(d)` for another allowance, `None` for none).
+    #[must_use]
     pub fn from_session(session: Session, sink: BufferSink, cancel: CancelToken) -> Instance {
         Instance::new(session, sink, cancel, Some(UNTRUSTED_CALL_TIMEOUT))
     }
 
     /// The wall-clock allowance of every call from the embedder that is not
     /// inside a [`CallLimits::timeout`] scope; `None` means none.
+    #[must_use]
     pub fn call_timeout(&self) -> Option<Duration> {
         self.call_timeout
     }
@@ -580,6 +624,7 @@ impl Instance {
     ///
     /// [`reset_step_counter`]: Instance::reset_step_counter
     /// [`reset`]: Instance::reset
+    #[must_use]
     pub fn is_usable(&self) -> bool {
         if self.poisoned.is_some() || self.cancel.is_cancelled() {
             return false;
@@ -633,6 +678,7 @@ impl Instance {
     /// engine's token, shared by all instances of that engine; give each
     /// instance its own engine (or [`Engine::with_cancel_token`]) to cancel
     /// them independently.
+    #[must_use]
     pub fn cancel_token(&self) -> CancelToken {
         self.cancel.clone()
     }
@@ -666,20 +712,22 @@ impl Instance {
     }
 
     /// Whether [`Instance::trust`] was called.
+    #[must_use]
     pub fn is_trusted(&self) -> bool {
         self.session.is_trusted()
     }
 
     /// Compiler warnings from loading.
+    #[must_use]
     pub fn warnings(&self) -> &[String] {
         self.session.warnings()
     }
 
     /// Runs a public procedure by `Proc` or `Module.Proc`.
     pub fn run(&mut self, procedure: &str, args: Vec<Variant>) -> Result<Outcome, Error> {
-        let before = self.sink.contents().len();
+        let before = self.output_mark();
         let r = self.guarded(|s| s.run_procedure(procedure, args));
-        let output = self.sink.contents()[before..].to_owned();
+        let output = self.output_since(before);
         let out = r?;
         Ok(Outcome {
             value: out.value,
@@ -722,12 +770,12 @@ impl Instance {
         procedure: &str,
         args: Vec<Arg>,
     ) -> Result<CallResult, Error> {
-        let before = self.sink.contents().len();
+        let before = self.output_mark();
         let (positional, named) = split_args(args).map_err(|why| {
             Error::Run(vba_runtime::Error::NotCallable(procedure.to_owned(), why))
         })?;
         let r = self.guarded(|s| s.call(&target.to_runtime(), procedure, positional, named));
-        let output = self.sink.contents()[before..].to_owned();
+        let output = self.output_since(before);
         let out = r?;
         Ok(CallResult {
             value: out.value,
@@ -744,9 +792,9 @@ impl Instance {
         event: &str,
         args: Vec<Variant>,
     ) -> Result<Option<Outcome>, Error> {
-        let before = self.sink.contents().len();
+        let before = self.output_mark();
         let r = self.guarded(|s| s.raise_event(source, event, args));
-        let output = self.sink.contents()[before..].to_owned();
+        let output = self.output_since(before);
         Ok(r?.map(|out| Outcome {
             value: out.value,
             status: out.status,
@@ -754,7 +802,25 @@ impl Instance {
         }))
     }
 
+    /// The length of the output buffer, to be read back with
+    /// [`output_since`](Instance::output_since).
+    pub(crate) fn output_mark(&self) -> usize {
+        self.sink.buffer().borrow().len()
+    }
+
+    /// The text printed after `mark`. Never panics, even when a sink the
+    /// caller kept (see [`Instance::from_session`]) was truncated meanwhile.
+    pub(crate) fn output_since(&self, mark: usize) -> String {
+        self.sink
+            .buffer()
+            .borrow()
+            .get(mark..)
+            .unwrap_or_default()
+            .to_owned()
+    }
+
     /// Everything printed so far.
+    #[must_use]
     pub fn output(&self) -> String {
         self.sink.contents()
     }
@@ -766,6 +832,7 @@ impl Instance {
     }
 
     /// The underlying session.
+    #[must_use]
     pub fn session(&self) -> &Session {
         &self.session
     }

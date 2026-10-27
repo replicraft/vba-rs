@@ -48,20 +48,32 @@ use crate::objects::EventOutcome;
 #[derive(Clone)]
 pub struct HostContext(RtContext);
 
+impl std::fmt::Debug for HostContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostContext")
+            .field("active", &self.is_active())
+            .field("depth", &self.depth())
+            .finish()
+    }
+}
+
 impl HostContext {
     /// The context of the session that is calling the host object right
     /// now. `None` when the table belongs to no running session or the
     /// object did not declare itself `reentrant`.
+    #[must_use]
     pub fn current(table: &ObjectTable) -> Option<HostContext> {
         RtContext::current(table).map(HostContext)
     }
 
     /// Whether the session is still waiting in the host call.
+    #[must_use]
     pub fn is_active(&self) -> bool {
         self.0.is_active()
     }
 
     /// Nested runs active right now.
+    #[must_use]
     pub fn depth(&self) -> u32 {
         self.0.depth()
     }
@@ -128,6 +140,7 @@ impl HostContext {
     }
 
     /// [`Instance::has_procedure`](crate::Instance::has_procedure).
+    #[must_use]
     pub fn has_procedure(&self, object: ObjectRef, name: &str) -> bool {
         self.0
             .with(|ops| Ok(ops.has_procedure(&object, name)))

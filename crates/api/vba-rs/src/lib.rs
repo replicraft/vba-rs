@@ -284,16 +284,16 @@ pub mod runtime {
 pub enum Error {
     /// A `vbaProject.bin` could not be read or written.
     #[error("project format: {0}")]
-    Format(vba_format::Error),
+    Format(#[source] vba_format::Error),
     /// A project edit was rejected (duplicate or unknown module).
     #[error("project model: {0}")]
-    Model(vba_project::ModelError),
+    Model(#[source] vba_project::ModelError),
     /// A standalone source file could not be parsed.
     #[error("source file: {0}")]
     Source(String),
-    /// A file could not be read.
+    /// A file could not be read, or exceeds the size limit of the reader.
     #[error("i/o: {0}")]
-    Io(String),
+    Io(#[source] std::io::Error),
     /// Loading or running failed; see [`runtime::Error`] for the taxonomy.
     #[error(transparent)]
     Run(vba_runtime::Error),
@@ -306,6 +306,7 @@ pub enum Error {
 impl Error {
     /// The details of an unhandled VBA, host or permission error (see
     /// [`runtime::Error::report`]); `None` for every other family.
+    #[must_use]
     pub fn report(&self) -> Option<&ErrorReport> {
         match self {
             Error::Run(e) => e.report(),
@@ -314,11 +315,13 @@ impl Error {
     }
 
     /// The `Err` contents (number, description, source, help) of that error.
+    #[must_use]
     pub fn error_info(&self) -> Option<VbaErrorInfo> {
         self.report().map(ErrorReport::info)
     }
 
     /// A short stable name of the family, for logs and exit codes.
+    #[must_use]
     pub fn kind(&self) -> &'static str {
         match self {
             Error::Format(_) => "format",

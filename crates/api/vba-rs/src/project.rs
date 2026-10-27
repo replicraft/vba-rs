@@ -25,6 +25,7 @@ pub struct Project {
 
 impl Project {
     /// An empty project named [`DEFAULT_PROJECT_NAME`].
+    #[must_use]
     pub fn new() -> Project {
         Project {
             model: VbaProject::new(DEFAULT_PROJECT_NAME),
@@ -32,6 +33,7 @@ impl Project {
     }
 
     /// A project with one standard module.
+    #[must_use]
     pub fn from_source(module_name: &str, source: &str) -> Project {
         let mut p = Project::new();
         p.model
@@ -68,6 +70,7 @@ impl Project {
     }
 
     /// Wraps an existing model.
+    #[must_use]
     pub fn from_model(model: VbaProject) -> Project {
         Project { model }
     }
@@ -97,10 +100,24 @@ impl Project {
     }
 
     /// Reads a `vbaProject.bin` file. This is the embedder reading a file; a
-    /// VBA program gets no such access.
+    /// VBA program gets no such access. A file larger than
+    /// [`ReadLimits::max_container_bytes`](crate::ReadLimits) (256 MiB by
+    /// default) is refused without reading it all.
     pub fn open(path: impl AsRef<Path>) -> Result<Project, Error> {
-        let bytes = std::fs::read(path.as_ref()).map_err(|e| Error::Io(e.to_string()))?;
-        Project::from_bytes(&bytes)
+        Project::open_with(path, &Limits::default())
+    }
+
+    /// [`open`](Project::open) with explicit limits.
+    pub fn open_with(path: impl AsRef<Path>, limits: &Limits) -> Result<Project, Error> {
+        use std::io::Read;
+        let file = std::fs::File::open(path.as_ref()).map_err(Error::Io)?;
+        let mut bytes = Vec::new();
+        // One byte more than the limit, so that an oversized file is seen
+        // as such without being read to the end.
+        file.take(limits.max_container_bytes.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(Error::Io)?;
+        Project::from_bytes_with(&bytes, limits)
     }
 
     /// Adds the text of a standalone `.bas`, `.cls` or `.frm` file as a module
@@ -119,21 +136,25 @@ impl Project {
     }
 
     /// The project name (`Err.Source` default).
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.model.name
     }
 
     /// The modules, in project order.
+    #[must_use]
     pub fn modules(&self) -> &[Module] {
         &self.model.modules
     }
 
     /// The module with this name (case-insensitive).
+    #[must_use]
     pub fn module(&self, name: &str) -> Option<&Module> {
         self.model.module(name)
     }
 
     /// The source text of a module.
+    #[must_use]
     pub fn module_source(&self, name: &str) -> Option<&str> {
         self.model.module(name).map(|m| m.source.as_str())
     }
@@ -146,6 +167,7 @@ impl Project {
     }
 
     /// The underlying model (`vba-project`), for everything not covered here.
+    #[must_use]
     pub fn model(&self) -> &VbaProject {
         &self.model
     }
@@ -156,6 +178,7 @@ impl Project {
     }
 
     /// Consumes the project, returning the model.
+    #[must_use]
     pub fn into_model(self) -> VbaProject {
         self.model
     }
@@ -186,11 +209,13 @@ impl Project {
     /// word, platform, code page, locale, reference hints and whether it is
     /// compiled-only. These are facts, not a detection of the producing
     /// Office build; see [`ProjectVersion::profile_hint`].
+    #[must_use]
     pub fn version(&self) -> ProjectVersion {
         self.model.project_version()
     }
 
     /// Parses and analyses the project without running anything.
+    #[must_use]
     pub fn analyze(&self, profile: &Profile) -> Report {
         self.analyze_with(profile, &vba_sema::NoLibraries, &[], false)
     }
@@ -238,11 +263,13 @@ pub struct Report {
 
 impl Report {
     /// Every diagnostic.
+    #[must_use]
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 
     /// Whether any diagnostic is an error (the project would not load).
+    #[must_use]
     pub fn has_errors(&self) -> bool {
         self.diagnostics
             .iter()
@@ -250,6 +277,7 @@ impl Report {
     }
 
     /// The error diagnostics.
+    #[must_use]
     pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
         self.diagnostics
             .iter()
@@ -257,6 +285,7 @@ impl Report {
     }
 
     /// The warning diagnostics.
+    #[must_use]
     pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
         self.diagnostics
             .iter()
@@ -265,11 +294,13 @@ impl Report {
 
     /// The diagnostics as plain text, one entry per diagnostic, in the same
     /// order as [`Report::diagnostics`].
+    #[must_use]
     pub fn rendered(&self) -> &[String] {
         &self.rendered
     }
 
     /// The codes (`SEM###`, `PAR###`...) of the diagnostics, in order.
+    #[must_use]
     pub fn codes(&self) -> Vec<&'static str> {
         self.diagnostics.iter().map(|d| d.code.0).collect()
     }
