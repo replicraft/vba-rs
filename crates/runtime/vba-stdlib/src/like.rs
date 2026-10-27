@@ -10,7 +10,8 @@
 //!
 //! Errors: an unterminated `[`, or a descending range, is error 93 "Invalid
 //! pattern string" (the descending-range rule is **doc**-derived and
-//! unverified).
+//! unverified). The error is raised only when matching reaches that element
+//! (MS-VBAL 5.6.9.6): `"x" Like "a["` is False.
 //!
 //! With `Option Compare Text` characters are compared after simple case
 //! folding; Windows collation is not reproduced.
@@ -27,13 +28,15 @@ enum Tok {
     Digit,
     Star,
     Empty,
+    /// An invalid element; matching fails with error 93 when it is reached.
+    Bad,
     Set {
         negate: bool,
         items: Vec<(u16, u16)>,
     },
 }
 
-fn parse(pattern: &[u16]) -> VbaResult<Vec<Tok>> {
+fn parse(pattern: &[u16]) -> Vec<Tok> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < pattern.len() {
@@ -48,10 +51,10 @@ fn parse(pattern: &[u16]) -> VbaResult<Vec<Tok>> {
                 }
             }
             0x5B => {
-                let close = pattern[i..]
-                    .iter()
-                    .position(|&u| u == 0x5D)
-                    .ok_or(INVALID_PATTERN)?;
+                let Some(close) = pattern[i..].iter().position(|&u| u == 0x5D) else {
+                    out.push(Tok::Bad);
+                    break;
+                };
                 let body = &pattern[i..i + close];
                 i += close + 1;
                 if body.is_empty() {
@@ -63,13 +66,15 @@ fn parse(pattern: &[u16]) -> VbaResult<Vec<Tok>> {
                     _ => (false, body),
                 };
                 let mut items = Vec::new();
+                let mut bad = false;
                 let mut j = 0;
                 while j < body.len() {
                     let lo = body[j];
                     if j + 2 < body.len() && body[j + 1] == 0x2D {
                         let hi = body[j + 2];
                         if hi < lo {
-                            return Err(INVALID_PATTERN);
+                            bad = true;
+                            break;
                         }
                         items.push((lo, hi));
                         j += 3;
@@ -78,12 +83,16 @@ fn parse(pattern: &[u16]) -> VbaResult<Vec<Tok>> {
                         j += 1;
                     }
                 }
+                if bad {
+                    out.push(Tok::Bad);
+                    break;
+                }
                 out.push(Tok::Set { negate, items });
             }
             _ => out.push(Tok::Lit(c)),
         }
     }
-    Ok(out)
+    out
 }
 
 /// The unaccented lower-case base of an accented Latin-1 Supplement or Latin
@@ -151,7 +160,7 @@ fn matches_one(tok: &Tok, c: u16, mode: CompareMode) -> bool {
             };
             found != *negate
         }
-        Tok::Star | Tok::Empty => false,
+        Tok::Star | Tok::Empty | Tok::Bad => false,
     }
 }
 
@@ -178,7 +187,7 @@ pub fn like_metered(
     mode: CompareMode,
     meter: &mut dyn FnMut(u64) -> StdResult<()>,
 ) -> StdResult<bool> {
-    let toks = parse(pattern.as_units())?;
+    let toks = parse(pattern.as_units());
     let t = text.as_units();
     let mut work = 0u64;
     // Iterative matcher with single-star backtracking.
@@ -201,6 +210,7 @@ pub fn like_metered(
                     pi += 1;
                     continue;
                 }
+                Tok::Bad => return Err(INVALID_PATTERN.into()),
                 tok => {
                     if let Tok::Set { items, .. } = tok {
                         work += items.len() as u64;
@@ -285,6 +295,12 @@ mod tests {
         assert_eq!(l("B", "[a-c]", T), Ok(true));
         assert_eq!(l("x", "[a-", B), Err(INVALID_PATTERN));
         assert_eq!(l("x", "[z-a]", B), Err(INVALID_PATTERN));
+        // The error is raised only when matching reaches the element.
+        assert_eq!(l("x", "a[", B), Ok(false));
+        assert_eq!(l("", "a[z-a]", B), Ok(false));
+        assert_eq!(l("x", "b*[", B), Ok(false));
+        assert_eq!(l("bx", "b*[", B), Err(INVALID_PATTERN));
+        assert_eq!(l("", "[", B), Err(INVALID_PATTERN));
         assert_eq!(l("", "*", B), Ok(true));
         assert_eq!(l("", "", B), Ok(true));
         assert_eq!(l("-", "[a-]", B), Ok(true));

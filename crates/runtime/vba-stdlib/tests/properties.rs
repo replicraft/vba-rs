@@ -91,6 +91,18 @@ proptest! {
         prop_assert_eq!(got, reference_like(&t, &p), "{} Like {}", text, pattern);
     }
 
+    /// An invalid element after a literal that cannot match is never reached
+    /// (MS-VBAL 5.6.9.6), and it is error 93 when matching gets there.
+    #[test]
+    fn like_invalid_tail_only_errors_when_reached(text in "[ab]{1,5}", tail in prop_oneof![Just("["), Just("[z-a]")]) {
+        let first = text.chars().next().unwrap();
+        let other = if first == 'a' { 'b' } else { 'a' };
+        let miss = format!("{other}{tail}");
+        prop_assert_eq!(like(&vs(&text), &vs(&miss), CompareMode::Binary), Ok(false));
+        let hit = format!("{first}*{tail}");
+        prop_assert!(like(&vs(&text), &vs(&hit), CompareMode::Binary).is_err());
+    }
+
     #[test]
     fn like_literal_is_equality(a in "[abAB]{0,5}", b in "[abAB]{0,5}") {
         prop_assert_eq!(like(&vs(&a), &vs(&b), CompareMode::Binary).unwrap(), a == b);
