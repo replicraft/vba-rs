@@ -24,12 +24,12 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | Measure | Count |
 | --- | ---: |
 | Inventory entries | 708 |
-| implemented | 557 |
-| partial | 129 |
+| implemented | 562 |
+| partial | 124 |
 | unsupported | 5 |
 | not-started | 17 |
-| Conformance programs | 2151 |
-| Programs that are known deviations (XFAIL) | 135 |
+| Conformance programs | 2154 |
+| Programs that are known deviations (XFAIL) | 126 |
 
 ## Entries per category and status
 
@@ -41,7 +41,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | function-type-conversion | 13 | 12 | 1 | 0 | 0 |
 | derived-math | 21 | 21 | 0 | 0 | 0 |
 | function-string | 20 | 16 | 4 | 0 | 0 |
-| function-datetime | 20 | 17 | 3 | 0 | 0 |
+| function-datetime | 20 | 18 | 2 | 0 | 0 |
 | function-financial | 13 | 13 | 0 | 0 | 0 |
 | function-information | 11 | 10 | 1 | 0 | 0 |
 | function-array | 3 | 3 | 0 | 0 | 0 |
@@ -65,17 +65,17 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-procedures | 12 | 6 | 5 | 0 | 1 |
 | spec-statements | 55 | 45 | 10 | 0 | 0 |
 | spec-coercion | 18 | 12 | 6 | 0 | 0 |
-| spec-expressions | 53 | 25 | 23 | 0 | 5 |
-| spec-library | 193 | 163 | 21 | 0 | 9 |
+| spec-expressions | 53 | 27 | 21 | 0 | 5 |
+| spec-library | 193 | 165 | 19 | 0 | 9 |
 
 ## Entries per provenance
 
 | Provenance | Entries |
 | --- | ---: |
 | oracle | 0 |
-| spec | 436 |
+| spec | 435 |
 | doc | 99 |
-| derived | 56 |
+| derived | 57 |
 | unverified | 100 |
 | (no program) | 17 |
 
@@ -83,14 +83,14 @@ Provenance of the expected values (the weakest among an entry's passing programs
 
 | Area | Programs | oracle | spec | doc | derived | unverified |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| arrays | 34 | 0 | 7 | 10 | 6 | 11 |
+| arrays | 35 | 0 | 7 | 10 | 7 | 11 |
 | classes | 30 | 0 | 12 | 6 | 9 | 3 |
 | collections | 25 | 0 | 7 | 14 | 2 | 2 |
 | conversions | 39 | 0 | 28 | 4 | 2 | 5 |
 | datatypes | 52 | 0 | 27 | 16 | 0 | 9 |
 | datetime | 48 | 0 | 18 | 14 | 5 | 11 |
 | derived-math | 21 | 0 | 0 | 21 | 0 | 0 |
-| errors | 26 | 0 | 18 | 6 | 0 | 2 |
+| errors | 27 | 0 | 18 | 6 | 1 | 2 |
 | events | 7 | 0 | 6 | 0 | 1 | 0 |
 | file-io | 48 | 0 | 19 | 19 | 3 | 7 |
 | financial | 20 | 0 | 0 | 2 | 18 | 0 |
@@ -108,7 +108,7 @@ Provenance of the expected values (the weakest among an entry's passing programs
 | spec-lib-b | 63 | 0 | 62 | 1 | 0 | 0 |
 | spec-lib-c | 58 | 0 | 58 | 0 | 0 | 0 |
 | spec-lib-d | 88 | 0 | 74 | 0 | 14 | 0 |
-| spec-ops | 131 | 0 | 131 | 0 | 0 | 0 |
+| spec-ops | 132 | 0 | 132 | 0 | 0 | 0 |
 | spec-proc | 215 | 0 | 214 | 0 | 1 | 0 |
 | statements | 89 | 0 | 75 | 13 | 1 | 0 |
 | strings | 73 | 0 | 33 | 17 | 8 | 15 |
@@ -139,7 +139,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `func.string` | function-string | String | partial |  |
 | `func.datepart` | function-datetime | DatePart | partial |  |
 | `func.day` | function-datetime | Day | partial |  |
-| `func.timeserial` | function-datetime | TimeSerial | partial |  |
 | `func.isnumeric` | function-information | IsNumeric | partial |  |
 | `func.partition` | function-logic | Partition | partial | Partition is not defined ('Sub or Function not defined') |
 | `func.eof` | function-file | EOF | partial |  |
@@ -227,13 +226,11 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.5.6.9.3.7` | spec-expressions | ^ Operator | partial |  |
 | `vbal.5.6.9.4` | spec-expressions | & Operator | partial |  |
 | `vbal.5.6.9.5` | spec-expressions | Relational Operators | partial |  |
-| `vbal.5.6.9.6` | spec-expressions | Like Operator | partial |  |
 | `vbal.5.6.9.8` | spec-expressions | Logical Operators | partial |  |
 | `vbal.5.6.9.8.1` | spec-expressions | Not Operator | partial |  |
 | `vbal.5.6.9.8.3` | spec-expressions | Or Operator | partial |  |
 | `vbal.5.6.9.8.6` | spec-expressions | Imp Operator | partial |  |
 | `vbal.5.6.10` | spec-expressions | Simple Name Expressions | partial |  |
-| `vbal.5.6.12` | spec-expressions | Member Access Expressions | partial |  |
 | `vbal.5.6.13` | spec-expressions | Index Expressions | partial |  |
 | `vbal.5.6.13.1` | spec-expressions | Argument Lists | partial |  |
 | `vbal.5.6.13.2` | spec-expressions | Argument List Queues | not-started |  |
@@ -247,7 +244,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.6.1.2.4.1.3` | spec-library | DatePart | partial |  |
 | `vbal.6.1.2.4.1.6` | spec-library | Day | partial |  |
 | `vbal.6.1.2.4.1.9` | spec-library | Month | partial |  |
-| `vbal.6.1.2.4.1.11` | spec-library | TimeSerial | partial |  |
 | `vbal.6.1.2.4.1.14` | spec-library | Year | partial |  |
 | `vbal.6.1.2.5.1.3` | spec-library | EOF | partial |  |
 | `vbal.6.1.2.5.1.6` | spec-library | FileLen | partial |  |
@@ -267,7 +263,6 @@ Entries that are not `implemented`, with the reason recorded in the inventory.
 | `vbal.6.1.2.11.1.37` | spec-library | StrConv | partial |  |
 | `vbal.6.1.2.11.1.38` | spec-library | String | partial |  |
 | `vbal.6.1.3.2.1.1` | spec-library | Clear | partial |  |
-| `vbal.6.1.3.2.1.2` | spec-library | Raise | partial |  |
 | `vbal.6.1.3.3.1.1` | spec-library | Load | not-started |  |
 | `vbal.6.1.3.3.1.2` | spec-library | Unload | not-started |  |
 
@@ -293,8 +288,7 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-coerce/5_6_2_1_variant_object_indexed_subscript_out_of_range` | wrong | VBA behaviour kept where MS-VBAL text differs: a Variant holding an object followed by an argument list calls the object's default member (the Learn page on default members documents it) instead of raising error 9 |
 | `spec-coerce/5_6_2_2_parenthesized_object_without_default_fails` | wrong | not implemented: error 438 for (v) when v holds an object without a default member |
 | `spec-coerce/5_6_5_literal_identifier_type_suffix_no_effect` | wrong | not implemented: type suffix on True/False/Empty/Null |
-| `spec-coerce/5_6_7_typeof_is_literal_operand_invalid` | wrong | not implemented: static rejection of TypeOf on a non-variable operand |
-| `spec-coerce/5_6_7_typeof_is_nothing_raises_91` | wrong | not implemented: error 91 for TypeOf applied to Nothing |
+| `spec-coerce/5_6_7_typeof_is_nothing_raises_91` | wrong | VBA behaviour kept where MS-VBAL text differs: TypeOf applied to a Nothing variable is False, not error 91 (the idiom `If TypeOf x Is T` relies on it) |
 | `spec-coerce/5_6_9_3_4_multiply_types` | wrong | VBA behaviour kept where MS-VBAL text differs: result types of mixed operands follow the Learn operator pages, not the type tables of 5.6.9.3 |
 | `spec-coerce/5_6_9_3_5_divide_result_types` | wrong | VBA behaviour kept where MS-VBAL text differs: result types of mixed operands follow the Learn operator pages, not the type tables of 5.6.9.3 |
 | `spec-coerce/5_6_9_3_6_intdiv_mod_result_types` | wrong | VBA behaviour kept where MS-VBAL text differs: result types of mixed operands follow the Learn operator pages, not the type tables of 5.6.9.3 |
@@ -307,7 +301,6 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-data/5_4_3_1_local_same_as_implicit_variable` | wrong | not implemented: conflict between a local declaration and an earlier implicit variable |
 | `spec-data/5_4_3_1_local_same_as_property_get_name` | wrong | VBA behaviour kept where MS-VBAL text differs: a local may share the name of the enclosing Function or Property Get |
 | `spec-data/5_4_3_3_redim_as_new_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: ReDim ... As New is accepted |
-| `spec-data/5_4_3_3_redim_locked_by_byref_error10` | wrong | not implemented: error 10 for ReDim of an array locked by a ByRef argument |
 | `spec-data/5_4_3_8_let_object_variable_without_default_error438` | wrong | VBA behaviour kept where MS-VBAL text differs: misuse of Let on objects and read-only properties is rejected at analysis, not at run time |
 | `spec-data/5_4_3_8_let_property_get_only_variant_error451` | wrong | VBA behaviour kept where MS-VBAL text differs: misuse of Let on objects and read-only properties is rejected at analysis, not at run time |
 | `spec-data/5_4_4_1_on_error_resets_err` | wrong | VBA behaviour kept where MS-VBAL text differs: On Error does not reset Err |
@@ -353,14 +346,12 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-lex/3_2_2_whitespace_unicode_zs_u2003` | wrong | not implemented: Unicode line terminators and space characters (the lexer is byte-based) |
 | `spec-lex/3_3_4_string_ends_at_line_continuation` | wrong | VBA behaviour kept where MS-VBAL text differs: an unterminated string literal is a lexical error |
 | `spec-lex/3_3_4_string_ends_at_line_end` | wrong | VBA behaviour kept where MS-VBAL text differs: an unterminated string literal is a lexical error |
-| `spec-lib-a/6_1_2_3_1_15_error_no_argument` | wrong | not implemented: Error$ with no argument and the 0..65535 range |
-| `spec-lib-a/6_1_2_3_1_15_error_range` | wrong | not implemented: Error$ with no argument and the 0..65535 range |
+| `spec-lib-a/6_1_2_3_1_15_error_range` | wrong | VBA behaviour kept where MS-VBAL text differs: an argument outside 0..65535 is error 5 (the expectation of error 6 for 65536 and of success for negatives is not confirmed against real VBA) |
 | `spec-lib-a/6_1_2_3_1_17_hex_long_minus_one` | wrong | VBA behaviour kept where MS-VBAL text differs: Hex of a negative Long has 8 digits |
 | `spec-lib-a/6_1_2_3_1_20_str_null_returns_null` | wrong | VBA behaviour kept where MS-VBAL text differs: Str(Null) is error 94 |
 | `spec-lib-a/6_1_2_3_1_2_cbyte_boolean_true` | wrong | VBA behaviour kept where MS-VBAL text differs: CByte(True) is error 6 |
-| `spec-lib-a/6_1_2_4_1_11_timeserial` | wrong | not implemented: TimeSerial minute overflow carrying into the date part |
 | `spec-lib-a/6_1_2_4_1_3_datepart_intervals` | wrong | VBA behaviour kept where MS-VBAL text differs: DatePart returns a Long |
-| `spec-lib-a/6_1_2_4_1_6_day_errors` | wrong | not implemented: error 13 for Day/Year of an Error value |
+| `spec-lib-a/6_1_2_4_1_6_day_errors` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-lib-b/6_1_2_5_1_3_eof_binary_short_get` | wrong | VBA behaviour kept where MS-VBAL text differs: EOF on an Output file is error 54; EOF is True after the last full record |
 | `spec-lib-b/6_1_2_5_1_3_eof_output_true` | wrong | VBA behaviour kept where MS-VBAL text differs: EOF on an Output file is error 54; EOF is True after the last full record |
 | `spec-lib-b/6_1_2_5_1_6_filelen_open_file_size_before_open` | wrong | VBA behaviour kept where MS-VBAL text differs: FileLen of an open file is its current size |
@@ -377,23 +368,18 @@ Programs whose documented expectation the implementation does not meet (kept fai
 | `spec-lib-d/6_1_2_11_1_5_chrb_single_byte` | unsupported | ChrB yields a one-byte string |
 | `spec-lib-d/6_1_2_11_1_6_chrw_range_error5` | wrong | VBA behaviour kept where MS-VBAL text differs: ChrW(-32768) is accepted |
 | `spec-lib-d/6_1_3_2_err_clear_on_error_statement` | wrong | VBA behaviour kept where MS-VBAL text differs: On Error does not clear Err |
-| `spec-lib-d/6_1_3_2_err_raise_reuses_uncleared_values` | wrong | not implemented: Err.Raise reusing uncleared Err values |
 | `spec-ops/5_6_10_name_left_exception` | wrong | not implemented: library functions named Left/Mid/... shadowed by a project procedure |
-| `spec-ops/5_6_12_member_access_type_char_mismatch_invalid` | wrong | not implemented: type character check on member access |
 | `spec-ops/5_6_13_1_arglist_trailing_comma_invalid` | wrong | VBA behaviour kept where MS-VBAL text differs: a trailing comma in an argument list is accepted |
-| `spec-ops/5_6_13_index_default_member_recursion` | wrong | not implemented: recursive default member resolution for index expressions |
 | `spec-ops/5_6_13_index_object_named_argument_invalid` | wrong | not implemented: static rejection of named arguments in an index expression on an Object |
 | `spec-ops/5_6_16_1_const_expr_intrinsics` | wrong | VBA behaviour kept where MS-VBAL text differs: function calls and Like are rejected in Const initialisers |
 | `spec-ops/5_6_16_1_const_expr_like_and_relational` | wrong | VBA behaviour kept where MS-VBAL text differs: function calls and Like are rejected in Const initialisers |
-| `spec-ops/5_6_16_2_cc_expr_operators` | wrong | not implemented: function calls and Like in conditional compilation expressions |
+| `spec-ops/5_6_16_2_cc_expr_operators` | wrong | VBA behaviour kept where MS-VBAL text differs: function calls and Like are rejected in conditional compilation expressions, as in Const initialisers |
 | `spec-ops/5_6_9_4_concat_error_value_type_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-ops/5_6_9_5_rel_error_values` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-ops/5_6_9_5_rel_error_vs_other_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-ops/5_6_9_5_rel_other_vs_error_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-ops/5_6_9_5_rel_single_double_is_single` | wrong | VBA behaviour kept where MS-VBAL text differs: a Single compared with a Double (or with a numeric String) compares as Double, so CSng(0.1) = 0.1 is False |
 | `spec-ops/5_6_9_5_rel_string_variant_is_string_new30` | wrong | not implemented: String/Variant row added in revision 3.0 (ambiguous with the Integer/String row; numeric comparison kept) |
-| `spec-ops/5_6_9_6_like_error_only_if_reached` | wrong | not implemented: Like validates the whole pattern up front |
-| `spec-ops/5_6_9_6_like_star_not_reached_no_error` | wrong | not implemented: Like validates the whole pattern up front |
 | `spec-ops/5_6_9_8_imp_null_table` | wrong | VBA behaviour kept where MS-VBAL text differs: Or/Imp with a Null operand yield Null |
 | `spec-ops/5_6_9_8_logical_error_value_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |
 | `spec-ops/5_6_9_8_not_error_value_mismatch` | wrong | VBA behaviour kept where MS-VBAL text differs: an Error operand re-raises its own error code instead of error 13 |

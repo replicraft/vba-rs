@@ -1,6 +1,6 @@
 ' INV: vbal.6.1.2.3.1.15, func.error
 ' SOURCE: spec ms-vbal 6.1.2.3.1.15 Error/Error$ argument range
-' XFAIL: wrong not implemented: Error$ with no argument and the 0..65535 range
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: an argument outside 0..65535 is error 5 (the expectation of error 6 for 65536 and of success for negatives is not confirmed against real VBA)
 ' EXPECT: over=6
 ' EXPECT: overDollar=6
 ' EXPECT: max=0

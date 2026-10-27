@@ -1,6 +1,6 @@
 ' INV: vbal.5.6.16.2, cc.const
 ' SOURCE: spec ms-vbal 5.6.16.2 conditional compilation expressions with operators and cc constants
-' XFAIL: wrong not implemented: function calls and Like in conditional compilation expressions
+' XFAIL: wrong VBA behaviour kept where MS-VBAL text differs: function calls and Like are rejected in conditional compilation expressions, as in Const initialisers
 ' EXPECT: a
 ' EXPECT: b
 ' EXPECT: c

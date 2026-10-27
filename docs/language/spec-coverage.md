@@ -160,8 +160,11 @@ is a known deviation program with its reason in `docs/tooling/conformance.md`):
 * `On Error` does not clear `Err`.
 * An unterminated string literal is a lexical error; `F(1, )` is accepted; `ReDim ... As New`
   is accepted; a local may share the name of the enclosing function.
-* Function calls and `Like` are rejected in `Const` initialisers (the text allows a set of
-  intrinsics).
+* Function calls and `Like` are rejected in `Const` initialisers and in conditional
+  compilation expressions (the text allows a set of intrinsics).
+* `TypeOf x Is T` with a `Nothing` variable is False (the text says error 91); `Error(n)`
+  with `n` outside 0..65535 is error 5 (the text's error 6 for 65536, and success for negative
+  numbers, are not confirmed against real VBA).
 * Result types of mixed Single/Long/Currency/Date/Empty operands follow the Learn operator
   pages, not the type tables of 5.6.9.3.
 * Bare `Print #n` and `?` forms: kept (revision 3.0's grammar requires the `Debug.`/`Me.` prefix,
@@ -184,8 +187,18 @@ object variables without a default member are analysis errors rather than run-ti
   for Date and Single operands.
 * `Lock`/`Unlock` ranges are not tracked; `Width` does not wrap a single long item;
   `Write` with a trailing semicolon or `Spc`; static checks of `Input`/`Put`/`Get` operands.
-* `MidB` statement, `LSet`/`RSet` between UDTs, `ChrB` single-byte strings, `Str` of a Date.
-* `Err.Raise` reusing uncleared values; `Error$` without argument.
+* `MidB` statement, `LSet`/`RSet` between UDTs, `Str` of a Date.
+* Strings with an odd number of bytes (`ChrB`, `StrConv(..., vbFromUnicode)` of an odd result,
+  `LeftB`/`MidB` of an odd length, a Byte array of odd length converted to a String) are not
+  representable: a string is a sequence of 16-bit units, and `Len`, `Mid`, `&`, comparison,
+  `Like` and the memory meter are all unit based. Holding half a unit needs a byte-granular
+  string type in every one of them, which is not a local change; these cases stay
+  `unsupported` rather than being approximated.
+* `y = 1` followed by `Dim y` in one procedure is accepted (procedure scope is collected before
+  binding, so the earlier use binds to the later declaration); `(v)` of a Variant holding an
+  object without a default member is not error 438; a type character on `True`, `False`,
+  `Empty` or `Null` is a lexical error; a project function named like a library function
+  (`Left`) hides it for calls with arguments.
 * Revision 3.0 String/Variant relational row (see above).
 * Financial functions: the text gives no formulas (DDB's differs from the documented one), so
   only definitional cases are checked.
