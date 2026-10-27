@@ -21,6 +21,11 @@
 //!                                the program is skipped when the run does not provide one
 //! ' MAX_STEPS: 100000            step budget
 //! ' CLOCK: 2024-06-15 12:30:00   fix the clock (default 2000-01-01 00:00:00)
+//! ' COMMAND: a b                 the text `Command` returns (default: empty)
+//! ' INPUTBOX: answer             one queued answer per `InputBox` call (repeatable, in call
+//!                                order; `<cancel>` is the Cancel button, `<default>`, `<prompt>`
+//!                                and `<title>` answer with that argument of the call; an
+//!                                empty queue is error 70 as in a headless host)
 //! ' STRICT_SPEC: true            analyse with `Engine::strict_spec(true)`: the spec-strict
 //!                                diagnostics are errors (default: warnings, the program runs)
 //! ' XFAIL: wrong|unsupported why known deviation: the program must still fail
@@ -28,11 +33,16 @@
 //!
 //! A line `'#MODULE Name standard|class` starts another module in the same file.
 
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+use vba::automation::ErrInfo;
 use vba::runtime::Error as RunError;
-use vba::{Capability, Engine, Error, ModuleKind, Project};
+use vba::{
+    Capability, Engine, Error, HostResult, InputBoxRequest, ModuleKind, MsgBoxRequest, Project,
+    UiHooks,
+};
 
 // ---------------------------------------------------------------- programs
 
@@ -106,6 +116,10 @@ pub struct Program {
     pub max_steps: Option<u64>,
     /// Analyse with the spec-strict diagnostics as errors.
     pub strict_spec: bool,
+    /// The text `Command` returns (`COMMAND`).
+    pub command: Option<String>,
+    /// Queued `InputBox` answers (`INPUTBOX`); `None` leaves the engine's own UI.
+    pub inputbox: Option<Vec<String>>,
     /// Fixed clock `(year, month, day, hour, minute, second)`.
     pub clock: Option<(i32, u32, u32, u32, u32, u32)>,
     /// A recorded known deviation and its reason.
@@ -179,6 +193,8 @@ pub fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
         max_steps: None,
         strict_spec: false,
         clock: None,
+        command: None,
+        inputbox: None,
         xfail: None,
         raises: Vec::new(),
         modules: Vec::new(),
@@ -285,6 +301,11 @@ pub fn parse_program(base: &Path, path: &Path) -> Result<Program, String> {
                     let at = |i: usize| n.get(i).copied().unwrap_or(0);
                     p.clock = Some((n[0] as i32, n[1], n[2], at(3), at(4), at(5)));
                 }
+                "COMMAND" => p.command = Some(value.to_owned()),
+                "INPUTBOX" => p
+                    .inputbox
+                    .get_or_insert_with(Vec::new)
+                    .push(value.to_owned()),
                 "STRICT_SPEC" => p.strict_spec = value.trim() == "true",
                 "XFAIL" => {
                     let (k, why) = value.split_once(' ').unwrap_or((value, ""));
@@ -339,6 +360,43 @@ pub fn load_programs(corpus: &Path) -> Result<Vec<Program>, Vec<String>> {
 
 // ------------------------------------------------------------------- runs
 
+/// The UI of a program with `INPUTBOX` headers: `InputBox` takes the queued
+/// answers in order, `MsgBox` stays unavailable (error 70).
+struct QueuedUi {
+    answers: RefCell<VecDeque<String>>,
+}
+
+impl QueuedUi {
+    fn new(answers: &[String]) -> Self {
+        Self {
+            answers: RefCell::new(answers.iter().cloned().collect()),
+        }
+    }
+
+    fn unavailable(what: &str) -> ErrInfo {
+        ErrInfo::new(70, format!("{what} is not available: no queued answer"))
+    }
+}
+
+impl UiHooks for QueuedUi {
+    fn msg_box(&self, _: &MsgBoxRequest) -> HostResult<i32> {
+        Err(Self::unavailable("MsgBox"))
+    }
+
+    fn input_box(&self, req: &InputBoxRequest) -> HostResult<Option<String>> {
+        let Some(answer) = self.answers.borrow_mut().pop_front() else {
+            return Err(Self::unavailable("InputBox"));
+        };
+        Ok(match answer.as_str() {
+            "<cancel>" => None,
+            "<default>" => Some(req.default.clone()),
+            "<prompt>" => Some(req.prompt.clone()),
+            "<title>" => Some(req.title.clone()),
+            _ => Some(answer),
+        })
+    }
+}
+
 /// Runs one program on an engine from `factory`; `Err` describes the mismatch.
 ///
 /// The program's own settings (`STRICT_SPEC`, `GRANT`, `CLOCK`, `MAX_STEPS`)
@@ -366,6 +424,12 @@ pub fn run_program(p: &Program, factory: &dyn Fn() -> Engine) -> Result<(), Stri
         let now = vba::Date::from_ymd_hms(y, mo, d, h, mi, s)
             .map_err(|_| format!("{}: bad CLOCK", p.id))?;
         engine = engine.fixed_clock(now);
+    }
+    if let Some(c) = &p.command {
+        engine = engine.command_line(c);
+    }
+    if let Some(answers) = &p.inputbox {
+        engine = engine.ui(QueuedUi::new(answers));
     }
     // A program that does not terminate must fail, not hang the suite.
     engine = engine.max_steps(p.max_steps.unwrap_or(20_000_000));

@@ -65,7 +65,7 @@ End Sub
   `derived <why>` or `unverified <note>`. Prefer the strongest source you can cite, and
   never copy the implementation's output into `EXPECT` without marking it `unverified`.
 * `EXPECT` lines are the exact `Debug.Print` output. Other directives (`ERROR`, `GRANT`,
-  `MAX_STEPS`, `CLOCK`, `STRICT_SPEC`, `ENTRY`, `XFAIL`) and the `'#MODULE` syntax for
+  `MAX_STEPS`, `CLOCK`, `STRICT_SPEC`, `COMMAND`, `INPUTBOX`, `ENTRY`, `XFAIL`) and the `'#MODULE` syntax for
   multi-module programs are listed at the top of
   `tooling/vba-conformance/src/lib.rs`. A program that needs a host feature a restricted
   embedding may not provide declares it with `REQUIRES:` (it is skipped, not failed, when the

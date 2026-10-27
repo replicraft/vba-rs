@@ -107,3 +107,22 @@ fn malformed_programs_are_reported() {
     let errors = run_corpus(dir.path(), Engine::new, &Options::all()).unwrap_err();
     assert_eq!(errors.len(), 2, "{errors:?}");
 }
+
+#[test]
+fn command_and_inputbox_headers_configure_the_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = "' INV: x.a\n' SOURCE: derived test\n' COMMAND: -x 1\n\
+        ' INPUTBOX: first\n' INPUTBOX: <cancel>\n' INPUTBOX: <default>\n\
+        ' EXPECT: [-x 1][first][][dflt]\n' EXPECT:  70 \n\
+        Public Sub Main()\n\
+        \x20   Debug.Print \"[\" & Command & \"][\" & InputBox(\"p\") & \"][\" & InputBox(\"p\") & \"][\" & InputBox(\"p\", \"t\", \"dflt\") & \"]\"\n\
+        \x20   On Error Resume Next\n\
+        \x20   Dim s As String\n\
+        \x20   s = InputBox(\"p\")\n\
+        \x20   Debug.Print Err.Number\n\
+        End Sub\n";
+    std::fs::write(dir.path().join("host.bas"), program).unwrap();
+    let r = run_corpus(dir.path(), Engine::new, &Options::all()).unwrap();
+    assert!(r.is_ok(), "{:?}", r.failures());
+    assert_eq!(r.passed(), 1);
+}
