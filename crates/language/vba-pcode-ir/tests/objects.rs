@@ -487,3 +487,130 @@ fn a_variable_of_another_type_passed_byref_to_a_variant_is_copied_back() {
         Variant::Long(6)
     );
 }
+
+#[test]
+fn a_property_with_a_parameter_is_assigned_with_the_value_last() {
+    let mut t = Tables::default();
+    let (m, i, v, item, o, probe) = (
+        t.name("m"),
+        t.name("i"),
+        t.name("v"),
+        t.name("Item"),
+        t.name("o"),
+        t.name("Probe"),
+    );
+    let e = t.object("Cls");
+    let d = t.named_type(e);
+    let mv = t.variable("m", Some(T_LONG));
+    let ov = t.variable_of("o", d);
+    let mut lines = vec![
+        Line::new().opm(Opcode::OptionStmt, 4),
+        Line::new()
+            .opm(Opcode::DimMarker, 16)
+            .rec(Opcode::VarDecl, 1, mv),
+    ];
+    // Property Get Item(i As Long) As Long: Item = m + i
+    let g = t.procedure(
+        "Item",
+        KIND_PROPERTY_GET,
+        Some(T_LONG),
+        &[("i", T_LONG, true)],
+        Some(T_LONG),
+    );
+    lines.extend(block(
+        g,
+        6,
+        Opcode::ProcEndProperty,
+        vec![Line::new().read(m).read(i).op(Opcode::NumAdd).write(item)],
+    ));
+    // Property Let Item(i As Long, v As Long): m = v * 10 + i
+    let p = t.procedure(
+        "Item",
+        KIND_PROPERTY_LET,
+        None,
+        &[("i", T_LONG, true), ("v", T_LONG, true)],
+        None,
+    );
+    lines.extend(block(
+        p,
+        6,
+        Opcode::ProcEndProperty,
+        vec![
+            Line::new()
+                .read(v)
+                .i16(10)
+                .op(Opcode::NumMultiply)
+                .read(i)
+                .op(Opcode::NumAdd)
+                .write(m),
+        ],
+    ));
+    // Function Probe() As Long
+    //   Dim o As Cls: Set o = New Cls: o.Item(2) = 7: Probe = o.Item(1)
+    let f = class_function(&mut t, "Probe", T_LONG, &[]);
+    lines.extend(block(
+        f,
+        6,
+        Opcode::ProcEndFunction,
+        vec![
+            Line::new()
+                .op(Opcode::DimMarker)
+                .rec(Opcode::VarDecl, 1, ov),
+            Line::new()
+                .op(Opcode::SetKeywordMarker)
+                .obj(Opcode::NewObject, e)
+                .name(Opcode::WriteRefSimple, o),
+            // the value, the index, the receiver
+            Line::new()
+                .i16(7)
+                .i16(2)
+                .read(o)
+                .name_args(Opcode::WriteDotParams, 0, item, 1),
+            Line::new()
+                .i16(1)
+                .read(o)
+                .name_args(Opcode::ReadDotParams, 0, item, 1)
+                .write(probe),
+        ],
+    ));
+    let lp = lower(&t, ModuleKind::Class, &lines, None);
+    assert_eq!(lp.lowered_count(), 3, "{:?}", lp.procedures);
+    // m = 7 * 10 + 2 = 72, then Item(1) = 72 + 1.
+    assert_eq!(run_method(&lp, "Probe", vec![]), Variant::Long(73));
+}
+
+#[test]
+fn a_library_enum_qualifies_its_members_even_when_the_host_lists_the_name() {
+    let mut t = Tables::default();
+    let (vt, vs, f) = (t.name("VbVarType"), t.name("vbString"), t.name("F"));
+    let g = class_function(&mut t, "F", T_LONG, &[]);
+    let mut lines = vec![Line::new().opm(Opcode::OptionStmt, 4)];
+    // Function F() As Long: F = VbVarType.vbString
+    lines.extend(block(
+        g,
+        6,
+        Opcode::ProcEndFunction,
+        vec![Line::new().read(vt).name(Opcode::ReadDot, vs).write(f)],
+    ));
+    let project = build_project_stream(&t.idents);
+    let cache = build_cache_t(&lines, &t);
+    let options = LowerOptions {
+        host_members: vec!["VbVarType".to_owned()],
+        project_name: None,
+    };
+    let lp = lower_project_with_options(
+        &project,
+        1,
+        &[ModuleInput {
+            name: "Cls",
+            kind: ModuleKind::Document,
+            cache: &cache,
+        }],
+        &options,
+    )
+    .expect("lowers");
+    vba_ir::verify(&lp.ir).expect("verified");
+    assert_eq!(lp.lowered_count(), 1, "{:?}", lp.procedures);
+    // `vbString` is 8: a constant of the library, not a member of the host.
+    assert_eq!(run_method(&lp, "F", vec![]), Variant::Long(8));
+}

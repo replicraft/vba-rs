@@ -2776,6 +2776,18 @@ impl Lw<'_> {
         {
             return self.runtime_call(ins, &m, args);
         }
+        // A library enum qualifies its members (`VbQueryClose.vbAppWindows`),
+        // ahead of the members of the host base.
+        if receiver
+            && args.is_empty()
+            && self.module_symbol(name).is_none()
+            && matches!(
+                vba_sema::TypeProvider::resolve_declared(&BuiltinLibrary, None, name),
+                Some(Type::Long)
+            )
+        {
+            return Ok(Ex::Ns(Ns::Vba));
+        }
         if self.is_host_name(name, !receiver && args.is_empty()) {
             return Ok(self.host_member(name, args));
         }
