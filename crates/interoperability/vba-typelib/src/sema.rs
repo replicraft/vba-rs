@@ -200,24 +200,28 @@ impl TypelibProvider {
     fn compute_members(&self, li: usize, ti: usize) -> (Vec<LibMember>, bool) {
         let info = &self.libs[li].types[ti];
         let (funcs, complete) = self.functions(li, ti);
-        let mut order: Vec<String> = Vec::new();
+        // Indexed by name: a type may list tens of thousands of members, and
+        // a scan per member would cost the square of that.
+        let mut index: HashMap<String, usize> = HashMap::new();
         let mut groups: Vec<Vec<(usize, &Function)>> = Vec::new();
         for (l, f) in funcs {
             if f.flags.contains(FuncFlags::RESTRICTED) {
                 continue;
             }
-            let key = f.name.to_ascii_lowercase();
-            if let Some(i) = order.iter().position(|k| *k == key) {
-                groups[i].push((l, f));
-            } else {
-                order.push(key);
-                groups.push(vec![(l, f)]);
+            match index.entry(f.name.to_ascii_lowercase()) {
+                std::collections::hash_map::Entry::Occupied(e) => groups[*e.get()].push((l, f)),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(groups.len());
+                    groups.push(vec![(l, f)]);
+                }
             }
         }
         let mut out: Vec<LibMember> = groups
             .iter()
             .filter_map(|g| self.member_from_group(g))
             .collect();
+        let mut taken: std::collections::HashSet<String> =
+            out.iter().map(|m| m.name.to_ascii_lowercase()).collect();
         for v in &info.variables {
             let (kind, writable) = match v.kind {
                 VarKind::Const | VarKind::Static => continue,
@@ -227,7 +231,7 @@ impl TypelibProvider {
                 ),
             };
             let name = v.name.clone();
-            if out.iter().any(|m| m.name.eq_ignore_ascii_case(&name)) {
+            if !taken.insert(name.to_ascii_lowercase()) {
                 continue;
             }
             out.push(LibMember {

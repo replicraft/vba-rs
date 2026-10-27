@@ -22,6 +22,9 @@ pub struct TypelibResource<'a> {
     pub data: &'a [u8],
 }
 
+/// Most `TYPELIB` resources listed from one image.
+const MAX_RESOURCES: usize = 256;
+
 /// Whether `data` starts with a DOS header (`MZ`).
 pub fn looks_like_pe(data: &[u8]) -> bool {
     data.starts_with(b"MZ")
@@ -100,6 +103,11 @@ fn collect<'a, N: ImageNtHeaders>(
                         what: "TYPELIB resource data",
                         offset: rva as usize,
                     })?;
+                // Resource tables may share subtables, so a few kilobytes of
+                // directory can name an unbounded number of entries.
+                if out.len() >= MAX_RESOURCES {
+                    return Err(TypelibError::LimitExceeded("too many TYPELIB resources"));
+                }
                 out.push(TypelibResource {
                     id: rid,
                     name: rname.clone(),

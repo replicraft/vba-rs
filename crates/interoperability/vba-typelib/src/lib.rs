@@ -83,7 +83,8 @@ pub fn load(data: &[u8]) -> Result<TypeLib> {
 }
 
 /// Loads every library of the file: all `TYPELIB` resources of a PE image
-/// (each with its resource id), or the single raw typelib (id `1`).
+/// (each with its resource id; resources that share their data are loaded
+/// once, under the first id), or the single raw typelib (id `1`).
 ///
 /// # Errors
 /// As [`load`]; the first failing library aborts the call.
@@ -93,9 +94,20 @@ pub fn load_all(data: &[u8]) -> Result<Vec<(u16, TypeLib)>> {
         if res.is_empty() {
             return Err(TypelibError::NoTypelibResource);
         }
-        res.iter()
-            .map(|r| Ok((r.id.unwrap_or(0), parse_any(r.data)?)))
-            .collect()
+        // Entries whose data is the very same region of the file are one
+        // library (directories can point many entries at one resource);
+        // parsing each again would multiply the memory held.
+        let mut seen: Vec<(*const u8, usize)> = Vec::new();
+        let mut out = Vec::new();
+        for r in &res {
+            let key = (r.data.as_ptr(), r.data.len());
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            out.push((r.id.unwrap_or(0), parse_any(r.data)?));
+        }
+        Ok(out)
     } else {
         Ok(vec![(1, parse_any(data)?)])
     }

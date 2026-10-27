@@ -179,7 +179,15 @@ pub fn parse(data: &[u8], limits: Limits) -> Result<TypeLib> {
         {
             return Err(oob("typeinfo record", o as usize));
         }
-        by_offset.entry(o).or_insert(i);
+        // Every type has its own record. Several types naming one record
+        // would let a small file describe a library as large as the limits
+        // allow, many times over.
+        if by_offset.insert(o, i).is_some() {
+            return Err(TypelibError::Malformed {
+                what: "typeinfo offsets",
+                detail: "two types share one record",
+            });
+        }
         ti_offsets.push(o);
     }
     let mut r = Reader {
